@@ -1,0 +1,25 @@
+[package]
+name = "hypervisor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Edge router - authenticates and routes to sandboxes"
+
+[[bin]]
+name = "hypervisor"
+path = "src/main.rs"
+
+[dependencies]
+actix = { workspace = true }
+actix-web = { workspace = true }
+actix-rt = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+shared-types = { path = "../shared-types" }
+
+[dev-dependencies]
+actix-rt = { workspace = true }

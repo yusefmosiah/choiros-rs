@@ -1,0 +1,33 @@
+[package]
+name = "sandbox-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Dioxus UI for ChoirOS sandbox"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "sandbox-ui"
+path = "src/main.rs"
+
+[dependencies]
+dioxus = { workspace = true }
+dioxus-web = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+shared-types = { path = "../shared-types" }
+
+# WASM dependencies
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = "0.3"
+gloo-net = "0.6"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"

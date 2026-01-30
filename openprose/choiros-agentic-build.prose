@@ -1,0 +1,205 @@
+# ChoirOS Agentic Build Orchestration
+# 
+# This OpenProse program orchestrates a long-running agentic build process
+# that can iterate, test, and rollback automatically.
+#
+# Usage: prose run choiros-agentic-build.prose [mode=autonomous|assisted]
+
+session "choiros-agentic-build" {
+  # Configuration
+  let config = {
+    repo_path: "~/choiros-rs",
+    ec2_host: "3.83.131.245",
+    max_iterations: 10,
+    test_threshold: 0.85,  # 85% pass rate
+    rollback_on_failure: true,
+    checkpoint_interval: 5,  # minutes
+  }
+
+  # Phase 1: Environment Setup
+  phase "setup" {
+    action "verify-ec2-ready" {
+      command: "ssh -i ~/.ssh/choir-dev-key.pem ubuntu@{{config.ec2_host}} 'which cargo && which just && echo \"EC2 Ready\"'",
+      retry: 3,
+      timeout: 30,
+    }
+    
+    action "start-dev-workflow" {
+      command: "ssh -i ~/.ssh/choir-dev-key.pem ubuntu@{{config.ec2_host}} 'cd {{config.repo_path}} && ./scripts/dev-workflow.sh start'",
+      timeout: 60,
+    }
+    
+    action "create-initial-checkpoint" {
+      command: "ssh -i ~/.ssh/choir-dev-key.pem ubuntu@{{config.ec2_host}} 'cd {{config.repo_path}} && ./scripts/dev-workflow.sh checkpoint'",
+    }
+  }
+
+  # Phase 2: Component Implementation (Parallel)
+  phase "implementation" {
+    parallel {
+      session "event-store-actor" {
+        agent "rust-backend-dev" {
+          skill: "rust-backend"
+          task: "Implement EventStoreActor with SQLite persistence"
+          spec: "docs/ARCHITECTURE_SPECIFICATION.md#event-store"
+          output: "sandbox/src/actors/event_store.rs"
+          tests: "unit"
+        }
+      }
+      
+      session "chat-actor" {
+        agent "rust-backend-dev" {
+          skill: "rust-backend"
+          task: "Implement ChatActor with message handling"
+          spec: "docs/ARCHITECTURE_SPECIFICATION.md#chat-actor"
+          output: "sandbox/src/actors/chat.rs"
+          tests: "unit"
+        }
+      }
+      
+      session "dioxus-chat-ui" {
+        agent "frontend-dev" {
+          skill: "dioxus-ui"
+          task: "Implement Chat UI component with optimistic updates"
+          spec: "docs/ARCHITECTURE_SPECIFICATION.md#dioxus-patterns"
+          output: "sandbox-ui/src/apps/chat.rs"
+          tests: "e2e"
+        }
+      }
+    }
+  }
+
+  # Phase 3: Verification Loop
+  phase "verification" {
+    loop iterations={{config.max_iterations}} {
+      action "run-unit-tests" {
+        command: "ssh -i ~/.ssh/choir-dev-key.pem ubuntu@{{config.ec2_host}} 'cd {{config.repo_path}} && cargo test --lib 2>&1 | tail -50'",
+        capture: "test_output",
+      }
+      
+      action "run-integration-tests" {
+        command: "ssh -i ~/.ssh/choir-dev-key.pem ubuntu@{{config.ec2_host}} 'cd {{config.repo_path}} && cargo test --test integration 2>&1 | tail -50'",
+        capture: "integration_output",
+      }
+      
+      action "run-e2e-tests" {
+        command: "ssh -i ~/.ssh/choir-dev-key.pem ubuntu@{{config.ec2_host}} 'cd {{config.repo_path}} && ./scripts/dev-workflow.sh e2e'",
+        timeout: 300,
+        capture: "e2e_output",
+      }
+      
+      agent "verifier" {
+        skill: "rust-verifier"
+        task: "Analyze test results and code quality"
+        inputs: {
+          unit_tests: "{{test_output}}",
+          integration_tests: "{{integration_output}}",
+          e2e_tests: "{{e2e_output}}",
+        }
+        criteria: [
+          "All unit tests pass",
+          "Integration tests pass",
+          "E2E critical paths work",
+          "No clippy warnings",
+          "Code coverage >= {{config.test_threshold}}",
+        ]
+        output: "verification_report",
+      }
+      
+      # Check if all criteria met
+      if verification_report.score >= config.test_threshold {
+        action "create-success-checkpoint" {
+          command: "ssh -i ~/.ssh/choir-dev-key.pem ubuntu@{{config.ec2_host}} 'cd {{config.repo_path}} && ./scripts/dev-workflow.sh checkpoint'",
+        }
+        break  # Exit loop on success
+      } else {
+        if config.rollback_on_failure {
+          action "rollback-to-last-good" {
+            command: "ssh -i ~/.ssh/choir-dev-key.pem ubuntu@{{config.ec2_host}} 'cd {{config.repo_path}} && ./scripts/dev-workflow.sh rollback'",
+          }
+        }
+        
+        # Generate fix plan
+        agent "fix-generator" {
+          skill: "rust-debugger"
+          task: "Generate fixes for failing tests"
+          inputs: {
+            failures: "{{verification_report.failures}}",
+            code: "{{repo_path}}/src",
+          }
+          output: "fix_plan",
+        }
+        
+        # Apply fixes
+        session "fix-implementation" {
+          agent "rust-backend-dev" {
+            skill: "rust-backend"
+            task: "Apply fixes from plan"
+            plan: "{{fix_plan}}"
+          }
+        }
+      }
+    }
+  }
+
+  # Phase 4: Deployment Preparation
+  phase "deployment" {
+    action "build-release" {
+      command: "ssh -i ~/.ssh/choir-dev-key.pem ubuntu@{{config.ec2_host}} 'cd {{config.repo_path}} && just build-sandbox'",
+      timeout: 300,
+    }
+    
+    action "verify-production-build" {
+      command: "ssh -i ~/.ssh/choir-dev-key.pem ubuntu@{{config.ec2_host}} 'cd {{config.repo_path}} && ./target/release/sandbox --version'",
+    }
+    
+    action "final-checkpoint" {
+      command: "ssh -i ~/.ssh/choir-dev-key.pem ubuntu@{{config.ec2_host}} 'cd {{config.repo_path}} && git tag production-$(date +%Y%m%d-%H%M%S)'",
+    }
+  }
+
+  # Phase 5: Monitoring (optional continuous mode)
+  phase "monitor" {
+    if mode == "autonomous" {
+      loop {
+        sleep minutes=30
+        
+        action "health-check" {
+          command: "ssh -i ~/.ssh/choir-dev-key.pem ubuntu@{{config.ec2_host}} 'curl -s http://localhost:8080/health'",
+        }
+        
+        action "log-check" {
+          command: "ssh -i ~/.ssh/choir-dev-key.pem ubuntu@{{config.ec2_host}} 'tail -100 ~/.local/share/choiros/logs/sandbox.log | grep -i error'",
+          capture: "errors",
+        }
+        
+        if errors != "" {
+          agent "oncall-dev" {
+            skill: "rust-debugger"
+            task: "Investigate errors in production"
+            inputs: { logs: "{{errors}}" }
+          }
+        }
+      }
+    }
+  }
+}
+
+# Rollback Strategy
+on_failure {
+  action "emergency-rollback" {
+    command: "ssh -i ~/.ssh/choir-dev-key.pem ubuntu@{{config.ec2_host}} 'cd {{config.repo_path}} && ./scripts/dev-workflow.sh rollback'",
+  }
+  
+  action "notify-human" {
+    command: "echo 'Build failed after {{max_iterations}} iterations. Manual intervention required.' | tee /tmp/choiros-build-failure.log",
+  }
+}
+
+# Success Criteria
+success_criteria {
+  all_tests_pass: true,
+  code_coverage: >= 0.85,
+  no_clippy_warnings: true,
+  production_build_works: true,
+}
