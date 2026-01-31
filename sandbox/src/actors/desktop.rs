@@ -63,7 +63,7 @@ impl DesktopActor {
     fn project_events(&mut self, events: Vec<shared_types::Event>) {
         for event in events {
             self.last_seq = event.seq;
-            
+
             match event.event_type.as_str() {
                 EVENT_WINDOW_OPENED => {
                     if let Ok(window) = serde_json::from_value::<shared_types::WindowState>(event.payload.clone()) {
@@ -134,19 +134,19 @@ impl DesktopActor {
         if let Some(event_store) = self.event_store.clone() {
             let desktop_id = self.desktop_id.clone();
             let last_seq = self.last_seq;
-            
+
             let fut = async move {
                 let result: Result<Result<Vec<shared_types::Event>, crate::actors::event_store::EventStoreError>, actix::MailboxError> = event_store.send(GetEventsForActor {
                     actor_id: desktop_id,
                     since_seq: last_seq,
                 }).await;
-                
+
                 match result {
                     Ok(Ok(events)) => Some(events),
                     _ => None,
                 }
             };
-            
+
             ctx.spawn(fut.into_actor(self).map(|events: Option<Vec<shared_types::Event>>, actor: &mut DesktopActor, _| {
                 if let Some(events) = events {
                     actor.project_events(events);
@@ -161,7 +161,7 @@ impl DesktopActor {
         let desktop_id = self.desktop_id.clone();
         let user_id = self.user_id.clone();
         let event_type = event_type.to_string();
-        
+
         Box::pin(async move {
             if let Some(es) = event_store {
                 match es.send(AppendEvent {
@@ -186,7 +186,7 @@ impl DesktopActor {
         let desktop_id = self.desktop_id.clone();
         let user_id = self.user_id.clone();
         let event_type = event_type.to_string();
-        
+
         Box::pin(async move {
             if let Some(es) = event_store {
                 match es.send(AppendEvent {
@@ -208,12 +208,10 @@ impl DesktopActor {
 
 impl Actor for DesktopActor {
     type Context = Context<Self>;
-    
-    fn started(&mut self, ctx: &mut Self::Context) {
-        // Sync with EventStore on startup
-        self.sync_with_event_store(ctx);
-        
+
+    fn started(&mut self, _ctx: &mut Self::Context) {
         // Register default apps if none exist
+        // Note: Event sync is now done lazily in GetDesktopState handler
         if self.apps.is_empty() {
             self.apps.insert("chat".to_string(), shared_types::AppDefinition {
                 id: "chat".to_string(),
@@ -236,7 +234,7 @@ impl Supervised for DesktopActor {
         self.active_window = None;
         self.next_z_index = 100;
         self.last_seq = 0;
-        
+
         // Re-sync with EventStore
         self.sync_with_event_store(ctx);
     }
@@ -342,16 +340,16 @@ pub struct GetActorInfo;
 pub enum DesktopError {
     #[error("Event store error: {0}")]
     EventStore(String),
-    
+
     #[error("Window not found: {0}")]
     WindowNotFound(String),
-    
+
     #[error("App not found: {0}")]
     AppNotFound(String),
-    
+
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
-    
+
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
 }
@@ -362,7 +360,7 @@ pub enum DesktopError {
 
 impl Handler<OpenWindow> for DesktopActor {
     type Result = actix::ResponseActFuture<Self, Result<shared_types::WindowState, DesktopError>>;
-    
+
     fn handle(&mut self, msg: OpenWindow, _ctx: &mut Context<Self>) -> Self::Result {
         // Check if app exists
         let app = match self.apps.get(&msg.app_id) {
@@ -373,11 +371,11 @@ impl Handler<OpenWindow> for DesktopActor {
                 }.into_actor(self));
             }
         };
-        
+
         // Create window state
         let window_id = ulid::Ulid::new().to_string();
         let (x, y) = self.get_default_position(&msg.app_id);
-        
+
         let window = shared_types::WindowState {
             id: window_id.clone(),
             app_id: msg.app_id.clone(),
@@ -391,18 +389,18 @@ impl Handler<OpenWindow> for DesktopActor {
             maximized: false,
             props: msg.props.unwrap_or_else(|| serde_json::json!({})),
         };
-        
+
         // Store in memory
         self.windows.insert(window_id.clone(), window.clone());
         self.active_window = Some(window_id.clone());
-        
+
         // Append event to EventStore and return window
         let payload = serde_json::to_value(&window).unwrap();
         let event_store = self.event_store.clone();
         let desktop_id = self.desktop_id.clone();
         let user_id = self.user_id.clone();
         let window_clone = window.clone();
-        
+
         Box::pin(async move {
             if let Some(es) = event_store {
                 match es.send(AppendEvent {
@@ -424,7 +422,7 @@ impl Handler<OpenWindow> for DesktopActor {
 
 impl Handler<CloseWindow> for DesktopActor {
     type Result = actix::ResponseActFuture<Self, Result<(), DesktopError>>;
-    
+
     fn handle(&mut self, msg: CloseWindow, _ctx: &mut Context<Self>) -> Self::Result {
         // Remove from memory
         if self.windows.remove(&msg.window_id).is_none() {
@@ -432,12 +430,12 @@ impl Handler<CloseWindow> for DesktopActor {
                 Err(DesktopError::WindowNotFound(msg.window_id))
             }.into_actor(self));
         }
-        
+
         // Update active window
         if self.active_window.as_deref() == Some(&msg.window_id) {
             self.active_window = self.windows.keys().next().cloned();
         }
-        
+
         // Append event
         let payload = serde_json::json!({"window_id": msg.window_id});
         self.append_event_unit(EVENT_WINDOW_CLOSED, payload)
@@ -446,7 +444,7 @@ impl Handler<CloseWindow> for DesktopActor {
 
 impl Handler<MoveWindow> for DesktopActor {
     type Result = actix::ResponseActFuture<Self, Result<(), DesktopError>>;
-    
+
     fn handle(&mut self, msg: MoveWindow, _ctx: &mut Context<Self>) -> Self::Result {
         // Update memory
         if let Some(window) = self.windows.get_mut(&msg.window_id) {
@@ -457,7 +455,7 @@ impl Handler<MoveWindow> for DesktopActor {
                 Err(DesktopError::WindowNotFound(msg.window_id))
             }.into_actor(self));
         }
-        
+
         // Append event
         let payload = serde_json::json!({
             "window_id": msg.window_id,
@@ -470,7 +468,7 @@ impl Handler<MoveWindow> for DesktopActor {
 
 impl Handler<ResizeWindow> for DesktopActor {
     type Result = actix::ResponseActFuture<Self, Result<(), DesktopError>>;
-    
+
     fn handle(&mut self, msg: ResizeWindow, _ctx: &mut Context<Self>) -> Self::Result {
         // Update memory
         if let Some(window) = self.windows.get_mut(&msg.window_id) {
@@ -481,7 +479,7 @@ impl Handler<ResizeWindow> for DesktopActor {
                 Err(DesktopError::WindowNotFound(msg.window_id))
             }.into_actor(self));
         }
-        
+
         // Append event
         let payload = serde_json::json!({
             "window_id": msg.window_id,
@@ -494,7 +492,7 @@ impl Handler<ResizeWindow> for DesktopActor {
 
 impl Handler<FocusWindow> for DesktopActor {
     type Result = actix::ResponseActFuture<Self, Result<(), DesktopError>>;
-    
+
     fn handle(&mut self, msg: FocusWindow, _ctx: &mut Context<Self>) -> Self::Result {
         // Check window exists
         if !self.windows.contains_key(&msg.window_id) {
@@ -502,7 +500,7 @@ impl Handler<FocusWindow> for DesktopActor {
                 Err(DesktopError::WindowNotFound(msg.window_id))
             }.into_actor(self));
         }
-        
+
         // Update state
         self.active_window = Some(msg.window_id.clone());
         // Get z-index first to avoid borrow issues
@@ -510,7 +508,7 @@ impl Handler<FocusWindow> for DesktopActor {
         if let Some(window) = self.windows.get_mut(&msg.window_id) {
             window.z_index = new_z;
         }
-        
+
         // Append event
         let payload = serde_json::json!({"window_id": msg.window_id});
         self.append_event_unit(EVENT_WINDOW_FOCUSED, payload)
@@ -519,7 +517,7 @@ impl Handler<FocusWindow> for DesktopActor {
 
 impl Handler<GetWindows> for DesktopActor {
     type Result = Vec<shared_types::WindowState>;
-    
+
     fn handle(&mut self, _msg: GetWindows, _ctx: &mut Context<Self>) -> Self::Result {
         let mut windows: Vec<_> = self.windows.values().cloned().collect();
         // Sort by z-index
@@ -530,29 +528,77 @@ impl Handler<GetWindows> for DesktopActor {
 
 impl Handler<GetDesktopState> for DesktopActor {
     type Result = actix::ResponseActFuture<Self, shared_types::DesktopState>;
-    
+
     fn handle(&mut self, _msg: GetDesktopState, _ctx: &mut Context<Self>) -> Self::Result {
-        let windows: Vec<_> = self.windows.values().cloned().collect();
-        let active_window = self.active_window.clone();
-        let apps: Vec<_> = self.apps.values().cloned().collect();
-        
-        Box::pin(async move {
-            shared_types::DesktopState {
-                windows,
-                active_window,
-                apps,
-            }
-        }.into_actor(self))
+        // If events haven't been synced yet, sync first
+        if self.last_seq == 0 && self.event_store.is_some() {
+            let event_store = self.event_store.clone().unwrap();
+            let desktop_id = self.desktop_id.clone();
+
+            Box::pin(async move {
+                // Load events from event store
+                let events_result = event_store.send(GetEventsForActor {
+                    actor_id: desktop_id,
+                    since_seq: 0,
+                }).await;
+
+                let events = match events_result {
+                    Ok(Ok(events)) => events,
+                    _ => Vec::new(),
+                };
+
+                (events,)
+            }.into_actor(self).map(|(events,), actor: &mut DesktopActor, _| {
+                // Project events to restore state
+                actor.project_events(events);
+
+                // Ensure default apps exist if none loaded
+                if actor.apps.is_empty() {
+                    actor.apps.insert("chat".to_string(), shared_types::AppDefinition {
+                        id: "chat".to_string(),
+                        name: "Chat".to_string(),
+                        icon: "💬".to_string(),
+                        component_code: "ChatApp".to_string(),
+                        default_width: 800,
+                        default_height: 600,
+                    });
+                }
+
+                // Build and return state
+                let windows: Vec<_> = actor.windows.values().cloned().collect();
+                let active_window = actor.active_window.clone();
+                let apps: Vec<_> = actor.apps.values().cloned().collect();
+
+                shared_types::DesktopState {
+                    windows,
+                    active_window,
+                    apps,
+                }
+            }))
+        } else {
+            // Already synced - return cached state immediately
+            let windows: Vec<_> = self.windows.values().cloned().collect();
+            let active_window = self.active_window.clone();
+            let apps: Vec<_> = self.apps.values().cloned().collect();
+
+            Box::pin(async move {
+                shared_types::DesktopState {
+                    windows,
+                    active_window,
+                    apps,
+                }
+            }.into_actor(self))
+        }
     }
 }
 
 impl Handler<RegisterApp> for DesktopActor {
     type Result = actix::ResponseActFuture<Self, Result<(), DesktopError>>;
-    
+
     fn handle(&mut self, msg: RegisterApp, _ctx: &mut Context<Self>) -> Self::Result {
         // Store in memory
         self.apps.insert(msg.app.id.clone(), msg.app.clone());
-        
+
         // Append event
         let payload = serde_json::to_value(&msg.app).unwrap();
         self.append_event_unit(EVENT_APP_REGISTERED, payload)
@@ -561,7 +607,7 @@ impl Handler<RegisterApp> for DesktopActor {
 
 impl Handler<GetApps> for DesktopActor {
     type Result = Vec<shared_types::AppDefinition>;
-    
+
     fn handle(&mut self, _msg: GetApps, _ctx: &mut Context<Self>) -> Self::Result {
         self.apps.values().cloned().collect()
     }
@@ -569,7 +615,7 @@ impl Handler<GetApps> for DesktopActor {
 
 impl Handler<SyncEvents> for DesktopActor {
     type Result = ();
-    
+
     fn handle(&mut self, msg: SyncEvents, _ctx: &mut Context<Self>) {
         self.project_events(msg.events);
     }
@@ -577,7 +623,7 @@ impl Handler<SyncEvents> for DesktopActor {
 
 impl Handler<GetActorInfo> for DesktopActor {
     type Result = actix::ResponseActFuture<Self, (String, String)>;
-    
+
     fn handle(&mut self, _msg: GetActorInfo, _ctx: &mut Context<Self>) -> Self::Result {
         let desktop_id = self.desktop_id.clone();
         let user_id = self.user_id.clone();
@@ -593,16 +639,16 @@ impl Handler<GetActorInfo> for DesktopActor {
 mod tests {
     use super::*;
     use actix::Actor;
-    
+
     // ============================================================================
     // Test 1: Opening window creates it with proper defaults
     // ============================================================================
-    
+
     #[actix::test]
     async fn test_open_window_creates_window() {
         let event_store = EventStoreActor::new_in_memory().await.unwrap().start();
         let desktop = DesktopActor::new("desktop-1".to_string(), "user-1".to_string(), event_store).start();
-        
+
         // Register an app first
         let _ = desktop.send(RegisterApp {
             app: shared_types::AppDefinition {
@@ -614,14 +660,14 @@ mod tests {
                 default_height: 600,
             },
         }).await.unwrap();
-        
+
         // Open a window
         let window = desktop.send(OpenWindow {
             app_id: "chat".to_string(),
             title: "Chat Window".to_string(),
             props: None,
         }).await.unwrap();
-        
+
         assert!(window.is_ok());
         let window = window.unwrap();
         assert_eq!(window.app_id, "chat");
@@ -630,37 +676,37 @@ mod tests {
         assert_eq!(window.height, 600);
         assert!(!window.minimized);
     }
-    
+
     // ============================================================================
     // Test 2: Opening window for non-existent app fails
     // ============================================================================
-    
+
     #[actix::test]
     async fn test_open_window_unknown_app_fails() {
         let event_store = EventStoreActor::new_in_memory().await.unwrap().start();
         let desktop = DesktopActor::new("desktop-1".to_string(), "user-1".to_string(), event_store).start();
-        
+
         // Try to open window for unknown app
         let result = desktop.send(OpenWindow {
             app_id: "unknown".to_string(),
             title: "Unknown".to_string(),
             props: None,
         }).await;
-        
+
         assert!(result.is_ok()); // Mailbox OK
         let inner = result.unwrap();
         assert!(inner.is_err()); // Handler returned error
     }
-    
+
     // ============================================================================
     // Test 3: Closing window removes it
     // ============================================================================
-    
+
     #[actix::test]
     async fn test_close_window_removes_it() {
         let event_store = EventStoreActor::new_in_memory().await.unwrap().start();
         let desktop = DesktopActor::new("desktop-1".to_string(), "user-1".to_string(), event_store).start();
-        
+
         // Register app and open window
         let _ = desktop.send(RegisterApp {
             app: shared_types::AppDefinition {
@@ -672,36 +718,36 @@ mod tests {
                 default_height: 600,
             },
         }).await.unwrap();
-        
+
         let window = desktop.send(OpenWindow {
             app_id: "chat".to_string(),
             title: "Chat".to_string(),
             props: None,
         }).await.unwrap().unwrap();
-        
+
         let window_id = window.id;
-        
+
         // Close the window
         let result = desktop.send(CloseWindow {
             window_id: window_id.clone(),
         }).await.unwrap();
-        
+
         assert!(result.is_ok());
-        
+
         // Verify window is gone
         let windows = desktop.send(GetWindows).await.unwrap();
         assert!(windows.is_empty());
     }
-    
+
     // ============================================================================
     // Test 4: Moving window updates position
     // ============================================================================
-    
+
     #[actix::test]
     async fn test_move_window_updates_position() {
         let event_store = EventStoreActor::new_in_memory().await.unwrap().start();
         let desktop = DesktopActor::new("desktop-1".to_string(), "user-1".to_string(), event_store).start();
-        
+
         // Register app and open window
         let _ = desktop.send(RegisterApp {
             app: shared_types::AppDefinition {
@@ -713,39 +759,39 @@ mod tests {
                 default_height: 600,
             },
         }).await.unwrap();
-        
+
         let window = desktop.send(OpenWindow {
             app_id: "chat".to_string(),
             title: "Chat".to_string(),
             props: None,
         }).await.unwrap().unwrap();
-        
+
         let window_id = window.id;
-        
+
         // Move the window
         let result = desktop.send(MoveWindow {
             window_id: window_id.clone(),
             x: 200,
             y: 300,
         }).await.unwrap();
-        
+
         assert!(result.is_ok());
-        
+
         // Verify position updated
         let windows = desktop.send(GetWindows).await.unwrap();
         assert_eq!(windows[0].x, 200);
         assert_eq!(windows[0].y, 300);
     }
-    
+
     // ============================================================================
     // Test 5: Focus window brings it to front (highest z-index)
     // ============================================================================
-    
+
     #[actix::test]
     async fn test_focus_window_brings_to_front() {
         let event_store = EventStoreActor::new_in_memory().await.unwrap().start();
         let desktop = DesktopActor::new("desktop-1".to_string(), "user-1".to_string(), event_store).start();
-        
+
         // Register app and open two windows
         let _ = desktop.send(RegisterApp {
             app: shared_types::AppDefinition {
@@ -757,42 +803,42 @@ mod tests {
                 default_height: 600,
             },
         }).await.unwrap();
-        
+
         let window1 = desktop.send(OpenWindow {
             app_id: "chat".to_string(),
             title: "Window 1".to_string(),
             props: None,
         }).await.unwrap().unwrap();
-        
+
         let window2 = desktop.send(OpenWindow {
             app_id: "chat".to_string(),
             title: "Window 2".to_string(),
             props: None,
         }).await.unwrap().unwrap();
-        
+
         // Window 2 should have higher z-index
         assert!(window2.z_index > window1.z_index);
-        
+
         // Focus window 1
         let _ = desktop.send(FocusWindow {
             window_id: window1.id.clone(),
         }).await.unwrap();
-        
+
         // Window 1 should now have higher z-index than window 2 had
         let windows = desktop.send(GetWindows).await.unwrap();
         let w1 = windows.iter().find(|w| w.id == window1.id).unwrap();
         assert!(w1.z_index > window2.z_index);
     }
-    
+
     // ============================================================================
     // Test 6: Get desktop state returns all windows and apps
     // ============================================================================
-    
+
     #[actix::test]
     async fn test_get_desktop_state() {
         let event_store = EventStoreActor::new_in_memory().await.unwrap().start();
         let desktop = DesktopActor::new("desktop-1".to_string(), "user-1".to_string(), event_store).start();
-        
+
         // Register app
         let _ = desktop.send(RegisterApp {
             app: shared_types::AppDefinition {
@@ -804,31 +850,31 @@ mod tests {
                 default_height: 600,
             },
         }).await.unwrap();
-        
+
         // Open window
         let window = desktop.send(OpenWindow {
             app_id: "chat".to_string(),
             title: "Chat".to_string(),
             props: None,
         }).await.unwrap().unwrap();
-        
+
         // Get desktop state
         let state = desktop.send(GetDesktopState).await.unwrap();
-        
+
         assert_eq!(state.windows.len(), 1);
         assert_eq!(state.apps.len(), 1);
         assert_eq!(state.active_window, Some(window.id));
     }
-    
+
     // ============================================================================
     // Test 7: Registering app adds it to registry
     // ============================================================================
-    
+
     #[actix::test]
     async fn test_register_app() {
         let event_store = EventStoreActor::new_in_memory().await.unwrap().start();
         let desktop = DesktopActor::new("desktop-1".to_string(), "user-1".to_string(), event_store).start();
-        
+
         // Register a new app (chat app is added by default on startup)
         let result = desktop.send(RegisterApp {
             app: shared_types::AppDefinition {
@@ -840,9 +886,9 @@ mod tests {
                 default_height: 400,
             },
         }).await.unwrap();
-        
+
         assert!(result.is_ok());
-        
+
         let apps = desktop.send(GetApps).await.unwrap();
         // Should have 2 apps: default chat + registered calc
         assert_eq!(apps.len(), 2);

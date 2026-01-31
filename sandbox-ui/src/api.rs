@@ -2,8 +2,37 @@ use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use shared_types::{ChatMessage, Sender, WindowState, AppDefinition, DesktopState};
+use wasm_bindgen::prelude::*;
 
-const API_BASE: &str = "";
+/// Get the API base URL based on current environment
+/// - In development (localhost): use http://localhost:8080
+/// - In production: use same origin (API serves static files)
+fn get_api_base() -> String {
+    // Get the current hostname from the browser
+    let hostname = web_sys::window()
+        .and_then(|w| w.location().hostname().ok())
+        .unwrap_or_default();
+    
+    // If running on localhost, point to the API server on port 8080
+    if hostname == "localhost" || hostname == "127.0.0.1" {
+        "http://localhost:8080".to_string()
+    } else {
+        // In production, use same origin
+        "".to_string()
+    }
+}
+
+/// Lazy-static equivalent for WASM - computed at first use
+static mut API_BASE_CACHE: Option<String> = None;
+
+fn api_base() -> &'static str {
+    unsafe {
+        if API_BASE_CACHE.is_none() {
+            API_BASE_CACHE = Some(get_api_base());
+        }
+        API_BASE_CACHE.as_ref().map(|s| s.as_str()).unwrap_or("")
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub struct SendMessageRequest {
@@ -35,7 +64,7 @@ pub struct ApiMessage {
 }
 
 pub async fn fetch_messages(actor_id: &str) -> Result<Vec<ChatMessage>, String> {
-    let url = format!("{}/chat/{}/messages", API_BASE, actor_id);
+    let url = format!("{}/chat/{}/messages", api_base(), actor_id);
     
     let response = Request::get(&url)
         .send()
@@ -67,7 +96,7 @@ pub async fn fetch_messages(actor_id: &str) -> Result<Vec<ChatMessage>, String> 
 }
 
 pub async fn send_chat_message(actor_id: &str, user_id: &str, text: &str) -> Result<(), String> {
-    let url = format!("{}/chat/send", API_BASE);
+    let url = format!("{}/chat/send", api_base());
     
     let request = SendMessageRequest {
         actor_id: actor_id.to_string(),
@@ -145,7 +174,7 @@ pub struct RegisterAppRequest {
 }
 
 pub async fn fetch_desktop_state(desktop_id: &str) -> Result<DesktopState, String> {
-    let url = format!("{}/desktop/{}", API_BASE, desktop_id);
+    let url = format!("{}/desktop/{}", api_base(), desktop_id);
     
     let response = Request::get(&url)
         .send()
@@ -169,7 +198,7 @@ pub async fn fetch_desktop_state(desktop_id: &str) -> Result<DesktopState, Strin
 }
 
 pub async fn fetch_windows(desktop_id: &str) -> Result<Vec<WindowState>, String> {
-    let url = format!("{}/desktop/{}/windows", API_BASE, desktop_id);
+    let url = format!("{}/desktop/{}/windows", api_base(), desktop_id);
     
     let response = Request::get(&url)
         .send()
@@ -198,7 +227,7 @@ pub async fn open_window(
     title: &str,
     props: Option<serde_json::Value>,
 ) -> Result<WindowState, String> {
-    let url = format!("{}/desktop/{}/windows", API_BASE, desktop_id);
+    let url = format!("{}/desktop/{}/windows", api_base(), desktop_id);
     
     let request = OpenWindowRequest {
         app_id: app_id.to_string(),
@@ -230,7 +259,7 @@ pub async fn open_window(
 }
 
 pub async fn close_window(desktop_id: &str, window_id: &str) -> Result<(), String> {
-    let url = format!("{}/desktop/{}/windows/{}", API_BASE, desktop_id, window_id);
+    let url = format!("{}/desktop/{}/windows/{}", api_base(), desktop_id, window_id);
     
     let response = Request::delete(&url)
         .send()
@@ -260,7 +289,7 @@ pub async fn close_window(desktop_id: &str, window_id: &str) -> Result<(), Strin
 }
 
 pub async fn focus_window(desktop_id: &str, window_id: &str) -> Result<(), String> {
-    let url = format!("{}/desktop/{}/windows/{}/focus", API_BASE, desktop_id, window_id);
+    let url = format!("{}/desktop/{}/windows/{}/focus", api_base(), desktop_id, window_id);
     
     let response = Request::post(&url)
         .send()
@@ -296,7 +325,7 @@ pub struct MoveWindowRequest {
 }
 
 pub async fn move_window(desktop_id: &str, window_id: &str, x: i32, y: i32) -> Result<(), String> {
-    let url = format!("{}/desktop/{}/windows/{}/position", API_BASE, desktop_id, window_id);
+    let url = format!("{}/desktop/{}/windows/{}/position", api_base(), desktop_id, window_id);
     
     let request = MoveWindowRequest { x, y };
     
@@ -336,7 +365,7 @@ pub struct ResizeWindowRequest {
 }
 
 pub async fn resize_window(desktop_id: &str, window_id: &str, width: i32, height: i32) -> Result<(), String> {
-    let url = format!("{}/desktop/{}/windows/{}/size", API_BASE, desktop_id, window_id);
+    let url = format!("{}/desktop/{}/windows/{}/size", api_base(), desktop_id, window_id);
     
     let request = ResizeWindowRequest { width, height };
     
@@ -370,7 +399,7 @@ pub async fn resize_window(desktop_id: &str, window_id: &str, width: i32, height
 }
 
 pub async fn fetch_apps(desktop_id: &str) -> Result<Vec<AppDefinition>, String> {
-    let url = format!("{}/desktop/{}/apps", API_BASE, desktop_id);
+    let url = format!("{}/desktop/{}/apps", api_base(), desktop_id);
     
     let response = Request::get(&url)
         .send()
@@ -397,7 +426,7 @@ pub async fn register_app(
     desktop_id: &str,
     app: &AppDefinition,
 ) -> Result<(), String> {
-    let url = format!("{}/desktop/{}/apps", API_BASE, desktop_id);
+    let url = format!("{}/desktop/{}/apps", api_base(), desktop_id);
     
     let response = Request::post(&url)
         .json(app)
