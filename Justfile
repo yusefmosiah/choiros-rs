@@ -6,7 +6,7 @@ default:
 
 # Development commands
 dev-sandbox:
-    cd sandbox && cargo run
+    export DATABASE_URL="./data/events.db" && cd sandbox && cargo run
 
 dev-hypervisor:
     cd hypervisor && cargo run

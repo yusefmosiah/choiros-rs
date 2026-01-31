@@ -82,6 +82,9 @@
 
 ### Run the Backend
 ```bash
+# Set local database path (required for local development)
+export DATABASE_URL="./data/events.db"
+
 cargo run -p sandbox
 # Server starts on http://localhost:8080
 ```
@@ -96,6 +99,10 @@ cd sandbox-ui
 dx serve --port 3000
 # UI available at http://localhost:3000
 ```
+
+### Production vs Local
+- **Local Development**: Requires `export DATABASE_URL="./data/events.db"`
+- **Production Server**: Uses hardcoded `/opt/choiros/data/events.db` (no export needed)
 
 ### Test Everything
 ```bash

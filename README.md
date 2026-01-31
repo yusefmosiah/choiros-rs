@@ -6,7 +6,7 @@ A self-modifying, multi-tenant system where users prompt the computer to build n
 
 **✅ Working:**
 - Actor system with Actix
-- EventStoreActor with libsql/SQLite backend  
+- EventStoreActor with libsql/SQLite backend
 - ChatActor with message persistence
 - HTTP API with multiturn chat
 - All 11 tests passing
@@ -21,7 +21,12 @@ A self-modifying, multi-tenant system where users prompt the computer to build n
 
 ## Quick Start
 
+### Local Development Setup
+
 ```bash
+# Set local database path (required for local development)
+export DATABASE_URL="./data/events.db"
+
 # Build
 cargo build -p sandbox
 
@@ -38,6 +43,10 @@ curl -X POST http://localhost:8080/chat/send \
   -d '{"actor_id":"test","user_id":"me","text":"hello"}'
 curl http://localhost:8080/chat/test/messages
 ```
+
+### Production Server
+
+On the production server, the database path is hardcoded to `/opt/choiros/data/events.db` and no DATABASE_URL export is needed.
 
 ## Architecture
 
