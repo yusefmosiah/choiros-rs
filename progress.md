@@ -28,14 +28,19 @@ Successfully implemented a complete ChoirOS system with backend API and Dioxus f
 ### Frontend (sandbox-ui) ✅
 - **Framework:** Dioxus 0.7 (WASM)
 - **Components:**
-  - ChatView - Main chat interface
+  - **Desktop** - Main desktop container with mobile-first layout
+  - **WindowChrome** - Window framing with title bar and controls
+  - **Taskbar** - App icons and window switcher (mobile bottom sheet style)
+  - ChatView - Chat interface (wrapped in window)
   - MessageBubble - Message display with user/assistant styling
 - **Features:**
+  - **Mobile-first responsive design** - Single window view on mobile
+  - Window management (open, close, switch, focus)
+  - App registry with icons
+  - Taskbar with app launcher
   - Optimistic message updates (UI updates immediately)
   - HTTP client for API communication
   - Real-time message loading
-  - Send button with loading state
-  - Enter key support
 - **Build:** Compiles successfully
 
 ## Architecture
@@ -97,11 +102,15 @@ cargo build -p sandbox-ui
 4. ✅ Message sent from UI reaches backend
 5. ✅ Message stored in SQLite database
 6. ✅ Message retrieved and displayed in chat
-7. ✅ **NEW: DesktopActor manages window state**
-8. ✅ **NEW: Dynamic app registration works**
+7. ✅ DesktopActor manages window state
+8. ✅ Dynamic app registration works
+9. ✅ **NEW: Desktop UI with mobile-first window system**
+10. ✅ **NEW: Window chrome and taskbar implemented**
 
 Example message flow:
-- User types "Hello from ChoirOS!" in UI
+- User taps Chat app icon in taskbar
+- Desktop opens Chat window with chrome
+- User types "Hello from ChoirOS!" in window
 - UI shows optimistic update immediately
 - HTTP POST to /chat/send
 - Backend stores event in SQLite
@@ -113,14 +122,16 @@ Example message flow:
 2. `361fd86` - docs: cleanup and solidify documentation  
 3. `77bfc81` - feat: implement Dioxus chat UI with full end-to-end testing
 4. `8e4efc5` - feat: implement DesktopActor with window management and app registry
+5. `9230716` - feat: implement mobile-first Desktop UI with window system
 
 ## Next Steps
 
 ### High Priority
-1. **Desktop UI** - Create mobile-first window system (Phase 1)
-   - Desktop component with window chrome
-   - Taskbar/app switcher
-   - Wrap Chat UI in window
+1. **Multi-Window Desktop Mode** - Phase 2
+   - Floating draggable windows (desktop breakpoint >1024px)
+   - Window positioning and resizing
+   - Z-index management
+2. **LLM Integration** - Wire up BAML to generate AI responses
 2. **LLM Integration** - Wire up BAML to generate AI responses
 3. **Tool Calling** - Add bash/file operation tools
 
