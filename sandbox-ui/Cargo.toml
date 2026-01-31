@@ -28,6 +28,9 @@ wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 web-sys = "0.3"
 gloo-net = "0.6"
+dioxus-logger = "0.7.3"
+wasm-logger = "0.2.0"
+log = "0.4.29"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"

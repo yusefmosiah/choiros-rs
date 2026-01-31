@@ -16,6 +16,7 @@ actix = { workspace = true }
 actix-web = { workspace = true }
 actix-rt = { workspace = true }
 actix-ws = { workspace = true }
+actix-cors = "0.7"
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

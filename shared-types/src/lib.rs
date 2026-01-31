@@ -146,7 +146,7 @@ pub struct WindowState {
 }
 
 /// Chat message for UI display
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ChatMessage {
     pub id: String,
     pub text: String,
@@ -155,7 +155,7 @@ pub struct ChatMessage {
     pub pending: bool, // True if optimistic (not confirmed by actor yet)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Sender {
     User,
     Assistant,

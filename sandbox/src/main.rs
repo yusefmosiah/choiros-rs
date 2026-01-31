@@ -3,6 +3,7 @@ mod api;
 mod actor_manager;
 
 use actix::Actor;
+use actix_cors::Cors;
 use actix_web::{web, App, HttpServer};
 use actors::{EventStoreActor, AppendEvent};
 use actor_manager::AppState;
@@ -50,9 +51,17 @@ async fn main() -> std::io::Result<()> {
     
     tracing::info!("Starting HTTP server on http://0.0.0.0:8080");
     
-    // Start HTTP server
+    // Start HTTP server with CORS
     HttpServer::new(move || {
+        // Configure CORS to allow UI access
+        let cors = Cors::default()
+            .allow_any_origin()
+            .allow_any_method()
+            .allow_any_header()
+            .max_age(3600);
+        
         App::new()
+            .wrap(cors)
             .app_data(app_state.clone())
             .route("/health", web::get().to(api::health_check))
             .configure(api::config)
