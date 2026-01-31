@@ -1,8 +1,8 @@
 # ChoirOS Testing Strategy
 
-**Version:** 1.0  
-**Date:** 2026-01-31  
-**Status:** Active - Phase 1 Complete, Phase 2 Ready  
+**Version:** 1.0
+**Date:** 2026-01-31
+**Status:** Active - Phase 1 Complete, Phase 2 Ready
 
 ---
 
@@ -61,15 +61,15 @@ This strategy combines patterns from multiple testing methodologies while stayin
 #[actix::test]
 async fn test_send_message_creates_pending() {
     let chat = ChatActor::new(
-        "chat-1".to_string(), 
-        "user-1".to_string(), 
+        "chat-1".to_string(),
+        "user-1".to_string(),
         EventStoreActor::new_in_memory().await.unwrap().start()
     ).start();
-    
+
     let temp_id = chat.send(SendUserMessage {
         text: "Hello world".to_string(),
     }).await.unwrap().unwrap();
-    
+
     let messages = chat.send(GetMessages).await.unwrap();
     assert_eq!(messages.len(), 1);
     assert!(messages[0].pending);
@@ -116,14 +116,14 @@ test_invalid_desktop_id_returns_400()
 mod tests {
     use wasm_bindgen_test::*;
     use sandbox_ui::api::*;
-    
+
     wasm_bindgen_test_configure!(run_in_browser);
-    
+
     #[wasm_bindgen_test]
     async fn test_fetch_messages_parses_response() {
         // Mock response
         let mock_json = r#"{"success":true,"messages":[{"id":"1","text":"Hello","sender":"User","timestamp":"2026-01-31T12:00:00Z","pending":false}]}"#;
-        
+
         // Test parsing logic
         let response: GetMessagesResponse = serde_json::from_str(mock_json).unwrap();
         assert_eq!(response.messages.len(), 1);
@@ -149,7 +149,7 @@ mod tests {
 
 **Goal:** Test full HTTP request/response cycles with real database
 
-**Approach:** 
+**Approach:**
 - Use Actix Web's test framework
 - Spin up full server with test database
 - Test HTTP endpoints end-to-end
@@ -168,25 +168,25 @@ async fn test_desktop_api_end_to_end() {
     let db_path = "/tmp/test_choiros.db";
     let event_store = EventStoreActor::new(db_path).await.unwrap().start();
     let app_state = AppState::new(event_store);
-    
+
     // Create test app
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
             .configure(api::config)
     ).await;
-    
+
     // Test 1: Get desktop state (empty)
     let req = test::TestRequest::get()
         .uri("/desktop/test-desktop")
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert!(resp.status().is_success());
-    
+
     let body: serde_json::Value = test::read_body_json(resp).await;
     assert!(body["success"].as_bool().unwrap());
     assert!(body["desktop"]["windows"].as_array().unwrap().is_empty());
-    
+
     // Test 2: Open window
     let req = test::TestRequest::post()
         .uri("/desktop/test-desktop/windows")
@@ -194,7 +194,7 @@ async fn test_desktop_api_end_to_end() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert!(resp.status().is_success());
-    
+
     // Test 3: Verify window created
     let req = test::TestRequest::get()
         .uri("/desktop/test-desktop")
@@ -202,7 +202,7 @@ async fn test_desktop_api_end_to_end() {
     let resp = test::call_service(&app, req).await;
     let body: serde_json::Value = test::read_body_json(resp).await;
     assert_eq!(body["desktop"]["windows"].as_array().unwrap().len(), 1);
-    
+
     // Cleanup
     std::fs::remove_file(db_path).ok();
 }
@@ -266,28 +266,28 @@ Test ChoirOS Desktop Component Integration
 
 async def test_desktop_loads():
     # Navigate to test page
-    await page.goto("http://localhost:5173/test")
+    await page.goto("http://localhost:3000/test")
     await page.wait_for_load_state("networkidle")
-    
+
     # Screenshot for visual verification
     await page.screenshot(path="screenshots/test-desktop-loads.png")
-    
+
     # Verify "No windows open" message
     assert await page.locator("text=No windows open").is_visible()
 
 async def test_open_chat_window():
-    await page.goto("http://localhost:5173/test")
+    await page.goto("http://localhost:3000/test")
     await page.wait_for_load_state("networkidle")
-    
+
     # Click Chat icon
     await page.get_by_text("💬").click()
-    
+
     # Wait for window
     await page.wait_for_selector(".window-chrome")
-    
+
     # Verify window opened
     assert await page.locator("text=Chat").is_visible()
-    
+
     # Screenshot
     await page.screenshot(path="screenshots/test-chat-opened.png")
 ```
@@ -341,36 +341,36 @@ async def page():
 @pytest.mark.cuj
 async def test_first_time_user_opens_chat(page):
     # 1. Load desktop
-    await page.goto("http://localhost:5173")
+    await page.goto("http://localhost:3000")
     await page.wait_for_load_state("networkidle")
-    
+
     # Verify initial state
     assert await page.locator("text=No windows open").is_visible()
     assert await page.locator("text=💬").is_visible()
-    
+
     # 2. Open Chat
     await page.get_by_text("💬").click()
     await page.wait_for_selector(".window-chrome")
-    
+
     # Verify window opened
     assert await page.locator("text=Chat").is_visible()
     assert await page.locator(".chat-container").is_visible()
-    
+
     # 3. Send message
     input_box = page.locator(".message-input")
     await input_box.fill("Hello ChoirOS!")
     await input_box.press("Enter")
-    
+
     # Verify optimistic update
     assert await page.locator("text=Hello ChoirOS!").is_visible()
-    
+
     # Wait for confirmation
     await page.wait_for_timeout(1000)  # Wait for API response
-    
+
     # Verify message confirmed (no "Sending...")
     message = page.locator(".user-bubble").filter(has_text="Hello ChoirOS!")
     assert await message.is_visible()
-    
+
     # Screenshot for report
     await page.screenshot(path="screenshots/e2e-cuj1-complete.png")
 ```
@@ -416,24 +416,24 @@ Then the Desktop loads successfully
 
 async def test_desktop_layout_regression(page):
     """Compare current screenshot to baseline"""
-    await page.goto("http://localhost:5173")
+    await page.goto("http://localhost:3000")
     await page.wait_for_load_state("networkidle")
-    
+
     # Set viewport for consistent screenshots
     await page.set_viewport_size({"width": 390, "height": 844})  # iPhone 12
-    
+
     # Screenshot and compare
     await expect(page).to_have_screenshot("desktop-mobile.png")
 
 async def test_chat_window_regression(page):
     """Test window appearance"""
-    await page.goto("http://localhost:5173")
+    await page.goto("http://localhost:3000")
     await page.wait_for_load_state("networkidle")
-    
+
     # Open window
     await page.get_by_text("💬").click()
     await page.wait_for_selector(".window-chrome")
-    
+
     # Screenshot window
     window = page.locator(".window-chrome")
     await expect(window).to_have_screenshot("chat-window.png")
@@ -517,10 +517,10 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust@stable
-      
+
       - name: Run unit tests
         run: cargo test -p sandbox
-      
+
       - name: Run integration tests
         run: cargo test -p sandbox --test integration
 
@@ -530,10 +530,10 @@ jobs:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust@stable
       - uses: actions/setup-node@v3
-      
+
       - name: Install Dioxus CLI
         run: cargo install dioxus-cli
-      
+
       - name: Build frontend
         run: cargo build -p sandbox-ui
 
@@ -543,22 +543,22 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
-      
+
       - name: Install dev-browser dependencies
         run: cd ~/.agents/skills/dev-browser && npm install
-      
+
       - name: Start backend
         run: cargo run -p sandbox &
-      
+
       - name: Start frontend
         run: cd sandbox-ui && dx serve &
-      
+
       - name: Wait for servers
         run: sleep 10
-      
+
       - name: Run E2E tests
         run: npx dev-browser run tests/e2e/
-      
+
       - name: Upload screenshots
         uses: actions/upload-artifact@v3
         with:
@@ -592,10 +592,10 @@ echo ""
 echo "Manual Testing:"
 echo "  1. Start backend: cargo run -p sandbox"
 echo "  2. Start frontend: cd sandbox-ui && dx serve"
-echo "  3. Open: http://localhost:5173"
+echo "  3. Open: http://localhost:3000"
 echo ""
 echo "E2E Testing:"
-echo "  npx dev-browser open http://localhost:5173"
+echo "  npx dev-browser open http://localhost:3000"
 ```
 
 ---
@@ -677,7 +677,7 @@ fn bench_window_open(c: &mut Criterion) {
 module.exports = {
   ci: {
     collect: {
-      url: ['http://localhost:5173'],
+      url: ['http://localhost:3000'],
       numberOfRuns: 3
     },
     assert: {
@@ -701,9 +701,9 @@ module.exports = {
 
 async def test_desktop_accessibility(page):
     """Run axe-core accessibility audit"""
-    await page.goto("http://localhost:5173")
+    await page.goto("http://localhost:3000")
     await page.wait_for_load_state("networkidle")
-    
+
     # Run accessibility scan
     violations = await page.evaluate("""
         async () => {
@@ -712,7 +712,7 @@ async def test_desktop_accessibility(page):
             return results.violations;
         }
     """)
-    
+
     assert len(violations) == 0, f"Accessibility violations: {violations}"
 ```
 
@@ -830,6 +830,6 @@ async def test_desktop_accessibility(page):
 
 ---
 
-**Document Owner:** YM Nathanson  
-**Last Updated:** 2026-01-31  
+**Document Owner:** YM Nathanson
+**Last Updated:** 2026-01-31
 **Review Cycle:** Monthly or after major architecture changes

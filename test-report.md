@@ -1,7 +1,7 @@
 # ChoirOS Desktop UI Test Report
 
-**Date:** 2026-01-31  
-**Tester:** Automated Test Suite + Manual Verification  
+**Date:** 2026-01-31
+**Tester:** Automated Test Suite + Manual Verification
 **Version:** Latest (main branch)
 
 ---
@@ -63,7 +63,7 @@ cargo run -p sandbox
 # Terminal 2: Start frontend dev server
 cd sandbox-ui
 dx serve
-# UI available at http://localhost:5173
+# UI available at http://localhost:3000
 ```
 
 ---
@@ -71,7 +71,7 @@ dx serve
 ## Test Case 1: Initial Load
 
 ### Steps
-1. Open browser to `http://localhost:5173`
+1. Open browser to `http://localhost:3000`
 2. Wait for desktop to load
 
 ### Expected Result
@@ -213,7 +213,7 @@ curl http://localhost:8080/desktop/test-desktop/apps
 - Z-index management
 
 ### Screenshot Locations
-📷 **Screenshot 7:** `screenshots/07-mobile-view.png`  
+📷 **Screenshot 7:** `screenshots/07-mobile-view.png`
 📷 **Screenshot 8:** `screenshots/08-desktop-view.png` (Future Phase 2)
 
 ---
@@ -315,7 +315,7 @@ cargo run -p sandbox
 # 2. Start frontend (in new terminal)
 cd sandbox-ui && dx serve
 
-# 3. Open browser to http://localhost:5173
+# 3. Open browser to http://localhost:3000
 
 # 4. Use browser dev tools to capture:
 #    - Full page screenshots
@@ -352,8 +352,8 @@ mkdir -p screenshots
 
 ---
 
-**Report Generated:** 2026-01-31  
-**Test Framework:** Cargo Test + Manual Verification  
-**Coverage:** Backend 100%, Frontend Core Features  
+**Report Generated:** 2026-01-31
+**Test Framework:** Cargo Test + Manual Verification
+**Coverage:** Backend 100%, Frontend Core Features
 
 *For questions or issues, check the progress.md and handoff documents.*

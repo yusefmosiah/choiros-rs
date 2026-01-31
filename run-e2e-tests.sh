@@ -15,8 +15,8 @@ fi
 echo "✅ Backend is running"
 
 echo "Checking if frontend is running..."
-if ! curl -s http://localhost:5173 > /dev/null; then
-    echo "❌ Frontend not running at http://localhost:5173"
+if ! curl -s http://localhost:3000 > /dev/null; then
+    echo "❌ Frontend not running at http://localhost:3000"
     echo "   Start with: cd sandbox-ui && dx serve"
     exit 1
 fi

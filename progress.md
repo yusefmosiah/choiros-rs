@@ -86,8 +86,12 @@ cargo run -p sandbox
 # Server starts on http://localhost:8080
 ```
 
-### Run the Frontend
+### Run the Frontend (Development)
 ```bash
+# Install Dioxus CLI (one time)
+cargo install dioxus-cli
+
+# Start dev server
 cd sandbox-ui
 dx serve --port 3000
 # UI available at http://localhost:3000
@@ -108,7 +112,7 @@ cargo build -p sandbox-ui --target wasm32-unknown-unknown
 ## Commits
 
 1. `e649f2b` - feat: migrate from sqlx to libsql
-2. `361fd86` - docs: cleanup and solidify documentation  
+2. `361fd86` - docs: cleanup and solidify documentation
 3. `77bfc81` - feat: implement Dioxus chat UI with full end-to-end testing
 4. `8e4efc5` - feat: implement DesktopActor with window management and app registry
 5. `9230716` - feat: implement mobile-first Desktop UI with window system
@@ -125,5 +129,5 @@ cargo build -p sandbox-ui --target wasm32-unknown-unknown
 
 ---
 
-*Last updated: 2026-01-31*  
+*Last updated: 2026-01-31*
 *Status: Desktop foundation complete, API fix needed before themes*

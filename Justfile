@@ -12,7 +12,7 @@ dev-hypervisor:
     cd hypervisor && cargo run
 
 dev-ui:
-    cd sandbox-ui && dx serve --port 5173
+    cd sandbox-ui && dx serve --port 3000
 
 # Build commands
 build:

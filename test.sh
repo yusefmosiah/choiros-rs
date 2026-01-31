@@ -74,19 +74,19 @@ test_step "Testing backend server availability"
 # Check if server is running
 if curl -s http://localhost:8080/health > /dev/null 2>&1; then
     test_pass "Backend server is running on localhost:8080"
-    
+
     # Test health endpoint
     HEALTH=$(curl -s http://localhost:8080/health)
     if echo "$HEALTH" | grep -q "healthy"; then
         test_pass "Health endpoint responding correctly"
     fi
-    
+
     # Test desktop API
     DESKTOP=$(curl -s http://localhost:8080/desktop/test-desktop)
     if echo "$DESKTOP" | grep -q "success"; then
         test_pass "Desktop API endpoint working"
     fi
-    
+
     # Test apps endpoint
     APPS=$(curl -s http://localhost:8080/desktop/test-desktop/apps)
     if echo "$APPS" | grep -q "apps"; then
@@ -140,7 +140,7 @@ if [ $TESTS_FAILED -eq 0 ]; then
     echo "2. In another terminal, start the UI dev server:"
     echo "   cd sandbox-ui && dx serve"
     echo ""
-    echo "3. Open browser to: http://localhost:5173"
+    echo "3. Open browser to: http://localhost:3000"
     echo ""
     echo "4. Open browser DevTools (F12):"
     echo "   - Go to 'Elements' or 'Inspector' tab"
@@ -150,11 +150,11 @@ if [ $TESTS_FAILED -eq 0 ]; then
     echo "5. Capture these screenshots:"
     echo ""
     echo "   📷 Screenshot 1: Initial Load"
-    echo "      - Load http://localhost:5173"
+    echo "      - Load http://localhost:3000"
     echo "      - Capture: 'No windows open' message"
     echo "      - Save: screenshots/01-initial-load.png"
     echo ""
-    echo "   📷 Screenshot 2: Chat Window Opened"  
+    echo "   📷 Screenshot 2: Chat Window Opened"
     echo "      - Click Chat app icon (💬) in taskbar"
     echo "      - Capture: Window with title bar and Chat UI"
     echo "      - Save: screenshots/02-chat-window.png"
