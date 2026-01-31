@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use shared_types::{ChatMessage, Sender, WindowState, AppDefinition, DesktopState};
 
-const API_BASE: &str = "http://localhost:8080";
+const API_BASE: &str = "";
 
 #[derive(Debug, Serialize)]
 pub struct SendMessageRequest {

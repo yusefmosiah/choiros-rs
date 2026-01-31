@@ -728,7 +728,7 @@ async def test_desktop_accessibility(page):
 
 **Areas to Cover:**
 - [ ] API authentication (when added)
-- [ ] CORS configuration
+- [ ] CORS configuration (verify allow‑list denies unknown origins and permits known origins)
 - [ ] SQL injection (via libsql parameterized queries ✅)
 - [ ] XSS prevention
 - [ ] WASM sandbox boundaries

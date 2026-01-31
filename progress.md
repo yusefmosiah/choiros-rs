@@ -9,6 +9,7 @@ Successfully implemented a complete ChoirOS system with backend API and Dioxus f
 ### Backend (sandbox) ✅
 - **Server:** Running on localhost:8080
 - **Database:** libsql/SQLite with event sourcing
+- **Database Path:** Configurable via `DATABASE_URL` (defaults to `/opt/choiros/data/events.db`)
 - **Actors:** EventStoreActor, ChatActor, **DesktopActor** (NEW), ActorManager
 - **API Endpoints:**
   - GET /health - Health check
@@ -22,7 +23,7 @@ Successfully implemented a complete ChoirOS system with backend API and Dioxus f
     - PATCH /desktop/{id}/windows/{id}/size - Resize window
     - POST /desktop/{id}/windows/{id}/focus - Focus window
     - GET/POST /desktop/{id}/apps - App registry
-- **CORS:** Enabled for cross-origin requests from UI
+- **CORS:** Allow‑list enforced for known UI origins
 - **Tests:** All 18 unit tests passing (11 chat + 7 desktop)
 
 ### Frontend (sandbox-ui) ✅
@@ -98,7 +99,7 @@ cargo build -p sandbox-ui
 **Verified Flow:**
 1. ✅ Backend server starts and responds to health checks
 2. ✅ Frontend builds without errors
-3. ✅ CORS allows cross-origin communication
+3. ✅ CORS allow‑list applied for known origins
 4. ✅ Message sent from UI reaches backend
 5. ✅ Message stored in SQLite database
 6. ✅ Message retrieved and displayed in chat
@@ -132,8 +133,13 @@ Example message flow:
    - Window positioning and resizing
    - Z-index management
 2. **LLM Integration** - Wire up BAML to generate AI responses
-2. **LLM Integration** - Wire up BAML to generate AI responses
 3. **Tool Calling** - Add bash/file operation tools
+
+### Deployment / Hardening
+- Caddy security headers and log rotation enabled
+- logrotate configured for app logs
+- systemd hardening drop‑ins added for backend/frontend
+- fail2ban enabled at boot, SSH jail active
 
 ### Medium Priority
 4. **Writer Actor** - File editing capabilities

@@ -6,7 +6,7 @@
 - Every app is an actor (state in SQLite, not React state)
 - Apps can be created from prompts (AI generates components)
 - Code updates while running (hot reload via WASM module replacement)
-- Mobile-first responsive design (works on phone, tablet, desktop)
+- Desktop-first UI with responsive adaptation (phone, tablet, desktop)
 - Minimal bureaucracy to create new apps
 
 ## Architecture Overview
@@ -32,10 +32,16 @@
 │  └────────────────────────────────────────────────────────────┘ │
 │                                                                  │
 │  ┌────────────────────────────────────────────────────────────┐ │
-│  │ Taskbar (mobile: bottom sheet, desktop: bottom bar)        │ │
-│  │  - App launcher icons                                      │ │
-│  │  - Active app indicators                                   │ │
-│  │  - "Create App" button (prompt-based app generation)       │ │
+│  │ Dock + Prompt Bar (always visible)                         │ │
+│  │  - Prompt bar (shortcut to Chat app)                       │ │
+│  │  - Status/launcher controls                                │ │
+│  │  - Optional compact mode on small screens                  │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │ Left Rail (app icons + labels)                             │ │
+│  │  - Scrollable if overflow                                  │ │
+│  │  - Optional compact/collapsed modes                        │ │
 │  └────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -101,7 +107,7 @@ pub struct AppDefinition {
 
 **Why**: Window state survives page refresh. Multiple users can share desktop state (collaboration).
 
-### 2. Responsive Window System
+### 2. Responsive Window System (Desktop-First)
 
 Windows adapt to screen size:
 
@@ -118,16 +124,18 @@ fn get_window_constraints(viewport_width: u32, viewport_height: u32) -> (u32, u3
 }
 ```
 
-**Mobile behavior**:
-- Single window visible at a time (full screen)
-- Swipe between windows
-- Taskbar becomes app switcher (like iOS/Android)
-- Windows don't float - they stack
-
-**Desktop behavior**:
+**Desktop behavior** (default):
 - Floating, draggable windows
-- Multiple windows visible
-- Traditional window chrome (title bar, resize handles)
+- Overlapping with z-index
+- Bottom-right resize handle (initially)
+- Dock/prompt bar always visible
+- Left rail always visible (scroll if overflow)
+
+**Mobile/tablet behavior** (responsive adaptation):
+- Floating windows remain, but sizes clamp to viewport
+- Optional “focus” mode for active window; others stay open
+- Dock stays visible (may shrink)
+- Left rail can collapse to icon-only or a slide-out panel
 
 ### 3. Simplified App Creation
 
@@ -177,7 +185,7 @@ DesktopActor::register_app(AppDefinition {
     default_height: 400,
 });
 
-// 4. UI immediately shows new app in taskbar
+// 4. UI immediately shows new app in left rail
 // 5. User can open windows of the new app
 ```
 
@@ -233,7 +241,73 @@ impl Handler<HotSwapApp> for DesktopActor {
 }
 ```
 
-### 5. CSS Strategy (Simplified)
+### 5. Themeability & UI Variants (No Hard Contract)
+
+We want **full reprogrammability** without locking themes into a rigid contract.
+Themes are **bundles of overrides**, not a fixed interface.
+
+**Layered approach:**
+1. **Freeform overrides** (lossless): any theme can replace layout/structure.
+2. **Optional tokens**: default CSS variables for fast theme swaps.
+3. **Optional component swaps**: replace dock/rail/chrome styles per theme.
+
+This keeps the abstraction *lossless*: themes can ignore tokens and fully restyle.
+
+**App styling modes** (per app):
+- **Inherit**: uses desktop’s base styling + tokens.
+- **Hybrid**: app has its own UI but uses shared chrome + spacing.
+- **Custom**: app is fully self-styled.
+
+### 6. Theme Exploration (2026 Trend Scan)
+
+We will build multiple themes to learn faster and showcase reprogrammability.
+Initial theme directions (expand later):
+
+1. **Neo‑Aero / Frutiger‑style gloss**  
+   Glossy surfaces, luminous gradients, soft depth, “desktop nostalgia.”
+
+2. **Glassmorphism / Translucent layers**  
+   Blur + layered panels; works well for floating windows and dock.
+
+3. **Neo‑Brutalism / Soft Brutalism**  
+   Bold borders, high contrast, visible grids; can soften with pastel accents.
+
+4. **Retrofuturism**  
+   Neon accents, chrome textures, sci‑fi gradients; playful but distinct.
+
+5. **Maximalism**  
+   Dense compositions, layered textures, bold color; “visual energy.”
+
+6. **Tactile / Anti‑AI Craft**  
+   Grain, paper textures, collage, hand‑made feel.
+
+7. **3D / Pictogram depth**  
+   Light‑play icons, subtle 3D cues for app glyphs.
+
+8. **Dark Mode + Neomorphism**  
+   Soft extruded surfaces on dark palettes.
+
+9. **Minimal + Maximal Contrast**  
+   Mix open space with bold elements and large typographic blocks.
+
+10. **Playworld / Kidult**  
+    Chunky shapes, toy‑like materials, bright primaries, playful UI controls.
+
+11. **Neo‑Goth / Cyber‑Goth**  
+    Dark, high‑contrast atmospheres with ornate or occult motifs.
+
+12. **Biophilic / Organic Calm**  
+    Nature‑inspired textures, organic forms, soft natural palettes.
+
+13. **Mixed‑Media Collage**  
+    Layered textures, cut‑outs, visible edges, zine‑like composition.
+
+14. **Functional Maximalism**  
+    Minimal layout structure with bold accents and rich detail.
+
+Typography exploration is important but will be handled in a later session.
+
+### 7. CSS Strategy (Simplified)
 
 **No CSS modules, no build steps, minimal bureaucracy**:
 
@@ -298,7 +372,7 @@ const DESKTOP_STYLES: &str = r#"
 ### Opening an App Window
 
 ```
-User clicks app icon in taskbar
+User clicks app icon in left rail
     ↓
 Dioxus: POST /desktop/open-window {app_id}
     ↓
@@ -334,39 +408,39 @@ EventStore persists app definition
     ↓
 Broadcast AppRegistered event
     ↓
-UI shows new icon in taskbar
+UI shows new icon in left rail
     ↓
 User can immediately open windows
 ```
 
 ## Implementation Plan
 
-### Phase 1: Desktop Actor + Single Window Mode (Mobile-First)
+### Phase 1: Desktop‑First Multi‑Window UI
 
-1. **Create DesktopActor** (backend)
+1. **DesktopActor** (backend)
    - Window state management
    - App registry
    - CRUD operations for windows
 
-2. **Create Desktop UI** (frontend)
-   - Full-screen window view (mobile)
-   - Taskbar/app switcher
-   - Window content area
+2. **Desktop UI shell**
+   - Left rail (icons + labels)
+   - Dock + prompt bar (always visible)
+   - Window canvas (floating, overlapping)
 
-3. **Port existing Chat UI**
-   - Wrap in window chrome
-   - Test on mobile
+3. **Window management**
+   - Drag move (title bar)
+   - Resize (bottom‑right handle)
+   - Z‑index on focus
 
-### Phase 2: Multi-Window + Desktop Mode
+4. **Responsive adaptation**
+   - Clamp window sizes on small screens
+   - Keep dock visible; collapse rail if needed
 
-1. **Add window positioning**
-   - Drag to move
-   - Resize handles
-   - Z-index management
+### Phase 2: Theme Suite + Variants
 
-2. **Responsive switching**
-   - Auto-detect screen size
-   - Switch between mobile/desktop modes
+1. Implement 4–6 initial themes
+2. Add theme selection mechanism (runtime)
+3. Document how agents can author new themes
 
 ### Phase 3: Dynamic App Creation
 
@@ -401,7 +475,8 @@ sandbox-ui/src/
   main.rs
   desktop.rs            # NEW: Desktop component
   window.rs             # NEW: Window chrome
-  taskbar.rs            # NEW: Taskbar/app switcher
+  dock.rs               # NEW: Dock + prompt bar
+  rail.rs               # NEW: Left rail app launcher
   apps/
     mod.rs              # NEW: App registry
     chat.rs             # Existing, move here
@@ -424,9 +499,9 @@ sandbox-ui/src/
 
 1. ✅ Review this design
 2. Implement DesktopActor (backend)
-3. Create mobile-first Desktop UI
+3. Create desktop-first UI shell (rail + dock + floating windows)
 4. Port Chat UI into window
-5. Test on phone + desktop
+5. Test on desktop + mobile responsive modes
 6. Then: dynamic app creation
 
 **Ready to proceed?**

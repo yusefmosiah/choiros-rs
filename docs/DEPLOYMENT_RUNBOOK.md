@@ -175,6 +175,54 @@ sudo systemctl enable unattended-upgrades
 echo "✅ Security hardening complete"
 ```
 
+### Step 3b: Service Hardening (Post‑Deploy)
+
+Apply after services are installed:
+
+```bash
+# Systemd hardening drop-ins
+sudo mkdir -p /etc/systemd/system/choiros-backend.service.d
+sudo mkdir -p /etc/systemd/system/choiros-frontend.service.d
+
+cat << 'EOF' | sudo tee /etc/systemd/system/choiros-backend.service.d/hardening.conf
+[Service]
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/choiros
+UMask=0027
+EOF
+
+cat << 'EOF' | sudo tee /etc/systemd/system/choiros-frontend.service.d/hardening.conf
+[Service]
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/choiros
+UMask=0027
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl restart choiros-backend choiros-frontend
+
+# Log rotation for app logs
+cat << 'EOF' | sudo tee /etc/logrotate.d/choiros
+/opt/choiros/logs/*.log {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}
+EOF
+```
+
+**CORS note:** Update the allow‑list in `sandbox/src/main.rs` before building/redeploying (see “CORS Configuration” below).
+
 ### Step 4: Install Dependencies
 
 ```bash
@@ -244,19 +292,26 @@ echo "✅ Dioxus CLI installed"
 cat << 'EOF' | sudo tee /etc/caddy/Caddyfile
 # Global options
 {
-    auto_https off  # Change to 'on' when you have a domain
-    admin off
+    auto_https off  # Change when you have a domain
 }
 
 # Your domain or IP
 :80 {
+    # Security headers (enable HSTS after HTTPS is on)
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        X-XSS-Protection "1; mode=block"
+        # Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+    }
+
     # Health check endpoint
     handle /health* {
         reverse_proxy localhost:8080
     }
 
     # Backend API
-    handle /api/* {
+    handle_path /api/* {
         reverse_proxy localhost:8080
     }
 
@@ -282,6 +337,7 @@ cat << 'EOF' | sudo tee /etc/caddy/Caddyfile
         output file /opt/choiros/logs/caddy.log {
             roll_size 10MB
             roll_keep 5
+            roll_keep_for 168h
         }
     }
 }
@@ -364,6 +420,20 @@ sudo systemctl enable choiros-frontend
 
 echo "✅ Systemd services created"
 ```
+
+### CORS Configuration (Backend)
+
+The backend enforces CORS in `sandbox/src/main.rs`. For production, keep a strict allow‑list:
+
+```
+http://<PUBLIC_IP>
+http://choir.chat
+https://choir.chat
+http://localhost:5173
+http://127.0.0.1:5173
+```
+
+After changing the allow‑list, rebuild and restart the backend.
 
 ---
 

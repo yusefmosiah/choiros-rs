@@ -4,7 +4,7 @@ mod actor_manager;
 
 use actix::Actor;
 use actix_cors::Cors;
-use actix_web::{web, App, HttpServer};
+use actix_web::{http::header, web, App, HttpServer};
 use actors::{EventStoreActor, AppendEvent};
 use actor_manager::AppState;
 
@@ -15,8 +15,10 @@ async fn main() -> std::io::Result<()> {
     
     tracing::info!("Starting ChoirOS Sandbox API Server");
     
-    // Use absolute path for database
-    let db_path = std::path::PathBuf::from("/Users/wiz/choiros-rs/data/events.db");
+    // Use configurable path for database
+    let db_path = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "/opt/choiros/data/events.db".to_string());
+    let db_path = std::path::PathBuf::from(db_path);
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent).expect("Failed to create data directory");
     }
@@ -53,11 +55,15 @@ async fn main() -> std::io::Result<()> {
     
     // Start HTTP server with CORS
     HttpServer::new(move || {
-        // Configure CORS to allow UI access
+        // Configure CORS to allow known UI origins
         let cors = Cors::default()
-            .allow_any_origin()
-            .allow_any_method()
-            .allow_any_header()
+            .allowed_origin("http://13.218.213.227")
+            .allowed_origin("http://choir.chat")
+            .allowed_origin("https://choir.chat")
+            .allowed_origin("http://localhost:5173")
+            .allowed_origin("http://127.0.0.1:5173")
+            .allowed_methods(vec!["GET", "POST", "DELETE", "PATCH", "OPTIONS"])
+            .allowed_headers(vec![header::CONTENT_TYPE, header::ACCEPT, header::AUTHORIZATION])
             .max_age(3600);
         
         App::new()
