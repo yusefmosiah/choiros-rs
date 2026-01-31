@@ -33,3 +33,6 @@ dashmap = "5.5"
 
 [dev-dependencies]
 actix-rt = { workspace = true }
+tempfile = "3.8"
+actix-web = { workspace = true }
+actix-service = "2"
