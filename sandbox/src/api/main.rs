@@ -1,11 +1,9 @@
 mod actors;
 mod api;
-mod actor_manager;
 
 use actix::Actor;
 use actix_web::{web, App, HttpServer};
-use actors::{EventStoreActor, AppendEvent};
-use actor_manager::AppState;
+use actors::{EventStoreActor, AppendEvent, GetEventsForActor};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -36,15 +34,15 @@ async fn main() -> std::io::Result<()> {
         Err(e) => tracing::error!("Mailbox error: {}", e),
     }
     
-    // Create app state with actor manager
-    let app_state = web::Data::new(AppState::new(event_store.clone()));
+    // Clone for HTTP server
+    let event_store_data = web::Data::new(event_store.clone());
     
     tracing::info!("Starting HTTP server on http://0.0.0.0:8080");
     
     // Start HTTP server
     HttpServer::new(move || {
         App::new()
-            .app_data(app_state.clone())
+            .app_data(event_store_data.clone())
             .route("/health", web::get().to(api::health_check))
             .configure(api::config)
     })

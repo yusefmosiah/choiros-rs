@@ -28,6 +28,7 @@ ulid = { workspace = true }
 baml = { workspace = true }
 thiserror = { workspace = true }
 shared-types = { path = "../shared-types" }
+dashmap = "5.5"
 
 [dev-dependencies]
 actix-rt = { workspace = true }
