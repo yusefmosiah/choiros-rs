@@ -134,7 +134,7 @@ pub struct DesktopState {
 }
 
 /// Individual window state
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WindowState {
     pub id: String,
     pub app_id: String, // "chat", "writer", "mail", etc.
@@ -150,7 +150,7 @@ pub struct WindowState {
 }
 
 /// App definition for dynamic app registration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AppDefinition {
     pub id: String,
     pub name: String,
