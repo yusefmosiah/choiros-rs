@@ -9,7 +9,6 @@ use serde_json::json;
 
 use crate::actor_manager::AppState;
 use crate::actors::chat::{SendUserMessage, GetMessages};
-use crate::actors::event_store::{EventStoreActor, AppendEvent};
 
 /// Request to send a chat message
 #[derive(Debug, Deserialize)]

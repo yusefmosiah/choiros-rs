@@ -14,8 +14,17 @@ async fn main() -> std::io::Result<()> {
     
     tracing::info!("Starting ChoirOS Sandbox API Server");
     
+    // Use absolute path for database
+    let db_path = std::path::PathBuf::from("/Users/wiz/choiros-rs/data/events.db");
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent).expect("Failed to create data directory");
+    }
+    
     // Create EventStoreActor (foundation of the system)
-    let event_store = EventStoreActor::new("/home/ubuntu/choiros-rs/data/events.db")
+    // libsql takes a plain file path (not sqlite:// URL like sqlx)
+    let db_path_str = db_path.to_str().expect("Invalid database path");
+    tracing::info!("Connecting to database: {}", db_path_str);
+    let event_store = EventStoreActor::new(db_path_str)
         .await
         .expect("Failed to create event store")
         .start();
