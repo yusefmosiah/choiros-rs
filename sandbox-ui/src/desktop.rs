@@ -10,7 +10,7 @@ use shared_types::{WindowState, AppDefinition, DesktopState};
 
 use crate::api::{
     fetch_desktop_state, open_window, close_window, focus_window,
-    move_window, resize_window,
+    move_window, resize_window, send_chat_message,
 };
 use crate::components::ChatView;
 
@@ -141,10 +141,83 @@ pub fn Desktop(desktop_id: String) -> Element {
         });
     });
     
+    // Handle prompt bar submission - opens/focuses chat and sends message
+    let handle_prompt_submit = use_callback(move |text: String| {
+        let desktop_id = desktop_id_signal.to_string();
+        // Clone the signal setter for use inside async block
+        let mut state_signal = desktop_state;
+        
+        spawn(async move {
+            // Try to find existing chat window by fetching fresh state
+            let chat_window_id = state_signal.read().as_ref().and_then(|s| {
+                s.windows.iter().find(|w| w.app_id == "chat").map(|w| w.id.clone())
+            });
+            
+            if let Some(window_id) = chat_window_id {
+                // Focus existing chat window
+                let _ = focus_window(&desktop_id, &window_id).await;
+                // Send message to chat
+                let _ = send_chat_message(&window_id, "user-1", &text).await;
+            } else {
+                // Open new chat window
+                match open_window(&desktop_id, "chat", "Chat", None).await {
+                    Ok(window) => {
+                        let window_id = window.id.clone();
+                        state_signal.write().as_mut().map(|s| {
+                            s.windows.push(window);
+                            s.active_window = Some(window_id.clone());
+                        });
+                        // Send message to new chat window
+                        let _ = send_chat_message(&window_id, "user-1", &text).await;
+                    }
+                    Err(e) => {
+                        dioxus_logger::tracing::error!("Failed to open chat window: {}", e);
+                    }
+                }
+            }
+        });
+    });
+    
     let current_state = desktop_state.read();
     let viewport_ref = viewport.read();
     let (vw, _vh) = *viewport_ref;
     let is_desktop = vw > 1024;
+    
+    // Core apps for desktop icons
+    let core_apps = vec![
+        AppDefinition {
+            id: "chat".to_string(),
+            name: "Chat".to_string(),
+            icon: "💬".to_string(),
+            component_code: "ChatApp".to_string(),
+            default_width: 600,
+            default_height: 500,
+        },
+        AppDefinition {
+            id: "writer".to_string(),
+            name: "Writer".to_string(),
+            icon: "📝".to_string(),
+            component_code: "WriterApp".to_string(),
+            default_width: 800,
+            default_height: 600,
+        },
+        AppDefinition {
+            id: "terminal".to_string(),
+            name: "Terminal".to_string(),
+            icon: "🖥️".to_string(),
+            component_code: "TerminalApp".to_string(),
+            default_width: 700,
+            default_height: 450,
+        },
+        AppDefinition {
+            id: "files".to_string(),
+            name: "Files".to_string(),
+            icon: "📁".to_string(),
+            component_code: "FilesApp".to_string(),
+            default_width: 700,
+            default_height: 500,
+        },
+    ];
     
     rsx! {
         // Global CSS variables for theming
@@ -154,24 +227,24 @@ pub fn Desktop(desktop_id: String) -> Element {
             class: "desktop-shell",
             style: "min-height: 100vh; display: flex; flex-direction: column; overflow: hidden;",
             
-            // Main workspace area
+            // Main workspace area (full width, no sidebar)
             div {
                 class: "desktop-workspace",
-                style: "flex: 1; display: flex; overflow: hidden; position: relative;",
+                style: "flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative;",
                 
-                // App Dock (left side on desktop, hidden or bottom on mobile)
+                // Desktop icons (grid layout)
                 if let Some(state) = current_state.as_ref() {
-                    AppDock {
-                        apps: state.apps.clone(),
+                    DesktopIcons {
+                        apps: core_apps,
                         on_open_app: open_app_window.clone(),
-                        is_collapsed: !is_desktop,
+                        is_mobile: !is_desktop,
                     }
                 }
                 
-                // Window canvas
+                // Window canvas (full width, positioned over icons)
                 div {
                     class: "window-canvas",
-                    style: "flex: 1; position: relative; overflow: hidden;",
+                    style: "flex: 1; position: relative; overflow: hidden; z-index: 10;",
                     
                     if loading() {
                         LoadingState {}
@@ -197,48 +270,80 @@ pub fn Desktop(desktop_id: String) -> Element {
                 }
             }
             
-            // Prompt Bar (always visible)
-            PromptBar {
-                connected: ws_connected(),
-                on_submit: move |text: String| {
-                    // TODO: Open chat with this prompt
-                    dioxus_logger::tracing::info!("Prompt submitted: {}", text);
-                },
+            // Prompt Bar with running app indicators
+            if let Some(state) = current_state.as_ref() {
+                PromptBar {
+                    connected: ws_connected(),
+                    windows: state.windows.clone(),
+                    active_window: state.active_window.clone(),
+                    on_submit: handle_prompt_submit.clone(),
+                    on_focus_window: focus_window_cb.clone(),
+                }
+            } else {
+                PromptBar {
+                    connected: ws_connected(),
+                    windows: vec![],
+                    active_window: None,
+                    on_submit: handle_prompt_submit.clone(),
+                    on_focus_window: focus_window_cb.clone(),
+                }
             }
         }
     }
 }
 
 // ============================================================================
-// App Dock - App launcher icons
+// Desktop Icons - App launcher on desktop background
 // ============================================================================
 
 #[component]
-fn AppDock(
+fn DesktopIcons(
     apps: Vec<AppDefinition>,
     on_open_app: Callback<AppDefinition>,
-    is_collapsed: bool,
+    is_mobile: bool,
 ) -> Element {
-    if is_collapsed {
-        // Mobile: Could show as bottom sheet or hamburger menu
-        // For now, just hide and use prompt bar for app switching
-        return rsx! { div { style: "display: none;" } };
-    }
+    // Grid layout: 4 columns on desktop, 2 on mobile
+    let columns = if is_mobile { 2 } else { 4 };
+    let icon_size = if is_mobile { "4rem" } else { "5rem" };
     
     rsx! {
         div {
-            class: "app-dock",
-            style: "width: 200px; display: flex; flex-direction: column; padding: 1rem; gap: 0.5rem; overflow-y: auto; border-right: 1px solid var(--border-color, #333); background: var(--dock-bg, #1a1a2e);",
+            class: "desktop-icons",
+            style: "position: absolute; top: 1rem; left: 1rem; z-index: 1; display: grid; grid-template-columns: repeat({columns}, {icon_size}); gap: 1.5rem; padding: 1rem;",
             
             for app in apps {
-                button {
-                    class: "dock-app-btn",
-                    style: "display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: transparent; border: none; border-radius: var(--radius-md, 8px); cursor: pointer; color: var(--text-secondary, #9ca3af); transition: all 0.2s;",
-                    onclick: move |_| on_open_app.call(app.clone()),
-                    
-                    span { style: "font-size: 1.5rem;", "{app.icon}" }
-                    span { style: "font-size: 0.875rem; font-weight: 500;", "{app.name}" }
+                DesktopIcon {
+                    app: app.clone(),
+                    on_open_app: on_open_app.clone(),
+                    is_mobile,
                 }
+            }
+        }
+    }
+}
+
+#[component]
+fn DesktopIcon(
+    app: AppDefinition,
+    on_open_app: Callback<AppDefinition>,
+    is_mobile: bool,
+) -> Element {
+    let icon_size = if is_mobile { "3rem" } else { "3.5rem" };
+    let font_size = if is_mobile { "2rem" } else { "2.5rem" };
+    
+    rsx! {
+        button {
+            class: "desktop-icon",
+            style: "display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 0.75rem; background: transparent; border: none; border-radius: var(--radius-md, 8px); cursor: pointer; transition: all 0.2s;",
+            onclick: move |_| on_open_app.call(app.clone()),
+            
+            div {
+                style: "width: {icon_size}; height: {icon_size}; display: flex; align-items: center; justify-content: center; background: var(--dock-bg, rgba(30, 41, 59, 0.8)); border-radius: var(--radius-lg, 12px); backdrop-filter: blur(8px); border: 1px solid var(--border-color, #334155);",
+                span { style: "font-size: {font_size};", "{app.icon}" }
+            }
+            span {
+                style: "font-size: 0.75rem; color: var(--text-secondary, #94a3b8); text-align: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.5);",
+                "{app.name}"
             }
         }
     }
@@ -262,16 +367,16 @@ fn FloatingWindow(
     let (vw, vh) = viewport;
     let is_mobile = vw <= 1024;
     
-    // Responsive sizing
+    // Responsive sizing - no dock offset needed anymore
     let (width, height, x, y) = if is_mobile {
         // Mobile: Full screen with small margin
         (vw as i32 - 20, vh as i32 - 100, 10i32, 10i32)
     } else {
-        // Desktop: Use window state, clamp to viewport
+        // Desktop: Use window state, clamp to viewport (no dock offset)
         let w = window.width.min(vw as i32 - 40);
         let h = window.height.min(vh as i32 - 120);
-        let x = window.x.max(200).min(vw as i32 - w - 10); // Don't cover dock
-        let y = window.y.max(10).min(vh as i32 - h - 60); // Don't cover prompt bar
+        let x = window.x.max(10).min(vw as i32 - w - 10);
+        let y = window.y.max(10).min(vh as i32 - h - 60);
         (w, h, x, y)
     };
     
@@ -348,13 +453,16 @@ fn FloatingWindow(
 }
 
 // ============================================================================
-// Prompt Bar - Command input
+// Prompt Bar - Command input with running app indicators
 // ============================================================================
 
 #[component]
 fn PromptBar(
     connected: bool,
+    windows: Vec<WindowState>,
+    active_window: Option<String>,
     on_submit: Callback<String>,
+    on_focus_window: Callback<String>,
 ) -> Element {
     let mut input_value = use_signal(|| String::new());
     
@@ -366,7 +474,7 @@ fn PromptBar(
             // Help button
             button {
                 class: "prompt-help-btn",
-                style: "width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--accent-bg, #3b82f6); color: white; border: none; border-radius: var(--radius-md, 8px); cursor: pointer; font-weight: 600;",
+                style: "width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--accent-bg, #3b82f6); color: white; border: none; border-radius: var(--radius-md, 8px); cursor: pointer; font-weight: 600; flex-shrink: 0;",
                 onclick: move |_| {
                     // TODO: Show command palette
                 },
@@ -376,7 +484,7 @@ fn PromptBar(
             // Input field
             input {
                 class: "prompt-input",
-                style: "flex: 1; padding: 0.5rem 1rem; background: var(--input-bg, #1f2937); color: var(--text-primary, white); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); font-size: 0.875rem; outline: none;",
+                style: "flex: 1; padding: 0.5rem 1rem; background: var(--input-bg, #1f2937); color: var(--text-primary, white); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); font-size: 0.875rem; outline: none; min-width: 0;",
                 placeholder: "Ask anything, paste URL, or type ? for commands...",
                 value: "{input_value}",
                 oninput: move |e| input_value.set(e.value().clone()),
@@ -391,18 +499,58 @@ fn PromptBar(
                 }
             }
             
+            // Running app indicators (right side)
+            if !windows.is_empty() {
+                div {
+                    class: "running-apps",
+                    style: "display: flex; align-items: center; gap: 0.25rem; flex-shrink: 0;",
+                    
+                    for window in windows.iter() {
+                        RunningAppIndicator {
+                            window: window.clone(),
+                            is_active: active_window.as_ref() == Some(&window.id),
+                            on_focus: on_focus_window.clone(),
+                        }
+                    }
+                }
+            }
+            
             // Connection status
             div {
                 class: if connected { "ws-status connected" } else { "ws-status" },
                 style: if connected { 
-                    "display: flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.5rem; background: var(--success-bg, #10b981); color: white; border-radius: var(--radius-sm, 4px); font-size: 0.75rem;" 
+                    "display: flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.5rem; background: var(--success-bg, #10b981); color: white; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; flex-shrink: 0;" 
                 } else { 
-                    "display: flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.5rem; background: var(--warning-bg, #f59e0b); color: white; border-radius: var(--radius-sm, 4px); font-size: 0.75rem;" 
+                    "display: flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.5rem; background: var(--warning-bg, #f59e0b); color: white; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; flex-shrink: 0;" 
                 },
                 
                 span { if connected { "●" } else { "◐" } }
                 span { if connected { "Connected" } else { "Connecting..." } }
             }
+        }
+    }
+}
+
+#[component]
+fn RunningAppIndicator(
+    window: WindowState,
+    is_active: bool,
+    on_focus: Callback<String>,
+) -> Element {
+    let icon = get_app_icon(&window.app_id);
+    let window_id = window.id.clone();
+    
+    rsx! {
+        button {
+            class: if is_active { "running-app active" } else { "running-app" },
+            style: if is_active {
+                "width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--accent-bg, #3b82f6); color: white; border: none; border-radius: var(--radius-md, 8px); cursor: pointer; font-size: 1.25rem;"
+            } else {
+                "width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--window-bg, #1f2937); color: var(--text-secondary, #9ca3af); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); cursor: pointer; font-size: 1.25rem;"
+            },
+            onclick: move |_| on_focus.call(window_id.clone()),
+            title: "{window.title}",
+            "{icon}"
         }
     }
 }
@@ -438,7 +586,7 @@ fn EmptyState() -> Element {
         div {
             style: "display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-muted, #6b7280);",
             p { "No windows open" }
-            p { style: "font-size: 0.875rem; margin-top: 0.5rem;", "Click an app in the dock to get started" }
+            p { style: "font-size: 0.875rem; margin-top: 0.5rem;", "Click an app icon to get started" }
         }
     }
 }
@@ -462,7 +610,7 @@ const DEFAULT_TOKENS: &str = r#"
     /* Semantic colors */
     --window-bg: var(--bg-secondary);
     --titlebar-bg: var(--bg-primary);
-    --dock-bg: var(--bg-secondary);
+    --dock-bg: rgba(30, 41, 59, 0.8);
     --promptbar-bg: var(--bg-primary);
     --input-bg: var(--bg-secondary);
     --hover-bg: rgba(255, 255, 255, 0.1);
@@ -493,6 +641,42 @@ body {
     background: var(--bg-primary);
     color: var(--text-primary);
 }
+
+/* Desktop icon hover effect */
+.desktop-icon:hover {
+    background: var(--hover-bg, rgba(255, 255, 255, 0.1));
+}
+
+.desktop-icon:hover div {
+    background: var(--window-bg, #1f2937);
+    transform: scale(1.05);
+}
+
+/* Running app indicator hover */
+.running-app:hover {
+    background: var(--hover-bg, rgba(255, 255, 255, 0.1)) !important;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 1024px) {
+    .desktop-icons {
+        gap: 1rem !important;
+    }
+    
+    .prompt-bar {
+        padding: 0.5rem !important;
+    }
+    
+    .running-apps {
+        display: none !important; /* Hide running apps on small mobile */
+    }
+}
+
+@media (max-width: 640px) {
+    .desktop-icons {
+        grid-template-columns: repeat(2, 4rem) !important;
+    }
+}
 "#;
 
 // ============================================================================
@@ -502,6 +686,9 @@ body {
 fn get_app_icon(app_id: &str) -> &'static str {
     match app_id {
         "chat" => "💬",
+        "writer" => "📝",
+        "terminal" => "🖥️",
+        "files" => "📁",
         _ => "📱",
     }
 }
