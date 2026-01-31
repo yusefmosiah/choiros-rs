@@ -25,7 +25,7 @@ pub fn Desktop(desktop_id: String) -> Element {
     let mut error = use_signal(|| None::<String>);
     let mut ws_connected = use_signal(|| false);
     let desktop_id_signal = use_signal(|| desktop_id.clone());
-    let viewport = use_signal(|| (1920u32, 1080u32));
+    let mut viewport = use_signal(|| (1920u32, 1080u32));
     
     // Track viewport size for responsive behavior
     use_effect(move || {
@@ -70,9 +70,10 @@ pub fn Desktop(desktop_id: String) -> Element {
         spawn(async move {
             match open_window(&desktop_id, &app.id, &app.name, None).await {
                 Ok(window) => {
+                    let window_id = window.id.clone();
                     desktop_state.write().as_mut().map(|s| {
                         s.windows.push(window);
-                        s.active_window = Some(window.id.clone());
+                        s.active_window = Some(window_id);
                     });
                 }
                 Err(e) => {
@@ -109,8 +110,9 @@ pub fn Desktop(desktop_id: String) -> Element {
                     desktop_state.write().as_mut().map(|s| {
                         s.active_window = Some(window_id.clone());
                         // Update z-index locally
+                        let max_z = s.windows.iter().map(|w| w.z_index).max().unwrap_or(0);
                         if let Some(window) = s.windows.iter_mut().find(|w| w.id == window_id) {
-                            window.z_index = s.windows.iter().map(|w| w.z_index).max().unwrap_or(0) + 1;
+                            window.z_index = max_z + 1;
                         }
                     });
                 }
@@ -140,8 +142,9 @@ pub fn Desktop(desktop_id: String) -> Element {
     });
     
     let current_state = desktop_state.read();
-    let (vw, vh) = viewport.read();
-    let is_desktop = *vw > 1024;
+    let viewport_ref = viewport.read();
+    let (vw, _vh) = *viewport_ref;
+    let is_desktop = vw > 1024;
     
     rsx! {
         // Global CSS variables for theming
@@ -231,7 +234,6 @@ fn AppDock(
                 button {
                     class: "dock-app-btn",
                     style: "display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: transparent; border: none; border-radius: var(--radius-md, 8px); cursor: pointer; color: var(--text-secondary, #9ca3af); transition: all 0.2s;",
-                    style_hover: "background: var(--hover-bg, rgba(255,255,255,0.1)); color: var(--text-primary, white);",
                     onclick: move |_| on_open_app.call(app.clone()),
                     
                     span { style: "font-size: 1.5rem;", "{app.icon}" }
@@ -266,23 +268,25 @@ fn FloatingWindow(
         (vw as i32 - 20, vh as i32 - 100, 10i32, 10i32)
     } else {
         // Desktop: Use window state, clamp to viewport
-        let w = window.width.min(vw - 40) as i32;
-        let h = window.height.min(vh - 120) as i32;
+        let w = window.width.min(vw as i32 - 40);
+        let h = window.height.min(vh as i32 - 120);
         let x = window.x.max(200).min(vw as i32 - w - 10); // Don't cover dock
         let y = window.y.max(10).min(vh as i32 - h - 60); // Don't cover prompt bar
         (w, h, x, y)
     };
     
     let z_index = window.z_index;
+    let window_id_for_focus = window_id.clone();
     let window_id_for_drag = window_id.clone();
     let window_id_for_close = window_id.clone();
+    let window_id_for_resize = window_id.clone();
     let on_move_drag = on_move.clone();
     
     rsx! {
         div {
             class: if is_active { "floating-window active" } else { "floating-window" },
             style: "position: absolute; left: {x}px; top: {y}px; width: {width}px; height: {height}px; z-index: {z_index}; display: flex; flex-direction: column; background: var(--window-bg, #1f2937); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-lg, 12px); overflow: hidden; box-shadow: var(--shadow-lg, 0 10px 40px rgba(0,0,0,0.5));",
-            onclick: move |_| on_focus.call(window_id.clone()),
+            onclick: move |_| on_focus.call(window_id_for_focus.clone()),
             
             // Title bar (draggable)
             div {
@@ -303,7 +307,6 @@ fn FloatingWindow(
                 button {
                     class: "window-close",
                     style: "width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--text-secondary, #9ca3af); border: none; border-radius: var(--radius-sm, 4px); cursor: pointer; font-size: 1.25rem; line-height: 1;",
-                    style_hover: "background: var(--danger-bg, #ef4444); color: white;",
                     onclick: move |e| {
                         e.stop_propagation();
                         on_close.call(window_id_for_close.clone());
@@ -324,7 +327,7 @@ fn FloatingWindow(
                     _ => rsx! {
                         div {
                             style: "display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-muted, #6b7280);",
-                            "App '{}' not yet implemented"
+                            "App not yet implemented"
                         }
                     }
                 }
@@ -336,7 +339,7 @@ fn FloatingWindow(
                     class: "resize-handle",
                     style: "position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: se-resize;",
                     onmousedown: move |e| {
-                        start_resize(e, window_id.clone(), on_resize.clone());
+                        start_resize(e, window_id_for_resize.clone(), on_resize.clone());
                     },
                 }
             }
@@ -374,7 +377,6 @@ fn PromptBar(
             input {
                 class: "prompt-input",
                 style: "flex: 1; padding: 0.5rem 1rem; background: var(--input-bg, #1f2937); color: var(--text-primary, white); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); font-size: 0.875rem; outline: none;",
-                style_focus: "border-color: var(--accent-bg, #3b82f6);",
                 placeholder: "Ask anything, paste URL, or type ? for commands...",
                 value: "{input_value}",
                 oninput: move |e| input_value.set(e.value().clone()),
@@ -540,8 +542,8 @@ fn handle_ws_event(
         WsEvent::WindowResized { window_id, width, height } => {
             desktop_state.write().as_mut().map(|s| {
                 if let Some(window) = s.windows.iter_mut().find(|w| w.id == window_id) {
-                    window.width = width;
-                    window.height = height;
+                    window.width = width as i32;
+                    window.height = height as i32;
                 }
             });
         }
