@@ -2,20 +2,28 @@
 
 ## Summary
 
-Successfully implemented a complete ChoirOS system with backend API and Dioxus frontend UI. All components are built and tested end-to-end.
+Successfully implemented a complete ChoirOS system with backend API and Dioxus frontend UI. All components are built and tested end-to-end. DesktopActor now manages window state and app registry.
 
 ## What's Working
 
 ### Backend (sandbox) ✅
 - **Server:** Running on localhost:8080
 - **Database:** libsql/SQLite with event sourcing
-- **Actors:** EventStoreActor, ChatActor, ActorManager
+- **Actors:** EventStoreActor, ChatActor, **DesktopActor** (NEW), ActorManager
 - **API Endpoints:**
   - GET /health - Health check
   - POST /chat/send - Send messages
   - GET /chat/{actor_id}/messages - Get chat history
+  - **NEW Desktop Endpoints:**
+    - GET /desktop/{id} - Full desktop state
+    - GET/POST /desktop/{id}/windows - Window management
+    - DELETE /desktop/{id}/windows/{id} - Close window
+    - PATCH /desktop/{id}/windows/{id}/position - Move window
+    - PATCH /desktop/{id}/windows/{id}/size - Resize window
+    - POST /desktop/{id}/windows/{id}/focus - Focus window
+    - GET/POST /desktop/{id}/apps - App registry
 - **CORS:** Enabled for cross-origin requests from UI
-- **Tests:** All 11 unit tests passing
+- **Tests:** All 18 unit tests passing (11 chat + 7 desktop)
 
 ### Frontend (sandbox-ui) ✅
 - **Framework:** Dioxus 0.7 (WASM)
@@ -42,6 +50,7 @@ Successfully implemented a complete ChoirOS system with backend API and Dioxus f
                     │    Actor System   │
                     │  • EventStore     │
                     │  • ChatActor      │
+                    │  • DesktopActor   │ ← NEW: Window/app state
                     └───────────────────┘
 ```
 
@@ -69,6 +78,9 @@ dx serve
 # Backend health
 curl http://localhost:8080/health
 
+# Desktop API test
+curl http://localhost:8080/desktop/test-desktop
+
 # Run tests
 cargo test -p sandbox
 
@@ -85,6 +97,8 @@ cargo build -p sandbox-ui
 4. ✅ Message sent from UI reaches backend
 5. ✅ Message stored in SQLite database
 6. ✅ Message retrieved and displayed in chat
+7. ✅ **NEW: DesktopActor manages window state**
+8. ✅ **NEW: Dynamic app registration works**
 
 Example message flow:
 - User types "Hello from ChoirOS!" in UI
@@ -98,18 +112,22 @@ Example message flow:
 1. `e649f2b` - feat: migrate from sqlx to libsql
 2. `361fd86` - docs: cleanup and solidify documentation  
 3. `77bfc81` - feat: implement Dioxus chat UI with full end-to-end testing
+4. `8e4efc5` - feat: implement DesktopActor with window management and app registry
 
 ## Next Steps
 
 ### High Priority
-1. **LLM Integration** - Wire up BAML to generate AI responses
-2. **Tool Calling** - Add bash/file operation tools
-3. **WebSocket Support** - Real-time updates instead of polling
+1. **Desktop UI** - Create mobile-first window system (Phase 1)
+   - Desktop component with window chrome
+   - Taskbar/app switcher
+   - Wrap Chat UI in window
+2. **LLM Integration** - Wire up BAML to generate AI responses
+3. **Tool Calling** - Add bash/file operation tools
 
 ### Medium Priority
 4. **Writer Actor** - File editing capabilities
 5. **Hypervisor** - Multi-user sandbox routing
-6. **Desktop UI** - Multiple app windows
+6. **Multi-Window Desktop** - Floating windows for desktop mode
 
 ### Completed ✅
 - ~~libsql migration~~
@@ -117,6 +135,9 @@ Example message flow:
 - ~~Chat UI~~
 - ~~End-to-end testing~~
 - ~~Documentation cleanup~~
+- ~~DesktopActor implementation~~
+- ~~Window state management~~
+- ~~Dynamic app registry~~
 
 ## Tech Stack
 
@@ -127,14 +148,16 @@ Example message flow:
 | Database | SQLite (libsql 0.9) | ✅ Working |
 | HTTP Client | gloo-net | ✅ Working |
 | Logging | dioxus-logger | ✅ Working |
+| Event Sourcing | Custom (Actor-based) | ✅ Working |
 
 ## Documentation
 
 - `README.md` - Quick start guide
 - `docs/ARCHITECTURE_SPECIFICATION.md` - Full architecture spec
+- `docs/DESKTOP_ARCHITECTURE_DESIGN.md` - Desktop-specific design
 - `handoffs/` - Session context for future work
 
 ---
 
 *Last updated: 2026-01-31*  
-*Status: MVP Chat working end-to-end*
+*Status: DesktopActor complete, ready for Desktop UI*
