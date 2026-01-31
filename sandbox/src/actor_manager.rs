@@ -17,11 +17,12 @@ use actix::{Actor, Addr, Supervisor};
 use dashmap::DashMap;
 use std::sync::Arc;
 
-use crate::actors::{ChatActor, EventStoreActor};
+use crate::actors::{ChatActor, DesktopActor, EventStoreActor};
 
 /// Global manager for persistent actor instances
 pub struct ActorManager {
     chat_actors: Arc<DashMap<String, Addr<ChatActor>>>,
+    desktop_actors: Arc<DashMap<String, Addr<DesktopActor>>>,
     event_store: Addr<EventStoreActor>,
 }
 
@@ -29,6 +30,7 @@ impl ActorManager {
     pub fn new(event_store: Addr<EventStoreActor>) -> Self {
         Self {
             chat_actors: Arc::new(DashMap::new()),
+            desktop_actors: Arc::new(DashMap::new()),
             event_store,
         }
     }
@@ -55,6 +57,30 @@ impl ActorManager {
     /// Get existing ChatActor if it exists
     pub fn get_chat(&self, actor_id: &str) -> Option<Addr<ChatActor>> {
         self.chat_actors.get(actor_id).map(|e| e.clone())
+    }
+
+    /// Get existing DesktopActor or create supervised instance
+    pub fn get_or_create_desktop(&self, desktop_id: String, user_id: String) -> Addr<DesktopActor> {
+        // Fast path: check if exists
+        if let Some(entry) = self.desktop_actors.get(&desktop_id) {
+            return entry.clone();
+        }
+
+        // Slow path: create new supervised actor
+        let event_store = self.event_store.clone();
+        let desktop_id_clone = desktop_id.clone();
+        let desktop_addr =
+            Supervisor::start(move |_| DesktopActor::new(desktop_id_clone, user_id, event_store));
+
+        // Store in registry
+        self.desktop_actors.insert(desktop_id, desktop_addr.clone());
+
+        desktop_addr
+    }
+
+    /// Get existing DesktopActor if it exists
+    pub fn get_desktop(&self, desktop_id: &str) -> Option<Addr<DesktopActor>> {
+        self.desktop_actors.get(desktop_id).map(|e| e.clone())
     }
 }
 

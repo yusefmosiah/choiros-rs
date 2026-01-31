@@ -130,19 +130,34 @@ pub enum WriterMsg {
 pub struct DesktopState {
     pub windows: Vec<WindowState>,
     pub active_window: Option<String>,
+    pub apps: Vec<AppDefinition>,
 }
 
 /// Individual window state
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WindowState {
     pub id: String,
-    pub app_type: String, // "chat", "writer", "mail", etc.
+    pub app_id: String, // "chat", "writer", "mail", etc.
     pub title: String,
     pub x: i32,
     pub y: i32,
     pub width: i32,
     pub height: i32,
+    pub z_index: u32,
     pub minimized: bool,
+    pub maximized: bool,
+    pub props: serde_json::Value, // App-specific data
+}
+
+/// App definition for dynamic app registration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppDefinition {
+    pub id: String,
+    pub name: String,
+    pub icon: String,           // emoji or SVG
+    pub component_code: String, // Source code or WASM path
+    pub default_width: i32,
+    pub default_height: i32,
 }
 
 /// Chat message for UI display
