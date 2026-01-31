@@ -8,6 +8,7 @@ use serde_json::json;
 
 pub mod chat;
 pub mod desktop;
+pub mod websocket;
 
 /// Configure all API routes
 pub fn config(cfg: &mut web::ServiceConfig) {

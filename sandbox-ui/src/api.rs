@@ -289,6 +289,86 @@ pub async fn focus_window(desktop_id: &str, window_id: &str) -> Result<(), Strin
     Ok(())
 }
 
+#[derive(Debug, Serialize)]
+pub struct MoveWindowRequest {
+    pub x: i32,
+    pub y: i32,
+}
+
+pub async fn move_window(desktop_id: &str, window_id: &str, x: i32, y: i32) -> Result<(), String> {
+    let url = format!("{}/desktop/{}/windows/{}/position", API_BASE, desktop_id, window_id);
+    
+    let request = MoveWindowRequest { x, y };
+    
+    let response = Request::patch(&url)
+        .json(&request)
+        .map_err(|e| format!("Failed to serialize request: {}", e))?
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+    
+    if !response.ok() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+    
+    #[derive(Debug, Deserialize)]
+    struct Response {
+        success: bool,
+        error: Option<String>,
+    }
+    
+    let data: Response = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+    
+    if !data.success {
+        return Err(data.error.unwrap_or_else(|| "Unknown error".to_string()));
+    }
+    
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+pub struct ResizeWindowRequest {
+    pub width: i32,
+    pub height: i32,
+}
+
+pub async fn resize_window(desktop_id: &str, window_id: &str, width: i32, height: i32) -> Result<(), String> {
+    let url = format!("{}/desktop/{}/windows/{}/size", API_BASE, desktop_id, window_id);
+    
+    let request = ResizeWindowRequest { width, height };
+    
+    let response = Request::patch(&url)
+        .json(&request)
+        .map_err(|e| format!("Failed to serialize request: {}", e))?
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+    
+    if !response.ok() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+    
+    #[derive(Debug, Deserialize)]
+    struct Response {
+        success: bool,
+        error: Option<String>,
+    }
+    
+    let data: Response = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+    
+    if !data.success {
+        return Err(data.error.unwrap_or_else(|| "Unknown error".to_string()));
+    }
+    
+    Ok(())
+}
+
 pub async fn fetch_apps(desktop_id: &str) -> Result<Vec<AppDefinition>, String> {
     let url = format!("{}/desktop/{}/apps", API_BASE, desktop_id);
     

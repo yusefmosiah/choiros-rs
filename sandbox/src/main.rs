@@ -51,6 +51,9 @@ async fn main() -> std::io::Result<()> {
     // Create app state with actor manager
     let app_state = web::Data::new(AppState::new(event_store.clone()));
     
+    // Create WebSocket sessions state
+    let ws_sessions = web::Data::new(api::websocket::WsSessions::default());
+    
     tracing::info!("Starting HTTP server on http://0.0.0.0:8080");
     
     // Start HTTP server with CORS
@@ -69,7 +72,9 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .wrap(cors)
             .app_data(app_state.clone())
+            .app_data(ws_sessions.clone())
             .route("/health", web::get().to(api::health_check))
+            .route("/ws", web::get().to(api::websocket::ws_handler))
             .configure(api::config)
     })
     .bind("0.0.0.0:8080")?
