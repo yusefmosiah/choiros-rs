@@ -4,18 +4,15 @@
 //! and state recovery. These tests verify the event-sourced architecture works
 //! correctly across all components.
 
-use actix::{Actor, Addr};
+use actix::Actor;
 use std::time::Duration;
 use tokio::time::sleep;
 
 use sandbox::actors::chat::{ChatActor, GetMessages, SendUserMessage, SyncEvents};
-use sandbox::actors::chat_agent::{
-    ChatAgent, ChatAgentError, ExecutedToolCall, GetConversationHistory, ProcessMessage,
-};
+use sandbox::actors::chat_agent::{ChatAgent, GetConversationHistory, ProcessMessage};
 use sandbox::actors::event_store::{
-    AppendEvent, EventStoreActor, EventStoreError, GetEventBySeq, GetEventsForActor,
+    AppendEvent, EventStoreActor, GetEventBySeq, GetEventsForActor,
 };
-use sandbox::tools::{ToolOutput, ToolRegistry};
 
 // ============================================================================
 // Test Helpers
@@ -371,7 +368,7 @@ async fn test_event_store_persistence_file() {
         for (i, event) in events.iter().enumerate() {
             assert_eq!(
                 event.payload,
-                serde_json::json!(format!("Persistent message {}", i))
+                serde_json::json!(format!("Persistent message {i}"))
             );
         }
     }
@@ -464,7 +461,7 @@ async fn test_chat_actor_sync_on_startup() {
 
     // Verify correct order
     for (i, msg) in messages.iter().enumerate() {
-        assert_eq!(msg.text, format!("Pre-existing message {}", i));
+        assert_eq!(msg.text, format!("Pre-existing message {i}"));
         assert!(!msg.pending, "Synced messages should not be pending");
     }
 }
@@ -959,8 +956,7 @@ async fn test_conversation_history_large_conversation() {
     assert_eq!(
         events.len(),
         num_messages,
-        "Should handle {} messages",
-        num_messages
+        "Should handle {num_messages} messages"
     );
 
     // Verify ordering maintained
@@ -1080,7 +1076,7 @@ async fn test_agent_logs_assistant_response() {
     // If BAML succeeded, history should have 2 messages (user + assistant)
     // If BAML failed, history may only have 1 (user)
     assert!(
-        history.len() >= 1,
+        !history.is_empty(),
         "Agent should track conversation history"
     );
 
@@ -1458,7 +1454,7 @@ async fn test_recovery_after_crash() {
     for (i, event) in events.iter().enumerate() {
         assert_eq!(
             event.payload,
-            serde_json::json!(format!("Pre-crash message {}", i))
+            serde_json::json!(format!("Pre-crash message {i}"))
         );
     }
 }

@@ -36,10 +36,10 @@ async fn recv_json(
         match timeout(timeout_duration, ws.next()).await {
             Ok(Some(Ok(Frame::Text(bytes)))) => {
                 let text = std::str::from_utf8(&bytes).map_err(|e| {
-                    actix_web::error::ErrorInternalServerError(format!("Invalid UTF-8: {}", e))
+                    actix_web::error::ErrorInternalServerError(format!("Invalid UTF-8: {e}"))
                 })?;
                 let value: Value = serde_json::from_str(text).map_err(|e| {
-                    actix_web::error::ErrorInternalServerError(format!("Invalid JSON: {}", e))
+                    actix_web::error::ErrorInternalServerError(format!("Invalid JSON: {e}"))
                 })?;
                 return Ok(value);
             }
@@ -52,8 +52,7 @@ async fn recv_json(
             }
             Ok(Some(Err(e))) => {
                 return Err(actix_web::error::ErrorInternalServerError(format!(
-                    "Frame error: {:?}",
-                    e
+                    "Frame error: {e:?}"
                 )))
             }
             Ok(None) => return Err(actix_web::error::ErrorBadRequest("Stream ended")),
@@ -74,7 +73,7 @@ async fn send_json(
     let text = msg.to_string();
     ws.send(actix_http::ws::Message::Text(text.into()))
         .await
-        .map_err(|e| actix_web::error::ErrorInternalServerError(format!("Send error: {:?}", e)))?;
+        .map_err(|e| actix_web::error::ErrorInternalServerError(format!("Send error: {e:?}")))?;
     Ok(())
 }
 
@@ -105,7 +104,7 @@ async fn test_websocket_connection_with_query_param() {
 
     // Create WebSocket connection
     let mut framed = srv
-        .ws_at(&format!("/ws/chat/{}?user_id={}", actor_id, user_id))
+        .ws_at(&format!("/ws/chat/{actor_id}?user_id={user_id}"))
         .await
         .expect("Failed to connect WebSocket");
 
@@ -142,7 +141,7 @@ async fn test_websocket_connection_with_path_param() {
     let user_id = test_user_id();
 
     let mut framed = srv
-        .ws_at(&format!("/ws/chat/{}/{}", actor_id, user_id))
+        .ws_at(&format!("/ws/chat/{actor_id}/{user_id}"))
         .await
         .expect("Failed to connect WebSocket");
 
@@ -177,7 +176,7 @@ async fn test_websocket_connection_default_user() {
     let actor_id = test_actor_id();
 
     let mut framed = srv
-        .ws_at(&format!("/ws/chat/{}", actor_id))
+        .ws_at(&format!("/ws/chat/{actor_id}"))
         .await
         .expect("Failed to connect WebSocket");
 
@@ -212,7 +211,7 @@ async fn test_websocket_ping_pong() {
     let actor_id = test_actor_id();
 
     let mut framed = srv
-        .ws_at(&format!("/ws/chat/{}", actor_id))
+        .ws_at(&format!("/ws/chat/{actor_id}"))
         .await
         .expect("Failed to connect WebSocket");
 
@@ -252,7 +251,7 @@ async fn test_websocket_error_handling_invalid_json() {
     let actor_id = test_actor_id();
 
     let mut framed = srv
-        .ws_at(&format!("/ws/chat/{}", actor_id))
+        .ws_at(&format!("/ws/chat/{actor_id}"))
         .await
         .expect("Failed to connect WebSocket");
 
@@ -297,7 +296,7 @@ async fn test_websocket_model_switch_success() {
     let actor_id = test_actor_id();
 
     let mut framed = srv
-        .ws_at(&format!("/ws/chat/{}", actor_id))
+        .ws_at(&format!("/ws/chat/{actor_id}"))
         .await
         .expect("Failed to connect WebSocket");
 
@@ -347,7 +346,7 @@ async fn test_websocket_model_switch_another_valid() {
     let actor_id = test_actor_id();
 
     let mut framed = srv
-        .ws_at(&format!("/ws/chat/{}", actor_id))
+        .ws_at(&format!("/ws/chat/{actor_id}"))
         .await
         .expect("Failed to connect WebSocket");
 
@@ -398,11 +397,11 @@ async fn test_websocket_concurrent_connections() {
     let mut connections: Vec<(String, String, _)> = vec![];
 
     for i in 0..num_connections {
-        let actor_id = format!("concurrent-actor-{}", i);
-        let user_id = format!("concurrent-user-{}", i);
+        let actor_id = format!("concurrent-actor-{i}");
+        let user_id = format!("concurrent-user-{i}");
 
         let framed = srv
-            .ws_at(&format!("/ws/chat/{}?user_id={}", actor_id, user_id))
+            .ws_at(&format!("/ws/chat/{actor_id}?user_id={user_id}"))
             .await
             .expect("Failed to connect WebSocket");
 
@@ -458,12 +457,12 @@ async fn test_websocket_connection_isolation() {
     let actor_id_2 = test_actor_id();
 
     let mut framed1 = srv
-        .ws_at(&format!("/ws/chat/{}", actor_id_1))
+        .ws_at(&format!("/ws/chat/{actor_id_1}"))
         .await
         .expect("Failed to connect WebSocket 1");
 
     let mut framed2 = srv
-        .ws_at(&format!("/ws/chat/{}", actor_id_2))
+        .ws_at(&format!("/ws/chat/{actor_id_2}"))
         .await
         .expect("Failed to connect WebSocket 2");
 
@@ -503,7 +502,7 @@ async fn test_websocket_multiple_pings() {
     let actor_id = test_actor_id();
 
     let mut framed = srv
-        .ws_at(&format!("/ws/chat/{}", actor_id))
+        .ws_at(&format!("/ws/chat/{actor_id}"))
         .await
         .expect("Failed to connect WebSocket");
 
@@ -547,7 +546,7 @@ async fn test_websocket_unknown_message_type() {
     let actor_id = test_actor_id();
 
     let mut framed = srv
-        .ws_at(&format!("/ws/chat/{}", actor_id))
+        .ws_at(&format!("/ws/chat/{actor_id}"))
         .await
         .expect("Failed to connect WebSocket");
 
@@ -595,7 +594,7 @@ async fn test_websocket_large_actor_id() {
     let user_id = test_user_id();
 
     let mut framed = srv
-        .ws_at(&format!("/ws/chat/{}?user_id={}", actor_id, user_id))
+        .ws_at(&format!("/ws/chat/{actor_id}?user_id={user_id}"))
         .await
         .expect("Failed to connect WebSocket");
 
@@ -629,7 +628,7 @@ async fn test_websocket_empty_message_handling() {
     let actor_id = test_actor_id();
 
     let mut framed = srv
-        .ws_at(&format!("/ws/chat/{}", actor_id))
+        .ws_at(&format!("/ws/chat/{actor_id}"))
         .await
         .expect("Failed to connect WebSocket");
 
@@ -682,7 +681,7 @@ async fn test_websocket_close_connection() {
     let actor_id = test_actor_id();
 
     let mut framed = srv
-        .ws_at(&format!("/ws/chat/{}", actor_id))
+        .ws_at(&format!("/ws/chat/{actor_id}"))
         .await
         .expect("Failed to connect WebSocket");
 
@@ -739,7 +738,7 @@ async fn test_websocket_protocol_version_required() {
     let actor_id = test_actor_id();
 
     let mut framed = srv
-        .ws_at(&format!("/ws/chat/{}", actor_id))
+        .ws_at(&format!("/ws/chat/{actor_id}"))
         .await
         .expect("Failed to connect WebSocket");
 
@@ -776,7 +775,7 @@ async fn test_websocket_special_chars_in_actor_id() {
     let user_id = test_user_id();
 
     let mut framed = srv
-        .ws_at(&format!("/ws/chat/{}?user_id={}", actor_id, user_id))
+        .ws_at(&format!("/ws/chat/{actor_id}?user_id={user_id}"))
         .await
         .expect("Failed to connect WebSocket");
 
@@ -814,7 +813,7 @@ async fn test_websocket_rapid_connect_disconnect() {
     // Connect and disconnect multiple times
     for _ in 0..3 {
         let mut framed = srv
-            .ws_at(&format!("/ws/chat/{}", actor_id))
+            .ws_at(&format!("/ws/chat/{actor_id}"))
             .await
             .expect("Failed to connect WebSocket");
 

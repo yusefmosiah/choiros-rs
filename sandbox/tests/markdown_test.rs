@@ -763,7 +763,7 @@ fn test_markdown_unicode() {
 #[test]
 fn test_markdown_very_long_input() {
     let long_text = "A".repeat(10000);
-    let input = format!("**{}**", long_text);
+    let input = format!("**{long_text}**");
 
     let result = render_markdown(&input, &MarkdownConfig::test()).unwrap();
     assert!(!result.html.is_empty(), "Should handle long input");
@@ -858,8 +858,7 @@ fn test_render_to_html_simple() {
         html.contains("<strong>Bold</strong>")
             || html.contains("<b>Bold</b>")
             || html.contains("<strong>"),
-        "Simple render should work: {}",
-        html
+        "Simple render should work: {html}"
     );
 }
 
@@ -979,7 +978,6 @@ fn test_render_performance() {
     assert!(!result.html.is_empty());
     assert!(
         duration.as_millis() < 1000,
-        "Rendering should complete in under 1 second, took {:?}",
-        duration
+        "Rendering should complete in under 1 second, took {duration:?}"
     );
 }

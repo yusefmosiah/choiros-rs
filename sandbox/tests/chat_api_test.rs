@@ -103,7 +103,7 @@ async fn test_get_messages_empty() {
     let chat_id = test_chat_id();
 
     let req = test::TestRequest::get()
-        .uri(&format!("/chat/{}/messages", chat_id))
+        .uri(&format!("/chat/{chat_id}/messages"))
         .to_request();
 
     let resp = test::call_service(&app, req).await;
@@ -139,7 +139,7 @@ async fn test_send_and_get_messages() {
 
     // Get messages
     let req = test::TestRequest::get()
-        .uri(&format!("/chat/{}/messages", chat_id))
+        .uri(&format!("/chat/{chat_id}/messages"))
         .to_request();
 
     let resp = test::call_service(&app, req).await;
@@ -178,7 +178,7 @@ async fn test_send_multiple_messages() {
 
     // Get messages and verify all are present (order not guaranteed due to HashMap)
     let req = test::TestRequest::get()
-        .uri(&format!("/chat/{}/messages", chat_id))
+        .uri(&format!("/chat/{chat_id}/messages"))
         .to_request();
 
     let resp = test::call_service(&app, req).await;
@@ -231,7 +231,7 @@ async fn test_different_chat_isolation() {
 
     // Verify each chat has only its own message
     let req = test::TestRequest::get()
-        .uri(&format!("/chat/{}/messages", chat_id1))
+        .uri(&format!("/chat/{chat_id1}/messages"))
         .to_request();
     let resp = test::call_service(&app, req).await;
     let body: serde_json::Value = test::read_body_json(resp).await;
@@ -240,7 +240,7 @@ async fn test_different_chat_isolation() {
     assert_eq!(messages[0]["text"], "Chat 1 message");
 
     let req = test::TestRequest::get()
-        .uri(&format!("/chat/{}/messages", chat_id2))
+        .uri(&format!("/chat/{chat_id2}/messages"))
         .to_request();
     let resp = test::call_service(&app, req).await;
     let body: serde_json::Value = test::read_body_json(resp).await;

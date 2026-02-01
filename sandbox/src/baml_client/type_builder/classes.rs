@@ -9,7 +9,6 @@
 ///
 /// Provides type-safe method access to fields defined in the schema.
 /// Access fields via methods: `builder.field_name()`
-
 pub struct AgentPlanClassBuilder {
     inner: baml::ClassBuilder,
 }
@@ -69,7 +68,6 @@ impl AgentPlanClassBuilder {
 ///
 /// Provides type-safe method access to fields defined in the schema.
 /// Access fields via methods: `builder.field_name()`
-
 pub struct AgentToolCallClassBuilder {
     inner: baml::ClassBuilder,
 }
@@ -122,7 +120,6 @@ impl AgentToolCallClassBuilder {
 ///
 /// Provides type-safe method access to fields defined in the schema.
 /// Access fields via methods: `builder.field_name()`
-
 pub struct MessageClassBuilder {
     inner: baml::ClassBuilder,
 }
@@ -168,7 +165,6 @@ impl MessageClassBuilder {
 ///
 /// Provides type-safe method access to fields defined in the schema.
 /// Access fields via methods: `builder.field_name()`
-
 pub struct ResumeClassBuilder {
     inner: baml::ClassBuilder,
 }
@@ -228,7 +224,6 @@ impl ResumeClassBuilder {
 ///
 /// Provides type-safe method access to fields defined in the schema.
 /// Access fields via methods: `builder.field_name()`
-
 pub struct StreamChunkClassBuilder {
     inner: baml::ClassBuilder,
 }
@@ -274,7 +269,6 @@ impl StreamChunkClassBuilder {
 ///
 /// Provides type-safe method access to fields defined in the schema.
 /// Access fields via methods: `builder.field_name()`
-
 pub struct ToolResultClassBuilder {
     inner: baml::ClassBuilder,
 }

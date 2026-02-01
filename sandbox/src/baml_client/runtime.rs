@@ -86,7 +86,7 @@ impl FunctionOptions {
     pub fn with_collectors(mut self, collectors: &[baml::Collector]) -> Self {
         self.collectors
             .get_or_insert_with(Vec::new)
-            .extend(collectors.iter().map(|c| c.clone()));
+            .extend(collectors.iter().cloned());
         self
     }
 
@@ -139,10 +139,7 @@ impl FunctionOptions {
         // Resolve client option to client_registry (client takes precedence)
         let effective_registry = if let Some(client_name) = &self.client {
             // Create or clone registry and set primary
-            let mut registry = self
-                .client_registry
-                .clone()
-                .unwrap_or_else(baml::ClientRegistry::new);
+            let mut registry = self.client_registry.clone().unwrap_or_default();
             registry.set_primary_client(client_name);
             Some(registry)
         } else {

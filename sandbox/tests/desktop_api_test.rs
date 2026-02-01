@@ -70,7 +70,7 @@ async fn test_get_desktop_state_empty() {
     let desktop_id = test_desktop_id();
 
     let req = test::TestRequest::get()
-        .uri(&format!("/desktop/{}", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}"))
         .to_request();
 
     let resp = test::call_service(&app, req).await;
@@ -98,7 +98,7 @@ async fn test_register_app() {
     });
 
     let req = test::TestRequest::post()
-        .uri(&format!("/desktop/{}/apps", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/apps"))
         .set_json(&app_def)
         .to_request();
 
@@ -125,7 +125,7 @@ async fn test_open_window_success() {
     });
 
     let req = test::TestRequest::post()
-        .uri(&format!("/desktop/{}/apps", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/apps"))
         .set_json(&app_def)
         .to_request();
 
@@ -140,7 +140,7 @@ async fn test_open_window_success() {
     });
 
     let req = test::TestRequest::post()
-        .uri(&format!("/desktop/{}/windows", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/windows"))
         .set_json(&open_req)
         .to_request();
 
@@ -167,7 +167,7 @@ async fn test_open_window_unknown_app_fails() {
     });
 
     let req = test::TestRequest::post()
-        .uri(&format!("/desktop/{}/windows", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/windows"))
         .set_json(&open_req)
         .to_request();
 
@@ -185,7 +185,7 @@ async fn test_get_windows_empty() {
     let desktop_id = test_desktop_id();
 
     let req = test::TestRequest::get()
-        .uri(&format!("/desktop/{}/windows", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/windows"))
         .to_request();
 
     let resp = test::call_service(&app, req).await;
@@ -213,7 +213,7 @@ async fn test_get_windows_after_open() {
     });
 
     let req = test::TestRequest::post()
-        .uri(&format!("/desktop/{}/apps", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/apps"))
         .set_json(&app_def)
         .to_request();
     test::call_service(&app, req).await;
@@ -225,7 +225,7 @@ async fn test_get_windows_after_open() {
     });
 
     let req = test::TestRequest::post()
-        .uri(&format!("/desktop/{}/windows", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/windows"))
         .set_json(&open_req)
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -234,7 +234,7 @@ async fn test_get_windows_after_open() {
 
     // Test: get windows
     let req = test::TestRequest::get()
-        .uri(&format!("/desktop/{}/windows", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/windows"))
         .to_request();
 
     let resp = test::call_service(&app, req).await;
@@ -262,7 +262,7 @@ async fn test_close_window() {
     });
 
     let req = test::TestRequest::post()
-        .uri(&format!("/desktop/{}/apps", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/apps"))
         .set_json(&app_def)
         .to_request();
     test::call_service(&app, req).await;
@@ -274,7 +274,7 @@ async fn test_close_window() {
     });
 
     let req = test::TestRequest::post()
-        .uri(&format!("/desktop/{}/windows", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/windows"))
         .set_json(&open_req)
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -283,7 +283,7 @@ async fn test_close_window() {
 
     // Test: close window
     let req = test::TestRequest::delete()
-        .uri(&format!("/desktop/{}/windows/{}", desktop_id, window_id))
+        .uri(&format!("/desktop/{desktop_id}/windows/{window_id}"))
         .to_request();
 
     let resp = test::call_service(&app, req).await;
@@ -294,7 +294,7 @@ async fn test_close_window() {
 
     // Verify window is gone
     let req = test::TestRequest::get()
-        .uri(&format!("/desktop/{}/windows", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/windows"))
         .to_request();
     let resp = test::call_service(&app, req).await;
     let body: serde_json::Value = test::read_body_json(resp).await;
@@ -318,7 +318,7 @@ async fn test_move_window() {
     });
 
     let req = test::TestRequest::post()
-        .uri(&format!("/desktop/{}/apps", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/apps"))
         .set_json(&app_def)
         .to_request();
     test::call_service(&app, req).await;
@@ -330,7 +330,7 @@ async fn test_move_window() {
     });
 
     let req = test::TestRequest::post()
-        .uri(&format!("/desktop/{}/windows", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/windows"))
         .set_json(&open_req)
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -345,8 +345,7 @@ async fn test_move_window() {
 
     let req = test::TestRequest::patch()
         .uri(&format!(
-            "/desktop/{}/windows/{}/position",
-            desktop_id, window_id
+            "/desktop/{desktop_id}/windows/{window_id}/position"
         ))
         .set_json(&move_req)
         .to_request();
@@ -374,7 +373,7 @@ async fn test_resize_window() {
     });
 
     let req = test::TestRequest::post()
-        .uri(&format!("/desktop/{}/apps", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/apps"))
         .set_json(&app_def)
         .to_request();
     test::call_service(&app, req).await;
@@ -386,7 +385,7 @@ async fn test_resize_window() {
     });
 
     let req = test::TestRequest::post()
-        .uri(&format!("/desktop/{}/windows", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/windows"))
         .set_json(&open_req)
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -400,10 +399,7 @@ async fn test_resize_window() {
     });
 
     let req = test::TestRequest::patch()
-        .uri(&format!(
-            "/desktop/{}/windows/{}/size",
-            desktop_id, window_id
-        ))
+        .uri(&format!("/desktop/{desktop_id}/windows/{window_id}/size"))
         .set_json(&resize_req)
         .to_request();
 
@@ -430,7 +426,7 @@ async fn test_focus_window() {
     });
 
     let req = test::TestRequest::post()
-        .uri(&format!("/desktop/{}/apps", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/apps"))
         .set_json(&app_def)
         .to_request();
     test::call_service(&app, req).await;
@@ -442,7 +438,7 @@ async fn test_focus_window() {
     });
 
     let req = test::TestRequest::post()
-        .uri(&format!("/desktop/{}/windows", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/windows"))
         .set_json(&open_req1)
         .to_request();
     test::call_service(&app, req).await;
@@ -454,7 +450,7 @@ async fn test_focus_window() {
     });
 
     let req = test::TestRequest::post()
-        .uri(&format!("/desktop/{}/windows", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/windows"))
         .set_json(&open_req2)
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -463,10 +459,7 @@ async fn test_focus_window() {
 
     // Test: focus window
     let req = test::TestRequest::post()
-        .uri(&format!(
-            "/desktop/{}/windows/{}/focus",
-            desktop_id, window_id
-        ))
+        .uri(&format!("/desktop/{desktop_id}/windows/{window_id}/focus"))
         .to_request();
 
     let resp = test::call_service(&app, req).await;
@@ -482,7 +475,7 @@ async fn test_get_apps_empty() {
     let desktop_id = test_desktop_id();
 
     let req = test::TestRequest::get()
-        .uri(&format!("/desktop/{}/apps", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/apps"))
         .to_request();
 
     let resp = test::call_service(&app, req).await;
@@ -512,14 +505,14 @@ async fn test_get_apps_after_register() {
     });
 
     let req = test::TestRequest::post()
-        .uri(&format!("/desktop/{}/apps", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/apps"))
         .set_json(&app_def)
         .to_request();
     test::call_service(&app, req).await;
 
     // Get apps
     let req = test::TestRequest::get()
-        .uri(&format!("/desktop/{}/apps", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/apps"))
         .to_request();
 
     let resp = test::call_service(&app, req).await;
@@ -553,7 +546,7 @@ async fn test_desktop_state_persists_events() {
     });
 
     let req = test::TestRequest::post()
-        .uri(&format!("/desktop/{}/apps", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/apps"))
         .set_json(&app_def)
         .to_request();
     test::call_service(&app, req).await;
@@ -565,7 +558,7 @@ async fn test_desktop_state_persists_events() {
     });
 
     let req = test::TestRequest::post()
-        .uri(&format!("/desktop/{}/windows", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}/windows"))
         .set_json(&open_req)
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -574,7 +567,7 @@ async fn test_desktop_state_persists_events() {
 
     // Get full desktop state
     let req = test::TestRequest::get()
-        .uri(&format!("/desktop/{}", desktop_id))
+        .uri(&format!("/desktop/{desktop_id}"))
         .to_request();
 
     let resp = test::call_service(&app, req).await;
