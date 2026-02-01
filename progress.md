@@ -32,11 +32,15 @@
 ### ⚠️ In Progress
 - Actorcode demo run (spawn one agent per model tier)
 - Observability checks for actorcode logs and events
+ - Actorcode AX contract + verification lattice (coherence/repo-truth/world-truth)
+ - Dashboard UX plan: whole-log + summary views for runs
 
 ### 📋 Next Steps
-1. **Actorcode demo** - spawn pico/nano/micro/milli under one supervisor
-2. **Add small helper** - optional `just opencode-serve`
-3. **Theme work** - resume desktop theming now that chat works
+1. **Fix actorcode observability** - add whole-log + summary views in web dashboard
+2. **Background run contract** - background runs must emit a Markdown doc (no inline summary)
+3. **Actorcode demo** - spawn pico/nano/micro/milli under one supervisor
+4. **Add small helper** - optional `just opencode-serve`
+5. **Theme work** - resume desktop theming now that chat works
 
 ---
 
@@ -157,6 +161,13 @@ See: `docs/research-opencode-codepaths.md` for full investigation details.
 - `docs/DESKTOP_ARCHITECTURE_DESIGN.md` - Desktop-specific design (Phase 1 complete)
 - `docs/DEPLOYMENT_STRATEGIES.md` - Current and future deployment options
 - `docs/archive/` - Old deployment runbook archived
+
+## Actorcode AX + Observability Notes
+
+- **Producer role is already possible**: a supervisor can prompt another supervisor run to spawn more runs.
+- **Observability gap**: latest-only message view is too brittle; need whole-log and summary views in the web dashboard.
+- **Background runs**: must output a single Markdown doc (no in-task summary) for archival and review.
+- **Doc accuracy as verifier**: internal coherence + repo-truth + external validation.
 
 ---
 
