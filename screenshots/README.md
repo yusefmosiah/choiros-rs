@@ -61,6 +61,73 @@ This directory should contain test screenshots of the ChoirOS Desktop UI.
 3. Select device
 4. Use screenshot tools
 
+### Automated Screenshot Capture
+
+For automated screenshot capture during E2E testing, use **agent-browser**.
+
+#### Installation
+
+```bash
+npx skills add vercel-labs/agent-browser@agent-browser -g
+```
+
+#### Basic Usage
+
+```bash
+# Navigate to page
+agent-browser open http://localhost:3000
+
+# Take screenshot
+agent-browser screenshot screenshots/01-initial.png
+
+# Get interactive elements for clicking
+agent-browser snapshot -i
+
+# Click element by reference
+agent-browser click @e1
+
+# Fill form field
+agent-browser fill @e2 "test message"
+
+# Wait for condition
+agent-browser wait --text "AI response"
+
+# Take result screenshot
+agent-browser screenshot screenshots/02-result.png
+```
+
+#### Full Example E2E Test
+
+```bash
+# Start services (in separate terminals)
+cargo run -p sandbox               # Backend on port 8080
+cd sandbox-ui && dx serve          # Frontend on port 3000
+
+# Run automated screenshot test
+agent-browser open http://localhost:3000
+agent-browser screenshot tests/screenshots/$(date +%Y%m%d-%H%M%S)/01-initial.png
+agent-browser snapshot -i
+agent-browser click @e1
+agent-browser fill @e2 "test message"
+agent-browser click @e3
+agent-browser wait --text "AI response"
+agent-browser screenshot tests/screenshots/$(date +%Y%m%d-%H%M%S)/02-result.png
+```
+
+#### Screenshot Organization
+
+```bash
+# Create timestamped directory for test run
+screenshot_dir="tests/screenshots/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$screenshot_dir"
+
+agent-browser screenshot "$screenshot_dir/01-initial.png"
+agent-browser screenshot "$screenshot_dir/02-chat-open.png"
+agent-browser screenshot "$screenshot_dir/03-message-sent.png"
+```
+
+See `tests/ARCHITECTURE.md` and `AGENTS.md` for more advanced automation patterns.
+
 ### Naming Convention
 - Format: `##-descriptive-name.png`
 - Use lowercase with hyphens
