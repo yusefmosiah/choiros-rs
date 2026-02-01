@@ -129,6 +129,108 @@ The scripts in `scripts/` are modified versions of the default handoff scripts, 
 5. **Keep it factual:** Avoid speculation; document what IS, not what might be
 6. **Commit your work:** Handoffs should reference committed code, not uncommitted changes
 
+## Examples
+
+Here are example handoffs to show the expected structure:
+
+### Example: 2026-01-31-220519-baml-chat-agent-implementation.md
+
+**Template structure:**
+
+```markdown
+# Handoff: [Title]
+
+## Session Metadata
+- Created: YYYY-MM-DD HH:MM:SS
+- Project: /path/to/project
+- Branch: main
+- Session duration: ~X hours
+
+### Recent Commits (for context)
+  - 1a2b3c4 feat: commit message
+  - 5d6e7f8 fix: commit message
+
+## Handoff Chain
+- **Continues from**: [Previous-handoff.md](./previous-handoff.md)
+  - Previous title: Title of previous handoff
+- **Supersedes**: None
+
+## Current State Summary
+[Bullet points of what's done and NOT done]
+
+## Codebase Understanding
+### Architecture Overview
+[High-level architecture description]
+
+### Critical Files
+| File | Purpose | Relevance |
+
+### Key Patterns Discovered
+1. Pattern description
+2. Pattern description
+
+## Work Completed
+### Tasks Finished
+- [x] Task 1
+- [x] Task 2
+
+### Files Modified/Created
+| File | Changes | Rationale |
+
+### Decisions Made
+| Decision | Options Considered | Rationale |
+
+## Pending Work
+### Immediate Next Steps
+1. **Task 1** (CRITICAL)
+   - Subtask 1
+   - Subtask 2
+
+### Blockers/Open Questions
+- [ ] Blocker description
+
+### Deferred Items
+- Deferred task description
+
+## Context for Resuming Agent
+### Important Context
+**1. Context 1:**
+- Detail about context 1
+
+**2. Context 2:**
+- Detail about context 2
+
+### Assumptions Made
+- Assumption description
+
+### Potential Gotchas
+- Gotcha description
+
+## Environment State
+### Tools/Services Used
+- Tool/service description
+
+### Active Processes
+- Process description
+
+### Environment Variables (Names Only)
+- VAR_NAME
+
+## Related Resources
+- Reference link
+
+---
+
+**Security Reminder**: No secrets in this handoff. All API keys are in `.env` file (not committed).
+
+**DevX Note**: Additional context about development experience
+```
+
+**See actual examples in directory:**
+- `2026-01-31-220519-baml-chat-agent-implementation.md` - Feature implementation
+- `2026-02-01-020951-choir-chat-testing-phase1.md` - Testing phase
+- `2026-01-31-tests-complete.md` - Test completion
+
 ## See Also
 
 - Global skill reference: `~/.config/opencode/skills/session-handoff/`
