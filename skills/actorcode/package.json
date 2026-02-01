@@ -1,0 +1,8 @@
+{
+  "name": "actorcode-skill",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@opencode-ai/sdk": "^1.1.48"
+  }
+}

@@ -68,3 +68,7 @@ docker-run:
 deploy-ec2:
     rsync -avz --delete ./ ubuntu@3.83.131.245:~/choiros-rs/
     ssh ubuntu@3.83.131.245 'cd ~/choiros-rs && just build-sandbox'
+
+# Actorcode
+actorcode *ARGS:
+    node skills/actorcode/scripts/actorcode.js {{ARGS}}
