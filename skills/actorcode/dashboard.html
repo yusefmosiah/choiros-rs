@@ -347,6 +347,52 @@
             border-color: #58a6ff;
             color: #fff;
         }
+
+        .session-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .session-filter-btn {
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .session-filter-btn:hover, .session-filter-btn.active {
+            background: #58a6ff;
+            border-color: #58a6ff;
+            color: #fff;
+        }
+
+        .sessions-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 12px;
+            font-size: 12px;
+            color: #8b949e;
+        }
+
+        .sessions-footer button {
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            padding: 6px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .sessions-footer button:hover {
+            background: #30363d;
+        }
         
         .view-log-btn {
             background: #21262d;
@@ -624,11 +670,18 @@
         <div class="section">
             <div class="section-header">
                 <h2>🚀 Research Runs (Active & Prior)</h2>
+                <div class="session-controls">
+                    <button class="session-filter-btn active" data-filter="all" onclick="filterSessions('all')">All</button>
+                    <button class="session-filter-btn" data-filter="active" onclick="filterSessions('active')">Active</button>
+                    <button class="session-filter-btn" data-filter="completed" onclick="filterSessions('completed')">Completed</button>
+                    <button class="session-filter-btn" data-filter="stuck" onclick="filterSessions('stuck')">Stuck/Unknown</button>
+                </div>
             </div>
             <div class="section-content">
                 <div id="sessions-list" class="session-list">
                     <div class="loading">Loading sessions...</div>
                 </div>
+                <div id="sessions-footer" class="sessions-footer"></div>
             </div>
         </div>
         
@@ -705,6 +758,8 @@
         let currentFilter = 'all';
         let allFindings = [];
         let allSessions = [];
+        let sessionFilter = 'all';
+        let sessionVisibleCount = 20;
         
         // Load data from the findings API
         async function loadData() {
@@ -734,6 +789,7 @@
         
         function renderSessions(sessions) {
             const container = document.getElementById('sessions-list');
+            const footer = document.getElementById('sessions-footer');
             
             if (!sessions || sessions.length === 0) {
                 container.innerHTML = `
@@ -745,6 +801,7 @@
                         </p>
                     </div>
                 `;
+                footer.innerHTML = '';
                 return;
             }
             
@@ -753,8 +810,22 @@
             
             document.getElementById('active-count').textContent = active.length;
             document.getElementById('completed-count').textContent = completed.length;
-            
-            container.innerHTML = sessions.map(session => {
+
+            const filtered = filterSessionList(sessions);
+            const visible = filtered.slice(0, sessionVisibleCount);
+
+            if (filtered.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🧭</div>
+                        <p>No sessions match this filter</p>
+                    </div>
+                `;
+                footer.innerHTML = '';
+                return;
+            }
+
+            container.innerHTML = visible.map(session => {
                 const lastActivity = session.lastEventAt || session.createdAt;
                 const timeStr = lastActivity ? formatTime(lastActivity) : 'unknown';
                 
@@ -778,6 +849,63 @@
                     </div>
                 </div>
             `}).join('');
+
+            const showing = Math.min(sessionVisibleCount, filtered.length);
+            const total = filtered.length;
+            const remaining = total - showing;
+            const button = remaining > 0
+                ? `<button onclick="showMoreSessions()">Show ${Math.min(20, remaining)} more</button>`
+                : '<span>All sessions shown</span>';
+            footer.innerHTML = `
+                <span>Showing ${showing} of ${total} (sorted by most recent)</span>
+                ${button}
+            `;
+        }
+
+        function filterSessionList(sessions) {
+            const activeStatuses = new Set(['running', 'spawned']);
+            const staleStatuses = new Set(['unknown']);
+
+            const sorted = [...sessions].sort((a, b) => {
+                const aActive = activeStatuses.has(a.status) ? 0 : 1;
+                const bActive = activeStatuses.has(b.status) ? 0 : 1;
+                if (aActive !== bActive) return aActive - bActive;
+                const aTime = sessionTime(a);
+                const bTime = sessionTime(b);
+                return bTime - aTime;
+            });
+
+            if (sessionFilter === 'active') {
+                return sorted.filter(s => activeStatuses.has(s.status));
+            }
+            if (sessionFilter === 'completed') {
+                return sorted.filter(s => s.status === 'completed');
+            }
+            if (sessionFilter === 'stuck') {
+                return sorted.filter(s => staleStatuses.has(s.status));
+            }
+            return sorted;
+        }
+
+        function filterSessions(filter) {
+            sessionFilter = filter;
+            sessionVisibleCount = 20;
+            document.querySelectorAll('.session-filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.filter === filter);
+            });
+            renderSessions(allSessions);
+        }
+
+        function showMoreSessions() {
+            sessionVisibleCount += 20;
+            renderSessions(allSessions);
+        }
+
+        function sessionTime(session) {
+            const ts = session.lastEventAt || session.createdAt;
+            if (!ts) return 0;
+            const value = new Date(ts).getTime();
+            return Number.isNaN(value) ? 0 : value;
         }
         
         function renderFindings(findings) {
