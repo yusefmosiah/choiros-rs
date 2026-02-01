@@ -44,7 +44,7 @@ pub fn start_window_drag(window_id: String, on_move: Callback<(i32, i32)>) {
     }) as Box<dyn FnMut(MouseEvent)>);
 
     // Mouse move handler
-    let on_move_clone = on_move.clone();
+    let on_move_clone = on_move;
     let window_id_clone = window_id.clone();
     let mousemove_closure = Closure::wrap(Box::new(move |e: MouseEvent| {
         let target = e

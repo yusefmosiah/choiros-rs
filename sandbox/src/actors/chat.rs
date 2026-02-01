@@ -233,7 +233,7 @@ impl Handler<GetMessages> for ChatActor {
         let mut result = self.messages.clone();
 
         // Add pending messages at the end
-        for (_, pending) in &self.pending_messages {
+        for pending in self.pending_messages.values() {
             result.push(pending.clone());
         }
 

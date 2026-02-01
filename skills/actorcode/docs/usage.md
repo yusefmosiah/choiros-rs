@@ -7,6 +7,12 @@ cd skills/actorcode
 npm install
 ```
 
+## Start the OpenCode server
+
+```bash
+opencode serve
+```
+
 ## Environment
 
 ```bash
@@ -69,10 +75,48 @@ node skills/actorcode/scripts/actorcode.js message \
 node skills/actorcode/scripts/actorcode.js events --session <session_id>
 ```
 
+Notes:
+
+- The events stream drives log updates and registry activity. Keep `events` running
+  in a background window for long-running sessions.
+- If `status` shows `unknown`, validate the server is running and keep `events` up.
+
 ## Tail logs
 
 ```bash
 node skills/actorcode/scripts/actorcode.js logs --id <session_id>
+```
+
+## Registry recovery
+
+If commands fail due to a corrupted registry, actorcode will move the file to
+`.actorcode/registry.json.corrupt-<timestamp>` and rebuild a fresh registry.
+
+## Debug dashboard (tmux)
+
+Example using the multi-terminal skill to create a 4-pane log grid plus control
+windows for events and commands:
+
+```bash
+python skills/multi-terminal/scripts/terminal_session.py <<'PY'
+from skills.multi_terminal.scripts.terminal_session import TerminalSession
+
+session = TerminalSession("actorcode-dashboard", "/Users/wiz/choiros-rs")
+
+# Keep events streaming (drives log updates)
+session.add_window("events", "just actorcode events")
+
+# Control window for commands
+session.add_window("control", "just actorcode status")
+
+# Log grid (4 panes in one window)
+session.add_window("pico", "just actorcode logs --id <pico_session_id>")
+session.add_window("nano", "just actorcode logs --id <nano_session_id>", split=True)
+session.add_window("micro", "just actorcode logs --id <micro_session_id>", split=True, split_direction="horizontal")
+session.add_window("milli", "just actorcode logs --id <milli_session_id>", split=True)
+
+print("Attach: tmux attach -t actorcode-dashboard")
+PY
 ```
 
 ## Attach to server

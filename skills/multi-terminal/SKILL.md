@@ -168,6 +168,36 @@ for name, cmd in services:
 errors = session.monitor_all(patterns=["ERROR", "FATAL", "CRASH"])
 ```
 
+### Actorcode Debug Dashboard
+
+Use a dedicated tmux session to keep OpenCode event streaming alive while
+tailing per-session logs in a 4-pane grid:
+
+```python
+from skills.multi_terminal.scripts.terminal_session import TerminalSession
+
+session = TerminalSession("actorcode-dashboard", "/Users/wiz/choiros-rs")
+
+# Events stream keeps registry/logs hot
+session.add_window("events", "just actorcode events")
+
+# Control window for manual commands
+session.add_window("control", "just actorcode status")
+
+# 4-pane log grid (pico/nano/micro/milli)
+session.add_window("pico", "just actorcode logs --id <pico_session_id>")
+session.add_window("nano", "just actorcode logs --id <nano_session_id>", split=True)
+session.add_window(
+    "micro",
+    "just actorcode logs --id <micro_session_id>",
+    split=True,
+    split_direction="horizontal"
+)
+session.add_window("milli", "just actorcode logs --id <milli_session_id>", split=True)
+
+print("Attach: tmux attach -t actorcode-dashboard")
+```
+
 ## Advanced Features
 
 ### Real-time Output Monitoring

@@ -513,7 +513,7 @@ async fn execute_tool_impl(tool_name: &str, tool_args: &str) -> Result<ToolOutpu
     let registry = ToolRegistry::new();
 
     let args: serde_json::Value = serde_json::from_str(tool_args)
-        .map_err(|e| ToolError::new(format!("Invalid tool arguments: {}", e)))?;
+        .map_err(|e| ToolError::new(format!("Invalid tool arguments: {e}")))?;
 
     registry.execute(tool_name, args)
 }

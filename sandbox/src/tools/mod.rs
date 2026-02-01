@@ -85,7 +85,7 @@ impl ToolRegistry {
     pub fn execute(&self, name: &str, args: Value) -> Result<ToolOutput, ToolError> {
         match self.tools.get(name) {
             Some(tool) => tool.execute(args),
-            None => Err(ToolError::new(format!("Tool '{}' not found", name))),
+            None => Err(ToolError::new(format!("Tool '{name}' not found"))),
         }
     }
 
@@ -166,7 +166,7 @@ impl Tool for BashTool {
 
         // Execute with timeout using tokio::process::Command
         let runtime = tokio::runtime::Handle::try_current()
-            .map_err(|e| ToolError::new(format!("No async runtime: {}", e)))?;
+            .map_err(|e| ToolError::new(format!("No async runtime: {e}")))?;
 
         let output = runtime.block_on(async {
             tokio::time::timeout(
@@ -201,10 +201,9 @@ impl Tool for BashTool {
                     })
                 }
             }
-            Ok(Err(e)) => Err(ToolError::new(format!("Failed to execute: {}", e))),
+            Ok(Err(e)) => Err(ToolError::new(format!("Failed to execute: {e}"))),
             Err(_) => Err(ToolError::new(format!(
-                "Command timed out after {}ms",
-                timeout_ms
+                "Command timed out after {timeout_ms}ms"
             ))),
         }
     }
@@ -264,7 +263,7 @@ impl Tool for ReadFileTool {
         }
 
         let content = std::fs::read_to_string(path)
-            .map_err(|e| ToolError::new(format!("Failed to read file: {}", e)))?;
+            .map_err(|e| ToolError::new(format!("Failed to read file: {e}")))?;
 
         let lines: Vec<&str> = content.lines().collect();
         let start = offset.min(lines.len());
@@ -335,15 +334,15 @@ impl Tool for WriteFileTool {
         // Create parent directories if needed
         if let Some(parent) = path_buf.parent() {
             std::fs::create_dir_all(parent)
-                .map_err(|e| ToolError::new(format!("Failed to create directory: {}", e)))?;
+                .map_err(|e| ToolError::new(format!("Failed to create directory: {e}")))?;
         }
 
         std::fs::write(path, content)
-            .map_err(|e| ToolError::new(format!("Failed to write file: {}", e)))?;
+            .map_err(|e| ToolError::new(format!("Failed to write file: {e}")))?;
 
         Ok(ToolOutput {
             success: true,
-            content: format!("Successfully wrote to {}", path),
+            content: format!("Successfully wrote to {path}"),
         })
     }
 }
@@ -407,14 +406,14 @@ impl Tool for ListFilesTool {
                         } else {
                             "file"
                         };
-                        files.push(format!("{}: {}", file_type, path));
+                        files.push(format!("{file_type}: {path}"));
                     }
-                    Err(e) => files.push(format!("error: {}", e)),
+                    Err(e) => files.push(format!("error: {e}")),
                 }
             }
         } else {
             let entries = std::fs::read_dir(path)
-                .map_err(|e| ToolError::new(format!("Failed to read directory: {}", e)))?;
+                .map_err(|e| ToolError::new(format!("Failed to read directory: {e}")))?;
 
             for entry in entries.flatten() {
                 let path = entry.path().display().to_string();
@@ -423,7 +422,7 @@ impl Tool for ListFilesTool {
                 } else {
                     "file"
                 };
-                files.push(format!("{}: {}", file_type, path));
+                files.push(format!("{file_type}: {path}"));
             }
         }
 
@@ -486,7 +485,7 @@ impl Tool for SearchFilesTool {
 
         // Use ripgrep if available
         let runtime = tokio::runtime::Handle::try_current()
-            .map_err(|e| ToolError::new(format!("No async runtime: {}", e)))?;
+            .map_err(|e| ToolError::new(format!("No async runtime: {e}")))?;
 
         let output = runtime.block_on(async {
             tokio::process::Command::new("rg")
@@ -513,7 +512,7 @@ impl Tool for SearchFilesTool {
                     content: if stdout.is_empty() { stderr } else { stdout },
                 })
             }
-            Err(e) => Err(ToolError::new(format!("Search failed: {}", e))),
+            Err(e) => Err(ToolError::new(format!("Search failed: {e}"))),
         }
     }
 }

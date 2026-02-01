@@ -2,7 +2,6 @@ use chrono::{DateTime, Utc};
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use shared_types::{AppDefinition, ChatMessage, DesktopState, Sender, WindowState};
-use wasm_bindgen::prelude::*;
 
 /// Get the API base URL based on current environment
 /// - In development (localhost): use http://localhost:8080
@@ -31,7 +30,7 @@ pub fn api_base() -> &'static str {
         if API_BASE_CACHE.is_none() {
             API_BASE_CACHE = Some(get_api_base());
         }
-        API_BASE_CACHE.as_ref().map(|s| s.as_str()).unwrap_or("")
+        API_BASE_CACHE.as_deref().unwrap_or("")
     }
 }
 
@@ -70,7 +69,7 @@ pub async fn fetch_messages(actor_id: &str) -> Result<Vec<ChatMessage>, String> 
     let response = Request::get(&url)
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| format!("Request failed: {e}"))?;
 
     if !response.ok() {
         return Err(format!("HTTP error: {}", response.status()));
@@ -79,7 +78,7 @@ pub async fn fetch_messages(actor_id: &str) -> Result<Vec<ChatMessage>, String> 
     let data: GetMessagesResponse = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
 
     if !data.success {
         return Err("API returned success=false".to_string());
@@ -115,10 +114,10 @@ pub async fn send_chat_message(actor_id: &str, user_id: &str, text: &str) -> Res
 
     let response = Request::post(&url)
         .json(&request)
-        .map_err(|e| format!("Failed to serialize request: {}", e))?
+        .map_err(|e| format!("Failed to serialize request: {e}"))?
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| format!("Request failed: {e}"))?;
 
     if !response.ok() {
         return Err(format!("HTTP error: {}", response.status()));
@@ -127,7 +126,7 @@ pub async fn send_chat_message(actor_id: &str, user_id: &str, text: &str) -> Res
     let data: SendMessageResponse = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
 
     if !data.success {
         return Err(format!("API error: {}", data.message));
@@ -188,7 +187,7 @@ pub async fn fetch_desktop_state(desktop_id: &str) -> Result<DesktopState, Strin
     let response = Request::get(&url)
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| format!("Request failed: {e}"))?;
 
     if !response.ok() {
         return Err(format!("HTTP error: {}", response.status()));
@@ -197,7 +196,7 @@ pub async fn fetch_desktop_state(desktop_id: &str) -> Result<DesktopState, Strin
     let data: GetDesktopStateResponse = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
 
     if !data.success {
         return Err("API returned success=false".to_string());
@@ -212,7 +211,7 @@ pub async fn fetch_windows(desktop_id: &str) -> Result<Vec<WindowState>, String>
     let response = Request::get(&url)
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| format!("Request failed: {e}"))?;
 
     if !response.ok() {
         return Err(format!("HTTP error: {}", response.status()));
@@ -221,7 +220,7 @@ pub async fn fetch_windows(desktop_id: &str) -> Result<Vec<WindowState>, String>
     let data: GetWindowsResponse = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
 
     if !data.success {
         return Err("API returned success=false".to_string());
@@ -246,10 +245,10 @@ pub async fn open_window(
 
     let response = Request::post(&url)
         .json(&request)
-        .map_err(|e| format!("Failed to serialize request: {}", e))?
+        .map_err(|e| format!("Failed to serialize request: {e}"))?
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| format!("Request failed: {e}"))?;
 
     if !response.ok() {
         return Err(format!("HTTP error: {}", response.status()));
@@ -258,7 +257,7 @@ pub async fn open_window(
     let data: OpenWindowResponse = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
 
     if !data.success {
         return Err(data.error.unwrap_or_else(|| "Unknown error".to_string()));
@@ -278,7 +277,7 @@ pub async fn close_window(desktop_id: &str, window_id: &str) -> Result<(), Strin
     let response = Request::delete(&url)
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| format!("Request failed: {e}"))?;
 
     if !response.ok() {
         return Err(format!("HTTP error: {}", response.status()));
@@ -293,7 +292,7 @@ pub async fn close_window(desktop_id: &str, window_id: &str) -> Result<(), Strin
     let data: Response = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
 
     if !data.success {
         return Err(data.error.unwrap_or_else(|| "Unknown error".to_string()));
@@ -313,7 +312,7 @@ pub async fn focus_window(desktop_id: &str, window_id: &str) -> Result<(), Strin
     let response = Request::post(&url)
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| format!("Request failed: {e}"))?;
 
     if !response.ok() {
         return Err(format!("HTTP error: {}", response.status()));
@@ -328,7 +327,7 @@ pub async fn focus_window(desktop_id: &str, window_id: &str) -> Result<(), Strin
     let data: Response = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
 
     if !data.success {
         return Err(data.error.unwrap_or_else(|| "Unknown error".to_string()));
@@ -355,10 +354,10 @@ pub async fn move_window(desktop_id: &str, window_id: &str, x: i32, y: i32) -> R
 
     let response = Request::patch(&url)
         .json(&request)
-        .map_err(|e| format!("Failed to serialize request: {}", e))?
+        .map_err(|e| format!("Failed to serialize request: {e}"))?
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| format!("Request failed: {e}"))?;
 
     if !response.ok() {
         return Err(format!("HTTP error: {}", response.status()));
@@ -373,7 +372,7 @@ pub async fn move_window(desktop_id: &str, window_id: &str, x: i32, y: i32) -> R
     let data: Response = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
 
     if !data.success {
         return Err(data.error.unwrap_or_else(|| "Unknown error".to_string()));
@@ -405,10 +404,10 @@ pub async fn resize_window(
 
     let response = Request::patch(&url)
         .json(&request)
-        .map_err(|e| format!("Failed to serialize request: {}", e))?
+        .map_err(|e| format!("Failed to serialize request: {e}"))?
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| format!("Request failed: {e}"))?;
 
     if !response.ok() {
         return Err(format!("HTTP error: {}", response.status()));
@@ -423,7 +422,7 @@ pub async fn resize_window(
     let data: Response = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
 
     if !data.success {
         return Err(data.error.unwrap_or_else(|| "Unknown error".to_string()));
@@ -438,7 +437,7 @@ pub async fn fetch_apps(desktop_id: &str) -> Result<Vec<AppDefinition>, String> 
     let response = Request::get(&url)
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| format!("Request failed: {e}"))?;
 
     if !response.ok() {
         return Err(format!("HTTP error: {}", response.status()));
@@ -447,7 +446,7 @@ pub async fn fetch_apps(desktop_id: &str) -> Result<Vec<AppDefinition>, String> 
     let data: GetAppsResponse = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
 
     if !data.success {
         return Err("API returned success=false".to_string());
@@ -461,10 +460,10 @@ pub async fn register_app(desktop_id: &str, app: &AppDefinition) -> Result<(), S
 
     let response = Request::post(&url)
         .json(app)
-        .map_err(|e| format!("Failed to serialize request: {}", e))?
+        .map_err(|e| format!("Failed to serialize request: {e}"))?
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| format!("Request failed: {e}"))?;
 
     if !response.ok() {
         return Err(format!("HTTP error: {}", response.status()));
@@ -479,7 +478,7 @@ pub async fn register_app(desktop_id: &str, app: &AppDefinition) -> Result<(), S
     let data: Response = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
 
     if !data.success {
         return Err(data.error.unwrap_or_else(|| "Unknown error".to_string()));

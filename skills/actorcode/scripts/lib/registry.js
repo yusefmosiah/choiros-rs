@@ -17,7 +17,15 @@ export function registryPath() {
 export async function loadRegistry() {
   try {
     const raw = await fs.readFile(REGISTRY_PATH, "utf8");
-    const parsed = JSON.parse(raw);
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const backupPath = `${REGISTRY_PATH}.corrupt-${timestamp}`;
+      await fs.rename(REGISTRY_PATH, backupPath);
+      return { ...EMPTY_REGISTRY };
+    }
     return {
       ...EMPTY_REGISTRY,
       ...parsed,
@@ -33,7 +41,9 @@ export async function loadRegistry() {
 
 export async function saveRegistry(registry) {
   await fs.mkdir(REGISTRY_DIR, { recursive: true });
-  await fs.writeFile(REGISTRY_PATH, `${JSON.stringify(registry, null, 2)}\n`, "utf8");
+  const tmpPath = `${REGISTRY_PATH}.tmp`;
+  await fs.writeFile(tmpPath, `${JSON.stringify(registry, null, 2)}\n`, "utf8");
+  await fs.rename(tmpPath, REGISTRY_PATH);
 }
 
 export async function updateSessionRegistry(sessionId, patch) {

@@ -224,72 +224,72 @@ pub fn Desktop(desktop_id: String) -> Element {
     ];
 
     rsx! {
-        // Global CSS variables for theming
-        style { {DEFAULT_TOKENS} }
+            // Global CSS variables for theming
+            style { {DEFAULT_TOKENS} }
 
-        div {
-            class: "desktop-shell",
-            style: "min-height: 100vh; display: flex; flex-direction: column; overflow: hidden;",
-
-            // Main workspace area (full width, no sidebar)
             div {
-                class: "desktop-workspace",
-                style: "flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative;",
+                class: "desktop-shell",
+                style: "min-height: 100vh; display: flex; flex-direction: column; overflow: hidden;",
 
-                // Desktop icons (grid layout)
-                if let Some(state) = current_state.as_ref() {
-                    DesktopIcons {
-                        apps: core_apps,
-                        on_open_app: open_app_window.clone(),
-                        is_mobile: !is_desktop,
-                    }
-                }
-
-                // Window canvas (full width, positioned over icons)
+                // Main workspace area (full width, no sidebar)
                 div {
-                    class: "window-canvas",
-                    style: "flex: 1; position: relative; overflow: hidden; z-index: 10;",
+                    class: "desktop-workspace",
+                    style: "flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative;",
 
-                    if loading() {
-                        LoadingState {}
-                    } else if let Some(err) = error.read().as_ref() {
-                        ErrorState { error: err.clone() }
-                    } else if let Some(state) = current_state.as_ref() {
-                        for window in state.windows.iter() {
-                            FloatingWindow {
-                                window: window.clone(),
-                                is_active: state.active_window.as_ref() == Some(&window.id),
-                                viewport: *viewport.read(),
-                                on_close: close_window_cb.clone(),
-                                on_focus: focus_window_cb.clone(),
-                                on_move: move_window_cb.clone(),
-                                on_resize: resize_window_cb.clone(),
+                    // Desktop icons (grid layout)
+    if let Some(_state) = current_state.as_ref() {
+                        DesktopIcons {
+                            apps: core_apps,
+                            on_open_app: open_app_window,
+                            is_mobile: !is_desktop,
+                        }
+                    }
+
+                    // Window canvas (full width, positioned over icons)
+                    div {
+                        class: "window-canvas",
+                        style: "flex: 1; position: relative; overflow: hidden; z-index: 10;",
+
+                        if loading() {
+                            LoadingState {}
+                        } else if let Some(err) = error.read().as_ref() {
+                            ErrorState { error: err.clone() }
+                        } else if let Some(state) = current_state.as_ref() {
+                            for window in state.windows.iter() {
+                                FloatingWindow {
+                                    window: window.clone(),
+                                    is_active: state.active_window.as_ref() == Some(&window.id),
+                                    viewport: *viewport.read(),
+                                    on_close: close_window_cb,
+                                    on_focus: focus_window_cb,
+                                    on_move: move_window_cb,
+                                    on_resize: resize_window_cb,
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            // Prompt Bar with running app indicators
-            if let Some(state) = current_state.as_ref() {
-                PromptBar {
-                    connected: ws_connected(),
-                    windows: state.windows.clone(),
-                    active_window: state.active_window.clone(),
-                    on_submit: handle_prompt_submit.clone(),
-                    on_focus_window: focus_window_cb.clone(),
-                }
-            } else {
-                PromptBar {
-                    connected: ws_connected(),
-                    windows: vec![],
-                    active_window: None,
-                    on_submit: handle_prompt_submit.clone(),
-                    on_focus_window: focus_window_cb.clone(),
+                // Prompt Bar with running app indicators
+                if let Some(state) = current_state.as_ref() {
+                    PromptBar {
+                        connected: ws_connected(),
+                        windows: state.windows.clone(),
+                        active_window: state.active_window.clone(),
+                        on_submit: handle_prompt_submit,
+                        on_focus_window: focus_window_cb,
+                    }
+                } else {
+                    PromptBar {
+                        connected: ws_connected(),
+                        windows: vec![],
+                        active_window: None,
+                        on_submit: handle_prompt_submit,
+                        on_focus_window: focus_window_cb,
+                    }
                 }
             }
         }
-    }
 }
 
 // ============================================================================
@@ -314,7 +314,7 @@ fn DesktopIcons(
             for app in apps {
                 DesktopIcon {
                     app: app.clone(),
-                    on_open_app: on_open_app.clone(),
+                    on_open_app: on_open_app,
                     is_mobile,
                 }
             }
@@ -437,7 +437,7 @@ fn FloatingWindow(
     let window_id_for_drag = window_id.clone();
     let window_id_for_close = window_id.clone();
     let window_id_for_resize = window_id.clone();
-    let on_move_drag = on_move.clone();
+    let on_move_drag = on_move;
 
     rsx! {
         div {
@@ -451,7 +451,7 @@ fn FloatingWindow(
                 style: "display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: var(--titlebar-bg, #111827); border-bottom: 1px solid var(--border-color, #374151); cursor: grab; user-select: none;",
                 onmousedown: move |e| {
                     if !is_mobile {
-                        start_drag(e, window_id_for_drag.clone(), on_move_drag.clone());
+                        start_drag(e, window_id_for_drag.clone(), on_move_drag);
                     }
                 },
 
@@ -496,7 +496,7 @@ fn FloatingWindow(
                     class: "resize-handle",
                     style: "position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: se-resize;",
                     onmousedown: move |e| {
-                        start_resize(e, window_id_for_resize.clone(), on_resize.clone());
+                        start_resize(e, window_id_for_resize.clone(), on_resize);
                     },
                 }
             }
@@ -516,7 +516,7 @@ fn PromptBar(
     on_submit: Callback<String>,
     on_focus_window: Callback<String>,
 ) -> Element {
-    let mut input_value = use_signal(|| String::new());
+    let mut input_value = use_signal(String::new);
 
     rsx! {
         div {
@@ -561,7 +561,7 @@ fn PromptBar(
                         RunningAppIndicator {
                             window: window.clone(),
                             is_active: active_window.as_ref() == Some(&window.id),
-                            on_focus: on_focus_window.clone(),
+                            on_focus: on_focus_window,
                         }
                     }
                 }
@@ -757,14 +757,14 @@ fn handle_ws_event(
             desktop_state.set(Some(state));
         }
         WsEvent::WindowOpened(window) => {
-            desktop_state.write().as_mut().map(|s| {
+            if let Some(s) = desktop_state.write().as_mut() {
                 s.windows.push(window);
-            });
+            }
         }
         WsEvent::WindowClosed(window_id) => {
-            desktop_state.write().as_mut().map(|s| {
+            if let Some(s) = desktop_state.write().as_mut() {
                 s.windows.retain(|w| w.id != window_id);
-            });
+            }
         }
         WsEvent::WindowMoved { window_id, x, y } => {
             desktop_state.write().as_mut().map(|s| {
@@ -787,9 +787,9 @@ fn handle_ws_event(
             });
         }
         WsEvent::WindowFocused(window_id) => {
-            desktop_state.write().as_mut().map(|s| {
+            if let Some(s) = desktop_state.write().as_mut() {
                 s.active_window = Some(window_id.clone());
-            });
+            }
         }
     }
 }
@@ -848,12 +848,12 @@ fn http_to_ws_url(http_url: &str) -> String {
             .unwrap_or_else(|| "localhost".to_string());
 
         if protocol == "https:" {
-            format!("wss://{}", host)
+            format!("wss://{host}")
         } else {
-            format!("ws://{}", host)
+            format!("ws://{host}")
         }
     } else {
-        format!("ws://{}", http_url)
+        format!("ws://{http_url}")
     }
 }
 
@@ -872,7 +872,7 @@ where
 
     // Connect to the general desktop WebSocket endpoint at /ws
     // Then send a subscribe message for the desktop_id
-    let ws_url = format!("{}/ws", ws_base);
+    let ws_url = format!("{ws_base}/ws");
 
     dioxus_logger::tracing::info!("Connecting to WebSocket: {}", ws_url);
 
@@ -899,10 +899,8 @@ where
         on_event_open.borrow_mut()(WsEvent::Connected);
 
         // Send subscribe message for this desktop
-        let subscribe_msg = format!(
-            "{{\"type\":\"subscribe\",\"desktop_id\":\"{}\"}}",
-            desktop_id_clone
-        );
+        let subscribe_msg =
+            format!("{{\"type\":\"subscribe\",\"desktop_id\":\"{desktop_id_clone}\"}}");
         let _ = ws_clone.send_with_str(&subscribe_msg);
     }) as Box<dyn FnMut(wasm_bindgen::JsValue)>);
     ws.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));

@@ -120,7 +120,7 @@ pub async fn ws_handler(
                                 Err(e) => {
                                     tracing::error!("Failed to get desktop state: {}", e);
                                     let error_msg = WsMessage::Error {
-                                        message: format!("Failed to get desktop state: {}", e),
+                                        message: format!("Failed to get desktop state: {e}"),
                                     };
                                     if let Ok(json) = serde_json::to_string(&error_msg) {
                                         let _ = session.text(json).await;
@@ -136,7 +136,7 @@ pub async fn ws_handler(
                         }
                     }
                 }
-                Some(Ok(Message::Ping(data))) => {
+                Some(Ok(Message::Ping(_data))) => {
                     // Automatic pong response by actix-ws
                     tracing::debug!("WebSocket ping received");
                 }
