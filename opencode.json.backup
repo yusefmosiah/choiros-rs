@@ -1,0 +1,37 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "kimi-for-coding": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Kimi For Coding",
+      "options": {
+        "baseURL": "https://api.kimi.com/coding/v1",
+        "headers": {
+          "User-Agent": "claude-code/1.0"
+        }
+      },
+      "models": {
+        "k2p5": {
+          "name": "k2p5",
+          "limit": {
+            "context": 262144,
+            "output": 32768
+          },
+          "interleaved": {
+            "field": "reasoning_content"
+          }
+        },
+        "kimi-k2-thinking": {
+          "name": "kimi-k2-thinking",
+          "limit": {
+            "context": 262144,
+            "output": 32768
+          },
+          "interleaved": {
+            "field": "reasoning_content"
+          }
+        }
+      }
+    }
+  }
+}

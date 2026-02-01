@@ -134,6 +134,22 @@ cargo build -p sandbox-ui --target wasm32-unknown-unknown
 1. `2084209` - feat: Chat App Core Functionality - WebSocket, Icon Click, Message Flow
 2. `bd9330f` - feat: add actorcode orchestration suite
 
+## Critical Fix: OpenCode Kimi Provider
+
+**Problem:** Headless API with `kimi-for-coding/k2p5` failed with "Kimi For Coding is currently only available for Coding Agents..."
+
+**Root Cause:** TUI uses `@ai-sdk/anthropic` provider internally, but headless API was configured with `@ai-sdk/openai-compatible`
+
+**Fix:** Changed `opencode.json` provider npm package:
+```diff
+- "npm": "@ai-sdk/openai-compatible"
++ "npm": "@ai-sdk/anthropic"
+```
+
+**Result:** Micro tier (`kimi-for-coding/k2p5`) now works via headless API. Actorcode can spawn agents with all tiers.
+
+See: `docs/research-opencode-codepaths.md` for full investigation details.
+
 ## Documentation
 
 - `README.md` - Quick start guide
