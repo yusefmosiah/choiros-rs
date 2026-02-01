@@ -20,7 +20,9 @@ const DIRECTORY = process.cwd();
 const ALLOWED_MODELS = [
   "zai-coding-plan/glm-4.7-flash",
   "zai-coding-plan/glm-4.7",
+  "opencode/kimi-k2.5-free",
   "kimi-for-coding/k2p5",
+  "kimi-for-coding/kimi-k2-thinking",
   "openai/gpt-5.2-codex"
 ];
 const MODEL_TIERS = {

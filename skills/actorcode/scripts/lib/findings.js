@@ -9,8 +9,61 @@ async function ensureDir() {
   await fs.mkdir(FINDINGS_DIR, { recursive: true });
 }
 
+// Rate limiting: max findings per session per hour
+const RATE_LIMITS = {
+  perSession: 50,      // Max findings per session
+  perHour: 100,        // Max findings per session per hour
+  minInterval: 5000    // Minimum ms between findings from same session
+};
+
+const sessionFindings = new Map(); // sessionId -> { count, lastTime, hourlyCount, hourStart }
+
+async function checkRateLimit(sessionId) {
+  const now = Date.now();
+  const hourAgo = now - 3600000;
+  
+  if (!sessionFindings.has(sessionId)) {
+    sessionFindings.set(sessionId, { count: 0, lastTime: 0, hourlyCount: 0, hourStart: now });
+  }
+  
+  const session = sessionFindings.get(sessionId);
+  
+  // Reset hourly counter if hour has passed
+  if (now - session.hourStart > 3600000) {
+    session.hourlyCount = 0;
+    session.hourStart = now;
+  }
+  
+  // Check limits
+  if (session.count >= RATE_LIMITS.perSession) {
+    return { allowed: false, reason: `Session ${sessionId} exceeded ${RATE_LIMITS.perSession} findings` };
+  }
+  
+  if (session.hourlyCount >= RATE_LIMITS.perHour) {
+    return { allowed: false, reason: `Session ${sessionId} exceeded ${RATE_LIMITS.perHour} findings/hour` };
+  }
+  
+  if (now - session.lastTime < RATE_LIMITS.minInterval) {
+    return { allowed: false, reason: `Session ${sessionId} finding too frequent` };
+  }
+  
+  // Update counters
+  session.count++;
+  session.hourlyCount++;
+  session.lastTime = now;
+  
+  return { allowed: true };
+}
+
 export async function appendFinding(finding) {
   await ensureDir();
+  
+  // Check rate limit
+  const rateCheck = await checkRateLimit(finding.sessionId);
+  if (!rateCheck.allowed) {
+    console.warn(`[findings] Rate limit: ${rateCheck.reason}`);
+    return null;
+  }
   
   const entry = {
     id: `fnd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
