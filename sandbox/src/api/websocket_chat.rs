@@ -109,6 +109,7 @@ pub enum ClientMessage {
 /// Outgoing WebSocket messages
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
+#[allow(dead_code)]
 pub enum ServerMessage {
     #[serde(rename = "thinking")]
     Thinking { content: String },

@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use shared_types::{AppDefinition, ChatMessage, DesktopState, Sender, WindowState};
+use std::sync::OnceLock;
 
 /// Get the API base URL based on current environment
 /// - In development (localhost): use http://localhost:8080
@@ -22,16 +23,11 @@ fn get_api_base() -> String {
 }
 
 /// Lazy-static equivalent for WASM - computed at first use
-static mut API_BASE_CACHE: Option<String> = None;
+static API_BASE_CACHE: OnceLock<String> = OnceLock::new();
 
 /// Get the cached API base URL
 pub fn api_base() -> &'static str {
-    unsafe {
-        if API_BASE_CACHE.is_none() {
-            API_BASE_CACHE = Some(get_api_base());
-        }
-        API_BASE_CACHE.as_deref().unwrap_or("")
-    }
+    API_BASE_CACHE.get_or_init(get_api_base).as_str()
 }
 
 #[derive(Debug, Serialize)]

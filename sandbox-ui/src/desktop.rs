@@ -72,10 +72,10 @@ pub fn Desktop(desktop_id: String) -> Element {
             match open_window(&desktop_id, &app.id, &app.name, None).await {
                 Ok(window) => {
                     let window_id = window.id.clone();
-                    desktop_state.write().as_mut().map(|s| {
+                    if let Some(s) = desktop_state.write().as_mut() {
                         s.windows.push(window);
                         s.active_window = Some(window_id);
-                    });
+                    }
                 }
                 Err(e) => {
                     dioxus_logger::tracing::error!("Failed to open window: {}", e);
@@ -89,12 +89,12 @@ pub fn Desktop(desktop_id: String) -> Element {
         spawn(async move {
             match close_window(&desktop_id, &window_id).await {
                 Ok(_) => {
-                    desktop_state.write().as_mut().map(|s| {
+                    if let Some(s) = desktop_state.write().as_mut() {
                         s.windows.retain(|w| w.id != window_id);
                         if s.active_window == Some(window_id) {
                             s.active_window = s.windows.last().map(|w| w.id.clone());
                         }
-                    });
+                    }
                 }
                 Err(e) => {
                     dioxus_logger::tracing::error!("Failed to close window: {}", e);
@@ -108,14 +108,14 @@ pub fn Desktop(desktop_id: String) -> Element {
         spawn(async move {
             match focus_window(&desktop_id, &window_id).await {
                 Ok(_) => {
-                    desktop_state.write().as_mut().map(|s| {
+                    if let Some(s) = desktop_state.write().as_mut() {
                         s.active_window = Some(window_id.clone());
                         // Update z-index locally
                         let max_z = s.windows.iter().map(|w| w.z_index).max().unwrap_or(0);
                         if let Some(window) = s.windows.iter_mut().find(|w| w.id == window_id) {
                             window.z_index = max_z + 1;
                         }
-                    });
+                    }
                 }
                 Err(e) => {
                     dioxus_logger::tracing::error!("Failed to focus window: {}", e);
@@ -167,10 +167,10 @@ pub fn Desktop(desktop_id: String) -> Element {
                 match open_window(&desktop_id, "chat", "Chat", None).await {
                     Ok(window) => {
                         let window_id = window.id.clone();
-                        state_signal.write().as_mut().map(|s| {
+                        if let Some(s) = state_signal.write().as_mut() {
                             s.windows.push(window);
                             s.active_window = Some(window_id.clone());
-                        });
+                        }
                         // Send message to new chat window
                         let _ = send_chat_message(&window_id, "user-1", &text).await;
                     }
@@ -767,24 +767,24 @@ fn handle_ws_event(
             }
         }
         WsEvent::WindowMoved { window_id, x, y } => {
-            desktop_state.write().as_mut().map(|s| {
+            if let Some(s) = desktop_state.write().as_mut() {
                 if let Some(window) = s.windows.iter_mut().find(|w| w.id == window_id) {
                     window.x = x;
                     window.y = y;
                 }
-            });
+            }
         }
         WsEvent::WindowResized {
             window_id,
             width,
             height,
         } => {
-            desktop_state.write().as_mut().map(|s| {
+            if let Some(s) = desktop_state.write().as_mut() {
                 if let Some(window) = s.windows.iter_mut().find(|w| w.id == window_id) {
                     window.width = width as i32;
                     window.height = height as i32;
                 }
-            });
+            }
         }
         WsEvent::WindowFocused(window_id) => {
             if let Some(s) = desktop_state.write().as_mut() {

@@ -179,6 +179,7 @@ pub struct GetActorInfo;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ChatError {
+    #[allow(dead_code)]
     #[error("Event store error: {0}")]
     EventStore(String),
 

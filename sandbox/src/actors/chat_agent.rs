@@ -43,6 +43,7 @@ impl ChatAgent {
     }
 
     /// Create a client registry with configured LLM clients
+    #[allow(dead_code)]
     fn create_client_registry(&self) -> ClientRegistry {
         let mut cr = ClientRegistry::new();
 
@@ -101,6 +102,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
     }
 
     /// Log an event to the EventStore
+    #[allow(dead_code)]
     async fn log_event(
         &self,
         event_type: &str,
@@ -217,12 +219,14 @@ pub enum ChatAgentError {
     #[error("BAML error: {0}")]
     Baml(String),
 
+    #[allow(dead_code)]
     #[error("Tool execution error: {0}")]
     Tool(String),
 
     #[error("Event store error: {0}")]
     EventStore(String),
 
+    #[allow(dead_code)]
     #[error("Model switch error: {0}")]
     ModelSwitch(String),
 

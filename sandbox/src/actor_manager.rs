@@ -62,6 +62,7 @@ impl ActorManager {
     }
 
     /// Get existing ChatActor if it exists
+    #[allow(dead_code)]
     pub fn get_chat(&self, actor_id: &str) -> Option<Addr<ChatActor>> {
         self.chat_actors.get(actor_id).map(|e| e.clone())
     }
@@ -86,6 +87,7 @@ impl ActorManager {
     }
 
     /// Get existing DesktopActor if it exists
+    #[allow(dead_code)]
     pub fn get_desktop(&self, desktop_id: &str) -> Option<Addr<DesktopActor>> {
         self.desktop_actors.get(desktop_id).map(|e| e.clone())
     }
@@ -110,6 +112,7 @@ impl ActorManager {
     }
 
     /// Get existing ChatAgent if it exists
+    #[allow(dead_code)]
     pub fn get_chat_agent(&self, agent_id: &str) -> Option<Addr<ChatAgent>> {
         self.chat_agents.get(agent_id).map(|e| e.clone())
     }

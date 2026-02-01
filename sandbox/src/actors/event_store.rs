@@ -24,6 +24,7 @@ impl EventStoreActor {
         Ok(Self { conn })
     }
 
+    #[allow(dead_code)]
     pub async fn new_in_memory() -> Result<Self, libsql::Error> {
         Self::new(":memory:").await
     }

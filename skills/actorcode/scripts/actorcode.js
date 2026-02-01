@@ -72,6 +72,34 @@ function toTextParts(text) {
   return [{ type: "text", text }];
 }
 
+function messageRole(message) {
+  return message?.info?.role || message?.role || "unknown";
+}
+
+function messageId(message) {
+  return message?.info?.id || message?.id || "unknown";
+}
+
+function messageTime(message) {
+  const created = message?.info?.time?.created || message?.time?.created || null;
+  if (!created) {
+    return "unknown";
+  }
+  return new Date(created).toISOString();
+}
+
+function messageText(message) {
+  const parts = message?.parts || [];
+  return parts
+    .filter((part) => part?.type === "text" && part?.text)
+    .map((part) => part.text)
+    .join("\n");
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function unwrap(response, label) {
   if (response?.error) {
     const message = response.error?.name || "request_failed";
@@ -86,6 +114,7 @@ function usage() {
     "actorcode status",
     "actorcode models",
     "actorcode message --to <session_id> --text <message>",
+    "actorcode messages --id <session_id> [--limit 20] [--role assistant|user|any] [--latest] [--wait] [--interval 1000] [--timeout 120]",
     "actorcode abort --id <session_id>",
     "actorcode events [--session <session_id>]",
     "actorcode logs [--id <session_id>]",
@@ -211,6 +240,66 @@ async function handleMessage(options) {
   await logSupervisor(`message session=${sessionId}`);
   await logSession(sessionId, `message ${text}`);
   process.stdout.write(`${sessionId}\n`);
+}
+
+async function handleMessages(options) {
+  const sessionId = options.id || options.session || options.to;
+  const limit = Number(options.limit || 20);
+  const roleFilter = (options.role || "any").toLowerCase();
+  const latestOnly = Boolean(options.latest);
+  const wait = Boolean(options.wait);
+  const intervalMs = Number(options.interval || 1000);
+  const timeoutSec = options.timeout ? Number(options.timeout) : null;
+
+  if (!sessionId) {
+    throw new Error("messages requires --id <session_id>");
+  }
+
+  const client = createClient();
+  const startTime = Date.now();
+
+  const fetchMessages = async () => {
+    const messagesResponse = await client.session.messages({
+      path: { id: sessionId },
+      query: { directory: DIRECTORY, limit }
+    });
+    const messages = unwrap(messagesResponse, "list messages") || [];
+    const filtered = messages.filter((message) => {
+      if (roleFilter === "any") {
+        return true;
+      }
+      return messageRole(message).toLowerCase() === roleFilter;
+    });
+    return filtered;
+  };
+
+  while (true) {
+    const filtered = await fetchMessages();
+    if (filtered.length > 0) {
+      const output = [];
+      const list = latestOnly ? [filtered[0]] : filtered;
+      for (const message of list) {
+        const header = `${messageRole(message)} ${messageId(message)} ${messageTime(message)}`;
+        output.push(header);
+        const text = messageText(message);
+        output.push(text ? text : "(no text parts)");
+        output.push("");
+      }
+      process.stdout.write(`${output.join("\n")}\n`);
+      return;
+    }
+
+    if (!wait) {
+      process.stdout.write("(no matching messages)\n");
+      return;
+    }
+
+    if (timeoutSec && Date.now() - startTime > timeoutSec * 1000) {
+      throw new Error("messages wait timeout");
+    }
+
+    await sleep(intervalMs);
+  }
 }
 
 async function handleAbort(options) {
@@ -377,6 +466,9 @@ async function main() {
       return;
     case "message":
       await handleMessage(options);
+      return;
+    case "messages":
+      await handleMessages(options);
       return;
     case "abort":
       await handleAbort(options);

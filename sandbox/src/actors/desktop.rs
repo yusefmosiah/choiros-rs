@@ -213,6 +213,7 @@ impl DesktopActor {
     }
 
     /// Append event to EventStore and return the event
+    #[allow(dead_code)]
     fn append_event(
         &self,
         event_type: &str,
@@ -294,7 +295,9 @@ const EVENT_WINDOW_CLOSED: &str = "desktop.window_closed";
 const EVENT_WINDOW_MOVED: &str = "desktop.window_moved";
 const EVENT_WINDOW_RESIZED: &str = "desktop.window_resized";
 const EVENT_WINDOW_FOCUSED: &str = "desktop.window_focused";
+#[allow(dead_code)]
 const EVENT_WINDOW_MINIMIZED: &str = "desktop.window_minimized";
+#[allow(dead_code)]
 const EVENT_WINDOW_MAXIMIZED: &str = "desktop.window_maximized";
 const EVENT_APP_REGISTERED: &str = "desktop.app_registered";
 
@@ -395,6 +398,7 @@ pub enum DesktopError {
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 
+    #[allow(dead_code)]
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
 }

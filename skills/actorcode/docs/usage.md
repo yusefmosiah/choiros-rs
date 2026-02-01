@@ -69,6 +69,24 @@ node skills/actorcode/scripts/actorcode.js message \
   --text "Focus on the session cookie path and expiry."
 ```
 
+## Read messages (poll or wait)
+
+```bash
+# Latest assistant message
+node skills/actorcode/scripts/actorcode.js messages \
+  --id <session_id> \
+  --role assistant \
+  --latest
+
+# Wait until a new assistant reply exists
+node skills/actorcode/scripts/actorcode.js messages \
+  --id <session_id> \
+  --role assistant \
+  --latest \
+  --wait \
+  --interval 1000
+```
+
 ## Tail events
 
 ```bash

@@ -166,6 +166,7 @@ pub async fn ws_handler(
 }
 
 /// Broadcast an event to all subscribers of a desktop
+#[allow(dead_code)]
 pub async fn broadcast_event(sessions: &WsSessions, desktop_id: &str, event: WsMessage) {
     let json = match serde_json::to_string(&event) {
         Ok(j) => j,

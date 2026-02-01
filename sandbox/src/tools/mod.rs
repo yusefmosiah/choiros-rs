@@ -77,8 +77,9 @@ impl ToolRegistry {
     }
 
     /// Get a tool by name
-    pub fn get(&self, name: &str) -> Option<&dyn Tool> {
-        self.tools.get(name).map(|b| b.as_ref())
+    #[allow(dead_code, clippy::borrowed_box)]
+    pub fn get(&self, name: &str) -> Option<&Box<dyn Tool>> {
+        self.tools.get(name)
     }
 
     /// Execute a tool by name with arguments
