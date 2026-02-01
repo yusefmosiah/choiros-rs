@@ -67,3 +67,7 @@ data/
 .vibe/
 .windsurf/
 .zencoder/
+
+# Dev Browser Runtime Data
+skills/dev-browser/profiles/
+skills/dev-browser/tmp/
