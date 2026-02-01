@@ -2,15 +2,15 @@
 /**
  * Finding Fix Orchestrator
  * 
- * Spawns isolated actorcode agents in git worktrees to fix findings.
- * Handles dependency ordering and safe branch merging.
+ * Spawns actorcode agents to fix findings sequentially (no worktrees).
  * 
  * Architecture:
  * 1. Parse findings and build dependency graph
- * 2. Create git worktrees for isolated development
- * 3. Spawn agents in worktrees with specific fixes
- * 4. Run tests in worktrees
- * 5. Merge branches safely with dependency awareness
+ * 2. Spawn agents to fix findings sequentially
+ * 3. Run tests to verify
+ * 4. Commit changes
+ * 
+ * Note: No concurrent coding on same repo. Use remote dev envs for that.
  */
 
 import { spawn } from "child_process";
@@ -18,12 +18,10 @@ import fs from "fs/promises";
 import path from "path";
 import { loadFindings } from "./lib/findings.js";
 
-const WORKTREE_BASE = ".actorcode/worktrees";
-const BATCH_SIZE = 3; // Max concurrent fixes
+const BATCH_SIZE = 1; // Sequential only - no concurrent git ops
 
 class FindingFixOrchestrator {
   constructor() {
-    this.worktrees = new Map(); // findingId -> worktreePath
     this.branches = new Map(); // findingId -> branchName
     this.results = new Map(); // findingId -> result
   }
@@ -120,58 +118,37 @@ class FindingFixOrchestrator {
   }
 
   /**
-    * Create git worktree for isolated development
+    * Create git branch for isolated development
     */
-  async createWorktree(finding) {
+  async createBranch(finding) {
     const branchName = `fix/${finding.category.toLowerCase()}/${finding.id.slice(-8)}`;
-    const worktreePath = path.join(process.cwd(), WORKTREE_BASE, finding.id);
     
-    console.log(`Creating worktree for ${finding.id.slice(-8)}...`);
+    console.log(`Creating branch for ${finding.id.slice(-8)}...`);
+    
+    // Ensure on main branch first
+    await this.execGit(["checkout", "main"]);
+    
+    // Reset main to clean state
+    await this.execGit(["reset", "--hard", "HEAD"]);
+    await this.execGit(["clean", "-fd"]);
     
     // Check if branch already exists
     try {
       const branchExists = await this.execGit(["branch", "--list", branchName]);
       if (branchExists.trim()) {
         console.log(`  Branch ${branchName} already exists, deleting...`);
-        try {
-          await this.execGit(["branch", "-D", branchName]);
-        } catch (e) {
-          // Branch might be used by worktree, try to remove worktree first
-          console.log(`  Removing existing worktree...`);
-          try {
-            await this.execGit(["worktree", "remove", worktreePath]);
-            await this.execGit(["branch", "-D", branchName]);
-          } catch (e2) {
-            console.error(`  Warning: Could not remove existing branch/worktree: ${e2.message}`);
-          }
-        }
+        await this.execGit(["branch", "-D", branchName]);
       }
     } catch (e) {
       // Continue
     }
     
-    // Check if worktree directory exists
-    try {
-      await fs.access(worktreePath);
-      console.log(`  Worktree directory exists, removing...`);
-      await fs.rm(worktreePath, { recursive: true, force: true });
-    } catch (e) {
-      // Directory doesn't exist, that's fine
-    }
-    
-    // Ensure on main branch first
-    await this.execGit(["checkout", "main"]);
-    
     // Create branch from main
     await this.execGit(["checkout", "-b", branchName, "main"]);
     
-    // Create worktree
-    await this.execGit(["worktree", "add", worktreePath, branchName]);
-    
-    this.worktrees.set(finding.id, worktreePath);
     this.branches.set(finding.id, branchName);
     
-    return { worktreePath, branchName };
+    return { branchName };
   }
 
   /**
@@ -198,16 +175,16 @@ class FindingFixOrchestrator {
   }
 
   /**
-    * Spawn agent in worktree to fix finding
+    * Spawn agent to fix finding (in current directory)
     */
-  async spawnFixAgent(finding, worktreePath) {
+  async spawnFixAgent(finding) {
     const tier = this.selectTier(finding);
     const prompt = this.buildFixPrompt(finding);
     const title = `Fix: ${finding.category} - ${finding.id.slice(-8)}`;
     
-    console.log(`Spawning agent for ${finding.id.slice(-8)} in ${worktreePath} (tier: ${tier})...`);
+    console.log(`Spawning agent for ${finding.id.slice(-8)} (tier: ${tier})...`);
     
-    // Spawn actorcode agent in worktree
+    // Spawn actorcode agent in current directory
     const child = spawn("node", [
       "skills/actorcode/scripts/actorcode.js",
       "spawn",
@@ -216,7 +193,7 @@ class FindingFixOrchestrator {
       "--tier", tier,
       "--prompt", prompt
     ], {
-      cwd: worktreePath,
+      cwd: process.cwd(),
       stdio: "inherit"
     });
     
@@ -232,8 +209,8 @@ class FindingFixOrchestrator {
   }
 
   /**
-   * Build prompt for fixing a finding
-   */
+    * Build prompt for fixing a finding
+    */
   buildFixPrompt(finding) {
     return [
       `Fix this ${finding.category} finding:`,
@@ -245,10 +222,8 @@ class FindingFixOrchestrator {
       "2. Follow existing code conventions",
       "3. Run tests to verify: cargo test -p sandbox",
       "4. Update progress.md if needed",
-      "5. Mark [COMPLETE] when done",
-      "",
-      "Work in isolation - this is a git worktree.",
-      "Your changes will be merged back to main after review."
+      "5. Commit your changes with git commit -m 'fix: <brief description>'",
+      "6. Mark [COMPLETE] when done"
     ].join("\n");
   }
 
@@ -292,13 +267,6 @@ class FindingFixOrchestrator {
     
     // Merge with --no-ff to preserve history
     await this.execGit(["merge", "--no-ff", "-m", `fix: ${findingId.slice(-8)}`, branchName]);
-    
-    // Remove worktree
-    const worktreePath = this.worktrees.get(findingId);
-    if (worktreePath) {
-      await this.execGit(["worktree", "remove", worktreePath]);
-      this.worktrees.delete(findingId);
-    }
     
     // Delete branch
     await this.execGit(["branch", "-d", branchName]);
@@ -414,14 +382,14 @@ class FindingFixOrchestrator {
         attempts.set(finding.id, attempt);
         
         try {
-          // Create worktree
-          const { worktreePath } = await this.createWorktree(finding);
+          // Create branch
+          const { branchName } = await this.createBranch(finding);
           
           // Spawn agent
-          await this.spawnFixAgent(finding, worktreePath);
+          await this.spawnFixAgent(finding);
           
           // Run tests
-          const testResult = await this.runTests(worktreePath);
+          const testResult = await this.runTests(process.cwd());
           
           if (!testResult.success) {
             console.error(`Tests failed for ${finding.id.slice(-8)}:`);
