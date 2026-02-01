@@ -9,6 +9,7 @@ use serde_json::json;
 pub mod chat;
 pub mod desktop;
 pub mod websocket;
+pub mod websocket_chat;
 
 /// Configure all API routes
 pub fn config(cfg: &mut web::ServiceConfig) {
@@ -23,7 +24,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .service(desktop::resize_window)
         .service(desktop::focus_window)
         .service(desktop::get_apps)
-        .service(desktop::register_app);
+        .service(desktop::register_app)
+        // Chat agent WebSocket routes
+        .route("/ws/chat/{actor_id}", web::get().to(websocket_chat::chat_websocket))
+        .route("/ws/chat/{actor_id}/{user_id}", web::get().to(websocket_chat::chat_websocket_with_user));
 }
 
 /// Health check endpoint

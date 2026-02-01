@@ -6,3 +6,5 @@
 pub mod actors;
 pub mod actor_manager;
 pub mod api;
+pub mod baml_client;
+pub mod tools;

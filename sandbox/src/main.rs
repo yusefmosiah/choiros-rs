@@ -1,6 +1,8 @@
 mod actors;
 mod api;
 mod actor_manager;
+mod baml_client;
+mod tools;
 
 use actix::Actor;
 use actix_cors::Cors;
