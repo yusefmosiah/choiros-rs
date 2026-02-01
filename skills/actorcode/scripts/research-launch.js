@@ -102,8 +102,13 @@ Continue working after each report. Mark completion with [COMPLETE]`
 - Companies/projects doing this well (examples, case studies)
 - Trade-offs: local vs remote, isolation vs performance
 
-Report each finding immediately with [LEARNING] ARCHITECTURE: description
-Continue working after each report. Mark completion with [COMPLETE]`
+LOGGING GUIDELINES:
+- Only log [LEARNING] for surprising insights, architectural decisions, or important discoveries
+- Don't log routine operations or obvious facts
+- Focus on "what would save future developers time"
+
+Report significant findings with [LEARNING] <category>: description
+Mark completion with [COMPLETE]`
   },
   
   "nix-devops": {
@@ -121,8 +126,13 @@ Continue working after each report. Mark completion with [COMPLETE]`
 - Real-world examples of Nix in production
 - Resource overhead of Nix
 
-Report each finding immediately with [LEARNING] ARCHITECTURE: description
-Continue working after each report. Mark completion with [COMPLETE]`
+LOGGING GUIDELINES:
+- Only log [LEARNING] for surprising insights, architectural decisions, or important discoveries
+- Don't log routine operations or obvious facts
+- Focus on "what would save future developers time"
+
+Report significant findings with [LEARNING] <category>: description
+Mark completion with [COMPLETE]`
   },
   
   "tailscale-remote-dev": {
@@ -140,26 +150,47 @@ Continue working after each report. Mark completion with [COMPLETE]`
 - Alternatives (ZeroTier, WireGuard, etc.)
 - Setting up on AWS EC2 (c5.large or similar)
 
-Report each finding immediately with [LEARNING] ARCHITECTURE: description
-Continue working after each report. Mark completion with [COMPLETE]`
+LOGGING GUIDELINES:
+- Only log [LEARNING] for surprising insights, architectural decisions, or important discoveries
+- Don't log routine operations or obvious facts
+- Focus on "what would save future developers time"
+
+Report significant findings with [LEARNING] ARCHITECTURE: description
+Mark completion with [COMPLETE]`
   },
   
-  "pico-monitor-pattern": {
-    title: "Pico agent monitoring and handoff patterns",
+  "logging-architecture": {
+    title: "Hierarchical logging and model escalation architecture",
     agent: "explore",
-    tier: "pico",
-    prompt: `Research patterns for using lightweight AI agents (pico tier) as live monitors with periodic handoffs. Focus on:
-- How to detect when an agent's context window is filling up
-- Strategies for handing off monitoring tasks to fresh agents
-- Summarizing and chunking continuous data streams
-- Examples of successful monitoring agent architectures
-- Best practices for stateless vs stateful monitoring
-- How to maintain continuity across agent respawns
-- Tools and frameworks for agent orchestration
-- Cost optimization for long-running monitoring tasks
+    tier: "micro",
+    prompt: `Design a logging architecture with multiple levels and model tier management. Focus on:
 
-Report each finding immediately with [LEARNING] ARCHITECTURE: description
-Continue working after each report. Mark completion with [COMPLETE]`
+LOG LEVELS:
+- DEBUG: Verbose operational details (goes to file, not displayed)
+- INFO: Normal operations worth knowing (summary view)
+- LEARNING: Surprising insights from experience (highlighted, aggregated)
+- ERROR: Problems requiring attention (alerted immediately)
+- CRITICAL: System failures (escalate to higher tier model)
+
+MODEL TIER MANAGEMENT:
+- When to escalate pico → nano → micro → milli mid-task
+- How to spawn higher-tier agents for complex debugging
+- Handoff patterns that preserve context across tier changes
+- Cost-benefit analysis of tier escalation
+
+MONITORING ARCHITECTURE:
+- Pico agents as log filters/routers (not primary researchers)
+- Nano agents for pattern detection in log streams
+- Micro agents for investigation when patterns detected
+- Milli agents for critical system failures only
+
+Examples from production systems:
+- How Datadog/NewRelic handle log levels
+- Kubernetes event aggregation patterns
+- How to avoid alert fatigue while catching real issues
+
+Report significant architectural insights with [LEARNING] ARCHITECTURE: description
+Mark completion with [COMPLETE]`
   }
 };
 
