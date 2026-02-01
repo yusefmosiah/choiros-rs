@@ -126,13 +126,13 @@ Continue working after each report. Mark completion with [COMPLETE]`
   },
   
   "tailscale-remote-dev": {
-    title: "Tailscale and Termium for remote development",
+    title: "Tailscale and Termius for remote development",
     agent: "explore",
     tier: "nano",
-    prompt: `Research Tailscale and Termium for remote development setups. Focus on:
+    prompt: `Research Tailscale and Termius for remote development setups. Focus on:
 - Tailscale setup for secure remote access to dev servers
 - Tailscale SSH vs traditional SSH
-- Termium (or similar) for terminal sharing/collaboration
+- Termius (iOS terminal app) for mobile remote access
 - Combining Tailscale with containerized dev environments
 - Security best practices
 - Performance considerations
