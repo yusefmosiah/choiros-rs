@@ -251,19 +251,15 @@ pub fn Desktop(desktop_id: String) -> Element {
                     } else if let Some(err) = error.read().as_ref() {
                         ErrorState { error: err.clone() }
                     } else if let Some(state) = current_state.as_ref() {
-                        if state.windows.is_empty() {
-                            EmptyState {}
-                        } else {
-                            for window in state.windows.iter() {
-                                FloatingWindow {
-                                    window: window.clone(),
-                                    is_active: state.active_window.as_ref() == Some(&window.id),
-                                    viewport: *viewport.read(),
-                                    on_close: close_window_cb.clone(),
-                                    on_focus: focus_window_cb.clone(),
-                                    on_move: move_window_cb.clone(),
-                                    on_resize: resize_window_cb.clone(),
-                                }
+                        for window in state.windows.iter() {
+                            FloatingWindow {
+                                window: window.clone(),
+                                is_active: state.active_window.as_ref() == Some(&window.id),
+                                viewport: *viewport.read(),
+                                on_close: close_window_cb.clone(),
+                                on_focus: focus_window_cb.clone(),
+                                on_move: move_window_cb.clone(),
+                                on_resize: resize_window_cb.clone(),
                             }
                         }
                     }
@@ -576,17 +572,6 @@ fn ErrorState(error: String) -> Element {
             style: "display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--danger-text, #ef4444); padding: 2rem; text-align: center;",
             p { style: "font-weight: 500; margin-bottom: 0.5rem;", "Error loading desktop" }
             p { style: "font-size: 0.875rem; color: var(--text-secondary, #9ca3af);", "{error}" }
-        }
-    }
-}
-
-#[component]
-fn EmptyState() -> Element {
-    rsx! {
-        div {
-            style: "display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-muted, #6b7280);",
-            p { "No windows open" }
-            p { style: "font-size: 0.875rem; margin-top: 0.5rem;", "Click an app icon to get started" }
         }
     }
 }
