@@ -120,13 +120,47 @@ class FindingFixOrchestrator {
   }
 
   /**
-   * Create git worktree for isolated development
-   */
+    * Create git worktree for isolated development
+    */
   async createWorktree(finding) {
     const branchName = `fix/${finding.category.toLowerCase()}/${finding.id.slice(-8)}`;
     const worktreePath = path.join(process.cwd(), WORKTREE_BASE, finding.id);
     
     console.log(`Creating worktree for ${finding.id.slice(-8)}...`);
+    
+    // Check if branch already exists
+    try {
+      const branchExists = await this.execGit(["branch", "--list", branchName]);
+      if (branchExists.trim()) {
+        console.log(`  Branch ${branchName} already exists, deleting...`);
+        try {
+          await this.execGit(["branch", "-D", branchName]);
+        } catch (e) {
+          // Branch might be used by worktree, try to remove worktree first
+          console.log(`  Removing existing worktree...`);
+          try {
+            await this.execGit(["worktree", "remove", worktreePath]);
+            await this.execGit(["branch", "-D", branchName]);
+          } catch (e2) {
+            console.error(`  Warning: Could not remove existing branch/worktree: ${e2.message}`);
+          }
+        }
+      }
+    } catch (e) {
+      // Continue
+    }
+    
+    // Check if worktree directory exists
+    try {
+      await fs.access(worktreePath);
+      console.log(`  Worktree directory exists, removing...`);
+      await fs.rm(worktreePath, { recursive: true, force: true });
+    } catch (e) {
+      // Directory doesn't exist, that's fine
+    }
+    
+    // Ensure on main branch first
+    await this.execGit(["checkout", "main"]);
     
     // Create branch from main
     await this.execGit(["checkout", "-b", branchName, "main"]);
@@ -341,22 +375,43 @@ class FindingFixOrchestrator {
     
     const completed = new Set();
     const inProgress = new Set();
+    const attempts = new Map(); // findingId -> attempt count
+    const MAX_ATTEMPTS = 3;
     
     while (completed.size < sorted.length) {
-      // Find ready findings (all deps completed)
+      // Find ready findings (all deps completed and not maxed out on attempts)
       const ready = sorted.filter(f => {
         if (completed.has(f.id) || inProgress.has(f.id)) return false;
+        const att = attempts.get(f.id) || 0;
+        if (att >= MAX_ATTEMPTS) return false;
         const deps = graph.get(f.id) || [];
         return deps.every(d => completed.has(d));
       }).slice(0, BATCH_SIZE - inProgress.size);
       
       if (ready.length === 0 && inProgress.size === 0) {
-        throw new Error("Deadlock: no ready findings but not all completed");
+        // No ready findings and nothing in progress - check if we have failed ones
+        const failed = sorted.filter(f => {
+          const att = attempts.get(f.id) || 0;
+          return att >= MAX_ATTEMPTS && !completed.has(f.id);
+        });
+        
+        if (failed.length > 0) {
+          console.log("\n=== Failed Fixes (max attempts reached) ===");
+          failed.forEach(f => {
+            const result = this.results.get(f.id);
+            console.log(`  ✗ ${f.id.slice(-8)}: ${result?.error || "Unknown error"}`);
+          });
+          break;
+        } else {
+          throw new Error("Deadlock: no ready findings but not all completed");
+        }
       }
       
       // Spawn agents for ready findings
       const promises = ready.map(async (finding) => {
         inProgress.add(finding.id);
+        const attempt = (attempts.get(finding.id) || 0) + 1;
+        attempts.set(finding.id, attempt);
         
         try {
           // Create worktree
@@ -392,7 +447,8 @@ class FindingFixOrchestrator {
         results.forEach(r => {
           this.results.set(r.findingId, r);
           const status = r.success ? "✓" : "✗";
-          console.log(`${status} ${r.findingId.slice(-8)}${r.error ? `: ${r.error}` : ""}`);
+          const att = attempts.get(r.findingId) || 1;
+          console.log(`${status} ${r.findingId.slice(-8)} (attempt ${att}/${MAX_ATTEMPTS})${r.error ? `: ${r.error}` : ""}`);
         });
       } else {
         // Wait for in-progress to complete
