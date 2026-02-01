@@ -7,35 +7,38 @@ Session handoff documents for the choirOS project.
 Create a new handoff:
 ```bash
 cd /Users/wiz/choiros-rs
-python docs/handoffs/scripts/create_handoff.py "task-description"
+python skills/session-handoff/scripts/create_handoff.py "task-description"
 ```
 
 Validate a handoff before finalizing:
 ```bash
-python docs/handoffs/scripts/validate_handoff.py docs/handoffs/YYYY-MM-DD-HHMMSS-task-description.md
+python skills/session-handoff/scripts/validate_handoff.py docs/handoffs/YYYY-MM-DD-HHMMSS-task-description.md
 ```
 
 List all handoffs:
 ```bash
-python docs/handoffs/scripts/list_handoffs.py
+python skills/session-handoff/scripts/list_handoffs.py
 ```
 
 Check if a handoff is still current:
 ```bash
-python docs/handoffs/scripts/check_staleness.py docs/handoffs/YYYY-MM-DD-HHMMSS-task-description.md
+python skills/session-handoff/scripts/check_staleness.py docs/handoffs/YYYY-MM-DD-HHMMSS-task-description.md
 ```
 
 ## Directory Structure
 
 ```
-docs/handoffs/
-├── scripts/           # Handoff management scripts
-│   ├── create_handoff.py
-│   ├── validate_handoff.py
-│   ├── list_handoffs.py
-│   └── check_staleness.py
-├── archive/           # Archived/old handoffs
+docs/handoffs/        # Handoff storage (this directory)
+├── archive/          # Archived/old handoffs
 └── *.md              # Active handoff documents
+
+skills/session-handoff/  # Skill implementation
+├── SKILL.md           # Full skill documentation
+└── scripts/           # Handoff management scripts
+    ├── create_handoff.py
+    ├── validate_handoff.py
+    ├── list_handoffs.py
+    └── check_staleness.py
 ```
 
 ## What Are Handoffs?
@@ -53,7 +56,7 @@ They enable seamless continuation of work across AI agent sessions.
 
 1. **Generate scaffold:**
    ```bash
-   python docs/handoffs/scripts/create_handoff.py "implementing-feature-x"
+   python skills/session-handoff/scripts/create_handoff.py "implementing-feature-x"
    ```
 
 2. **Fill in the template:**
@@ -64,7 +67,7 @@ They enable seamless continuation of work across AI agent sessions.
 
 3. **Validate:**
    ```bash
-   python docs/handoffs/scripts/validate_handoff.py <handoff-file>
+   python skills/session-handoff/scripts/validate_handoff.py <handoff-file>
    ```
    - Checks for TODOs, completeness, secrets, file references
    - Must score 70+ with no secrets detected
@@ -89,7 +92,7 @@ For long-running work, link handoffs together:
 
 ```bash
 # Create second handoff referencing the first
-python docs/handoffs/scripts/create_handoff.py "auth-part-2" --continues-from 2026-01-31-143022-implementing-auth.md
+python skills/session-handoff/scripts/create_handoff.py "auth-part-2" --continues-from 2026-01-31-143022-implementing-auth.md
 ```
 
 Each handoff should reference its predecessor in the "Handoff Chain" section.
