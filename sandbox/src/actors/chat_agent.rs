@@ -107,7 +107,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         payload: serde_json::Value,
     ) -> Result<(), ChatAgentError> {
         if let Some(event_store) = &self.event_store {
-            event_store
+            let _ = event_store
                 .send(AppendEvent {
                     event_type: event_type.to_string(),
                     payload,
@@ -115,7 +115,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                     user_id: self.user_id.clone(),
                 })
                 .await
-                .map_err(|e| ChatAgentError::EventStore(e.to_string()))?;
+                .map_err(|e| ChatAgentError::EventStore(e.to_string()));
         }
         Ok(())
     }
