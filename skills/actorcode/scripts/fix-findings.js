@@ -37,22 +37,36 @@ class FindingFixOrchestrator {
    */
   async buildDependencyGraph(findings) {
     const graph = new Map();
+    const fileToFindings = new Map();
+    
+    // Build file -> findings map for efficient lookup
+    for (const finding of findings) {
+      const fileMatches = finding.description.match(/[\w\-./]+\.(rs|md|toml|js|py)/g) || [];
+      for (const file of fileMatches) {
+        if (!fileToFindings.has(file)) {
+          fileToFindings.set(file, []);
+        }
+        fileToFindings.get(file).push(finding);
+      }
+    }
     
     for (const finding of findings) {
       const deps = [];
       
-      // Extract file paths from description
+      // File overlap: create one-way dependency based on timestamp
+      // Earlier finding depends on later finding (later will fix first)
       const fileMatches = finding.description.match(/[\w\-./]+\.(rs|md|toml|js|py)/g) || [];
-      
-      // Find overlapping files
-      for (const other of findings) {
-        if (other.id === finding.id) continue;
-        
-        const otherFiles = other.description.match(/[\w\-./]+\.(rs|md|toml|js|py)/g) || [];
-        const overlap = fileMatches.some(f => otherFiles.includes(f));
-        
-        if (overlap) {
-          deps.push(other.id);
+      for (const file of fileMatches) {
+        const related = fileToFindings.get(file) || [];
+        for (const other of related) {
+          if (other.id === finding.id) continue;
+          
+          // One-way: earlier depends on later
+          if (new Date(finding.timestamp) < new Date(other.timestamp)) {
+            if (!deps.includes(other.id)) {
+              deps.push(other.id);
+            }
+          }
         }
       }
       
@@ -127,13 +141,37 @@ class FindingFixOrchestrator {
   }
 
   /**
-   * Spawn agent in worktree to fix finding
-   */
+    * Determine appropriate model tier for a finding
+    */
+  selectTier(finding) {
+    const desc = finding.description.toLowerCase();
+    
+    // DOCS findings: pico for simple docs, nano for API docs
+    if (finding.category === "DOCS") {
+      if (desc.includes("api") || desc.includes("component") || desc.includes("actor")) {
+        return "nano";
+      }
+      return "pico";
+    }
+    
+    // TEST findings: nano for writing tests
+    if (finding.category === "TEST") {
+      return "nano";
+    }
+    
+    // Other categories: micro as default
+    return "micro";
+  }
+
+  /**
+    * Spawn agent in worktree to fix finding
+    */
   async spawnFixAgent(finding, worktreePath) {
+    const tier = this.selectTier(finding);
     const prompt = this.buildFixPrompt(finding);
     const title = `Fix: ${finding.category} - ${finding.id.slice(-8)}`;
     
-    console.log(`Spawning agent for ${finding.id.slice(-8)} in ${worktreePath}...`);
+    console.log(`Spawning agent for ${finding.id.slice(-8)} in ${worktreePath} (tier: ${tier})...`);
     
     // Spawn actorcode agent in worktree
     const child = spawn("node", [
@@ -141,7 +179,7 @@ class FindingFixOrchestrator {
       "spawn",
       "--title", title,
       "--agent", "general",
-      "--tier", "micro",
+      "--tier", tier,
       "--prompt", prompt
     ], {
       cwd: worktreePath,
