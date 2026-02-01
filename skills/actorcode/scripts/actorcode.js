@@ -5,6 +5,8 @@ import { spawn } from "child_process";
 import { createClient, getServerConfig } from "./lib/client.js";
 import { parseArgs } from "./lib/args.js";
 import { buildPromptContract } from "./lib/contract.js";
+import { summarizeMessages } from "./lib/summary.js";
+import { loadEnvFile } from "./lib/env.js";
 import {
   logSession,
   logSupervisor,
@@ -38,6 +40,8 @@ const MODEL_DESCRIPTIONS = {
   milli: "Multimodal (text+image). Long-context + debugging heavy lifting."
 };
 const DEFAULT_MODEL = MODEL_TIERS.pico;
+
+await loadEnvFile();
 
 function parseModel(model, tier) {
   if (model && tier) {
@@ -158,7 +162,8 @@ function usage() {
     "actorcode supervisor [--session <session_id>] [--interval 5000] [--print-status]",
     "actorcode attach -- <args>",
     "actorcode research-status [--all] [--learnings]",
-    "actorcode findings <list|stats|export> [--session <id>] [--category <cat>] [--limit <n>] [--format <json|csv>]"
+    "actorcode findings <list|stats|export> [--session <id>] [--category <cat>] [--limit <n>] [--format <json|csv>]",
+    "actorcode summary --id <session_id> [--out <path>] [--max-chars <n>]"
   ].join("\n");
 }
 
@@ -622,6 +627,9 @@ async function main() {
     case "findings":
       await handleFindings(args.slice(1), options);
       return;
+    case "summary":
+      await handleSummary(options);
+      return;
     default:
       throw new Error(`Unknown command: ${command}`);
   }
@@ -670,6 +678,32 @@ async function handleFindings(subArgs, options) {
       else reject(new Error(`findings exited with code ${code}`));
     });
   });
+}
+
+async function handleSummary(options) {
+  const sessionId = options.id || options.session;
+  const outPath = options.out || null;
+  const maxChars = options.maxChars ? Number(options.maxChars) : undefined;
+
+  if (!sessionId) {
+    throw new Error("summary requires --id <session_id>");
+  }
+
+  const client = createClient();
+  const messagesResponse = await client.session.messages({
+    path: { id: sessionId },
+    query: { directory: DIRECTORY, limit: 1000 }
+  });
+  const messages = unwrap(messagesResponse, "list messages") || [];
+  const summary = await summarizeMessages(messages, { model: "glm-4.7-flash", maxChars });
+
+  if (outPath) {
+    await fs.writeFile(outPath, summary.markdown, "utf8");
+    process.stdout.write(`${outPath}\n`);
+    return;
+  }
+
+  process.stdout.write(`${summary.markdown}\n`);
 }
 
 main().catch(async (error) => {

@@ -8,9 +8,15 @@ import http from "http";
 import fs from "fs/promises";
 import path from "path";
 import { loadFindings, getStats, loadIndex } from "./lib/findings.js";
+import { createClient } from "./lib/client.js";
+import { summarizeMessages } from "./lib/summary.js";
+import { loadEnvFile } from "./lib/env.js";
 
 const PORT = 8765;
 const FINDINGS_LOG = path.join(process.cwd(), ".actorcode", "findings", "findings.log.jsonl");
+const DIRECTORY = process.cwd();
+
+await loadEnvFile();
 
 async function readFindingsLog() {
   try {
@@ -40,6 +46,31 @@ async function getSessions() {
       createdAt: data.createdAt,
       lastEventAt: data.lastEventAt
     }));
+}
+
+async function getSessionMessages(sessionId) {
+  const client = createClient();
+  try {
+    const messagesResponse = await client.session.messages({
+      path: { id: sessionId },
+      query: { directory: DIRECTORY, limit: 500 }
+    });
+    return messagesResponse.data || [];
+  } catch (error) {
+    console.error(`Failed to fetch messages for ${sessionId}:`, error.message);
+    return [];
+  }
+}
+
+async function generateSummary(sessionId) {
+  try {
+    const messages = await getSessionMessages(sessionId);
+    const summary = await summarizeMessages(messages, { model: "glm-4.7-flash" });
+    return { markdown: summary.markdown, model: summary.model, truncated: summary.truncated };
+  } catch (error) {
+    console.error(`Failed to generate summary for ${sessionId}:`, error.message);
+    return { error: error.message };
+  }
 }
 
 const server = http.createServer(async (req, res) => {
@@ -84,6 +115,34 @@ const server = http.createServer(async (req, res) => {
         sessions
       }));
       
+    } else if (req.url.startsWith("/api/messages?sessionId=")) {
+      const url = new URL(req.url, `http://localhost:${PORT}`);
+      const sessionId = url.searchParams.get("sessionId");
+      
+      if (!sessionId) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "sessionId required" }));
+        return;
+      }
+      
+      const messages = await getSessionMessages(sessionId);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ sessionId, messages }));
+      
+    } else if (req.url.startsWith("/api/summary?sessionId=")) {
+      const url = new URL(req.url, `http://localhost:${PORT}`);
+      const sessionId = url.searchParams.get("sessionId");
+      
+      if (!sessionId) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "sessionId required" }));
+        return;
+      }
+      
+      const summary = await generateSummary(sessionId);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ sessionId, ...summary }));
+      
     } else {
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Not found" }));
@@ -102,4 +161,6 @@ server.listen(PORT, () => {
   console.log(`  http://localhost:${PORT}/api/stats`);
   console.log(`  http://localhost:${PORT}/api/sessions`);
   console.log(`  http://localhost:${PORT}/api/all`);
+  console.log(`  http://localhost:${PORT}/api/messages?sessionId=<id>`);
+  console.log(`  http://localhost:${PORT}/api/summary?sessionId=<id>`);
 });

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Actorcode Research Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -346,6 +347,240 @@
             border-color: #58a6ff;
             color: #fff;
         }
+        
+        .view-log-btn {
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #58a6ff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            margin-left: 10px;
+        }
+        
+        .view-log-btn:hover {
+            background: #30363d;
+            border-color: #58a6ff;
+        }
+        
+        .view-summary-btn {
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #a371f7;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            margin-left: 5px;
+        }
+        
+        .view-summary-btn:hover {
+            background: #30363d;
+            border-color: #a371f7;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal.active {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            max-width: 1200px;
+            width: 95%;
+            max-height: 90vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .modal-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid #30363d;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #21262d;
+        }
+        
+        .modal-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #c9d1d9;
+        }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            color: #8b949e;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-close:hover {
+            color: #c9d1d9;
+        }
+        
+        .modal-body {
+            padding: 20px;
+            overflow-y: auto;
+            flex: 1;
+        }
+        
+        .log-view {
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        
+        .log-view .message {
+            margin-bottom: 20px;
+            padding: 12px;
+            border-radius: 6px;
+            background: #0d1117;
+            border: 1px solid #21262d;
+        }
+        
+        .log-view .message.role-user {
+            border-left: 3px solid #8b949e;
+        }
+        
+        .log-view .message.role-assistant {
+            border-left: 3px solid #58a6ff;
+        }
+        
+        .log-view .message-header {
+            font-size: 11px;
+            color: #8b949e;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .log-view .message-content {
+            color: #c9d1d9;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        .log-view .message-content h1,
+        .log-view .message-content h2,
+        .log-view .message-content h3 {
+            margin-top: 16px;
+            margin-bottom: 8px;
+            color: #c9d1d9;
+        }
+        
+        .log-view .message-content code {
+            background: #161b22;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        
+        .log-view .message-content pre {
+            background: #161b22;
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+        
+        .log-view .message-content pre code {
+            background: none;
+            padding: 0;
+        }
+        
+        .summary-view {
+            font-size: 14px;
+        }
+        
+        .summary-view .loading {
+            text-align: center;
+            padding: 40px;
+            color: #8b949e;
+        }
+        
+        .summary-content {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .summary-content h1 {
+            color: #58a6ff;
+            margin-bottom: 20px;
+        }
+        
+        .summary-content h2 {
+            color: #a371f7;
+            margin-top: 24px;
+            margin-bottom: 12px;
+        }
+        
+        .summary-content ul {
+            margin-left: 20px;
+            margin-bottom: 12px;
+        }
+        
+        .summary-content li {
+            margin-bottom: 6px;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #30363d;
+            padding-bottom: 10px;
+        }
+        
+        .tab-btn {
+            background: none;
+            border: none;
+            color: #8b949e;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 14px;
+            border-bottom: 2px solid transparent;
+        }
+        
+        .tab-btn.active {
+            color: #58a6ff;
+            border-bottom-color: #58a6ff;
+        }
+        
+        .tab-btn:hover {
+            color: #c9d1d9;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -388,7 +623,7 @@
         
         <div class="section">
             <div class="section-header">
-                <h2>🚀 Active Research Sessions</h2>
+                <h2>🚀 Research Runs (Active & Prior)</h2>
             </div>
             <div class="section-content">
                 <div id="sessions-list" class="session-list">
@@ -430,6 +665,34 @@
                     just research security-audit<br><br>
                     <code># Start tmux dashboard</code><br>
                     just research-dashboard
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal for Log/Summary View -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="modal-title" id="modal-title">Session Details</span>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="tabs">
+                    <button class="tab-btn active" onclick="switchTab('log')" id="tab-log">Whole Log</button>
+                    <button class="tab-btn" onclick="switchTab('summary')" id="tab-summary">Summary (Pico)</button>
+                </div>
+                
+                <div id="tab-content-log" class="tab-content active">
+                    <div id="log-view" class="log-view">
+                        <div class="loading">Loading logs...</div>
+                    </div>
+                </div>
+                
+                <div id="tab-content-summary" class="tab-content">
+                    <div id="summary-view" class="summary-view">
+                        <div class="loading">Generating summary...</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -491,7 +754,11 @@
             document.getElementById('active-count').textContent = active.length;
             document.getElementById('completed-count').textContent = completed.length;
             
-            container.innerHTML = sessions.map(session => `
+            container.innerHTML = sessions.map(session => {
+                const lastActivity = session.lastEventAt || session.createdAt;
+                const timeStr = lastActivity ? formatTime(lastActivity) : 'unknown';
+                
+                return `
                 <div class="session-item">
                     <div class="session-status ${session.status}"></div>
                     <div class="session-info">
@@ -499,15 +766,18 @@
                         <div class="session-meta">
                             ${session.sessionId?.slice(-8) || 'unknown'} • 
                             ${session.agent || 'no agent'} • 
-                            ${formatTime(session.lastActivity)}
+                            ${session.tier || ''} • 
+                            ${timeStr}
                         </div>
                     </div>
                     <div class="session-stats">
-                        <div class="count">${session.learningsCount || 0}</div>
-                        <div class="label">findings</div>
+                        <div style="display: flex; gap: 5px; align-items: center;">
+                            <button class="view-log-btn" onclick="viewLog('${session.sessionId}')">Log</button>
+                            <button class="view-summary-btn" onclick="viewSummary('${session.sessionId}')">Summary</button>
+                        </div>
                     </div>
                 </div>
-            `).join('');
+            `}).join('');
         }
         
         function renderFindings(findings) {
@@ -619,6 +889,156 @@
             if (minutes > 0) return `${minutes}m ago`;
             return 'just now';
         }
+        
+        let currentSessionId = null;
+        let currentSummary = null;
+        
+        function viewLog(sessionId) {
+            currentSessionId = sessionId;
+            const session = allSessions.find(s => s.sessionId === sessionId);
+            document.getElementById('modal-title').textContent = 
+                `${session?.title || 'Untitled'} (${sessionId.slice(-8)})`;
+            
+            switchTab('log');
+            loadSessionLog(sessionId);
+            openModal();
+        }
+        
+        function viewSummary(sessionId) {
+            currentSessionId = sessionId;
+            const session = allSessions.find(s => s.sessionId === sessionId);
+            document.getElementById('modal-title').textContent = 
+                `${session?.title || 'Untitled'} Summary (${sessionId.slice(-8)})`;
+            
+            switchTab('summary');
+            loadSessionSummary(sessionId);
+            openModal();
+        }
+        
+        async function loadSessionLog(sessionId) {
+            const container = document.getElementById('log-view');
+            container.innerHTML = '<div class="loading">Loading logs...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/messages?sessionId=${sessionId}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const data = await response.json();
+                renderLog(data.messages);
+            } catch (error) {
+                container.innerHTML = `
+                    <div class="error">Failed to load logs: ${error.message}</div>
+                `;
+            }
+        }
+        
+        async function loadSessionSummary(sessionId) {
+            const container = document.getElementById('summary-view');
+            container.innerHTML = '<div class="loading">Generating summary (Pico model)...<br><small>This may take a moment</small></div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/summary?sessionId=${sessionId}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const data = await response.json();
+                renderSummary(data);
+            } catch (error) {
+                container.innerHTML = `
+                    <div class="error">Failed to generate summary: ${error.message}</div>
+                `;
+            }
+        }
+        
+        function renderLog(messages) {
+            const container = document.getElementById('log-view');
+            
+            if (!messages || messages.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <p>No messages available</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = messages.map(msg => {
+                const roleClass = `role-${msg.role || 'unknown'}`;
+                const time = msg.info?.time?.created 
+                    ? new Date(msg.info.time.created).toLocaleString()
+                    : 'unknown';
+                const messageId = msg.info?.id?.slice(-8) || 'unknown';
+                
+                let content = '';
+                if (msg.parts) {
+                    content = msg.parts
+                        .filter(p => p.type === 'text' && p.text)
+                        .map(p => p.text)
+                        .join('\n');
+                }
+                
+                if (!content.trim()) {
+                    content = `<em>[No text content - ${msg.parts?.map(p => p.type).join(', ') || 'empty'}]</em>`;
+                }
+                
+                const renderedContent = marked.parse(content);
+                
+                return `
+                    <div class="message ${roleClass}">
+                        <div class="message-header">
+                            <span>${(msg.role || 'unknown').toUpperCase()}</span>
+                            <span>${messageId} • ${time}</span>
+                        </div>
+                        <div class="message-content">${renderedContent}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function renderSummary(data) {
+            const container = document.getElementById('summary-view');
+            
+            if (data.summary) {
+                container.innerHTML = `<div class="summary-content">${marked.parse(data.summary)}</div>`;
+            } else if (data.markdown) {
+                container.innerHTML = `<div class="summary-content">${marked.parse(data.markdown)}</div>`;
+            } else if (data.error) {
+                container.innerHTML = `
+                    <div class="error">Summary generation failed: ${data.error}</div>
+                `;
+            } else {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <p>No summary available</p>
+                    </div>
+                `;
+            }
+        }
+        
+        function openModal() {
+            document.getElementById('modal').classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+        
+        function closeModal() {
+            document.getElementById('modal').classList.remove('active');
+            document.body.style.overflow = '';
+        }
+        
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            document.getElementById(`tab-${tab}`).classList.add('active');
+            document.getElementById(`tab-content-${tab}`).classList.add('active');
+        }
+        
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+        });
+        
+        document.getElementById('modal').addEventListener('click', (e) => {
+            if (e.target.id === 'modal') closeModal();
+        });
         
         // Auto-refresh
         setInterval(loadData, REFRESH_INTERVAL);
