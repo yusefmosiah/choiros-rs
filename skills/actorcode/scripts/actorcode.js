@@ -152,7 +152,7 @@ function usage() {
     "actorcode messages --id <session_id> [--limit 20] [--role assistant|user|any] [--latest] [--wait] [--interval 1000] [--timeout 120] [--require-text]",
     "actorcode abort --id <session_id>",
     "actorcode events [--session <session_id>]",
-    "actorcode logs [--id <session_id>]",
+    "actorcode logs [--id <session_id>] [--follow]",
     "actorcode supervisor [--session <session_id>] [--interval 5000] [--print-status]",
     "actorcode attach -- <args>",
     "actorcode research-status [--all] [--learnings]",
@@ -212,6 +212,12 @@ async function handleSpawn(options) {
   if (model) {
     promptBody.model = model;
   }
+  promptBody.permission = {
+    edit: "allow",
+    bash: "allow",
+    webfetch: "allow",
+    doom_loop: "ask"
+  };
 
   await client.session.promptAsync({
     path: { id: sessionId },
@@ -500,8 +506,9 @@ async function handleSupervisor(options) {
 async function handleLogs(options) {
   const sessionId = options.id || options.session || null;
   const logPath = sessionId ? sessionLogPath(sessionId) : supervisorLogPath();
+  const follow = optionEnabled(options, "follow");
 
-  await logSupervisor(`logs tail path=${logPath}`);
+  await logSupervisor(`logs tail path=${logPath} follow=${follow}`);
 
   let content = "";
   try {
@@ -517,6 +524,10 @@ async function handleLogs(options) {
   const tail = lines.slice(Math.max(0, lines.length - 200)).join("\n");
   if (tail.trim()) {
     process.stdout.write(`${tail}\n`);
+  }
+
+  if (!follow) {
+    return;
   }
 
   let lastSize = Buffer.byteLength(content);

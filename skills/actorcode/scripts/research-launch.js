@@ -175,7 +175,13 @@ async function main() {
       body: {
         parts: [{ type: "text", text: fullPrompt }],
         agent: template.agent,
-        model: { providerID, modelID }
+        model: { providerID, modelID },
+        permission: {
+          edit: "allow",
+          bash: "allow",
+          webfetch: "allow",
+          doom_loop: "ask"
+        }
       }
     });
 
