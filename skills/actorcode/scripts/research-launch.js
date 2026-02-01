@@ -85,6 +85,63 @@ Continue working after each report. Mark completion with [COMPLETE]`
 
 Report each finding immediately with [LEARNING] BUG: description
 Continue working after each report. Mark completion with [COMPLETE]`
+  },
+  
+  "concurrent-dev-envs": {
+    title: "Concurrent development environments research",
+    agent: "explore",
+    tier: "micro",
+    prompt: `Research best practices for concurrent development environments where multiple AI agents work simultaneously. Focus on:
+- Containerized remote dev environments (Docker, Kubernetes, etc.)
+- Git worktree workflows and limitations
+- Nix for reproducible dev environments
+- Dev container standards (VS Code dev containers, etc.)
+- Cloud-based IDEs (GitHub Codespaces, Gitpod, etc.)
+- File locking and conflict resolution strategies
+- Resource allocation for multiple concurrent environments
+- Companies/projects doing this well (examples, case studies)
+- Trade-offs: local vs remote, isolation vs performance
+
+Report each finding immediately with [LEARNING] ARCHITECTURE: description
+Continue working after each report. Mark completion with [COMPLETE]`
+  },
+  
+  "nix-devops": {
+    title: "Nix for development and production",
+    agent: "explore",
+    tier: "micro",
+    prompt: `Research using Nix for development environments and production builds. Focus on:
+- Nix flakes for reproducible builds
+- Nix dev shells and direnv integration
+- How many concurrent dev shells can run on a c5.large
+- Nix for container image building (nix2container, etc.)
+- NixOS for production servers
+- Cachix for binary caching
+- Nix vs Docker for dev environments
+- Real-world examples of Nix in production
+- Resource overhead of Nix
+
+Report each finding immediately with [LEARNING] ARCHITECTURE: description
+Continue working after each report. Mark completion with [COMPLETE]`
+  },
+  
+  "tailscale-remote-dev": {
+    title: "Tailscale and Termium for remote development",
+    agent: "explore",
+    tier: "nano",
+    prompt: `Research Tailscale and Termium for remote development setups. Focus on:
+- Tailscale setup for secure remote access to dev servers
+- Tailscale SSH vs traditional SSH
+- Termium (or similar) for terminal sharing/collaboration
+- Combining Tailscale with containerized dev environments
+- Security best practices
+- Performance considerations
+- Cost analysis
+- Alternatives (ZeroTier, WireGuard, etc.)
+- Setting up on AWS EC2 (c5.large or similar)
+
+Report each finding immediately with [LEARNING] ARCHITECTURE: description
+Continue working after each report. Mark completion with [COMPLETE]`
   }
 };
 
