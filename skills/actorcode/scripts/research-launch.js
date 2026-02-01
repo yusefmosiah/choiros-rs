@@ -142,6 +142,24 @@ Continue working after each report. Mark completion with [COMPLETE]`
 
 Report each finding immediately with [LEARNING] ARCHITECTURE: description
 Continue working after each report. Mark completion with [COMPLETE]`
+  },
+  
+  "pico-monitor-pattern": {
+    title: "Pico agent monitoring and handoff patterns",
+    agent: "explore",
+    tier: "pico",
+    prompt: `Research patterns for using lightweight AI agents (pico tier) as live monitors with periodic handoffs. Focus on:
+- How to detect when an agent's context window is filling up
+- Strategies for handing off monitoring tasks to fresh agents
+- Summarizing and chunking continuous data streams
+- Examples of successful monitoring agent architectures
+- Best practices for stateless vs stateful monitoring
+- How to maintain continuity across agent respawns
+- Tools and frameworks for agent orchestration
+- Cost optimization for long-running monitoring tasks
+
+Report each finding immediately with [LEARNING] ARCHITECTURE: description
+Continue working after each report. Mark completion with [COMPLETE]`
   }
 };
 
