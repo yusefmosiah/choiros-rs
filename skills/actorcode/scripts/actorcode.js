@@ -4,6 +4,7 @@ import path from "path";
 import { spawn } from "child_process";
 import { createClient, getServerConfig } from "./lib/client.js";
 import { parseArgs } from "./lib/args.js";
+import { buildPromptContract } from "./lib/contract.js";
 import {
   logSession,
   logSupervisor,
@@ -19,13 +20,13 @@ const DIRECTORY = process.cwd();
 const ALLOWED_MODELS = [
   "zai-coding-plan/glm-4.7-flash",
   "zai-coding-plan/glm-4.7",
-  "opencode/kimi-k2.5-free",
+  "kimi-for-coding/k2p5",
   "openai/gpt-5.2-codex"
 ];
 const MODEL_TIERS = {
   pico: "zai-coding-plan/glm-4.7-flash",
   nano: "zai-coding-plan/glm-4.7",
-  micro: "opencode/kimi-k2.5-free",
+  micro: "kimi-for-coding/k2p5",
   milli: "openai/gpt-5.2-codex"
 };
 const MODEL_DESCRIPTIONS = {
@@ -96,6 +97,40 @@ function messageText(message) {
     .join("\n");
 }
 
+function messagePartsSummary(message) {
+  const parts = message?.parts || [];
+  if (parts.length === 0) return "(no parts)";
+  
+  const summaries = parts.map(part => {
+    switch (part?.type) {
+      case "text":
+        return part.text ? `[TEXT: ${part.text.substring(0, 100)}${part.text.length > 100 ? "..." : ""}]` : "[TEXT: empty]";
+      case "tool":
+        return `[TOOL: ${part.tool || "unknown"} ${part.state?.status || ""}]`;
+      case "thinking":
+        return `[THINKING: ${part.thinking ? part.thinking.substring(0, 80) + "..." : ""}]`;
+      default:
+        return `[${part?.type?.toUpperCase() || "UNKNOWN"}]`;
+    }
+  });
+  
+  return summaries.join("\n  ");
+}
+
+function optionEnabled(options, key) {
+  if (!options) {
+    return false;
+  }
+  if (Object.prototype.hasOwnProperty.call(options, key)) {
+    return Boolean(options[key]);
+  }
+  const altKey = key.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+  if (Object.prototype.hasOwnProperty.call(options, altKey)) {
+    return Boolean(options[altKey]);
+  }
+  return false;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -110,15 +145,18 @@ function unwrap(response, label) {
 
 function usage() {
   return [
-    "actorcode spawn --title <title> --agent <agent> --model <provider/model> --tier <pico|nano|micro|milli> --prompt <text>",
+    "actorcode spawn --title <title> --agent <agent> --model <provider/model> --tier <pico|nano|micro|milli> --prompt <text> [--no-contract]",
     "actorcode status",
     "actorcode models",
     "actorcode message --to <session_id> --text <message>",
-    "actorcode messages --id <session_id> [--limit 20] [--role assistant|user|any] [--latest] [--wait] [--interval 1000] [--timeout 120]",
+    "actorcode messages --id <session_id> [--limit 20] [--role assistant|user|any] [--latest] [--wait] [--interval 1000] [--timeout 120] [--require-text]",
     "actorcode abort --id <session_id>",
     "actorcode events [--session <session_id>]",
     "actorcode logs [--id <session_id>]",
-    "actorcode attach -- <args>"
+    "actorcode supervisor [--session <session_id>] [--interval 5000] [--print-status]",
+    "actorcode attach -- <args>",
+    "actorcode research-status [--all] [--learnings]",
+    "actorcode findings <list|stats|export> [--session <id>] [--category <cat>] [--limit <n>] [--format <json|csv>]"
   ].join("\n");
 }
 
@@ -131,6 +169,18 @@ async function handleSpawn(options) {
   if (!prompt) {
     throw new Error("spawn requires --prompt");
   }
+
+  const noContract = optionEnabled(options, "no-contract");
+  const fullPrompt = noContract
+    ? prompt
+    : buildPromptContract({
+        prompt,
+        title,
+        agent,
+        model: modelName,
+        tier,
+        directory: DIRECTORY
+      });
 
   const client = createClient();
   const sessionResponse = await client.session.create({
@@ -154,7 +204,7 @@ async function handleSpawn(options) {
   await logSession(sessionId, `spawned title=${title} agent=${agent || ""} model=${modelName} tier=${tier || ""}`);
 
   const promptBody = {
-    parts: toTextParts(prompt)
+    parts: toTextParts(fullPrompt)
   };
   if (agent) {
     promptBody.agent = agent;
@@ -175,6 +225,11 @@ async function handleSpawn(options) {
 
 async function handleStatus() {
   const client = createClient();
+  const { lines } = await refreshStatuses(client, { output: false });
+  process.stdout.write(`${lines.join("\n")}\n`);
+}
+
+async function refreshStatuses(client, { output = false, sessionFilter = null } = {}) {
   const listResponse = await client.session.list({ query: { directory: DIRECTORY } });
   const statusResponse = await client.session.status({ query: { directory: DIRECTORY } });
 
@@ -192,13 +247,19 @@ async function handleStatus() {
     });
   }
 
-  const lines = sessions.map((session) => {
+  const lines = sessions
+    .filter((session) => !sessionFilter || session.id === sessionFilter)
+    .map((session) => {
     const status = statuses[session.id];
     const statusText = status?.type || "unknown";
     return `${session.id}  ${statusText}  ${session.title}`;
   });
 
-  process.stdout.write(`${lines.join("\n")}\n`);
+  if (output && lines.length > 0) {
+    process.stdout.write(`${lines.join("\n")}\n`);
+  }
+
+  return { sessions, statuses, lines };
 }
 
 async function handleModels() {
@@ -250,6 +311,7 @@ async function handleMessages(options) {
   const wait = Boolean(options.wait);
   const intervalMs = Number(options.interval || 1000);
   const timeoutSec = options.timeout ? Number(options.timeout) : null;
+  const requireText = optionEnabled(options, "require-text");
 
   if (!sessionId) {
     throw new Error("messages requires --id <session_id>");
@@ -266,9 +328,13 @@ async function handleMessages(options) {
     const messages = unwrap(messagesResponse, "list messages") || [];
     const filtered = messages.filter((message) => {
       if (roleFilter === "any") {
-        return true;
+        return !requireText || messageText(message);
       }
-      return messageRole(message).toLowerCase() === roleFilter;
+      const matchesRole = messageRole(message).toLowerCase() === roleFilter;
+      if (!matchesRole) {
+        return false;
+      }
+      return !requireText || messageText(message);
     });
     return filtered;
   };
@@ -282,7 +348,11 @@ async function handleMessages(options) {
         const header = `${messageRole(message)} ${messageId(message)} ${messageTime(message)}`;
         output.push(header);
         const text = messageText(message);
-        output.push(text ? text : "(no text parts)");
+        if (text) {
+          output.push(text);
+        } else {
+          output.push(messagePartsSummary(message));
+        }
         output.push("");
       }
       process.stdout.write(`${output.join("\n")}\n`);
@@ -377,6 +447,54 @@ async function handleEvents(options) {
 
     process.stdout.write(`${description}\n`);
   }
+}
+
+async function handleSupervisor(options) {
+  const client = createClient();
+  const onlySession = options.session || options.id || null;
+  const intervalMs = Number(options.interval || 5000);
+  const printStatus = optionEnabled(options, "print-status");
+  const reconnectMs = Number(options.reconnect || 2000);
+  let stopped = false;
+
+  const statusLoop = (async () => {
+    while (!stopped) {
+      try {
+        await refreshStatuses(client, { output: printStatus, sessionFilter: onlySession });
+      } catch (error) {
+        await logSupervisor(`supervisor status error=${error.message}`);
+      }
+      await sleep(intervalMs);
+    }
+  })();
+
+  await logSupervisor("supervisor loop start");
+
+  while (!stopped) {
+    try {
+      const sse = await client.event.subscribe({ query: { directory: DIRECTORY } });
+      for await (const event of sse.stream) {
+        const sessionId = extractSessionId(event);
+        if (onlySession && sessionId !== onlySession) {
+          continue;
+        }
+
+        const description = describeEvent(event);
+        await logSupervisor(`event ${description}`);
+        if (sessionId) {
+          await logSession(sessionId, description);
+          await updateSessionRegistry(sessionId, { lastEventAt: Date.now() });
+        }
+
+        process.stdout.write(`${description}\n`);
+      }
+    } catch (error) {
+      await logSupervisor(`supervisor events error=${error.message}`);
+      await sleep(reconnectMs);
+    }
+  }
+
+  await statusLoop;
 }
 
 async function handleLogs(options) {
@@ -479,12 +597,66 @@ async function main() {
     case "logs":
       await handleLogs(options);
       return;
+    case "supervisor":
+      await handleSupervisor(options);
+      return;
     case "attach":
       await handleAttach(rest);
+      return;
+    case "research-status":
+      await handleResearchStatus(options);
+      return;
+    case "findings":
+      await handleFindings(args.slice(1), options);
       return;
     default:
       throw new Error(`Unknown command: ${command}`);
   }
+}
+
+async function handleResearchStatus(options) {
+  const { spawn } = await import("child_process");
+  const args = [];
+  if (options.all || options.a) args.push("--all");
+  if (options.learnings || options.l) args.push("--learnings");
+  
+  return new Promise((resolve, reject) => {
+    const child = spawn("node", [
+      "skills/actorcode/scripts/research-status.js",
+      ...args
+    ], {
+      stdio: "inherit"
+    });
+    
+    child.on("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`research-status exited with code ${code}`));
+    });
+  });
+}
+
+async function handleFindings(subArgs, options) {
+  const { spawn } = await import("child_process");
+  const args = subArgs || [];
+  
+  if (options.session || options.id) args.push("--session", options.session || options.id);
+  if (options.category) args.push("--category", options.category);
+  if (options.limit) args.push("--limit", String(options.limit));
+  if (options.format) args.push("--format", options.format);
+  
+  return new Promise((resolve, reject) => {
+    const child = spawn("node", [
+      "skills/actorcode/scripts/findings.js",
+      ...args
+    ], {
+      stdio: "inherit"
+    });
+    
+    child.on("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`findings exited with code ${code}`));
+    });
+  });
 }
 
 main().catch(async (error) => {

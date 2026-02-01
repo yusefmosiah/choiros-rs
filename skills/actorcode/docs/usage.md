@@ -27,7 +27,7 @@ Tier labels (fast to pricey):
 
 1. pico: `zai-coding-plan/glm-4.7-flash`
 2. nano: `zai-coding-plan/glm-4.7`
-3. micro: `opencode/kimi-k2.5-free`
+3. micro: `kimi-for-coding/k2p5`
 4. milli: `openai/gpt-5.2-codex`
 
 Capabilities:
@@ -48,6 +48,10 @@ node skills/actorcode/scripts/actorcode.js spawn \
   --tier pico \
   --prompt "Audit the auth flow and summarize risks."
 ```
+
+By default, spawn wraps your prompt in a contract that includes situational
+context (repo path, date, model/tier) plus expectations about reporting changes
+and tests. Disable it with `--no-contract` if you need raw prompts.
 
 ## Check status
 
@@ -85,6 +89,13 @@ node skills/actorcode/scripts/actorcode.js messages \
   --latest \
   --wait \
   --interval 1000
+
+# Only return messages with text parts
+node skills/actorcode/scripts/actorcode.js messages \
+  --id <session_id> \
+  --role assistant \
+  --latest \
+  --require-text
 ```
 
 ## Tail events
@@ -103,6 +114,19 @@ Notes:
 
 ```bash
 node skills/actorcode/scripts/actorcode.js logs --id <session_id>
+```
+
+## Supervisor loop
+
+```bash
+# Stream events and keep status registry fresh
+node skills/actorcode/scripts/actorcode.js supervisor --interval 5000
+
+# Print status snapshots alongside events
+node skills/actorcode/scripts/actorcode.js supervisor --print-status
+
+# Scope to one session
+node skills/actorcode/scripts/actorcode.js supervisor --session <session_id>
 ```
 
 ## Registry recovery
@@ -142,3 +166,108 @@ PY
 ```bash
 node skills/actorcode/scripts/actorcode.js attach --
 ```
+
+## Automated Research Tasks
+
+Launch non-blocking research tasks that report findings incrementally:
+
+```bash
+# Launch security audit and code quality review
+just research security-audit code-quality
+
+# Available templates:
+# - security-audit    : Security vulnerability scan
+# - code-quality      : Code smells and refactoring opportunities  
+# - docs-gap          : Missing documentation analysis
+# - performance       : Performance bottleneck detection
+# - bug-hunt          : Bug hunting across codebase
+
+# Launch with background monitor
+just research security-audit --monitor
+
+# Check findings
+just actorcode messages --id <session_id> --role assistant --latest --wait
+
+# Monitor specific sessions
+just research-monitor <session_id1> <session_id2>
+```
+
+Research agents report findings using `[LEARNING]` tags:
+- `[LEARNING] SECURITY: Hardcoded API key in config.rs`
+- `[LEARNING] BUG: Race condition in actor init`
+- `[LEARNING] REFACTOR: Unused import in main.rs`
+- `[LEARNING] DOCS: Missing README for sandbox module`
+- `[LEARNING] PERFORMANCE: Inefficient query in events.rs`
+
+The monitor collects these and prints a summary on exit.
+
+## Research Status
+
+Check the status of all research tasks:
+
+```bash
+# Show active research sessions
+just research-status
+
+# Show all sessions including completed
+just research-status --all
+
+# Show recent learnings for each session
+just research-status --learnings
+```
+
+## Findings Database
+
+Query the persisted findings database:
+
+```bash
+# List recent findings
+just findings list
+
+# Filter by session
+just findings list --session <session_id>
+
+# Filter by category
+just findings list --category SECURITY
+
+# Show statistics
+just findings stats
+
+# Export findings
+just findings export --format json
+just findings export --format csv
+```
+
+## Dashboards
+
+### Tmux Dashboard
+
+Create a live tmux dashboard with multiple panes:
+
+```bash
+# Compact 2x2 grid layout
+just research-dashboard
+
+# Full multi-window dashboard
+just research-dashboard create
+
+# Kill dashboard
+just research-dashboard kill
+
+# Attach to existing
+just research-dashboard attach
+```
+
+### Web Dashboard
+
+Open the web dashboard in your browser:
+
+```bash
+just research-web
+```
+
+The web dashboard shows:
+- Active research sessions with real-time status
+- Category distribution chart
+- Recent findings with filtering
+- Statistics and summary

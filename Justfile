@@ -72,3 +72,46 @@ deploy-ec2:
 # Actorcode
 actorcode *ARGS:
     node skills/actorcode/scripts/actorcode.js {{ARGS}}
+
+# Research tasks (non-blocking)
+research *TEMPLATES:
+    node skills/actorcode/scripts/research-launch.js {{TEMPLATES}}
+
+research-monitor *SESSIONS:
+    node skills/actorcode/scripts/research-monitor.js {{SESSIONS}}
+
+# Research status - show active research tasks
+research-status *ARGS:
+    node skills/actorcode/scripts/research-status.js {{ARGS}}
+
+# Findings database commands
+findings *ARGS:
+    node skills/actorcode/scripts/findings.js {{ARGS}}
+
+# Research dashboard (tmux)
+research-dashboard CMD="compact":
+    python skills/actorcode/scripts/research-dashboard.py {{CMD}}
+
+# Open web dashboard
+research-web:
+    open skills/actorcode/dashboard.html
+
+# Start findings API server for web dashboard
+findings-server:
+    node skills/actorcode/scripts/findings-server.js
+
+# Cleanup old sessions
+research-cleanup *ARGS:
+    node skills/actorcode/scripts/cleanup-sessions.js {{ARGS}}
+
+# Run diagnostics
+research-diagnose:
+    node skills/actorcode/scripts/diagnose.js
+
+# Fix findings with worktree isolation
+fix-findings *ARGS:
+    node skills/actorcode/scripts/fix-findings.js {{ARGS}}
+
+# Check test hygiene before merging
+check-test-hygiene:
+    node skills/actorcode/scripts/check-test-hygiene.js

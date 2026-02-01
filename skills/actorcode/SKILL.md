@@ -15,7 +15,7 @@ Tier labels (fast to pricey):
 
 1. pico: `zai-coding-plan/glm-4.7-flash`
 2. nano: `zai-coding-plan/glm-4.7`
-3. micro: `opencode/kimi-k2.5-free`
+3. micro: `kimi-for-coding/k2p5`
 4. milli: `openai/gpt-5.2-codex`
 
 Capabilities:
@@ -33,10 +33,41 @@ If `--model` is omitted, actorcode defaults to `pico`.
 - `actorcode status`
 - `actorcode models`
 - `actorcode message --to <session_id> --text "..."`
+- `actorcode messages --id <session_id> --require-text`
 - `actorcode abort --id <session_id>`
 - `actorcode events`
 - `actorcode logs --id <session_id>`
+- `actorcode supervisor --interval 5000 --print-status`
 - `actorcode attach -- <opencode-attach-args>`
+- `actorcode research-status [--all] [--learnings]`
+- `actorcode findings <list|stats|export>`
+
+## Research System
+
+Launch non-blocking research tasks with incremental reporting:
+
+```bash
+# Launch research tasks
+just research security-audit code-quality
+
+# Check status
+just research-status
+
+# View findings
+just findings list
+just findings stats
+```
+
+## Dashboards
+
+```bash
+# Tmux dashboard (2x2 grid)
+just research-dashboard
+
+# Web dashboard (requires findings-server)
+just findings-server  # Terminal 1: Start API server
+just research-web     # Terminal 2: Open browser
+```
 
 ## Environment
 

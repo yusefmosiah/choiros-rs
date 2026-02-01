@@ -38,6 +38,38 @@
 2. **Add small helper** - optional `just opencode-serve`
 3. **Theme work** - resume desktop theming now that chat works
 
+---
+
+## Update: Actorcode Research System - 2026-02-01
+
+### ✅ Research System Complete
+
+**What was built:**
+- Non-blocking research task launcher (`just research <template> --monitor`)
+- [LEARNING] protocol for incremental findings reporting
+- Background monitor collecting findings to JSON database
+- `research-status` command showing active/completed tasks
+- `findings` CLI for querying statistics and exporting data
+- Tmux dashboard (`just research-dashboard`) with live updates
+- Web dashboard (`just research-web`) for visual monitoring
+- Session cleanup utility (`just research-cleanup`)
+- Diagnostic tool (`just research-diagnose`)
+
+**Key Fix:**
+- Research-launch.js wasn't passing model to promptAsync - subagents weren't running
+- Fixed by adding model specification: `{ providerID, modelID }`
+
+**Verification Results:**
+- Cleaned 82 orphaned sessions from registry
+- Successfully launched docs-gap research task
+- Subagent explored codebase using bash/read tools
+- Reported 20 [LEARNING] DOCS findings
+- Monitor collected all findings to database
+- 58 total findings now in database (57 DOCS + 1 TEST)
+
+**Next Step:**
+Use the 20 documentation findings to create missing READMEs and improve docs.
+
 ## Architecture
 
 ```
