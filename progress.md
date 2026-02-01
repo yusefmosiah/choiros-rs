@@ -1,8 +1,8 @@
-# ChoirOS Progress - 2026-01-31
+# ChoirOS Progress - 2026-02-01
 
 ## Summary
 
-**Desktop Foundation Complete** - Built new Dioxus desktop with floating windows, app dock, and prompt bar. All 38 tests passing. Backend API needs fix for empty responses before themes can be applied.
+**Chat App Functional + Actorcode Orchestration Added** - Chat UI and backend flow now work end-to-end (WebSocket, icon open, message processing). Added actorcode skill suite to orchestrate OpenCode sessions via HTTP SDK with logs and model tiers.
 
 ## What's Working
 
@@ -10,51 +10,33 @@
 - **Server:** Running on localhost:8080
 - **Database:** libsql/SQLite with event sourcing
 - **Actors:** EventStoreActor, ChatActor, DesktopActor, ActorManager
-- **API Endpoints:** All endpoints implemented (health, chat, desktop, websocket)
-- **WebSocket:** Infrastructure for real-time updates at `/ws`
-- **CORS:** Allow-list enforced for known UI origins
-- **Tests:** All 38 tests passing (18 unit + 20 integration)
+- **API Endpoints:** Health, chat, desktop, websocket
+- **WebSocket:** Connection works and stays alive
+- **Chat processing:** Messages reach ChatAgent and AI responses return
 
 ### Frontend (sandbox-ui) ✅
-- **Framework:** Dioxus 0.7 (WASM) - compiles successfully
-- **New Components:**
-  - **Desktop** - Main container with CSS token system for themes
-  - **AppDock** - Left sidebar with app icons and labels
-  - **FloatingWindow** - Draggable, resizable windows with z-index
-  - **PromptBar** - Bottom command input with WebSocket status
-  - **Interop** - WASM bindings for drag/resize/WebSocket
-- **Features:**
-  - Responsive layout (desktop >1024px vs mobile)
-  - Theme-ready architecture with CSS variables
-  - Window management (open, close, focus, z-index)
-  - WebSocket client for real-time sync
-  - Dark default theme
+- **Framework:** Dioxus 0.7 (WASM)
+- **Desktop UI:** dock, floating windows, prompt bar
+- **Chat UI:** modern bubbles, typing indicator, input affordances
+- **Icon open:** chat opens from desktop icon (double-click)
+- **WebSocket status:** shows connected
 
 ## Current Status
 
 ### ✅ Completed
-- Desktop foundation with app dock, prompt bar, floating windows
-- CSS token system for theme abstraction
-- WebSocket API infrastructure
-- WASM interop for drag/resize
-- All 38 tests passing
-- Old React/Vite prototype tests removed
-- Deployment runbook archived
+- Chat app end-to-end functionality (WebSocket, icon open, message flow)
+- Chat UI polish with modern bubbles
+- Actorcode orchestration skill suite
+- Consolidated actorcode architecture doc
 
 ### ⚠️ In Progress
-- **Backend API returning empty responses** - `/desktop/{id}` returns empty
-- Need to investigate why DesktopActor state isn't being serialized properly
-- Frontend shows "Error loading desktop: Failed to parse JSON"
+- Actorcode demo run (spawn one agent per model tier)
+- Observability checks for actorcode logs and events
 
 ### 📋 Next Steps
-1. **Fix backend API** - Debug why desktop state returns empty
-2. **Theme Subagents** - Once API works, create tasks for each theme:
-   - Neo-Aero / Frutiger-style gloss
-   - Glassmorphism / Translucent layers
-   - Neo-Brutalism / Soft Brutalism
-   - Retrofuturism
-   - And 10+ more themes from design doc
-3. **Deployment** - Deploy working version to EC2
+1. **Actorcode demo** - spawn pico/nano/micro/milli under one supervisor
+2. **Add small helper** - optional `just opencode-serve`
+3. **Theme work** - resume desktop theming now that chat works
 
 ## Architecture
 
@@ -85,7 +67,7 @@
 # Set local database path (required for local development)
 export DATABASE_URL="./data/events.db"
 
-cargo run -p sandbox
+just dev-sandbox
 # Server starts on http://localhost:8080
 ```
 
@@ -95,8 +77,7 @@ cargo run -p sandbox
 cargo install dioxus-cli
 
 # Start dev server
-cd sandbox-ui
-dx serve --port 3000
+just dev-ui
 # UI available at http://localhost:3000
 ```
 
@@ -118,13 +99,8 @@ cargo build -p sandbox-ui --target wasm32-unknown-unknown
 
 ## Commits
 
-1. `e649f2b` - feat: migrate from sqlx to libsql
-2. `361fd86` - docs: cleanup and solidify documentation
-3. `77bfc81` - feat: implement Dioxus chat UI with full end-to-end testing
-4. `8e4efc5` - feat: implement DesktopActor with window management and app registry
-5. `9230716` - feat: implement mobile-first Desktop UI with window system
-6. `5dde681` - feat: desktop foundation with floating windows, dock, prompt bar
-7. `7937a4b` - fix: resolve compilation errors and test desktop foundation
+1. `2084209` - feat: Chat App Core Functionality - WebSocket, Icon Click, Message Flow
+2. `bd9330f` - feat: add actorcode orchestration suite
 
 ## Documentation
 
@@ -136,5 +112,5 @@ cargo build -p sandbox-ui --target wasm32-unknown-unknown
 
 ---
 
-*Last updated: 2026-01-31*
-*Status: Desktop foundation complete, API fix needed before themes*
+*Last updated: 2026-02-01*
+*Status: Chat app functional, actorcode orchestration added*
