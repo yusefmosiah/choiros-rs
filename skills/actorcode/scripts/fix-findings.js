@@ -18,7 +18,7 @@ import fs from "fs/promises";
 import path from "path";
 import { loadFindings } from "./lib/findings.js";
 
-const BATCH_SIZE = 1; // Sequential only - no concurrent git ops
+const BATCH_SIZE = 3; // Max concurrent fixes for docs/research (safe), code changes should be sequential
 
 class FindingFixOrchestrator {
   constructor() {
@@ -382,8 +382,14 @@ class FindingFixOrchestrator {
         attempts.set(finding.id, attempt);
         
         try {
-          // Create branch
-          const { branchName } = await this.createBranch(finding);
+          // For docs/research: spawn in current branch concurrently
+          // For code changes: create isolated branch
+          const isSafeForConcurrency = finding.category === "DOCS" || finding.category === "RESEARCH";
+          
+          if (!isSafeForConcurrency) {
+            // Code changes need isolation
+            const { branchName } = await this.createBranch(finding);
+          }
           
           // Spawn agent
           await this.spawnFixAgent(finding);
@@ -397,8 +403,10 @@ class FindingFixOrchestrator {
             return { findingId: finding.id, success: false, error: "Tests failed" };
           }
           
-          // Merge
-          await this.mergeBranch(finding.id);
+          if (!isSafeForConcurrency) {
+            // Merge code changes
+            await this.mergeBranch(finding.id);
+          }
           
           completed.add(finding.id);
           inProgress.delete(finding.id);
