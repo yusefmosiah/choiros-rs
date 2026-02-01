@@ -3,14 +3,14 @@
 //! PREDICTION: RESTful endpoints can manage window state and app registry,
 //! providing the UI with desktop functionality via HTTP.
 
-use actix_web::{get, post, web, HttpResponse, delete, patch};
+use actix_web::{delete, get, patch, post, web, HttpResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::actor_manager::AppState;
 use crate::actors::desktop::{
-    OpenWindow, CloseWindow, MoveWindow, ResizeWindow, FocusWindow,
-    GetWindows, GetDesktopState, RegisterApp, GetApps
+    CloseWindow, FocusWindow, GetApps, GetDesktopState, GetWindows, MoveWindow, OpenWindow,
+    RegisterApp, ResizeWindow,
 };
 
 /// Request to open a window
@@ -51,68 +51,56 @@ pub async fn open_window(
     state: web::Data<AppState>,
 ) -> HttpResponse {
     let desktop_id = path.into_inner();
-    
+
     // Get or create DesktopActor
-    let desktop = state.actor_manager.get_or_create_desktop(
-        desktop_id,
-        "system".to_string()
-    );
-    
-    match desktop.send(OpenWindow {
-        app_id: req.app_id.clone(),
-        title: req.title.clone(),
-        props: req.props.clone(),
-    }).await {
-        Ok(Ok(window)) => {
-            HttpResponse::Ok().json(OpenWindowResponse {
-                success: true,
-                window: Some(window),
-                error: None,
-            })
-        }
-        Ok(Err(e)) => {
-            HttpResponse::BadRequest().json(OpenWindowResponse {
-                success: false,
-                window: None,
-                error: Some(e.to_string()),
-            })
-        }
-        Err(_) => {
-            HttpResponse::InternalServerError().json(OpenWindowResponse {
-                success: false,
-                window: None,
-                error: Some("Actor mailbox error".to_string()),
-            })
-        }
+    let desktop = state
+        .actor_manager
+        .get_or_create_desktop(desktop_id, "system".to_string());
+
+    match desktop
+        .send(OpenWindow {
+            app_id: req.app_id.clone(),
+            title: req.title.clone(),
+            props: req.props.clone(),
+        })
+        .await
+    {
+        Ok(Ok(window)) => HttpResponse::Ok().json(OpenWindowResponse {
+            success: true,
+            window: Some(window),
+            error: None,
+        }),
+        Ok(Err(e)) => HttpResponse::BadRequest().json(OpenWindowResponse {
+            success: false,
+            window: None,
+            error: Some(e.to_string()),
+        }),
+        Err(_) => HttpResponse::InternalServerError().json(OpenWindowResponse {
+            success: false,
+            window: None,
+            error: Some("Actor mailbox error".to_string()),
+        }),
     }
 }
 
 /// Get all windows for a desktop
 #[get("/desktop/{desktop_id}/windows")]
-pub async fn get_windows(
-    path: web::Path<String>,
-    state: web::Data<AppState>,
-) -> HttpResponse {
+pub async fn get_windows(path: web::Path<String>, state: web::Data<AppState>) -> HttpResponse {
     let desktop_id = path.into_inner();
-    
-    let desktop = state.actor_manager.get_or_create_desktop(
-        desktop_id,
-        "system".to_string()
-    );
-    
+
+    let desktop = state
+        .actor_manager
+        .get_or_create_desktop(desktop_id, "system".to_string());
+
     match desktop.send(GetWindows).await {
-        Ok(windows) => {
-            HttpResponse::Ok().json(json!({
-                "success": true,
-                "windows": windows
-            }))
-        }
-        Err(_) => {
-            HttpResponse::InternalServerError().json(json!({
-                "success": false,
-                "error": "Failed to get windows"
-            }))
-        }
+        Ok(windows) => HttpResponse::Ok().json(json!({
+            "success": true,
+            "windows": windows
+        })),
+        Err(_) => HttpResponse::InternalServerError().json(json!({
+            "success": false,
+            "error": "Failed to get windows"
+        })),
     }
 }
 
@@ -123,31 +111,24 @@ pub async fn close_window(
     state: web::Data<AppState>,
 ) -> HttpResponse {
     let (desktop_id, window_id) = path.into_inner();
-    
-    let desktop = state.actor_manager.get_or_create_desktop(
-        desktop_id,
-        "system".to_string()
-    );
-    
+
+    let desktop = state
+        .actor_manager
+        .get_or_create_desktop(desktop_id, "system".to_string());
+
     match desktop.send(CloseWindow { window_id }).await {
-        Ok(Ok(())) => {
-            HttpResponse::Ok().json(json!({
-                "success": true,
-                "message": "Window closed"
-            }))
-        }
-        Ok(Err(e)) => {
-            HttpResponse::BadRequest().json(json!({
-                "success": false,
-                "error": e.to_string()
-            }))
-        }
-        Err(_) => {
-            HttpResponse::InternalServerError().json(json!({
-                "success": false,
-                "error": "Actor mailbox error"
-            }))
-        }
+        Ok(Ok(())) => HttpResponse::Ok().json(json!({
+            "success": true,
+            "message": "Window closed"
+        })),
+        Ok(Err(e)) => HttpResponse::BadRequest().json(json!({
+            "success": false,
+            "error": e.to_string()
+        })),
+        Err(_) => HttpResponse::InternalServerError().json(json!({
+            "success": false,
+            "error": "Actor mailbox error"
+        })),
     }
 }
 
@@ -159,35 +140,31 @@ pub async fn move_window(
     state: web::Data<AppState>,
 ) -> HttpResponse {
     let (desktop_id, window_id) = path.into_inner();
-    
-    let desktop = state.actor_manager.get_or_create_desktop(
-        desktop_id,
-        "system".to_string()
-    );
-    
-    match desktop.send(MoveWindow {
-        window_id,
-        x: req.x,
-        y: req.y,
-    }).await {
-        Ok(Ok(())) => {
-            HttpResponse::Ok().json(json!({
-                "success": true,
-                "message": "Window moved"
-            }))
-        }
-        Ok(Err(e)) => {
-            HttpResponse::BadRequest().json(json!({
-                "success": false,
-                "error": e.to_string()
-            }))
-        }
-        Err(_) => {
-            HttpResponse::InternalServerError().json(json!({
-                "success": false,
-                "error": "Actor mailbox error"
-            }))
-        }
+
+    let desktop = state
+        .actor_manager
+        .get_or_create_desktop(desktop_id, "system".to_string());
+
+    match desktop
+        .send(MoveWindow {
+            window_id,
+            x: req.x,
+            y: req.y,
+        })
+        .await
+    {
+        Ok(Ok(())) => HttpResponse::Ok().json(json!({
+            "success": true,
+            "message": "Window moved"
+        })),
+        Ok(Err(e)) => HttpResponse::BadRequest().json(json!({
+            "success": false,
+            "error": e.to_string()
+        })),
+        Err(_) => HttpResponse::InternalServerError().json(json!({
+            "success": false,
+            "error": "Actor mailbox error"
+        })),
     }
 }
 
@@ -199,35 +176,31 @@ pub async fn resize_window(
     state: web::Data<AppState>,
 ) -> HttpResponse {
     let (desktop_id, window_id) = path.into_inner();
-    
-    let desktop = state.actor_manager.get_or_create_desktop(
-        desktop_id,
-        "system".to_string()
-    );
-    
-    match desktop.send(ResizeWindow {
-        window_id,
-        width: req.width,
-        height: req.height,
-    }).await {
-        Ok(Ok(())) => {
-            HttpResponse::Ok().json(json!({
-                "success": true,
-                "message": "Window resized"
-            }))
-        }
-        Ok(Err(e)) => {
-            HttpResponse::BadRequest().json(json!({
-                "success": false,
-                "error": e.to_string()
-            }))
-        }
-        Err(_) => {
-            HttpResponse::InternalServerError().json(json!({
-                "success": false,
-                "error": "Actor mailbox error"
-            }))
-        }
+
+    let desktop = state
+        .actor_manager
+        .get_or_create_desktop(desktop_id, "system".to_string());
+
+    match desktop
+        .send(ResizeWindow {
+            window_id,
+            width: req.width,
+            height: req.height,
+        })
+        .await
+    {
+        Ok(Ok(())) => HttpResponse::Ok().json(json!({
+            "success": true,
+            "message": "Window resized"
+        })),
+        Ok(Err(e)) => HttpResponse::BadRequest().json(json!({
+            "success": false,
+            "error": e.to_string()
+        })),
+        Err(_) => HttpResponse::InternalServerError().json(json!({
+            "success": false,
+            "error": "Actor mailbox error"
+        })),
     }
 }
 
@@ -238,31 +211,24 @@ pub async fn focus_window(
     state: web::Data<AppState>,
 ) -> HttpResponse {
     let (desktop_id, window_id) = path.into_inner();
-    
-    let desktop = state.actor_manager.get_or_create_desktop(
-        desktop_id,
-        "system".to_string()
-    );
-    
+
+    let desktop = state
+        .actor_manager
+        .get_or_create_desktop(desktop_id, "system".to_string());
+
     match desktop.send(FocusWindow { window_id }).await {
-        Ok(Ok(())) => {
-            HttpResponse::Ok().json(json!({
-                "success": true,
-                "message": "Window focused"
-            }))
-        }
-        Ok(Err(e)) => {
-            HttpResponse::BadRequest().json(json!({
-                "success": false,
-                "error": e.to_string()
-            }))
-        }
-        Err(_) => {
-            HttpResponse::InternalServerError().json(json!({
-                "success": false,
-                "error": "Actor mailbox error"
-            }))
-        }
+        Ok(Ok(())) => HttpResponse::Ok().json(json!({
+            "success": true,
+            "message": "Window focused"
+        })),
+        Ok(Err(e)) => HttpResponse::BadRequest().json(json!({
+            "success": false,
+            "error": e.to_string()
+        })),
+        Err(_) => HttpResponse::InternalServerError().json(json!({
+            "success": false,
+            "error": "Actor mailbox error"
+        })),
     }
 }
 
@@ -273,25 +239,20 @@ pub async fn get_desktop_state(
     state: web::Data<AppState>,
 ) -> HttpResponse {
     let desktop_id = path.into_inner();
-    
-    let desktop = state.actor_manager.get_or_create_desktop(
-        desktop_id,
-        "system".to_string()
-    );
-    
+
+    let desktop = state
+        .actor_manager
+        .get_or_create_desktop(desktop_id, "system".to_string());
+
     match desktop.send(GetDesktopState).await {
-        Ok(desktop_state) => {
-            HttpResponse::Ok().json(json!({
-                "success": true,
-                "desktop": desktop_state
-            }))
-        }
-        Err(_) => {
-            HttpResponse::InternalServerError().json(json!({
-                "success": false,
-                "error": "Failed to get desktop state"
-            }))
-        }
+        Ok(desktop_state) => HttpResponse::Ok().json(json!({
+            "success": true,
+            "desktop": desktop_state
+        })),
+        Err(_) => HttpResponse::InternalServerError().json(json!({
+            "success": false,
+            "error": "Failed to get desktop state"
+        })),
     }
 }
 
@@ -303,59 +264,49 @@ pub async fn register_app(
     state: web::Data<AppState>,
 ) -> HttpResponse {
     let desktop_id = path.into_inner();
-    
-    let desktop = state.actor_manager.get_or_create_desktop(
-        desktop_id,
-        "system".to_string()
-    );
-    
-    match desktop.send(RegisterApp { app: req.into_inner() }).await {
-        Ok(Ok(())) => {
-            HttpResponse::Ok().json(json!({
-                "success": true,
-                "message": "App registered"
-            }))
-        }
-        Ok(Err(e)) => {
-            HttpResponse::BadRequest().json(json!({
-                "success": false,
-                "error": e.to_string()
-            }))
-        }
-        Err(_) => {
-            HttpResponse::InternalServerError().json(json!({
-                "success": false,
-                "error": "Actor mailbox error"
-            }))
-        }
+
+    let desktop = state
+        .actor_manager
+        .get_or_create_desktop(desktop_id, "system".to_string());
+
+    match desktop
+        .send(RegisterApp {
+            app: req.into_inner(),
+        })
+        .await
+    {
+        Ok(Ok(())) => HttpResponse::Ok().json(json!({
+            "success": true,
+            "message": "App registered"
+        })),
+        Ok(Err(e)) => HttpResponse::BadRequest().json(json!({
+            "success": false,
+            "error": e.to_string()
+        })),
+        Err(_) => HttpResponse::InternalServerError().json(json!({
+            "success": false,
+            "error": "Actor mailbox error"
+        })),
     }
 }
 
 /// Get all registered apps
 #[get("/desktop/{desktop_id}/apps")]
-pub async fn get_apps(
-    path: web::Path<String>,
-    state: web::Data<AppState>,
-) -> HttpResponse {
+pub async fn get_apps(path: web::Path<String>, state: web::Data<AppState>) -> HttpResponse {
     let desktop_id = path.into_inner();
-    
-    let desktop = state.actor_manager.get_or_create_desktop(
-        desktop_id,
-        "system".to_string()
-    );
-    
+
+    let desktop = state
+        .actor_manager
+        .get_or_create_desktop(desktop_id, "system".to_string());
+
     match desktop.send(GetApps).await {
-        Ok(apps) => {
-            HttpResponse::Ok().json(json!({
-                "success": true,
-                "apps": apps
-            }))
-        }
-        Err(_) => {
-            HttpResponse::InternalServerError().json(json!({
-                "success": false,
-                "error": "Failed to get apps"
-            }))
-        }
+        Ok(apps) => HttpResponse::Ok().json(json!({
+            "success": true,
+            "apps": apps
+        })),
+        Err(_) => HttpResponse::InternalServerError().json(json!({
+            "success": false,
+            "error": "Failed to get apps"
+        })),
     }
 }

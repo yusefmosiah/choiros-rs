@@ -21,11 +21,7 @@ pub struct ChatWebSocket {
 }
 
 impl ChatWebSocket {
-    pub fn new(
-        actor_id: String,
-        user_id: String,
-        app_state: web::Data<AppState>,
-    ) -> Self {
+    pub fn new(actor_id: String, user_id: String, app_state: web::Data<AppState>) -> Self {
         Self {
             actor_id,
             user_id,
@@ -38,21 +34,24 @@ impl ChatWebSocket {
     fn init_agent(&mut self, ctx: &mut ws::WebsocketContext<Self>) {
         let actor_id = self.actor_id.clone();
         let user_id = self.user_id.clone();
-        
+
         // Get or create ChatAgent via the ActorManager
-        let agent_addr = self.app_state.actor_manager.get_or_create_chat_agent(
-            actor_id.clone(),
-            user_id.clone(),
-        );
-        
+        let agent_addr = self
+            .app_state
+            .actor_manager
+            .get_or_create_chat_agent(actor_id.clone(), user_id.clone());
+
         self.chat_agent = Some(agent_addr);
 
         // Send connection confirmation
-        ctx.text(json!({
-            "type": "connected",
-            "actor_id": self.actor_id,
-            "user_id": self.user_id,
-        }).to_string());
+        ctx.text(
+            json!({
+                "type": "connected",
+                "actor_id": self.actor_id,
+                "user_id": self.user_id,
+            })
+            .to_string(),
+        );
     }
 
     /// Send a stream chunk to the client
@@ -99,10 +98,10 @@ pub struct StreamChunk {
 pub enum ClientMessage {
     #[serde(rename = "message")]
     Message { text: String },
-    
+
     #[serde(rename = "ping")]
     Ping,
-    
+
     #[serde(rename = "switch_model")]
     SwitchModel { model: String },
 }
@@ -113,34 +112,34 @@ pub enum ClientMessage {
 pub enum ServerMessage {
     #[serde(rename = "thinking")]
     Thinking { content: String },
-    
+
     #[serde(rename = "tool_call")]
-    ToolCall { 
+    ToolCall {
         tool_name: String,
         tool_args: String,
         reasoning: String,
     },
-    
+
     #[serde(rename = "tool_result")]
     ToolResult {
         tool_name: String,
         success: bool,
         output: String,
     },
-    
+
     #[serde(rename = "response")]
-    Response { 
+    Response {
         text: String,
         confidence: f64,
         model_used: String,
     },
-    
+
     #[serde(rename = "error")]
     Error { message: String },
-    
+
     #[serde(rename = "pong")]
     Pong,
-    
+
     #[serde(rename = "connected")]
     Connected { actor_id: String, user_id: String },
 }
@@ -153,7 +152,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ChatWebSocket {
                     Ok(ClientMessage::Message { text: user_text }) => {
                         if let Some(agent) = self.chat_agent.clone() {
                             let actor_id = self.actor_id.clone();
-                            
+
                             // Send thinking start
                             self.send_chunk(
                                 StreamChunk {
@@ -165,7 +164,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ChatWebSocket {
 
                             // Process message asynchronously
                             let fut = agent.send(ProcessMessage { text: user_text });
-                            
+
                             ctx.spawn(
                                 async move {
                                     match fut.await {
@@ -257,18 +256,24 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ChatWebSocket {
                     }
                     Ok(ClientMessage::SwitchModel { model }) => {
                         // Handle model switching
-                        ctx.text(json!({
-                            "type": "model_switched",
-                            "model": model,
-                            "status": "success"
-                        }).to_string());
+                        ctx.text(
+                            json!({
+                                "type": "model_switched",
+                                "model": model,
+                                "status": "success"
+                            })
+                            .to_string(),
+                        );
                     }
                     Err(e) => {
                         tracing::warn!("Invalid WebSocket message: {}", e);
-                        ctx.text(json!({
-                            "type": "error",
-                            "message": "Invalid message format"
-                        }).to_string());
+                        ctx.text(
+                            json!({
+                                "type": "error",
+                                "message": "Invalid message format"
+                            })
+                            .to_string(),
+                        );
                     }
                 }
             }
@@ -309,11 +314,7 @@ pub async fn chat_websocket(
         "New chat WebSocket connection"
     );
 
-    ws::start(
-        ChatWebSocket::new(actor_id, user_id, data),
-        &req,
-        stream,
-    )
+    ws::start(ChatWebSocket::new(actor_id, user_id, data), &req, stream)
 }
 
 /// WebSocket connection handler for /ws/chat/{actor_id}/{user_id}
@@ -331,9 +332,5 @@ pub async fn chat_websocket_with_user(
         "New chat WebSocket connection"
     );
 
-    ws::start(
-        ChatWebSocket::new(actor_id, user_id, data),
-        &req,
-        stream,
-    )
+    ws::start(ChatWebSocket::new(actor_id, user_id, data), &req, stream)
 }

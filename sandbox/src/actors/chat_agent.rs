@@ -3,7 +3,9 @@
 //! This actor combines BAML LLM planning with tool execution to provide
 //! an intelligent chat interface with file system access.
 
-use actix::{Actor, ActorFutureExt, Context, Handler, Message as ActixMessage, ResponseActFuture, WrapFuture};
+use actix::{
+    Actor, ActorFutureExt, Context, Handler, Message as ActixMessage, ResponseActFuture, WrapFuture,
+};
 use std::collections::HashMap;
 
 use crate::actors::event_store::{AppendEvent, EventStoreActor};
@@ -502,9 +504,7 @@ impl Handler<ExecuteTool> for ChatAgent {
         let tool_name = msg.tool_name;
         let tool_args = msg.tool_args;
 
-        Box::pin(
-            async move { execute_tool_impl(&tool_name, &tool_args).await }.into_actor(self),
-        )
+        Box::pin(async move { execute_tool_impl(&tool_name, &tool_args).await }.into_actor(self))
     }
 }
 

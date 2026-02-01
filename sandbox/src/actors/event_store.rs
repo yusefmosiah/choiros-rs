@@ -122,58 +122,68 @@ impl Handler<AppendEvent> for EventStoreActor {
     fn handle(&mut self, msg: AppendEvent, _ctx: &mut Context<Self>) -> Self::Result {
         let conn = self.conn.clone();
 
-        Box::pin(async move {
-            let event_id = ulid::Ulid::new().to_string();
-            let payload_json = serde_json::to_string(&msg.payload)?;
+        Box::pin(
+            async move {
+                let event_id = ulid::Ulid::new().to_string();
+                let payload_json = serde_json::to_string(&msg.payload)?;
 
-            // Insert the event (libsql doesn't support RETURNING clause)
-            // Clone values for params macro (it takes ownership)
-            let actor_id_clone = msg.actor_id.clone();
-            let user_id_clone = msg.user_id.clone();
-            let event_id_for_query = event_id.clone();
-            conn.execute(
-                r#"
+                // Insert the event (libsql doesn't support RETURNING clause)
+                // Clone values for params macro (it takes ownership)
+                let actor_id_clone = msg.actor_id.clone();
+                let user_id_clone = msg.user_id.clone();
+                let event_id_for_query = event_id.clone();
+                conn.execute(
+                    r#"
                 INSERT INTO events (event_id, event_type, payload, actor_id, user_id)
                 VALUES (?1, ?2, ?3, ?4, ?5)
                 "#,
-                libsql::params![event_id, msg.event_type, payload_json, actor_id_clone, user_id_clone],
-            )
-            .await?;
+                    libsql::params![
+                        event_id,
+                        msg.event_type,
+                        payload_json,
+                        actor_id_clone,
+                        user_id_clone
+                    ],
+                )
+                .await?;
 
-            // Retrieve the inserted row
-            let mut rows = conn
-                .query(
-                    r#"
+                // Retrieve the inserted row
+                let mut rows = conn
+                    .query(
+                        r#"
                     SELECT seq, event_id, timestamp, event_type, payload, actor_id, user_id
                     FROM events
                     WHERE event_id = ?1
                     "#,
-                    [event_id_for_query.as_str()],
-                )
-                .await?;
+                        [event_id_for_query.as_str()],
+                    )
+                    .await?;
 
-            let row = rows
-                .next()
-                .await?
-                .ok_or_else(|| EventStoreError::EventNotFound(0))?;
+                let row = rows
+                    .next()
+                    .await?
+                    .ok_or_else(|| EventStoreError::EventNotFound(0))?;
 
-            // Parse SQLite datetime format: "2026-01-31 02:24:30"
-            let timestamp_str: String = row.get(2)?;
-            let naive_dt = chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
-                .map_err(|e| EventStoreError::InvalidTimestamp(e.to_string()))?;
-            
-            let event = shared_types::Event {
-                seq: row.get(0)?,
-                event_id: row.get(1)?,
-                timestamp: chrono::DateTime::from_naive_utc_and_offset(naive_dt, chrono::Utc),
-                event_type: row.get(3)?,
-                payload: serde_json::from_str(&row.get::<String>(4)?)?,
-                actor_id: shared_types::ActorId(row.get(5)?),
-                user_id: row.get(6)?,
-            };
+                // Parse SQLite datetime format: "2026-01-31 02:24:30"
+                let timestamp_str: String = row.get(2)?;
+                let naive_dt =
+                    chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
+                        .map_err(|e| EventStoreError::InvalidTimestamp(e.to_string()))?;
 
-            Ok(event)
-        }.into_actor(self))
+                let event = shared_types::Event {
+                    seq: row.get(0)?,
+                    event_id: row.get(1)?,
+                    timestamp: chrono::DateTime::from_naive_utc_and_offset(naive_dt, chrono::Utc),
+                    event_type: row.get(3)?,
+                    payload: serde_json::from_str(&row.get::<String>(4)?)?,
+                    actor_id: shared_types::ActorId(row.get(5)?),
+                    user_id: row.get(6)?,
+                };
+
+                Ok(event)
+            }
+            .into_actor(self),
+        )
     }
 }
 
@@ -186,83 +196,100 @@ impl Handler<GetEventsForActor> for EventStoreActor {
         // Clone values before moving into async block
         let actor_id = msg.actor_id.clone();
         let since_seq = msg.since_seq;
-        
-        Box::pin(async move {
-            let mut rows = conn
-                .query(
-                    r#"
+
+        Box::pin(
+            async move {
+                let mut rows = conn
+                    .query(
+                        r#"
                     SELECT seq, event_id, timestamp, event_type, payload, actor_id, user_id
                     FROM events
                     WHERE actor_id = ?1 AND seq > ?2
                     ORDER BY seq ASC
                     "#,
-                    libsql::params![actor_id, since_seq],
-                )
-                .await?;
+                        libsql::params![actor_id, since_seq],
+                    )
+                    .await?;
 
-            let mut events = Vec::new();
-            while let Some(row) = rows.next().await? {
-                // Parse SQLite datetime format: "2026-01-31 02:24:30"
-                let timestamp_str: String = row.get(2)?;
-                let naive_dt = chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
-                    .map_err(|e| EventStoreError::InvalidTimestamp(e.to_string()))?;
-                
-                let event = shared_types::Event {
-                    seq: row.get(0)?,
-                    event_id: row.get(1)?,
-                    timestamp: chrono::DateTime::from_naive_utc_and_offset(naive_dt, chrono::Utc),
-                    event_type: row.get(3)?,
-                    payload: serde_json::from_str(&row.get::<String>(4)?)?,
-                    actor_id: shared_types::ActorId(row.get(5)?),
-                    user_id: row.get(6)?,
-                };
-                events.push(event);
-            }
-
-            Ok(events)
-        }.into_actor(self))
-    }
-}
-
-impl Handler<GetEventBySeq> for EventStoreActor {
-    type Result = actix::ResponseActFuture<Self, Result<Option<shared_types::Event>, EventStoreError>>;
-
-    fn handle(&mut self, msg: GetEventBySeq, _ctx: &mut Context<Self>) -> Self::Result {
-        let conn = self.conn.clone();
-
-        Box::pin(async move {
-            let mut rows = conn
-                .query(
-                    r#"
-                    SELECT seq, event_id, timestamp, event_type, payload, actor_id, user_id
-                    FROM events
-                    WHERE seq = ?1
-                    "#,
-                    [msg.seq],
-                )
-                .await?;
-
-            match rows.next().await? {
-                Some(row) => {
+                let mut events = Vec::new();
+                while let Some(row) = rows.next().await? {
                     // Parse SQLite datetime format: "2026-01-31 02:24:30"
                     let timestamp_str: String = row.get(2)?;
-                    let naive_dt = chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
-                        .map_err(|e| EventStoreError::InvalidTimestamp(e.to_string()))?;
-                    
+                    let naive_dt =
+                        chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
+                            .map_err(|e| EventStoreError::InvalidTimestamp(e.to_string()))?;
+
                     let event = shared_types::Event {
                         seq: row.get(0)?,
                         event_id: row.get(1)?,
-                        timestamp: chrono::DateTime::from_naive_utc_and_offset(naive_dt, chrono::Utc),
+                        timestamp: chrono::DateTime::from_naive_utc_and_offset(
+                            naive_dt,
+                            chrono::Utc,
+                        ),
                         event_type: row.get(3)?,
                         payload: serde_json::from_str(&row.get::<String>(4)?)?,
                         actor_id: shared_types::ActorId(row.get(5)?),
                         user_id: row.get(6)?,
                     };
-                    Ok(Some(event))
+                    events.push(event);
                 }
-                None => Ok(None),
+
+                Ok(events)
             }
-        }.into_actor(self))
+            .into_actor(self),
+        )
+    }
+}
+
+impl Handler<GetEventBySeq> for EventStoreActor {
+    type Result =
+        actix::ResponseActFuture<Self, Result<Option<shared_types::Event>, EventStoreError>>;
+
+    fn handle(&mut self, msg: GetEventBySeq, _ctx: &mut Context<Self>) -> Self::Result {
+        let conn = self.conn.clone();
+
+        Box::pin(
+            async move {
+                let mut rows = conn
+                    .query(
+                        r#"
+                    SELECT seq, event_id, timestamp, event_type, payload, actor_id, user_id
+                    FROM events
+                    WHERE seq = ?1
+                    "#,
+                        [msg.seq],
+                    )
+                    .await?;
+
+                match rows.next().await? {
+                    Some(row) => {
+                        // Parse SQLite datetime format: "2026-01-31 02:24:30"
+                        let timestamp_str: String = row.get(2)?;
+                        let naive_dt = chrono::NaiveDateTime::parse_from_str(
+                            &timestamp_str,
+                            "%Y-%m-%d %H:%M:%S",
+                        )
+                        .map_err(|e| EventStoreError::InvalidTimestamp(e.to_string()))?;
+
+                        let event = shared_types::Event {
+                            seq: row.get(0)?,
+                            event_id: row.get(1)?,
+                            timestamp: chrono::DateTime::from_naive_utc_and_offset(
+                                naive_dt,
+                                chrono::Utc,
+                            ),
+                            event_type: row.get(3)?,
+                            payload: serde_json::from_str(&row.get::<String>(4)?)?,
+                            actor_id: shared_types::ActorId(row.get(5)?),
+                            user_id: row.get(6)?,
+                        };
+                        Ok(Some(event))
+                    }
+                    None => Ok(None),
+                }
+            }
+            .into_actor(self),
+        )
     }
 }
 

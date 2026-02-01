@@ -132,18 +132,11 @@ choiros-rs/
 ├── shared-types/        # Common types (ActorId, Event, etc.)
 ├── hypervisor/          # VM management component
 └── skills/              # In-repo AI agent skills
-    ├── dev-browser/     # Browser automation (Playwright)
     ├── multi-terminal/  # Tmux session management
     └── session-handoff/ # Context preservation
 ```
 
 ## In-Repo Skills
-
-**dev-browser/** - Browser automation testing
-- Location: `skills/dev-browser/`
-- Purpose: Screenshot testing, web automation, E2E validation
-- Usage: `./skills/dev-browser/server.sh &` then run TS scripts
-- Key API: `client.page("name")`, `page.screenshot()`, `getAISnapshot()`
 
 **multi-terminal/** - Terminal session management  
 - Location: `skills/multi-terminal/`
@@ -156,6 +149,36 @@ choiros-rs/
 - Purpose: Create handoff docs for multi-session agent workflows
 - Usage: `python skills/session-handoff/scripts/create_handoff.py task-name`
 - Creates: `docs/handoffs/YYYY-MM-DD-task-name.md`
+
+## E2E Testing with agent-browser
+
+**agent-browser** - CLI-based browser automation (installed globally)
+- Purpose: Screenshot testing, web automation, E2E validation
+- Install: `npx skills add vercel-labs/agent-browser@agent-browser -g`
+- Key Commands:
+  - `agent-browser open <url>` - Navigate to page
+  - `agent-browser snapshot -i` - Get interactive elements with refs
+  - `agent-browser click @e1` - Click element by ref
+  - `agent-browser screenshot` - Take screenshot
+  - `agent-browser --json` - JSON output for programmatic use
+
+**Example E2E Test Flow:**
+```bash
+# 1. Start services (in separate terminals or tmux)
+just dev-sandbox    # Backend on port 8080
+just dev-ui         # Frontend on port 3000
+
+# 2. Run E2E test with agent-browser
+agent-browser open http://localhost:3000
+agent-browser screenshot tests/screenshots/initial.png
+agent-browser snapshot -i
+# Use refs from snapshot to interact
+agent-browser click @e1
+agent-browser fill @e2 "test message"
+agent-browser click @e3
+agent-browser wait --text "AI response"
+agent-browser screenshot tests/screenshots/result.png
+```
 
 ## Testing Guidelines
 

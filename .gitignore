@@ -71,3 +71,4 @@ data/
 # Dev Browser Runtime Data
 skills/dev-browser/profiles/
 skills/dev-browser/tmp/
+skills/dev-browser/node_modules/

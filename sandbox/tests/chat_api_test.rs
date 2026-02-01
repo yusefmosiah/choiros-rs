@@ -2,12 +2,12 @@
 //!
 //! Tests full HTTP request/response cycles for chat endpoints
 
-use actix_web::{test, http::StatusCode, web, App};
-use serde_json::json;
 use actix::Actor;
-use sandbox::actors::EventStoreActor;
+use actix_web::{http::StatusCode, test, web, App};
 use sandbox::actor_manager::AppState;
+use sandbox::actors::EventStoreActor;
 use sandbox::api;
+use serde_json::json;
 
 /// Macro to set up a test app with isolated database
 ///

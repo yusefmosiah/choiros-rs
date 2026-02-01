@@ -1,14 +1,14 @@
+mod actor_manager;
 mod actors;
 mod api;
-mod actor_manager;
 mod baml_client;
 mod tools;
 
 use actix::Actor;
 use actix_cors::Cors;
 use actix_web::{http::header, web, App, HttpServer};
-use actors::{EventStoreActor, AppendEvent};
 use actor_manager::AppState;
+use actors::{AppendEvent, EventStoreActor};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -18,8 +18,8 @@ async fn main() -> std::io::Result<()> {
     tracing::info!("Starting ChoirOS Sandbox API Server");
 
     // Use configurable path for database
-    let db_path = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "/opt/choiros/data/events.db".to_string());
+    let db_path =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "/opt/choiros/data/events.db".to_string());
     let db_path = std::path::PathBuf::from(db_path);
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent).expect("Failed to create data directory");
@@ -37,12 +37,14 @@ async fn main() -> std::io::Result<()> {
     tracing::info!("EventStoreActor started");
 
     // Log startup event
-    let event = event_store.send(AppendEvent {
-        event_type: "system.startup".to_string(),
-        payload: serde_json::json!({"version": "0.1.0"}),
-        actor_id: "system".to_string(),
-        user_id: "system".to_string(),
-    }).await;
+    let event = event_store
+        .send(AppendEvent {
+            event_type: "system.startup".to_string(),
+            payload: serde_json::json!({"version": "0.1.0"}),
+            actor_id: "system".to_string(),
+            user_id: "system".to_string(),
+        })
+        .await;
 
     match event {
         Ok(Ok(evt)) => tracing::info!(seq = evt.seq, "Startup event logged"),
@@ -68,7 +70,11 @@ async fn main() -> std::io::Result<()> {
             .allowed_origin("http://localhost:3000")
             .allowed_origin("http://127.0.0.1:3000")
             .allowed_methods(vec!["GET", "POST", "DELETE", "PATCH", "OPTIONS"])
-            .allowed_headers(vec![header::CONTENT_TYPE, header::ACCEPT, header::AUTHORIZATION])
+            .allowed_headers(vec![
+                header::CONTENT_TYPE,
+                header::ACCEPT,
+                header::AUTHORIZATION,
+            ])
             .max_age(3600);
 
         App::new()

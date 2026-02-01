@@ -14,6 +14,14 @@ dev-hypervisor:
 dev-ui:
     cd sandbox-ui && dx serve --port 3000
 
+# Stop/kill running development processes
+stop:
+    @echo "Stopping ChoirOS development processes..."
+    @pkill -9 -f "cargo run -p sandbox" 2>/dev/null || true
+    @pkill -9 -f "dx serve" 2>/dev/null || true
+    @pkill -9 -f "sandbox" 2>/dev/null || true
+    @echo "✓ All processes stopped"
+
 # Build commands
 build:
     cargo build --release

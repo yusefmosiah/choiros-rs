@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
-use wasm_bindgen::prelude::*;
 use wasm_bindgen::closure::Closure;
+use wasm_bindgen::prelude::*;
 use web_sys::{window, MouseEvent};
 
 /// Get the browser viewport dimensions
@@ -23,15 +23,17 @@ pub fn get_viewport_size() -> (u32, u32) {
 pub fn start_window_drag(window_id: String, on_move: Callback<(i32, i32)>) {
     let window = window().expect("no global `window` exists");
     let document = window.document().expect("no document on window");
-    
+
     let initial_x = std::cell::Cell::new(0i32);
     let initial_y = std::cell::Cell::new(0i32);
     let is_dragging = std::cell::Cell::new(false);
-    
+
     // Mouse down handler
     let window_id_clone = window_id.clone();
     let mousedown_closure = Closure::wrap(Box::new(move |e: MouseEvent| {
-        let target = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok());
+        let target = e
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok());
         if let Some(target) = target {
             if target.id() == window_id_clone {
                 initial_x.set(e.client_x());
@@ -40,24 +42,26 @@ pub fn start_window_drag(window_id: String, on_move: Callback<(i32, i32)>) {
             }
         }
     }) as Box<dyn FnMut(MouseEvent)>);
-    
+
     // Mouse move handler
     let on_move_clone = on_move.clone();
     let window_id_clone = window_id.clone();
     let mousemove_closure = Closure::wrap(Box::new(move |e: MouseEvent| {
-        let target = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok());
+        let target = e
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok());
         if let Some(target) = target {
             if target.id() == window_id_clone {
                 on_move_clone.call((e.client_x(), e.client_y()));
             }
         }
     }) as Box<dyn FnMut(MouseEvent)>);
-    
+
     // Mouse up handler
     let mouseup_closure = Closure::wrap(Box::new(move |_e: MouseEvent| {
         // Dragging ends on mouse up
     }) as Box<dyn FnMut(MouseEvent)>);
-    
+
     document
         .add_event_listener_with_callback("mousedown", mousedown_closure.as_ref().unchecked_ref())
         .expect("failed to add mousedown listener");
@@ -67,7 +71,7 @@ pub fn start_window_drag(window_id: String, on_move: Callback<(i32, i32)>) {
     document
         .add_event_listener_with_callback("mouseup", mouseup_closure.as_ref().unchecked_ref())
         .expect("failed to add mouseup listener");
-    
+
     // Leak the closures to keep them alive (they will be cleaned up when the page unloads)
     mousedown_closure.forget();
     mousemove_closure.forget();
