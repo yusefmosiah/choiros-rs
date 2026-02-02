@@ -1,23 +1,24 @@
 # ChoirOS - The Automatic Computer
 
-A self-modifying, multi-tenant system where users prompt the computer to build new programs. Each user gets an isolated sandbox with actors managing state in SQLite, and a Dioxus frontend.
+**ChoirOS** is the operating system for the **Agent Choir** - a multi-agent system where autonomous agents collaborate in harmony. Each user gets an isolated sandbox where agents (actors) manage state, execute tools, and compose solutions through collective intelligence.
 
-## Current Status (2026-01-31)
+> *Agency lives in computation. Agency exists in language. The Agent Choir sings in the automatic computer.*
+
+## Current Status (2026-02-01)
 
 **✅ Working:**
-- Actor system with Actix
+- **Agent Choir** - Multi-agent system with Actix actors
 - EventStoreActor with libsql/SQLite backend
 - ChatActor with message persistence
-- HTTP API with multiturn chat
-- All 11 tests passing
+- HTTP API for agent communication
+- All tests passing
 - Server running on localhost:8080
 
-**🚧 Not Yet Implemented:**
-- Dioxus frontend UI (placeholder only)
-- LLM integration (BAML in deps but unused)
-- Tool calling system
-- WebSocket support
-- Hypervisor routing
+**🚧 In Progress:**
+- Agent tool calling system (bash, file ops, code execution)
+- LLM integration with BAML for agent reasoning
+- WebSocket support for real-time agent updates
+- Hypervisor routing for multi-user sandboxes
 
 ## Quick Start
 
@@ -48,20 +49,41 @@ curl http://localhost:8080/chat/test/messages
 
 On the production server, the database path is hardcoded to `/opt/choiros/data/events.db` and no DATABASE_URL export is needed.
 
-## Architecture
+## Architecture - The Agent Choir
 
 ```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────┐
-│   Dioxus UI     │────▶│   Actix Server   │────▶│   SQLite    │
-│  (WASM - WIP)   │     │  (Port 8080)     │     │   (libsql)  │
-└─────────────────┘     └──────────────────┘     └─────────────┘
-                              │
-                    ┌─────────┴─────────┐
-                    │    Actor System   │
-                    │  • EventStore     │
-                    │  • ChatActor      │
-                    └───────────────────┘
+                    ┌─────────────────────────────────────┐
+                    │         The Agent Choir             │
+                    │    (Multi-Agent Collaboration)      │
+                    └─────────────────────────────────────┘
+                                      │
+            ┌─────────────────────────┼─────────────────────────┐
+            │                         │                         │
+            ▼                         ▼                         ▼
+   ┌─────────────────┐    ┌──────────────────┐    ┌─────────────┐
+   │  Chat Actor     │    │  Tool Actor      │    │  Code Actor │
+   │  (Conversation) │    │  (Bash, Files)   │    │  (Execute)  │
+   └────────┬────────┘    └────────┬─────────┘    └──────┬──────┘
+            │                      │                      │
+            └──────────────────────┼──────────────────────┘
+                                   │
+                          ┌────────┴────────┐
+                          │  EventStore     │
+                          │  (Source of     │
+                          │   Truth)        │
+                          └────────┬────────┘
+                                   │
+                          ┌────────┴────────┐
+                          │     SQLite      │
+                          │   (libsql)      │
+                          └─────────────────┘
 ```
+
+**Agent Choir Pattern:**
+- **Actors as Agents** - Each actor is an autonomous agent with specific capabilities
+- **Event Sourcing** - All agent actions recorded as events
+- **Collective Intelligence** - Agents collaborate through shared event stream
+- **Tool Augmentation** - Agents invoke tools (bash, file, code) to extend capabilities
 
 ## Tech Stack
 
@@ -95,10 +117,11 @@ choiros-rs/
 
 ## Key Design Principles
 
-1. **Actor-owned state** - All state lives in SQLite, actors query their own state
-2. **Event sourcing** - All changes logged to events table (seq, event_type, payload)
-3. **UI is a projection** - UI components read from actors, never own state
-4. **Optimistic updates** - UI updates immediately, confirms async with actor
+1. **Agent Choir** - Multiple autonomous agents collaborate through shared event stream
+2. **Actor-owned state** - Each agent (actor) manages its own state in SQLite
+3. **Event sourcing** - All agent actions logged as events (seq, event_type, payload)
+4. **Tool augmentation** - Agents invoke tools to extend capabilities beyond conversation
+5. **Collective intelligence** - Emergent behavior from agent collaboration
 
 ## API Endpoints
 
@@ -106,13 +129,24 @@ choiros-rs/
 - `POST /chat/send` - Send chat message
 - `GET /chat/{actor_id}/messages` - Get chat history
 
+## The Vision
+
+**ChoirOS** is the operating system for the **Agent Choir** - where autonomous agents collaborate in harmony to build, execute, and evolve software. Each sandbox is a stage where agents perform:
+
+- **Chat Agents** handle conversation and reasoning
+- **Tool Agents** execute bash commands and file operations
+- **Code Agents** write, test, and deploy code
+- **Meta Agents** orchestrate the choir
+
+The Agent Choir sings in the automatic computer. Agency lives in computation.
+
 ## Next Steps
 
-1. Build Dioxus chat UI
-2. Add LLM integration with BAML
-3. Implement tool calling (bash, file ops)
-4. Add WebSocket support
-5. Build hypervisor for multi-user routing
+1. **Agent Tools** - Implement bash, file, and code execution tools
+2. **LLM Integration** - Connect BAML for agent reasoning and planning
+3. **Agent Registry** - Dynamic agent discovery and composition
+4. **WebSocket Events** - Real-time agent communication
+5. **Hypervisor** - Multi-tenant sandbox orchestration
 
 See `docs/ARCHITECTURE_SPECIFICATION.md` for full specification.
 
