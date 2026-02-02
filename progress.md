@@ -30,17 +30,57 @@
 - Consolidated actorcode architecture doc
 
 ### ⚠️ In Progress
-- Actorcode demo run (spawn one agent per model tier)
-- Observability checks for actorcode logs and events
- - Actorcode AX contract + verification lattice (coherence/repo-truth/world-truth)
- - Dashboard UX plan: whole-log + summary views for runs
+- **Docs upgrade execution** - Implementing 94 fixes from runbook
+- **AGENTS.md rewrite** - Adding task concurrency rules
+- **Actorcode observability** - Event bus for async task monitoring (blocked by framework)
+
+### ✅ Recently Completed
+- Docs coherence critique (6 workers, 94 issues identified)
+- System monitor skill (ASCII network visualization)
+- Multi-view dashboard (list/network/timeline/hierarchy)
+- Streaming LLM summaries
+- Dev blog: "Why Agents Need Actors"
 
 ### 📋 Next Steps
-1. **Fix actorcode observability** - add whole-log + summary views in web dashboard
-2. **Background run contract** - background runs must emit a Markdown doc (no inline summary)
+1. **Execute docs upgrade runbook** - Fix 94 coherence issues across 6 documents
+2. **AGENTS.md rewrite** - Add task concurrency rules (supervisors never block)
 3. **Actorcode demo** - spawn pico/nano/micro/milli under one supervisor
 4. **Add small helper** - optional `just opencode-serve`
 5. **Theme work** - resume desktop theming now that chat works
+
+---
+
+## Completed: Docs Coherence Critique - 2026-02-01
+
+### What Was Done
+- Spawned 6 parallel workers to analyze core documents
+- Generated comprehensive upgrade runbook with 94 issues identified
+- Created dev blog: "Why Agents Need Actors"
+- Built system-monitor skill for ASCII actor network visualization
+- Built new dashboard with 4 views (list, network, timeline, hierarchy)
+- Added streaming LLM summaries to dashboard
+
+### Key Findings
+**Critical Issues (7):**
+- Sprites.dev references (never implemented)
+- Missing actors claimed as existing (WriterActor, BamlActor, etc.)
+- Hypervisor is just a 5-line placeholder
+- Wrong test count (18 vs 171+)
+- dev-browser skill doesn't exist
+- Docker deployment not implemented
+- CI/CD workflow doesn't exist
+
+**Deliverables:**
+- `docs/handoffs/2026-02-01-docs-upgrade-runbook.md` - 94 issues with fixes
+- `docs/dev-blog/2026-02-01-why-agents-need-actors.md` - Actor model argument
+- `skills/system-monitor/` - ASCII network visualization
+- `skills/actorcode/dashboard/` - Multi-view web dashboard
+
+### Observability Problem
+**Issue:** No way to verify if the 6 worker tasks completed successfully
+**Root cause:** OpenCode framework lacks async task monitoring
+**Impact:** We generated the runbook but can't confirm all workers finished
+**Solution needed:** True actor model with event bus (as documented in dev blog)
 
 ---
 

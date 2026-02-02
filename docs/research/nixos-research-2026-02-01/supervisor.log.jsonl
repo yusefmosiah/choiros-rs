@@ -1,0 +1,33 @@
+{"timestamp":"2026-02-02T00:29:45.621Z","event":"SUPERVISOR_START","runId":"nixos-research-1769992185621"}
+{"timestamp":"2026-02-02T00:29:45.625Z","event":"WORKER_SPAWN","workerId":"nix-basics","tier":"nano"}
+{"timestamp":"2026-02-02T00:29:45.634Z","event":"WORKER_SPAWN","workerId":"nixos-server","tier":"nano"}
+{"timestamp":"2026-02-02T00:29:45.637Z","event":"WORKER_SPAWN","workerId":"containers-nix","tier":"nano"}
+{"timestamp":"2026-02-02T00:29:45.642Z","event":"WORKER_SPAWN","workerId":"rust-toolchain","tier":"nano"}
+{"timestamp":"2026-02-02T00:29:45.645Z","event":"WORKER_SPAWN","workerId":"ec2-patterns","tier":"nano"}
+{"timestamp":"2026-02-02T00:29:45.649Z","event":"WORKER_ERROR","workerId":"nix-basics","error":"spawn actorcode ENOENT"}
+{"timestamp":"2026-02-02T00:29:45.649Z","event":"WORKER_ERROR","workerId":"nixos-server","error":"spawn actorcode ENOENT"}
+{"timestamp":"2026-02-02T00:29:45.649Z","event":"WORKER_ERROR","workerId":"containers-nix","error":"spawn actorcode ENOENT"}
+{"timestamp":"2026-02-02T00:29:45.649Z","event":"WORKER_ERROR","workerId":"rust-toolchain","error":"spawn actorcode ENOENT"}
+{"timestamp":"2026-02-02T00:29:45.650Z","event":"WORKER_ERROR","workerId":"ec2-patterns","error":"spawn actorcode ENOENT"}
+{"timestamp":"2026-02-02T00:29:45.650Z","event":"SUPERVISOR_ERROR","error":"spawn actorcode ENOENT"}
+{"timestamp":"2026-02-02T00:30:10.368Z","event":"SUPERVISOR_START","runId":"nixos-research-1769992210368"}
+{"timestamp":"2026-02-02T00:30:10.371Z","event":"WORKER_SPAWN","workerId":"nix-basics","tier":"nano"}
+{"timestamp":"2026-02-02T00:30:10.374Z","event":"WORKER_SPAWN","workerId":"nixos-server","tier":"nano"}
+{"timestamp":"2026-02-02T00:30:10.376Z","event":"WORKER_SPAWN","workerId":"containers-nix","tier":"nano"}
+{"timestamp":"2026-02-02T00:30:10.378Z","event":"WORKER_SPAWN","workerId":"rust-toolchain","tier":"nano"}
+{"timestamp":"2026-02-02T00:30:10.380Z","event":"WORKER_SPAWN","workerId":"ec2-patterns","tier":"nano"}
+{"timestamp":"2026-02-02T00:30:10.503Z","event":"WORKER_COMPLETE","workerId":"nix-basics","exitCode":1,"hasOutput":false}
+{"timestamp":"2026-02-02T00:30:10.504Z","event":"WORKER_COMPLETE","workerId":"rust-toolchain","exitCode":1,"hasOutput":false}
+{"timestamp":"2026-02-02T00:30:10.509Z","event":"WORKER_COMPLETE","workerId":"containers-nix","exitCode":0,"hasOutput":true}
+{"timestamp":"2026-02-02T00:30:10.512Z","event":"WORKER_COMPLETE","workerId":"nixos-server","exitCode":0,"hasOutput":true}
+{"timestamp":"2026-02-02T00:30:10.516Z","event":"WORKER_COMPLETE","workerId":"ec2-patterns","exitCode":0,"hasOutput":true}
+{"timestamp":"2026-02-02T00:30:10.516Z","event":"MERGE_WORKER_START"}
+{"timestamp":"2026-02-02T00:30:10.516Z","event":"WORKER_SPAWN","workerId":"merge","tier":"micro"}
+{"timestamp":"2026-02-02T00:30:10.595Z","event":"WORKER_COMPLETE","workerId":"merge","exitCode":0,"hasOutput":true}
+{"timestamp":"2026-02-02T00:30:10.596Z","event":"CRITIQUE_WORKER_START"}
+{"timestamp":"2026-02-02T00:30:10.596Z","event":"WORKER_SPAWN","workerId":"web-critique","tier":"milli"}
+{"timestamp":"2026-02-02T00:30:10.671Z","event":"WORKER_COMPLETE","workerId":"web-critique","exitCode":0,"hasOutput":true}
+{"timestamp":"2026-02-02T00:30:10.672Z","event":"FINAL_REPORT_WORKER_START"}
+{"timestamp":"2026-02-02T00:30:10.672Z","event":"WORKER_SPAWN","workerId":"final-report","tier":"milli"}
+{"timestamp":"2026-02-02T00:30:10.748Z","event":"WORKER_COMPLETE","workerId":"final-report","exitCode":0,"hasOutput":true}
+{"timestamp":"2026-02-02T00:30:10.749Z","event":"SUPERVISOR_COMPLETE","runId":"nixos-research-1769992210368","workersSucceeded":3,"workersFailed":2}

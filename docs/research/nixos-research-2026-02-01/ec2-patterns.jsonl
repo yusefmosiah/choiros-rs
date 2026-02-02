@@ -1,0 +1,2 @@
+{"type":"worker_start","workerId":"ec2-patterns","timestamp":"2026-02-02T00:30:10.380Z","tier":"nano"}
+{"type":"worker_complete","workerId":"ec2-patterns","timestamp":"2026-02-02T00:30:10.516Z","exitCode":0}

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Actorcode Research Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔬 Actorcode Research Dashboard</h1>
+            <p class="subtitle">Real-time monitoring of research tasks and findings</p>
+        </header>
+        
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+            <div class="stat-card running">
+                <h3>Active Sessions</h3>
+                <div class="stat-value" id="active-count">-</div>
+            </div>
+            <div class="stat-card completed">
+                <h3>Completed</h3>
+                <div class="stat-value" id="completed-count">-</div>
+            </div>
+            <div class="stat-card findings">
+                <h3>Total Findings</h3>
+                <div class="stat-value" id="findings-count">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Categories</h3>
+                <div class="stat-value" id="categories-count">-</div>
+            </div>
+        </div>
+        
+        <!-- View Toggle -->
+        <div class="view-toggle">
+            <button class="view-btn active" data-view="list" onclick="switchView('list')">
+                📋 List
+            </button>
+            <button class="view-btn" data-view="network" onclick="switchView('network')">
+                🕸️ Network
+            </button>
+            <button class="view-btn" data-view="timeline" onclick="switchView('timeline')">
+                📊 Timeline
+            </button>
+            <button class="view-btn" data-view="hierarchy" onclick="switchView('hierarchy')">
+                🌳 Hierarchy
+            </button>
+        </div>
+        
+        <!-- View Container -->
+        <div class="view-container">
+            <!-- List View -->
+            <div id="view-list" class="view-section active">
+                <div id="list-content"></div>
+            </div>
+            
+            <!-- Network View -->
+            <div id="view-network" class="view-section">
+                <div id="network-content"></div>
+            </div>
+            
+            <!-- Timeline View -->
+            <div id="view-timeline" class="view-section">
+                <div id="timeline-content"></div>
+            </div>
+            
+            <!-- Hierarchy View -->
+            <div id="view-hierarchy" class="view-section">
+                <div id="hierarchy-content"></div>
+            </div>
+        </div>
+        
+        <!-- Findings Section -->
+        <div class="section">
+            <div class="section-header">
+                <h2>💡 Recent Findings</h2>
+                <div class="filters">
+                    <button class="filter-btn active" onclick="filterFindings('all')">All</button>
+                    <button class="filter-btn" onclick="filterFindings('SECURITY')">Security</button>
+                    <button class="filter-btn" onclick="filterFindings('BUG')">Bugs</button>
+                    <button class="filter-btn" onclick="filterFindings('PERFORMANCE')">Performance</button>
+                    <button class="filter-btn" onclick="filterFindings('REFACTOR')">Refactor</button>
+                    <button class="filter-btn" onclick="filterFindings('DOCS')">Docs</button>
+                </div>
+            </div>
+            <div class="section-content">
+                <div id="findings-list" class="findings-list">
+                    <div class="loading">Loading findings...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="modal-title" id="modal-title">Session Details</span>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="tabs">
+                    <button class="tab-btn active" onclick="switchTab('log')" id="tab-log">Whole Log</button>
+                    <button class="tab-btn" onclick="switchTab('summary')" id="tab-summary">Summary (Pico)</button>
+                </div>
+                <div id="tab-content-log" class="tab-content active">
+                    <div id="log-view" class="log-view"></div>
+                </div>
+                <div id="tab-content-summary" class="tab-content">
+                    <div id="summary-view" class="summary-view"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="app.js"></script>
+</body>
+</html>

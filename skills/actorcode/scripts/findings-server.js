@@ -9,7 +9,7 @@ import fs from "fs/promises";
 import path from "path";
 import { loadFindings, getStats, loadIndex } from "./lib/findings.js";
 import { createClient } from "./lib/client.js";
-import { summarizeMessages } from "./lib/summary.js";
+import { summarizeMessages, summarizeMessagesStream } from "./lib/summary.js";
 import { loadEnvFile } from "./lib/env.js";
 
 const PORT = 8765;
@@ -132,6 +132,7 @@ const server = http.createServer(async (req, res) => {
     } else if (req.url.startsWith("/api/summary?sessionId=")) {
       const url = new URL(req.url, `http://localhost:${PORT}`);
       const sessionId = url.searchParams.get("sessionId");
+      const stream = url.searchParams.get("stream") === "true";
       
       if (!sessionId) {
         res.writeHead(400, { "Content-Type": "application/json" });
@@ -139,9 +140,35 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       
-      const summary = await generateSummary(sessionId);
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ sessionId, ...summary }));
+      if (stream) {
+        // SSE streaming endpoint
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+          "Access-Control-Allow-Origin": "*"
+        });
+        
+        try {
+          const messages = await getSessionMessages(sessionId);
+          const streamGenerator = summarizeMessagesStream(messages, { model: "glm-4.7-flash" });
+          
+          for await (const chunk of streamGenerator) {
+            res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
+          }
+          
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+        } catch (error) {
+          res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+        }
+        
+        res.end();
+      } else {
+        // Non-streaming (legacy)
+        const summary = await generateSummary(sessionId);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ sessionId, ...summary }));
+      }
       
     } else {
       res.writeHead(404, { "Content-Type": "application/json" });
@@ -163,4 +190,5 @@ server.listen(PORT, () => {
   console.log(`  http://localhost:${PORT}/api/all`);
   console.log(`  http://localhost:${PORT}/api/messages?sessionId=<id>`);
   console.log(`  http://localhost:${PORT}/api/summary?sessionId=<id>`);
+  console.log(`  http://localhost:${PORT}/api/summary?sessionId=<id>&stream=true`);
 });

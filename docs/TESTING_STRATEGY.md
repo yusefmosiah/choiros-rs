@@ -23,8 +23,8 @@ This strategy combines patterns from multiple testing methodologies while stayin
 
 ```
                     /\
-                   /E2E\          ← Few tests, full user journeys
-                  /─────\            (Playwright + dev-browser skill)
+                    /E2E\          ← Few tests, full user journeys
+                   /─────\            (Playwright + agent-browser skill)
                  /Integr \         ← API contracts, component integration
                 /─────────\          (Backend: API tests, Frontend: Component tests)
                /Unit Tests\       ← Many tests, isolated logic
@@ -43,7 +43,7 @@ This strategy combines patterns from multiple testing methodologies while stayin
 
 ### Backend Unit Tests (Rust)
 
-**Status:** ✅ **IMPLEMENTED** (18 tests passing)
+**Status:** ✅ **IMPLEMENTED** (Unit Tests: 48 tests passing, Integration Tests: 123+ tests with 3 known failures in chat_api_test.rs)
 
 **Current Coverage:**
 - EventStoreActor (3 tests)
@@ -231,11 +231,11 @@ async fn test_desktop_api_end_to_end() {
 
 **Challenge:** Dioxus doesn't have a Testing Library equivalent (yet).
 
-**Solution:** Use browser-based testing with dev-browser skill
+**Solution:** Use browser-based testing with agent-browser skill
 
 **Hybrid Approach:**
 1. **Mount components in test page**
-2. **Use dev-browser to interact**
+2. **Use agent-browser to interact**
 3. **Verify DOM changes via screenshots/selectors**
 
 **Implementation:**
@@ -255,10 +255,10 @@ fn TestHarness() -> Element {
 }
 ```
 
-Then test with dev-browser:
+Then test with agent-browser:
 ```python
-# tests/component_integration.py (using dev-browser skill)
-# This runs via the dev-browser skill we installed
+# tests/component_integration.py (using agent-browser skill)
+# This runs via the agent-browser skill we installed
 
 """
 Test ChoirOS Desktop Component Integration
@@ -302,7 +302,7 @@ async def test_open_chat_window():
 
 **Status:** 🔄 **NOT YET IMPLEMENTED**
 
-**Tool:** dev-browser skill (Playwright-based)
+**Tool:** agent-browser skill (Playwright-based)
 
 **Critical User Journeys (CUJs):**
 
@@ -329,7 +329,7 @@ And after confirmation, "Sending..." disappears
 # tests/e2e/test_first_time_user.py
 
 import pytest
-from dev_browser import browser
+from agent_browser import browser
 
 @pytest.fixture
 async def page():
@@ -408,7 +408,7 @@ Then the Desktop loads successfully
 
 **Status:** 🔄 **NOT YET IMPLEMENTED**
 
-**Tool:** Playwright screenshot comparison (via dev-browser)
+**Tool:** Playwright screenshot comparison (via agent-browser)
 
 **Implementation:**
 ```python
@@ -457,7 +457,7 @@ async def test_chat_window_regression(page):
 **Implementation:**
 ```python
 # Use Playwright's cross-browser support
-# dev-browser skill uses Playwright under the hood
+# agent-browser skill uses Playwright under the hood
 
 @pytest.fixture(params=["chromium", "firefox", "webkit"])
 async def browser_page(request):
@@ -492,7 +492,7 @@ choiros-rs/
 │   │   └── api.rs            # Unit tested (parsing)
 │   └── tests/
 │       ├── unit/             # WASM unit tests
-│       └── e2e/              # dev-browser tests
+│       └── e2e/              # agent-browser tests
 │
 └── tests/
     ├── e2e/                  # Full system tests
@@ -544,8 +544,8 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
 
-      - name: Install dev-browser dependencies
-        run: cd ~/.agents/skills/dev-browser && npm install
+      - name: Install agent-browser dependencies
+        run: cd ~/.agents/skills/agent-browser && npm install
 
       - name: Start backend
         run: cargo run -p sandbox &
@@ -557,7 +557,7 @@ jobs:
         run: sleep 10
 
       - name: Run E2E tests
-        run: npx dev-browser run tests/e2e/
+        run: npx agent-browser run tests/e2e/
 
       - name: Upload screenshots
         uses: actions/upload-artifact@v3
@@ -595,7 +595,7 @@ echo "  2. Start frontend: cd sandbox-ui && dx serve"
 echo "  3. Open: http://localhost:3000"
 echo ""
 echo "E2E Testing:"
-echo "  npx dev-browser open http://localhost:3000"
+echo "  npx agent-browser open http://localhost:3000"
 ```
 
 ---
@@ -739,8 +739,8 @@ async def test_desktop_accessibility(page):
 
 ### Before Each Release
 
-- [ ] All 18+ unit tests passing
-- [ ] Integration tests passing (APIs)
+- [ ] Unit Tests: 48 tests passing
+- [ ] Integration Tests: 123+ tests passing (3 known failures in chat_api_test.rs)
 - [ ] E2E tests passing (CUJs)
 - [ ] No visual regressions
 - [ ] Performance budgets met
@@ -760,7 +760,8 @@ async def test_desktop_accessibility(page):
 ## Implementation Roadmap
 
 ### Phase 1: Foundation ✅ (COMPLETE)
-- [x] Backend unit tests (18 tests)
+- [x] Backend unit tests (48 tests)
+- [x] Integration tests (123+ tests, 3 known failures in chat_api_test.rs)
 - [x] Basic API endpoint structure
 - [x] Manual testing guide
 - [x] Test report template
@@ -772,7 +773,7 @@ async def test_desktop_accessibility(page):
 - [ ] CI/CD pipeline setup
 
 ### Phase 3: E2E Automation
-- [ ] dev-browser skill integration
+- [ ] agent-browser skill integration
 - [ ] CUJ test implementation
 - [ ] Visual regression baselines
 - [ ] Cross-browser testing
@@ -789,7 +790,7 @@ async def test_desktop_accessibility(page):
 
 ### Tools
 - **Backend:** Built-in Rust testing + Actix test utils
-- **Frontend:** dev-browser skill (Playwright-based)
+- **Frontend:** agent-browser skill (Playwright-based)
 - **API Testing:** curl, HTTPie, or Playwright
 - **Coverage:** cargo-tarpaulin (Rust), upcoming Dioxus coverage
 
@@ -803,7 +804,7 @@ async def test_desktop_accessibility(page):
 - Patterns from: webapp-testing, e2e-testing-patterns, javascript-testing-patterns, frontend-testing skills
 - Rust testing: https://doc.rust-lang.org/book/ch11-00-testing.html
 - Actix testing: https://actix.rs/docs/testing/
-- dev-browser: https://github.com/SawyerHood/dev-browser
+- agent-browser: (installed globally via npm)
 
 ---
 
@@ -811,20 +812,21 @@ async def test_desktop_accessibility(page):
 
 **ChoirOS Testing Philosophy:**
 1. **Test at the right level** - Unit for logic, E2E for user journeys
-2. **Stay practical** - Use what works (dev-browser), don't wait for perfect tools
+2. **Stay practical** - Use what works (agent-browser), don't wait for perfect tools
 3. **Automate ruthlessly** - CI/CD for everything
 4. **Visual testing matters** - Screenshots catch UI regressions
 5. **Test the hard parts** - Actor supervision, WASM boundaries, mobile layouts
 
 **Current State:**
-- ✅ Backend unit tests: COMPLETE (18 tests)
+- ✅ Backend unit tests: COMPLETE (48 tests)
+- ✅ Integration tests: COMPLETE (123+ tests, 3 known failures in chat_api_test.rs)
 - 🔄 Integration tests: READY TO IMPLEMENT
-- 🔄 E2E tests: READY WITH dev-browser SKILL
+- 🔄 E2E tests: READY WITH agent-browser SKILL
 - 🔄 Visual regression: READY TO IMPLEMENT
 
 **Next Action:**
 1. Implement backend API integration tests
-2. Set up dev-browser for E2E automation
+2. Set up agent-browser for E2E automation
 3. Add CI/CD pipeline
 4. Capture baseline screenshots
 

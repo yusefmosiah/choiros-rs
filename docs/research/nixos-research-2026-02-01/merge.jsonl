@@ -1,0 +1,2 @@
+{"type":"worker_start","workerId":"merge","timestamp":"2026-02-02T00:30:10.516Z","tier":"micro"}
+{"type":"worker_complete","workerId":"merge","timestamp":"2026-02-02T00:30:10.595Z","exitCode":0}

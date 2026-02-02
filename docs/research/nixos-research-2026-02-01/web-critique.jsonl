@@ -1,0 +1,2 @@
+{"type":"worker_start","workerId":"web-critique","timestamp":"2026-02-02T00:30:10.596Z","tier":"milli"}
+{"type":"worker_complete","workerId":"web-critique","timestamp":"2026-02-02T00:30:10.672Z","exitCode":0}

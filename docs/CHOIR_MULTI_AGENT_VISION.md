@@ -72,13 +72,13 @@ Build a self-verifying SDLC automaton where:
 
 ### Core Actors
 - `EventStoreActor`: canonical append-only log (exists).
-- `BusActor`: broadcast events to subscribers.
-- `NotesActor`: writes notes and emits `note.created`.
-- `WatcherActor`: pico observers that emit `watcher.signal`.
-- `SupervisorActor`: sleeps until signals arrive.
-- `RunActor`: one run lifecycle.
-- `RunRegistryActor`: run status, staleness detection.
-- `SummaryActor`: single-call summaries (glm-4.7-flash).
+- `BusActor`: broadcast events to subscribers (Planned - Not Implemented).
+- `NotesActor`: writes notes and emits `note.created` (Planned - Not Implemented).
+- `WatcherActor`: pico observers that emit `watcher.signal` (Planned - Not Implemented).
+- `SupervisorActor`: sleeps until signals arrive (Planned - Not Implemented).
+- `RunActor`: one run lifecycle (Planned - Not Implemented).
+- `RunRegistryActor`: run status, staleness detection (Planned - Not Implemented).
+- `SummaryActor`: single-call summaries (glm-4.7-flash) (Planned - Not Implemented).
 
 ### Mailbox Semantics
 - Actors process messages one at a time.
@@ -106,7 +106,7 @@ Build a self-verifying SDLC automaton where:
 | --- | --- | --- |
 | OpenCode sessions | RunActor lifecycle | Replace polling with event-driven bus |
 | Findings JSONL | Evidence + learnings | Add verifiers and evidence typing |
-| Dashboard.html | Actor UI app | Add notes stream + summary views |
+| Dashboard.html (port 8765) | Actor UI app (port 8080) | Replace actorcode dashboard with native ChoirOS UI; add notes stream + summary views |
 | research-monitor | WatcherActor | Replace long polls with signals |
 | registry.json | RunRegistryActor | Durable actor registry + staleness rules |
 
@@ -128,5 +128,5 @@ Build a self-verifying SDLC automaton where:
 
 ## References
 - `docs/DOCUMENTATION_UPGRADE_PLAN.md`
-- `skills/actorcode/dashboard.html`
-- `skills/actorcode/scripts/findings-server.js`
+- `skills/actorcode/dashboard.html` (actorcode prototype, port 8765 - separate system)
+- `skills/actorcode/scripts/findings-server.js` (actorcode prototype server - NOT ChoirOS)

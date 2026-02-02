@@ -1,0 +1,2 @@
+{"type":"worker_start","workerId":"rust-toolchain","timestamp":"2026-02-02T00:30:10.378Z","tier":"nano"}
+{"type":"worker_complete","workerId":"rust-toolchain","timestamp":"2026-02-02T00:30:10.504Z","exitCode":1}

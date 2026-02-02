@@ -1,0 +1,2 @@
+{"type":"worker_start","workerId":"nixos-server","timestamp":"2026-02-02T00:30:10.375Z","tier":"nano"}
+{"type":"worker_complete","workerId":"nixos-server","timestamp":"2026-02-02T00:30:10.512Z","exitCode":0}

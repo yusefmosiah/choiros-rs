@@ -215,6 +215,99 @@ cargo test -p sandbox test_name -- --nocapture
 - **Errors**: thiserror, anyhow
 - **Tracing**: tracing, tracing-subscriber
 - **LLM**: baml
+- **Dev Tools**: cargo-watch (auto-rebuild), multitail (log monitoring)
+
+## Task Concurrency
+
+**CRITICAL: This section defines the automatic computer architecture.**
+
+### Core Principles
+
+1. **Supervisors NEVER spawn blocking task() calls**
+   - Supervisors coordinate; they don't execute
+   - A supervisor waiting on a task blocks the entire workflow
+
+2. **Supervisors coordinate, workers execute**
+   - Supervisors: Plan, delegate, aggregate results
+   - Workers: Perform actual work, report back
+
+3. **Use actorcode runs for parallel work**
+   - Fire-and-forget async execution
+   - Workers run independently without blocking supervisor
+
+4. **Tool call budgets:**
+   - Supervisor: 50 calls (coordination only)
+   - Worker: 200 calls (execution work)
+   - Async Run: Unlimited (true parallelism)
+
+### Correct vs Wrong Patterns
+
+**WRONG: Supervisor blocks on worker task**
+```python
+# DON'T DO THIS - blocks supervisor
+result = task("Analyze file", prompt="...")  # Blocking!
+```
+
+**CORRECT: Supervisor delegates via async run**
+```python
+# DO THIS - non-blocking coordination
+run_async(
+    agent="file-analyzer",
+    prompt="Analyze file: " + filepath,
+    on_complete="handle_analysis_result"
+)
+# Supervisor continues immediately, doesn't wait
+```
+
+**WRONG: Sequential blocking in loop**
+```python
+# DON'T DO THIS - serial blocking
+results = []
+for file in files:
+    result = task(f"Process {file}", ...)  # Blocks each iteration
+    results.append(result)
+```
+
+**CORRECT: Parallel async execution**
+```python
+# DO THIS - parallel execution
+for file in files:
+    run_async(
+        agent="file-processor",
+        prompt=f"Process: {file}",
+        on_complete="collect_result"
+    )
+# All files processed in parallel, supervisor moves on
+```
+
+**WRONG: Worker trying to coordinate**
+```python
+# DON'T DO THIS - workers shouldn't spawn sub-workers
+# In worker context:
+result = task("Sub-task", ...)  # Wrong! Workers execute, don't delegate
+```
+
+**CORRECT: Worker completes its work**
+```python
+# DO THIS - worker does its assigned work
+analysis = perform_analysis(data)
+return {"status": "complete", "result": analysis}
+```
+
+### Architecture Summary
+
+```
+Supervisor (50 calls)
+    ├── run_async(worker1) ──┐
+    ├── run_async(worker2) ──┼── Parallel execution
+    ├── run_async(worker3) ──┘
+    └── Continue coordinating...
+
+Worker (200 calls)
+    └── Execute task → Return result
+```
+
+**Remember:** Blocking is the enemy of scalability. Use async runs for true parallelism.
 
 ## CI/CD Notes
 

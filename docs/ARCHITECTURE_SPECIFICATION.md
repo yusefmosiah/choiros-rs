@@ -54,9 +54,9 @@ A web-based "automatic computer" where:
 |-------|-----------|---------|
 | Frontend | Dioxus (WASM) | Reactive UI with signals |
 | Backend | Actix (Actors) | Async actor system |
-| Database | SQLite | Event log + projections |
+| Database | libSQL (Turso fork) | Event log + projections |
 | LLM | BAML + Bedrock | Code generation |
-| Sandbox | Sprites.dev | Container per user |
+| Sandbox | Local process (port 8080) - containerization planned for future | One per user |
 | Hypervisor | Actix Web | Edge routing |
 | Protocol | WebSocket + HTTP | Real-time communication |
 
@@ -85,16 +85,19 @@ A web-based "automatic computer" where:
 │  └──────────────────────────────┼────────────────────────────────────────┘  │
 └──────────────────────────────────┼──────────────────────────────────────────┘
                                    │
-                        ┌──────────┴──────────┐
-                        │  HYPERVISOR (Port   │
-                        │       8001)         │
-                        │                     │
-                        │ • WebAuthn/Passkey  │
-                        │ • Route to sandbox  │
-                        │ • Spawn/kill        │
-                        │ • No business logic │
-                        │ • No user data      │
-                        └──────────┬──────────┘
+                          ┌──────────┴──────────┐
+                          │  HYPERVISOR (Not   │
+                          │       running)      │
+                          │                     │
+                          │ STUB IMPLEMENTATION │
+                          │ Not yet functional │
+                          │                     │
+                         │ • WebAuthn/Passkey  │
+                         │ • Route to sandbox  │
+                         │ • Spawn/kill        │
+                         │ • No business logic │
+                         │ • No user data      │
+                         └──────────┬──────────┘
                                    │
          ┌─────────────────────────┼─────────────────────────┐
          │                         │                         │
@@ -137,7 +140,11 @@ A web-based "automatic computer" where:
 
 ### 3.1 Hypervisor
 
+**STUB IMPLEMENTATION - Not yet functional**
+
 **Purpose:** Stateless edge router. Authenticates users and routes to their sandbox.
+
+**Current State:** `hypervisor/src/main.rs` is a 5-line placeholder. None of the features below are implemented.
 
 **Interface:**
 ```rust
@@ -198,11 +205,12 @@ impl Sandbox {
 ```
 
 **Actors (all in one process):**
-- `EventStoreActor` - SQLite event log
+- `EventStoreActor` - libsql event log
 - `ChatActor` - Chat app logic
-- `WriterActor` - Writer app logic  
-- `BamlActor` - LLM integration
-- `ToolExecutor` - Tool execution (bash, file ops)
+- `ChatAgent` - BAML-powered AI agent with tool execution
+- `DesktopActor` - Window state management
+
+**Note:** Tools exist as a module (`tools/`), not as an actor. BAML is integrated directly in ChatAgent, not as a separate actor.
 
 ### 3.3 EventStore Actor
 
@@ -417,30 +425,45 @@ State preserved (it's in SQLite, not component)
 
 **Chat Endpoints:**
 ```
-POST /api/chat/send
-Request: {actor_id: string, text: string}
-Response: {message_id: string, status: "queued"}
+POST /chat/send
+Request: {actor_id: string, user_id: string, text: string}
+Response: {success: bool, temp_id: string, message: string}
 
-GET /api/chat/messages?actor_id={id}&since={seq}
-Response: {messages: [{id, text, sender, timestamp}], last_seq: number}
-
-POST /api/chat/tool
-Request: {actor_id: string, tool: string, args: object}
-Response: {result: object, status: "success" | "error"}
+GET /chat/{actor_id}/messages
+Response: {success: bool, messages: [{id, text, sender, timestamp, pending}]}
 ```
 
-**Actor Query:**
+**Desktop Endpoints:**
 ```
-POST /api/actor/query
-Request: {actor_id: string, query_type: string, params: object}
-Response: {data: object}
+GET /desktop/{desktop_id}
+Response: {success: bool, desktop: {id, windows: [...]}}
+GET /desktop/{desktop_id}/windows
+Response: {success: bool, windows: [...]}
+POST /desktop/{desktop_id}/windows
+Request: {app_id: string, title: string, props: object}
+Response: {success: bool, window: object, error: string}
+DELETE /desktop/{desktop_id}/windows/{window_id}
+Response: {success: bool, message: string}
+PATCH /desktop/{desktop_id}/windows/{window_id}/position
+Request: {x: i32, y: i32}
+Response: {success: bool, message: string}
+PATCH /desktop/{desktop_id}/windows/{window_id}/size
+Request: {width: i32, height: i32}
+Response: {success: bool, message: string}
+POST /desktop/{desktop_id}/windows/{window_id}/focus
+Response: {success: bool, message: string}
+GET /desktop/{desktop_id}/apps
+Response: {success: bool, apps: [...]}
+POST /desktop/{desktop_id}/apps
+Request: AppDefinition
+Response: {success: bool, message: string}
 ```
 
 ### 5.2 WebSocket Protocol
 
 **Connection:**
 ```
-Client: GET /ws (with JWT in header)
+Client: GET /ws/chat/{actor_id} or /ws/chat/{actor_id}/{user_id}
 Server: 101 Switching Protocols
 ```
 
@@ -565,8 +588,8 @@ pub struct Event {
 │  │  └──────────────┘   └────────────────────────────┘ ││
 │  │                                                     ││
 │  │  ┌──────────────┐                                  ││
-│  │  │ Sprites      │ - Container runtime              ││
-│  │  │ Adapter      │ - Spawns/kills sandboxes         ││
+│  │  │ Sandbox      │ - Local process (port 8080)      ││
+│  │  │ Runtime      │ - Containerization planned       ││
 │  │  └──────────────┘                                  ││
 │  └─────────────────────────────────────────────────────┘│
 │                                                          │
@@ -578,9 +601,16 @@ pub struct Event {
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 7.2 Docker Compose (Local)
+### 7.2 Docker Compose (Future - Pending NixOS Research)
+
+**Status:** Not implemented. We are researching Nix/NixOS as an alternative to Docker for deployment.
+
+Current deployment uses EC2 + systemd (see DEPLOYMENT_STRATEGIES.md).
+
+Future containerization will likely use Nix-generated OCI images rather than Docker.
 
 ```yaml
+# Example only - not currently implemented
 # docker-compose.yml
 version: '3.8'
 services:
@@ -590,27 +620,6 @@ services:
       - "8001:8001"
     environment:
       - CHOIR_ENV=development
-      - SPRITES_API_TOKEN=${SPRITES_API_TOKEN}
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./data:/data
-    depends_on:
-      - sprites-adapter
-
-  sprites-adapter:
-    build: ./sprites-adapter
-    environment:
-      - SPRITES_API_TOKEN=${SPRITES_API_TOKEN}
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-
-  sandbox-template:
-    build: ./sandbox
-    image: choir-sandbox:latest
-    # Not run, just built as template
-
-volumes:
-  data:
 ```
 
 ### 7.3 Environment Variables
@@ -620,7 +629,8 @@ volumes:
 CHOIR_ENV=development|production
 CHOIR_HYPERVISOR_PORT=8001
 CHOIR_SANDBOX_PORT_RANGE=9000-9999
-SPRITES_API_TOKEN=xxx
+# Sandbox runtime tokens (for future containerization)
+# SANDBOX_API_TOKEN=xxx
 ```
 
 **Sandbox:**
@@ -651,7 +661,7 @@ cargo run
 cd sandbox-ui
 dx serve --hot-reload
 
-# Access: http://localhost:5173
+# Access: http://localhost:3000
 ```
 
 ### 8.2 Building for Production
@@ -764,7 +774,7 @@ Using Playwright or similar:
 ```typescript
 // tests/chat.spec.ts
 test('user can send message', async ({ page }) => {
-  await page.goto('http://localhost:5173');
+  await page.goto('http://localhost:3000');
   
   // Type message
   await page.fill('[data-testid="chat-input"]', 'Hello');
@@ -779,10 +789,14 @@ test('user can send message', async ({ page }) => {
 
 ## 10. CI/CD Pipeline
 
-### 10.1 GitHub Actions Workflow
+**Status:** Planned - Not yet implemented
+
+The `.github/workflows/` directory does not exist yet. This section documents the intended CI/CD design.
+
+### 10.1 GitHub Actions Workflow (Planned)
 
 ```yaml
-# .github/workflows/ci.yml
+# .github/workflows/ci.yml (PLANNED - Not implemented)
 name: CI
 
 on: [push, pull_request]
@@ -799,11 +813,6 @@ jobs:
           targets: wasm32-unknown-unknown
           components: rustfmt, clippy
       
-      - name: Install cargo tools
-        run: |
-          cargo install cargo-nextest
-          cargo install dioxus-cli
-      
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
       
@@ -814,16 +823,13 @@ jobs:
         run: cargo clippy --workspace -- -D warnings
       
       - name: Run tests
-        run: cargo nextest run --workspace
+        run: cargo test --workspace
       
       - name: Build sandbox
         run: |
           cd sandbox-ui && dx build --release
           cp -r dist/* ../sandbox/static/
           cd ../sandbox && cargo build --release
-      
-      - name: Build Docker image
-        run: docker build -t choir-sandbox:${{ github.sha }} ./sandbox
 
   deploy:
     needs: test
@@ -832,9 +838,9 @@ jobs:
     steps:
       - name: Deploy to EC2
         run: |
-          # SSH to EC2 and pull new image
-          ssh ubuntu@3.83.131.245 "docker pull choir-sandbox:${{ github.sha }}"
-          ssh ubuntu@3.83.131.245 "docker-compose up -d"
+          # Deploy via SSH to EC2 instance
+          rsync -avz --delete ./ ubuntu@3.83.131.245:~/choiros-rs/
+          ssh ubuntu@3.83.131.245 'cd ~/choiros-rs && just build-sandbox'
 ```
 
 ---
@@ -969,7 +975,8 @@ pub struct Membrane {
 
 ```bash
 # .env (never committed)
-SPRITES_API_TOKEN=xxx
+# Sandbox API tokens (when containerization is implemented)
+# SANDBOX_API_TOKEN=xxx
 AWS_ACCESS_KEY_ID=xxx
 AWS_SECRET_ACCESS_KEY=xxx
 
@@ -1059,14 +1066,15 @@ impl BamlActor {
 
 Project structure:
 ```
+baml_src/                    # BAML files at repo root (not in sandbox/)
+├── clients.baml            # Bedrock, Z.ai configurations
+├── functions.baml          # PlanAction, Chat, etc.
+└── types.baml              # Message, ToolCall, etc.
+
 sandbox/
-├── src/
-│   └── actors/
-│       └── baml.rs
-└── baml/
-    ├── clients.baml      # Bedrock, Z.ai configurations
-    ├── functions.baml    # PlanAction, Chat, etc.
-    └── types.baml        # Message, ToolCall, etc.
+└── src/
+    └── actors/
+        └── chat_agent.rs   # BAML integration via baml_client/
 ```
 
 **Note:** Models specified in BAML files, not environment variables.
@@ -1109,7 +1117,7 @@ Current models (from your Python setup):
 
 1. **Dioxus WASM module loading** - How to dynamically load/swap components?
 2. **BAML Rust integration** - Does the native crate support all features?
-3. **Sprites.dev performance** - Startup time, resource limits
+3. **Sandbox containerization** - Docker runtime integration, resource limits
 4. **WebAuthn implementation** - Library support in Rust
 
 ---

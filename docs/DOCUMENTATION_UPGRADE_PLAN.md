@@ -26,6 +26,7 @@
 - **Runbooks**: operational procedures (high trust, fast updates).
 - **Design Docs**: proposals with decisions and alternatives.
 - **Progress**: rolling summary of state and next steps.
+- **Handoffs**: session context preservation for multi-session workflows (see `docs/handoffs/`).
 
 ## 5) Verification Lattice (Doc Accuracy)
 - **Coherence**: internal consistency.

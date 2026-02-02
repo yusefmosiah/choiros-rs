@@ -147,7 +147,7 @@ run_e2e() {
 
     log "Running E2E tests..."
     tmux send-keys -t "$SESSION_NAME:4" C-u
-    tmux send-keys -t "$SESSION_NAME:4" "agent-browser test --url http://localhost:3000 --test-dir ./e2e/tests 2>&1 | tee $LOG_DIR/e2e-$(date +%Y%m%d-%H%M%S).log" C-m
+    tmux send-keys -t "$SESSION_NAME:4" "agent-browser test --url http://localhost:3000 --test-dir ./tests/e2e 2>&1 | tee $LOG_DIR/e2e-$(date +%Y%m%d-%H%M%S).log" C-m
     log "E2E tests started in window 4 (e2e)"
 }
 

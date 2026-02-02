@@ -1,0 +1,20 @@
+{"type":"worker_start","workerId":"containers-nix","timestamp":"2026-02-02T00:30:10.376Z","tier":"nano"}
+{"type":"worker_complete","workerId":"containers-nix","timestamp":"2026-02-02T00:30:10.509Z","exitCode":0}
+{"type":"finding","category":"ARCHITECTURE","description":"nixpkgs.dockerTools provides programmatic container building with no Docker daemon required, unlike Dockerfiles","timestamp":"2026-02-02T00:45:00.000Z"}
+{"type":"finding","category":"PERFORMANCE","description":"Nix builds single-layer images by default, with Redis at 42MB vs 177MB Docker Hub equivalent - 76% size reduction","timestamp":"2026-02-02T00:45:01.000Z"}
+{"type":"finding","category":"SECURITY","description":"Nix provides guaranteed reproducibility through content-addressed store, eliminating non-deterministic layer caching issues","timestamp":"2026-02-02T00:45:02.000Z"}
+{"type":"finding","category":"OCI_COMPLIANCE","description":"dockerTools produces OCI-compliant Docker images that work with Docker, Podman, containerd, and nerdctl","timestamp":"2026-02-02T00:45:03.000Z"}
+{"type":"finding","category":"RUNTIME","description":"Podman supported on NixOS via virtualisation.podman.enable with dockerCompat alias for drop-in replacement","timestamp":"2026-02-02T00:45:04.000Z"}
+{"type":"finding","category":"MULTI_ARCH","description":"Nix supports transparent cross-architecture builds via --builders flag: ssh://arm64-builder aarch64-linux","timestamp":"2026-02-02T00:45:05.000Z"}
+{"type":"finding","category":"MULTI_ARCH","description":"Platform tiers: x86_64-linux (Tier 1, full CI), aarch64-linux (Tier 2, full CI), riscv64-linux (Tier 3, no CI)","timestamp":"2026-02-02T00:45:06.000Z"}
+{"type":"finding","category":"CACHING","description":"Nix binary cache (cache.nixos.org) uses content-addressed storage vs Docker's tag-based registry caching","timestamp":"2026-02-02T00:45:07.000Z"}
+{"type":"finding","category":"CACHING","description":"nix-snapshotter allows containers to directly use /nix/store without copying packages - zero duplication approach","timestamp":"2026-02-02T00:45:08.000Z"}
+{"type":"finding","category":"CACHING","description":"buildLayeredImage enables manual layer grouping for sharing across images - trades simplicity for layer reuse","timestamp":"2026-02-02T00:45:09.000Z"}
+{"type":"finding","category":"MIGRATION","description":"Arion provides Docker Compose compatibility using Nix modules - virtualisation.arion.projects.*.settings.services","timestamp":"2026-02-02T00:45:10.000Z"}
+{"type":"finding","category":"OPTIMIZATION","description":"Runtime dependency detection: Nix automatically excludes build-time dependencies (shadow-utils, coreutils) from final image","timestamp":"2026-02-02T00:45:11.000Z"}
+{"type":"finding","category":"OPTIMIZATION","description":"fakeNss helper provides minimal /etc/passwd and /etc/group for user management without full shadow-utils","timestamp":"2026-02-02T00:45:12.000Z"}
+{"type":"finding","category":"CHALLENGE","description":"Nix images can be larger than Alpine for simple static binaries - Redis example: Alpine 15MB vs Nix 25MB","timestamp":"2026-02-02T00:45:13.000Z"}
+{"type":"finding","category":"TOOLING","description":"Flakes enable version-pinned dependencies with flake.lock for reproducible container builds across teams","timestamp":"2026-02-02T00:45:14.000Z"}
+{"type":"finding","category":"INTEGRATION","description":"systemd service management: virtualisation.oci-containers.backend = docker/podman for native service integration","timestamp":"2026-02-02T00:45:15.000Z"}
+{"type":"finding","category":"CACHING","description":"Cachix provides private binary caching for Nix packages including container images - cachix use/push","timestamp":"2026-02-02T00:45:16.000Z"}
+{"type":"finding","category":"GPU","description":"NVIDIA container toolkit supported: hardware.nvidia-container-toolkit.enable with --device=nvidia.com/gpu=all flag","timestamp":"2026-02-02T00:45:17.000Z"}

@@ -137,3 +137,35 @@ fix-findings *ARGS:
 # Check test hygiene before merging
 check-test-hygiene:
     node skills/actorcode/scripts/check-test-hygiene.js
+
+# System Monitor
+# View actor network as ASCII diagram
+monitor:
+    node skills/system-monitor/scripts/system-monitor.js
+
+# Save actor network report to file
+monitor-save:
+    node skills/system-monitor/scripts/system-monitor.js --save
+
+# Compact actor network view (for chat)
+monitor-compact:
+    node skills/system-monitor/scripts/system-monitor.js --compact
+
+# Dashboard
+# Open new dashboard with network/timeline/hierarchy views
+dashboard:
+    open skills/actorcode/dashboard/index.html
+
+# Serve dashboard via HTTP (for development)
+dashboard-serve:
+    python -m http.server 8766 --directory skills/actorcode/dashboard
+
+# NixOS Research
+# Spawn supervisor to research Nix/NixOS for Rust + EC2
+nixos-research:
+    node skills/actorcode/scripts/nixos-research-supervisor.cjs
+
+# Docs Upgrade
+# Execute the docs coherence runbook fixes
+docs-upgrade:
+    node skills/actorcode/scripts/docs-upgrade-supervisor.cjs

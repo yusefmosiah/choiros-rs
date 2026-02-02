@@ -81,5 +81,51 @@ just research-web     # Terminal 2: Open browser
 - Logs:
   - `logs/actorcode/supervisor.log`
   - `logs/actorcode/<session_id>.log`
+- Artifacts: `logs/actorcode/<session_id>.jsonl` - Structured output from workers
 
 For examples, see `skills/actorcode/docs/usage.md`.
+
+---
+
+## Artifact Persistence Protocol
+
+**Problem:** Workers that return results only inline lose their output when the session ends.
+
+**Solution:** All workers MUST write structured artifacts before returning.
+
+### Required Artifact Format
+
+```json
+{"timestamp": "2026-02-01T20:00:00Z", "type": "finding", "severity": "critical", "file": "docs/ARCHITECTURE.md", "line": 59, "issue": "Sprites.dev never implemented", "evidence": "..."}
+{"timestamp": "2026-02-01T20:00:01Z", "type": "finding", "severity": "high", "file": "docs/ARCHITECTURE.md", "line": 200, "issue": "Missing actors claimed", "evidence": "..."}
+```
+
+### Worker Template
+
+```javascript
+const fs = require('fs');
+const path = require('path');
+
+function logArtifact(data) {
+  const logPath = path.join(process.cwd(), 'logs', 'actorcode', `${process.env.SESSION_ID}.jsonl`);
+  const line = JSON.stringify({ timestamp: new Date().toISOString(), ...data }) + '\n';
+  fs.appendFileSync(logPath, line);
+}
+
+// In your worker:
+logArtifact({ type: 'finding', severity: 'critical', file: '...', issue: '...' });
+```
+
+### Supervisor Pattern
+
+```bash
+# 1. Spawn workers with SESSION_ID
+SESSION_ID=docs-critique-$(date +%s) actorcode spawn --title "analyze-spec" ...
+
+# 2. Workers write to logs/actorcode/${SESSION_ID}.jsonl
+
+# 3. Collect artifacts after completion
+cat logs/actorcode/docs-critique-*.jsonl | jq -s '.' > findings.json
+```
+
+This ensures provenance: every finding links back to its raw worker output.

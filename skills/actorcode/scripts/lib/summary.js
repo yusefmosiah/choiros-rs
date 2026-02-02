@@ -1,5 +1,5 @@
 const DEFAULT_MODEL = "glm-4.7-flash";
-const DEFAULT_TIMEOUT_MS = 60000;
+const DEFAULT_TIMEOUT_MS = 120000;
 const DEFAULT_MAX_CHARS = 160000;
 
 function getSummaryConfig(overrides = {}) {
@@ -136,7 +136,7 @@ export function buildTranscript(messages) {
     .join("\n\n");
 }
 
-async function callSummaryModel({ endpoint, apiKey, model, timeoutMs, prompt }) {
+async function* streamSummaryModel({ endpoint, apiKey, model, timeoutMs, prompt }) {
   if (!globalThis.fetch) {
     throw new Error("fetch() not available. Use Node.js 18+.");
   }
@@ -160,48 +160,68 @@ async function callSummaryModel({ endpoint, apiKey, model, timeoutMs, prompt }) 
               "You summarize run logs into a single Markdown document. Be concise and structured."
           },
           { role: "user", content: prompt }
-        ]
+        ],
+        stream: true
       }),
       signal: controller.signal
     });
 
-    const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const detail = payload?.error?.message || response.statusText || "request failed";
-      throw new Error(`Summary request failed (${response.status}): ${detail}`);
+      const error = await response.text();
+      throw new Error(`Summary request failed (${response.status}): ${error}`);
     }
 
-    const content =
-      payload?.choices?.[0]?.message?.content ||
-      payload?.choices?.[0]?.text ||
-      payload?.output?.[0]?.content ||
-      "";
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
 
-    if (!content.trim()) {
-      throw new Error("Summary response was empty.");
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const data = line.slice(6);
+          if (data === "[DONE]") return;
+
+          try {
+            const parsed = JSON.parse(data);
+            const content =
+              parsed?.choices?.[0]?.delta?.content ||
+              parsed?.choices?.[0]?.text ||
+              "";
+            if (content) {
+              yield content;
+            }
+          } catch (e) {
+            // Skip invalid JSON
+          }
+        }
+      }
     }
-
-    return content;
   } finally {
     clearTimeout(timeout);
   }
 }
 
-export async function summarizeMessages(messages, options = {}) {
+export async function* summarizeMessagesStream(messages, options = {}) {
   const { baseUrl, endpointOverride, pathOverride, apiKey, model, timeoutMs, maxChars } =
     getSummaryConfig(options);
   const endpoint = resolveEndpoint({ baseUrl, endpointOverride, pathOverride });
+  
   if (!endpoint) {
     throw new Error("Summary endpoint could not be resolved. Check base URL settings.");
   }
+  
   const transcript = buildTranscript(messages);
 
   if (!transcript.trim()) {
-    return {
-      markdown: "No messages found for this session.",
-      model,
-      truncated: false
-    };
+    yield "No messages found for this session.";
+    return;
   }
 
   let truncated = false;
@@ -224,6 +244,18 @@ export async function summarizeMessages(messages, options = {}) {
     `## Next Steps\n\n` +
     `Run log:\n${promptTranscript}`;
 
-  const markdown = await callSummaryModel({ endpoint, apiKey, model, timeoutMs, prompt });
-  return { markdown, model, truncated };
+  yield* streamSummaryModel({ endpoint, apiKey, model, timeoutMs, prompt });
+}
+
+// Legacy non-streaming version for backward compatibility
+export async function summarizeMessages(messages, options = {}) {
+  const chunks = [];
+  for await (const chunk of summarizeMessagesStream(messages, options)) {
+    chunks.push(chunk);
+  }
+  return {
+    markdown: chunks.join(""),
+    model: options.model || DEFAULT_MODEL,
+    truncated: false
+  };
 }
