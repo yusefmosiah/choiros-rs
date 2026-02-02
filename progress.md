@@ -2,14 +2,83 @@
 
 ## Summary
 
-**Chat App Functional + Actorcode Orchestration Added** - Chat UI and backend flow now work end-to-end (WebSocket, icon open, message processing). Added actorcode skill suite to orchestrate OpenCode sessions via HTTP SDK with logs and model tiers.
+**Major Day: Docs Cleanup, Coherence Fixes, Automatic Computer Architecture Defined** - Archived 9 outdated docs, fixed 18 coherence issues across core documents, created lean architecture doc, and handed off to event bus implementation. 27 commits today.
+
+## Today's Commits (27 total)
+
+**Recent (Last 3 hours):**
+- `2472392` - handoff to event bus implementation
+- `2472392` - docs: major cleanup, coherence fixes, and automatic computer architecture
+- `9fe306c` - docs: add multi-agent vision and upgrade notes
+- `471732b` - actorcode dashboard progress
+- `473ca07` - actorcode progress
+
+**Earlier Today:**
+- `2084209` - feat: Chat App Core Functionality
+- `bd9330f` - feat: add actorcode orchestration suite
+- Plus 21 more: research system, clippy fixes, OpenCode Kimi provider fix, handoff docs, etc.
+
+## What Was Accomplished Today
+
+### ✅ Docs Cleanup (9 docs archived/deleted)
+**Archived:**
+- DEPLOYMENT_REVIEW_2026-01-31.md
+- DEPLOYMENT_STRATEGIES.md  
+- actorcode_architecture.md
+
+**Deleted:**
+- AUTOMATED_WORKFLOW.md
+- DESKTOP_API_BUG.md
+- PHASE5_MARKMARKDOWN_TESTS.md
+- choirOS_AUTH_ANALYSIS_PROMPT.md
+- feature-markdown-chat-logs.md
+- research-opencode-codepaths.md
+
+### ✅ Coherence Fixes (18 issues resolved)
+**Critical fixes:**
+- Removed Sprites.dev references (never implemented)
+- Fixed actor list (removed WriterActor/BamlActor/ToolExecutor, added ChatAgent)
+- Marked hypervisor as stub implementation
+- Fixed test counts (18 → 171+)
+- Updated dev-browser → agent-browser
+- Marked Docker as pending NixOS research
+- Marked CI/CD as planned (not implemented)
+- Fixed port numbers (:5173 → :3000)
+- Fixed database tech (SQLite → libSQL)
+- Fixed API contracts
+- Fixed BAML paths (sandbox/baml/ → baml_src/)
+- Added handoffs to doc taxonomy
+- Clarified actorcode dashboard separation
+- Marked vision actors as planned
+- Added OpenProse disclaimer
+- Documented missing dependencies
+- Fixed E2E test paths
+- Rewrote AGENTS.md with task concurrency rules
+
+### ✅ New Documentation
+- `AUTOMATIC_COMPUTER_ARCHITECTURE.md` - Lean architecture doc (contrast with OpenAI's blocking UX)
+- `dev-blog/2026-02-01-why-agents-need-actors.md` - Actor model argument
+- `handoffs/2026-02-01-docs-upgrade-runbook.md` - 19 actionable fixes
+- `handoffs/2026-02-01-event-bus-implementation.md` - Ready for next session
+
+### ✅ New Skills & Tools
+- **system-monitor** - ASCII actor network visualization
+- **actorcode dashboard** - Multi-view web dashboard (list/network/timeline/hierarchy)
+- **Streaming LLM summaries** - Real-time summary generation
+- **NixOS research supervisor** - 5 workers + merge/critique/report pipeline
+- **Docs upgrade supervisor** - 18 parallel workers for coherence fixes
+
+### ✅ NixOS Research Complete
+- 3/5 initial workers succeeded
+- Merge → Web Critique → Final Report all completed
+- Comprehensive research docs in `docs/research/nixos-research-2026-02-01/`
 
 ## What's Working
 
 ### Backend (sandbox) ✅
 - **Server:** Running on localhost:8080
 - **Database:** libsql/SQLite with event sourcing
-- **Actors:** EventStoreActor, ChatActor, DesktopActor, ActorManager
+- **Actors:** EventStoreActor, ChatActor, DesktopActor, ActorManager, ChatAgent
 - **API Endpoints:** Health, chat, desktop, websocket
 - **WebSocket:** Connection works and stays alive
 - **Chat processing:** Messages reach ChatAgent and AI responses return
@@ -21,195 +90,70 @@
 - **Icon open:** chat opens from desktop icon (double-click)
 - **WebSocket status:** shows connected
 
+### Actorcode Orchestration ✅
+- **Research system:** Non-blocking task launcher with findings database
+- **Dashboard:** Multi-view with streaming summaries
+- **Supervisors:** Can spawn parallel workers (docs upgrade: 18 workers)
+- **Artifact persistence:** Workers write to JSONL logs
+
 ## Current Status
 
-### ✅ Completed
-- Chat app end-to-end functionality (WebSocket, icon open, message flow)
-- Chat UI polish with modern bubbles
-- Actorcode orchestration skill suite
-- Consolidated actorcode architecture doc
+### ✅ Completed Today
+- Major docs cleanup (9 docs archived/deleted)
+- 18 coherence fixes across core documents
+- Automatic computer architecture defined
+- NixOS research completed
+- System monitor skill
+- Multi-view dashboard with streaming
+- Task concurrency rules documented
 
-### ⚠️ In Progress
-- **Docs upgrade execution** - Implementing 94 fixes from runbook
-- **AGENTS.md rewrite** - Adding task concurrency rules
-- **Actorcode observability** - Event bus for async task monitoring (blocked by framework)
-
-### ✅ Recently Completed
-- Docs coherence critique (6 workers, 94 issues identified)
-- System monitor skill (ASCII network visualization)
-- Multi-view dashboard (list/network/timeline/hierarchy)
-- Streaming LLM summaries
-- Dev blog: "Why Agents Need Actors"
-
-### 📋 Next Steps
-1. **Execute docs upgrade runbook** - Fix 94 coherence issues across 6 documents
-2. **AGENTS.md rewrite** - Add task concurrency rules (supervisors never block)
-3. **Actorcode demo** - spawn pico/nano/micro/milli under one supervisor
-4. **Add small helper** - optional `just opencode-serve`
-5. **Theme work** - resume desktop theming now that chat works
-
----
-
-## Completed: Docs Coherence Critique - 2026-02-01
-
-### What Was Done
-- Spawned 6 parallel workers to analyze core documents
-- Generated comprehensive upgrade runbook with 94 issues identified
-- Created dev blog: "Why Agents Need Actors"
-- Built system-monitor skill for ASCII actor network visualization
-- Built new dashboard with 4 views (list, network, timeline, hierarchy)
-- Added streaming LLM summaries to dashboard
-
-### Key Findings
-**Critical Issues (7):**
-- Sprites.dev references (never implemented)
-- Missing actors claimed as existing (WriterActor, BamlActor, etc.)
-- Hypervisor is just a 5-line placeholder
-- Wrong test count (18 vs 171+)
-- dev-browser skill doesn't exist
-- Docker deployment not implemented
-- CI/CD workflow doesn't exist
-
-**Deliverables:**
-- `docs/handoffs/2026-02-01-docs-upgrade-runbook.md` - 94 issues with fixes
-- `docs/dev-blog/2026-02-01-why-agents-need-actors.md` - Actor model argument
-- `skills/system-monitor/` - ASCII network visualization
-- `skills/actorcode/dashboard/` - Multi-view web dashboard
-
-### Observability Problem
-**Issue:** No way to verify if the 6 worker tasks completed successfully
-**Root cause:** OpenCode framework lacks async task monitoring
-**Impact:** We generated the runbook but can't confirm all workers finished
-**Solution needed:** True actor model with event bus (as documented in dev blog)
-
----
-
-## Update: Actorcode Research System - 2026-02-01
-
-### ✅ Research System Complete
-
-**What was built:**
-- Non-blocking research task launcher (`just research <template> --monitor`)
-- [LEARNING] protocol for incremental findings reporting
-- Background monitor collecting findings to JSON database
-- `research-status` command showing active/completed tasks
-- `findings` CLI for querying statistics and exporting data
-- Tmux dashboard (`just research-dashboard`) with live updates
-- Web dashboard (`just research-web`) for visual monitoring
-- Session cleanup utility (`just research-cleanup`)
-- Diagnostic tool (`just research-diagnose`)
-
-**Key Fix:**
-- Research-launch.js wasn't passing model to promptAsync - subagents weren't running
-- Fixed by adding model specification: `{ providerID, modelID }`
-
-**Verification Results:**
-- Cleaned 82 orphaned sessions from registry
-- Successfully launched docs-gap research task
-- Subagent explored codebase using bash/read tools
-- Reported 20 [LEARNING] DOCS findings
-- Monitor collected all findings to database
-- 58 total findings now in database (57 DOCS + 1 TEST)
-
-**Next Step:**
-Use the 20 documentation findings to create missing READMEs and improve docs.
+### 📋 Next Steps (from handoff)
+1. **Event Bus Implementation** - Build pub/sub system for async workers
+2. **Worker Integration** - Make workers emit events
+3. **Dashboard WebSocket** - Real-time event streaming
+4. **Prompt Bar** - Shell-like interface for spawning workers
 
 ## Architecture
 
 ```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────┐
-│  Dioxus Desktop │────▶│   Actix Server   │────▶│   SQLite    │
-│  (WASM:3000)    │◄────│   (localhost:8080)│     │   (libsql)  │
-│                 │ WS  │                   │     │             │
-│  ┌───────────┐  │     │  ┌─────────────┐  │     │             │
-│  │ App Dock  │  │     │  │DesktopActor │  │     │             │
-│  │ (left)    │  │     │  │  (state)    │  │     │             │
-│  └───────────┘  │     │  └─────────────┘  │     │             │
-│  ┌───────────┐  │     │        │          │     │             │
-│  │ Windows   │  │     │  ┌─────┴─────┐    │     │             │
-│  │ (floating)│  │     │  │EventStore │    │     │             │
-│  └───────────┘  │     │  └───────────┘    │     │             │
-│  ┌───────────┐  │     │                   │     │             │
-│  │Prompt Bar │  │     └───────────────────┘     └─────────────┘
-│  │ (bottom)  │  │
-│  └───────────┘  │
-└─────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                     USER INTERFACE                           │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │ Prompt Bar  │  │  App Windows│  │   Dashboard         │  │
+│  │ (shell)     │  │  (tmux)     │  │   (observability)   │  │
+│  └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘  │
+└─────────┼────────────────┼────────────────────┼─────────────┘
+          │                │                    │
+          ▼                ▼                    ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    EVENT BUS (Pub/Sub) ←── Next Session      │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## Quick Start
+## Key Insight: Anti-Chatbot
 
-### Run the Backend
-```bash
-# Set local database path (required for local development)
-export DATABASE_URL="./data/events.db"
+**OpenAI Data Agent:** "Worked for 6m 1s" → user blocked, staring at spinner
+**ChoirOS Automatic Computer:** User spawns worker, continues working, observes via dashboard
 
-just dev-sandbox
-# Server starts on http://localhost:8080
-```
-
-### Run the Frontend (Development)
-```bash
-# Install Dioxus CLI (one time)
-cargo install dioxus-cli
-
-# Start dev server
-just dev-ui
-# UI available at http://localhost:3000
-```
-
-### Production vs Local
-- **Local Development**: Requires `export DATABASE_URL="./data/events.db"`
-- **Production Server**: Uses hardcoded `/opt/choiros/data/events.db` (no export needed)
-
-### Test Everything
-```bash
-# Backend health
-curl http://localhost:8080/health
-
-# Run all tests
-cargo test -p sandbox
-
-# Build UI
-cargo build -p sandbox-ui --target wasm32-unknown-unknown
-```
-
-## Commits
-
-1. `2084209` - feat: Chat App Core Functionality - WebSocket, Icon Click, Message Flow
-2. `bd9330f` - feat: add actorcode orchestration suite
-
-## Critical Fix: OpenCode Kimi Provider
-
-**Problem:** Headless API with `kimi-for-coding/k2p5` failed with "Kimi For Coding is currently only available for Coding Agents..."
-
-**Root Cause:** TUI uses `@ai-sdk/anthropic` provider internally, but headless API was configured with `@ai-sdk/openai-compatible`
-
-**Fix:** Changed `opencode.json` provider npm package:
-```diff
-- "npm": "@ai-sdk/openai-compatible"
-+ "npm": "@ai-sdk/anthropic"
-```
-
-**Result:** Micro tier (`kimi-for-coding/k2p5`) now works via headless API. Actorcode can spawn agents with all tiers.
-
-See: `docs/research-opencode-codepaths.md` for full investigation details.
+The difference: Infrastructure vs Participant. We build the former.
 
 ## Documentation
 
-- `README.md` - Quick start guide
-- `docs/ARCHITECTURE_SPECIFICATION.md` - Full architecture spec
-- `docs/DESKTOP_ARCHITECTURE_DESIGN.md` - Desktop-specific design (Phase 1 complete)
-- `docs/DEPLOYMENT_STRATEGIES.md` - Current and future deployment options
-- `docs/archive/` - Old deployment runbook archived
+**Authoritative:**
+- `README.md` - Quick start
+- `docs/AUTOMATIC_COMPUTER_ARCHITECTURE.md` - Core architecture
+- `docs/ARCHITECTURE_SPECIFICATION.md` - Detailed spec (now coherent)
+- `docs/DESKTOP_ARCHITECTURE_DESIGN.md` - Desktop design
+- `AGENTS.md` - Development guide with concurrency rules
 
-## Actorcode AX + Observability Notes
+**Handoffs:**
+- `docs/handoffs/2026-02-01-event-bus-implementation.md` - Ready to implement
 
-- **Producer role is already possible**: a supervisor can prompt another supervisor run to spawn more runs.
-- **Observability gap**: latest-only message view is too brittle; need whole-log and summary views in the web dashboard.
-- **Background runs**: must output a single Markdown doc (no in-task summary) for archival and review.
-- **Doc accuracy as verifier**: internal coherence + repo-truth + external validation.
+**Research:**
+- `docs/research/nixos-research-2026-02-01/` - NixOS deployment research
 
 ---
 
-*Last updated: 2026-02-01*
-*Status: Chat app functional, actorcode orchestration added*
+*Last updated: 2026-02-01 19:35*  
+*Status: Major docs cleanup complete, architecture defined, ready for event bus*  
+*Commits today: 27*

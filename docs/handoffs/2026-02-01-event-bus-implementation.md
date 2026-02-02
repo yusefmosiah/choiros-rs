@@ -123,12 +123,51 @@ event_bus.do_send(PublishEvent {
 
 ## Success Criteria
 
+### Functional
 - [ ] EventBusActor can publish/subscribe
 - [ ] Multiple subscribers receive same event
 - [ ] WebSocket streams events to dashboard
 - [ ] Workers can emit events
 - [ ] Dashboard shows real-time updates
 - [ ] Events persisted to SQLite for replay
+
+### Testing (RECOVERY STANDARD - Must Be Higher)
+
+**Unit Tests:**
+- [ ] EventBusActor publish/subscribe/unsubscribe
+- [ ] Event schema validation
+- [ ] Topic matching (exact and wildcard)
+- [ ] Subscriber cleanup on disconnect
+
+**Integration Tests:**
+- [ ] WebSocket event streaming
+- [ ] Worker → EventBus → Dashboard flow
+- [ ] Event persistence and replay
+- [ ] Multiple concurrent subscribers
+
+**Property-Based Tests:**
+- [ ] Event ordering guarantees
+- [ ] No message loss under load
+- [ ] Subscriber isolation (one slow subscriber doesn't block others)
+
+**Fuzz Tests:**
+- [ ] Random event payloads
+- [ ] Malformed topic names
+- [ ] Rapid subscribe/unsubscribe cycles
+- [ ] Memory leaks under sustained load
+
+**Agentic Red Teaming:**
+- [ ] Spawn workers that intentionally crash mid-event
+- [ ] Subscribe to non-existent topics
+- [ ] Publish events with huge payloads
+- [ ] Rapid topic creation/destruction
+- [ ] Simulate network partitions
+
+**Load/Performance Tests (Testarossa):**
+- [ ] 10k events/second throughput
+- [ ] 100 concurrent subscribers
+- [ ] Memory usage under sustained load
+- [ ] Latency percentiles (p50, p95, p99)
 
 ---
 
@@ -150,4 +189,6 @@ event_bus.do_send(PublishEvent {
 
 ---
 
-**Next Step:** Implement EventBusActor with basic pub/sub
+**Recovery Principle:** After system failure, testing standards must be STRICTER. No half-assed work.
+
+**Next Step:** Implement EventBusActor with comprehensive test suite
