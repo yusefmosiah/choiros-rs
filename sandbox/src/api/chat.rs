@@ -7,10 +7,8 @@ use actix_web::{get, post, web, HttpResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::actor_manager::AppState;
-use crate::actors::chat::SendUserMessage;
-use crate::actors::chat_agent::ProcessMessage;
-use crate::actors::event_store::GetEventsForActor;
+use crate::actor_manager::{AppState, ChatActorMsg, ChatAgentMsg};
+use crate::actors::event_store::get_events_for_actor;
 
 /// Request to send a chat message
 #[derive(Debug, Deserialize)]
@@ -41,27 +39,82 @@ pub async fn send_message(
     // Get or create persistent ChatActor via Manager
     let chat_actor = state
         .actor_manager
-        .get_or_create_chat(actor_id.clone(), user_id.clone());
+        .get_or_create_chat(actor_id.clone(), user_id.clone()).await;
 
-    // Send the message (optimistic)
-    match chat_actor
-        .send(SendUserMessage { text: text.clone() })
-        .await
-    {
+    // Send the message (optimistic) using ractor call pattern
+    match ractor::call!(
+        chat_actor,
+        |reply| ChatActorMsg::SendUserMessage {
+            text: text.clone(),
+            reply,
+        }
+    ) {
         Ok(Ok(temp_id)) => {
+            // Persist the user message to EventStore immediately
+            let event_store = state.actor_manager.event_store();
+            let actor_id_for_event = actor_id.clone();
+            let user_id_for_event = user_id.clone();
+            let text_for_event = text.clone();
+            let temp_id_for_event = temp_id.clone();
+            
+            // Spawn async task to persist the event (fire-and-forget)
+            tokio::spawn(async move {
+                use crate::actors::event_store::{AppendEvent, EventStoreMsg};
+                
+                let append_event = AppendEvent {
+                    event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
+                    payload: serde_json::json!(text_for_event),
+                    actor_id: actor_id_for_event.clone(),
+                    user_id: user_id_for_event.clone(),
+                };
+                
+                match ractor::call!(
+                    event_store,
+                    |reply| EventStoreMsg::Append {
+                        event: append_event,
+                        reply,
+                    }
+                ) {
+                    Ok(Ok(event)) => {
+                        tracing::info!(
+                            actor_id = %actor_id_for_event,
+                            seq = event.seq,
+                            "User message persisted to EventStore"
+                        );
+                    }
+                    Ok(Err(e)) => {
+                        tracing::error!(
+                            actor_id = %actor_id_for_event,
+                            error = %e,
+                            "Failed to persist user message to EventStore"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            actor_id = %actor_id_for_event,
+                            error = %e,
+                            "EventStore actor error when persisting message"
+                        );
+                    }
+                }
+            });
+            
             // Trigger ChatAgent to process the message and generate response (fire and forget)
-            // Note: ChatAgent will log both the user message and assistant response to EventStore
+            // Note: ChatAgent will log the assistant response to EventStore
             let chat_agent = state
                 .actor_manager
-                .get_or_create_chat_agent(actor_id.clone(), user_id.clone());
+                .get_or_create_chat_agent(actor_id.clone(), user_id.clone()).await;
             let text_for_agent = text.clone();
-            actix::spawn(async move {
-                match chat_agent
-                    .send(ProcessMessage {
+            
+            // Spawn async task for fire-and-forget processing
+            tokio::spawn(async move {
+                match ractor::call!(
+                    chat_agent,
+                    |reply| ChatAgentMsg::ProcessMessage {
                         text: text_for_agent,
-                    })
-                    .await
-                {
+                        reply,
+                    }
+                ) {
                     Ok(Ok(response)) => {
                         tracing::info!(
                             actor_id = %actor_id,
@@ -80,7 +133,7 @@ pub async fn send_message(
                         tracing::error!(
                             actor_id = %actor_id,
                             error = %e,
-                            "ChatAgent mailbox error"
+                            "ChatAgent actor error"
                         );
                     }
                 }
@@ -96,9 +149,9 @@ pub async fn send_message(
             "success": false,
             "error": e.to_string()
         })),
-        Err(_) => HttpResponse::InternalServerError().json(json!({
+        Err(e) => HttpResponse::InternalServerError().json(json!({
             "success": false,
-            "error": "Actor mailbox error"
+            "error": format!("Actor error: {}", e)
         })),
     }
 }
@@ -108,16 +161,10 @@ pub async fn send_message(
 pub async fn get_messages(path: web::Path<String>, state: web::Data<AppState>) -> HttpResponse {
     let actor_id = path.into_inner();
 
-    // Query EventStore directly for chat events
+    // Query EventStore directly for chat events using ractor
     let event_store = state.actor_manager.event_store();
 
-    match event_store
-        .send(GetEventsForActor {
-            actor_id: actor_id.clone(),
-            since_seq: 0,
-        })
-        .await
-    {
+    match get_events_for_actor(&event_store, actor_id.clone(), 0).await {
         Ok(Ok(events)) => {
             // Convert events to ChatMessages
             let messages: Vec<shared_types::ChatMessage> = events
@@ -169,9 +216,9 @@ pub async fn get_messages(path: web::Path<String>, state: web::Data<AppState>) -
             "success": false,
             "error": "EventStore error"
         })),
-        Err(_) => HttpResponse::InternalServerError().json(json!({
+        Err(e) => HttpResponse::InternalServerError().json(json!({
             "success": false,
-            "error": "Failed to get messages"
+            "error": format!("Failed to get messages: {}", e)
         })),
     }
 }

@@ -4,11 +4,11 @@ mod api;
 mod baml_client;
 mod tools;
 
-use actix::Actor;
 use actix_cors::Cors;
 use actix_web::{http::header, web, App, HttpServer};
 use actor_manager::AppState;
-use actors::{AppendEvent, EventStoreActor};
+use actors::event_store::{AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg};
+use ractor::Actor;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -29,27 +29,33 @@ async fn main() -> std::io::Result<()> {
     // libsql takes a plain file path (not sqlite:// URL like sqlx)
     let db_path_str = db_path.to_str().expect("Invalid database path");
     tracing::info!("Connecting to database: {}", db_path_str);
-    let event_store = EventStoreActor::new(db_path_str)
-        .await
-        .expect("Failed to create event store")
-        .start();
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
 
     tracing::info!("EventStoreActor started");
 
     // Log startup event
-    let event = event_store
-        .send(AppendEvent {
-            event_type: "system.startup".to_string(),
-            payload: serde_json::json!({"version": "0.1.0"}),
-            actor_id: "system".to_string(),
-            user_id: "system".to_string(),
-        })
-        .await;
+    let startup_event = AppendEvent {
+        event_type: "system.startup".to_string(),
+        payload: serde_json::json!({"version": "0.1.0"}),
+        actor_id: "system".to_string(),
+        user_id: "system".to_string(),
+    };
 
-    match event {
+    let event_result = ractor::call!(event_store, |reply| EventStoreMsg::Append {
+        event: startup_event,
+        reply,
+    });
+
+    match event_result {
         Ok(Ok(evt)) => tracing::info!(seq = evt.seq, "Startup event logged"),
         Ok(Err(e)) => tracing::error!("Failed to log startup: {}", e),
-        Err(e) => tracing::error!("Mailbox error: {}", e),
+        Err(e) => tracing::error!("RPC error: {}", e),
     }
 
     // Create app state with actor manager

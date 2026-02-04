@@ -10,4 +10,4 @@ pub use chat::ChatActor;
 pub use chat_agent::ChatAgent;
 pub use desktop::DesktopActor;
 pub use event_bus::{Event, EventBusActor, EventBusMsg, EventType};
-pub use event_store::{AppendEvent, EventStoreActor, EventStoreMsg};
+pub use event_store::{AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg};

@@ -7,11 +7,7 @@ use actix_web::{delete, get, patch, post, web, HttpResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::actor_manager::AppState;
-use crate::actors::desktop::{
-    CloseWindow, FocusWindow, GetApps, GetDesktopState, GetWindows, MoveWindow, OpenWindow,
-    RegisterApp, ResizeWindow,
-};
+use crate::actor_manager::{AppState, DesktopActorMsg};
 
 /// Request to open a window
 #[derive(Debug, Deserialize)]
@@ -55,16 +51,18 @@ pub async fn open_window(
     // Get or create DesktopActor
     let desktop = state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string());
+        .get_or_create_desktop(desktop_id, "system".to_string()).await;
 
-    match desktop
-        .send(OpenWindow {
+    // Use ractor call pattern
+    match ractor::call!(
+        desktop,
+        |reply| DesktopActorMsg::OpenWindow {
             app_id: req.app_id.clone(),
             title: req.title.clone(),
             props: req.props.clone(),
-        })
-        .await
-    {
+            reply,
+        }
+    ) {
         Ok(Ok(window)) => HttpResponse::Ok().json(OpenWindowResponse {
             success: true,
             window: Some(window),
@@ -75,10 +73,10 @@ pub async fn open_window(
             window: None,
             error: Some(e.to_string()),
         }),
-        Err(_) => HttpResponse::InternalServerError().json(OpenWindowResponse {
+        Err(e) => HttpResponse::InternalServerError().json(OpenWindowResponse {
             success: false,
             window: None,
-            error: Some("Actor mailbox error".to_string()),
+            error: Some(format!("Actor error: {}", e)),
         }),
     }
 }
@@ -90,16 +88,17 @@ pub async fn get_windows(path: web::Path<String>, state: web::Data<AppState>) ->
 
     let desktop = state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string());
+        .get_or_create_desktop(desktop_id, "system".to_string()).await;
 
-    match desktop.send(GetWindows).await {
+    // Use ractor call pattern
+    match ractor::call!(desktop, |reply| DesktopActorMsg::GetWindows { reply }) {
         Ok(windows) => HttpResponse::Ok().json(json!({
             "success": true,
             "windows": windows
         })),
-        Err(_) => HttpResponse::InternalServerError().json(json!({
+        Err(e) => HttpResponse::InternalServerError().json(json!({
             "success": false,
-            "error": "Failed to get windows"
+            "error": format!("Failed to get windows: {}", e)
         })),
     }
 }
@@ -114,9 +113,16 @@ pub async fn close_window(
 
     let desktop = state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string());
+        .get_or_create_desktop(desktop_id, "system".to_string()).await;
 
-    match desktop.send(CloseWindow { window_id }).await {
+    // Use ractor call pattern
+    match ractor::call!(
+        desktop,
+        |reply| DesktopActorMsg::CloseWindow {
+            window_id: window_id.clone(),
+            reply,
+        }
+    ) {
         Ok(Ok(())) => HttpResponse::Ok().json(json!({
             "success": true,
             "message": "Window closed"
@@ -125,9 +131,9 @@ pub async fn close_window(
             "success": false,
             "error": e.to_string()
         })),
-        Err(_) => HttpResponse::InternalServerError().json(json!({
+        Err(e) => HttpResponse::InternalServerError().json(json!({
             "success": false,
-            "error": "Actor mailbox error"
+            "error": format!("Actor error: {}", e)
         })),
     }
 }
@@ -143,16 +149,18 @@ pub async fn move_window(
 
     let desktop = state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string());
+        .get_or_create_desktop(desktop_id, "system".to_string()).await;
 
-    match desktop
-        .send(MoveWindow {
-            window_id,
+    // Use ractor call pattern
+    match ractor::call!(
+        desktop,
+        |reply| DesktopActorMsg::MoveWindow {
+            window_id: window_id.clone(),
             x: req.x,
             y: req.y,
-        })
-        .await
-    {
+            reply,
+        }
+    ) {
         Ok(Ok(())) => HttpResponse::Ok().json(json!({
             "success": true,
             "message": "Window moved"
@@ -161,9 +169,9 @@ pub async fn move_window(
             "success": false,
             "error": e.to_string()
         })),
-        Err(_) => HttpResponse::InternalServerError().json(json!({
+        Err(e) => HttpResponse::InternalServerError().json(json!({
             "success": false,
-            "error": "Actor mailbox error"
+            "error": format!("Actor error: {}", e)
         })),
     }
 }
@@ -179,16 +187,18 @@ pub async fn resize_window(
 
     let desktop = state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string());
+        .get_or_create_desktop(desktop_id, "system".to_string()).await;
 
-    match desktop
-        .send(ResizeWindow {
-            window_id,
+    // Use ractor call pattern
+    match ractor::call!(
+        desktop,
+        |reply| DesktopActorMsg::ResizeWindow {
+            window_id: window_id.clone(),
             width: req.width,
             height: req.height,
-        })
-        .await
-    {
+            reply,
+        }
+    ) {
         Ok(Ok(())) => HttpResponse::Ok().json(json!({
             "success": true,
             "message": "Window resized"
@@ -197,9 +207,9 @@ pub async fn resize_window(
             "success": false,
             "error": e.to_string()
         })),
-        Err(_) => HttpResponse::InternalServerError().json(json!({
+        Err(e) => HttpResponse::InternalServerError().json(json!({
             "success": false,
-            "error": "Actor mailbox error"
+            "error": format!("Actor error: {}", e)
         })),
     }
 }
@@ -214,9 +224,16 @@ pub async fn focus_window(
 
     let desktop = state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string());
+        .get_or_create_desktop(desktop_id, "system".to_string()).await;
 
-    match desktop.send(FocusWindow { window_id }).await {
+    // Use ractor call pattern
+    match ractor::call!(
+        desktop,
+        |reply| DesktopActorMsg::FocusWindow {
+            window_id: window_id.clone(),
+            reply,
+        }
+    ) {
         Ok(Ok(())) => HttpResponse::Ok().json(json!({
             "success": true,
             "message": "Window focused"
@@ -225,9 +242,9 @@ pub async fn focus_window(
             "success": false,
             "error": e.to_string()
         })),
-        Err(_) => HttpResponse::InternalServerError().json(json!({
+        Err(e) => HttpResponse::InternalServerError().json(json!({
             "success": false,
-            "error": "Actor mailbox error"
+            "error": format!("Actor error: {}", e)
         })),
     }
 }
@@ -242,16 +259,17 @@ pub async fn get_desktop_state(
 
     let desktop = state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string());
+        .get_or_create_desktop(desktop_id, "system".to_string()).await;
 
-    match desktop.send(GetDesktopState).await {
+    // Use ractor call pattern
+    match ractor::call!(desktop, |reply| DesktopActorMsg::GetDesktopState { reply }) {
         Ok(desktop_state) => HttpResponse::Ok().json(json!({
             "success": true,
             "desktop": desktop_state
         })),
-        Err(_) => HttpResponse::InternalServerError().json(json!({
+        Err(e) => HttpResponse::InternalServerError().json(json!({
             "success": false,
-            "error": "Failed to get desktop state"
+            "error": format!("Failed to get desktop state: {}", e)
         })),
     }
 }
@@ -267,14 +285,16 @@ pub async fn register_app(
 
     let desktop = state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string());
+        .get_or_create_desktop(desktop_id, "system".to_string()).await;
 
-    match desktop
-        .send(RegisterApp {
+    // Use ractor call pattern
+    match ractor::call!(
+        desktop,
+        |reply| DesktopActorMsg::RegisterApp {
             app: req.into_inner(),
-        })
-        .await
-    {
+            reply,
+        }
+    ) {
         Ok(Ok(())) => HttpResponse::Ok().json(json!({
             "success": true,
             "message": "App registered"
@@ -283,9 +303,9 @@ pub async fn register_app(
             "success": false,
             "error": e.to_string()
         })),
-        Err(_) => HttpResponse::InternalServerError().json(json!({
+        Err(e) => HttpResponse::InternalServerError().json(json!({
             "success": false,
-            "error": "Actor mailbox error"
+            "error": format!("Actor error: {}", e)
         })),
     }
 }
@@ -297,16 +317,17 @@ pub async fn get_apps(path: web::Path<String>, state: web::Data<AppState>) -> Ht
 
     let desktop = state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string());
+        .get_or_create_desktop(desktop_id, "system".to_string()).await;
 
-    match desktop.send(GetApps).await {
+    // Use ractor call pattern
+    match ractor::call!(desktop, |reply| DesktopActorMsg::GetApps { reply }) {
         Ok(apps) => HttpResponse::Ok().json(json!({
             "success": true,
             "apps": apps
         })),
-        Err(_) => HttpResponse::InternalServerError().json(json!({
+        Err(e) => HttpResponse::InternalServerError().json(json!({
             "success": false,
-            "error": "Failed to get apps"
+            "error": format!("Failed to get apps: {}", e)
         })),
     }
 }

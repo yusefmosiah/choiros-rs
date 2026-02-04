@@ -6,12 +6,12 @@
 //! - ChatAgent integration with tools
 //! - Security boundary validation
 
-use actix::Actor;
+use ractor::Actor;
 use serde_json::json;
 use std::collections::HashSet;
 
-use sandbox::actors::chat_agent::{ChatAgent, ExecuteTool, GetAvailableTools};
-use sandbox::actors::event_store::EventStoreActor;
+use sandbox::actors::chat_agent::{ChatAgent, ChatAgentArguments, ChatAgentMsg};
+use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};
 use sandbox::tools::{
     BashTool, ListFilesTool, ReadFileTool, SearchFilesTool, Tool, ToolRegistry, WriteFileTool,
 };
@@ -706,24 +706,38 @@ fn test_search_files_missing_pattern() {
 // Integration Tests via ChatAgent (Using sync tool calls)
 // ============================================================================
 
-#[actix::test]
+#[tokio::test]
 #[ignore = "BashTool uses block_on which conflicts with async test runtime - works in production"]
 async fn test_agent_executes_bash_tool() {
-    let event_store = EventStoreActor::new_in_memory().await.unwrap().start();
-    let agent = ChatAgent::new(
-        "test-agent-1".to_string(),
-        "test-user".to_string(),
-        event_store,
-    );
-    let addr = agent.start();
+    let (event_store, _event_handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::InMemory,
+    )
+    .await
+    .unwrap();
+
+    let (agent, _agent_handle) = Actor::spawn(
+        None,
+        ChatAgent::new(),
+        ChatAgentArguments {
+            actor_id: "test-agent-1".to_string(),
+            user_id: "test-user".to_string(),
+            event_store,
+        },
+    )
+    .await
+    .unwrap();
 
     // Execute bash tool directly through agent
-    let result = addr
-        .send(ExecuteTool {
+    let result = ractor::call!(
+        agent,
+        |reply| ChatAgentMsg::ExecuteTool {
             tool_name: "bash".to_string(),
             tool_args: json!({"command": "echo AgentTest"}).to_string(),
-        })
-        .await;
+            reply,
+        }
+    );
 
     // Agent accepts the message - the actual tool execution result depends on runtime availability
     assert!(result.is_ok(), "agent should accept tool execution message");
@@ -734,25 +748,39 @@ async fn test_agent_executes_bash_tool() {
     assert!(output.content.contains("AgentTest"));
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_agent_executes_read_tool() {
     let test_file = test_file_path("agent_test");
     std::fs::write(&test_file, "Agent read test content").unwrap();
 
-    let event_store = EventStoreActor::new_in_memory().await.unwrap().start();
-    let agent = ChatAgent::new(
-        "test-agent-2".to_string(),
-        "test-user".to_string(),
-        event_store,
-    );
-    let addr = agent.start();
+    let (event_store, _event_handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::InMemory,
+    )
+    .await
+    .unwrap();
 
-    let result = addr
-        .send(ExecuteTool {
+    let (agent, _agent_handle) = Actor::spawn(
+        None,
+        ChatAgent::new(),
+        ChatAgentArguments {
+            actor_id: "test-agent-2".to_string(),
+            user_id: "test-user".to_string(),
+            event_store,
+        },
+    )
+    .await
+    .unwrap();
+
+    let result = ractor::call!(
+        agent,
+        |reply| ChatAgentMsg::ExecuteTool {
             tool_name: "read_file".to_string(),
             tool_args: json!({"path": test_file.to_str().unwrap()}).to_string(),
-        })
-        .await;
+            reply,
+        }
+    );
 
     assert!(result.is_ok());
     let output = result.unwrap().unwrap();
@@ -762,28 +790,42 @@ async fn test_agent_executes_read_tool() {
     cleanup_test_dir(test_file.parent().unwrap());
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_agent_executes_write_tool() {
     let test_file = test_file_path("agent_write");
 
-    let event_store = EventStoreActor::new_in_memory().await.unwrap().start();
-    let agent = ChatAgent::new(
-        "test-agent-3".to_string(),
-        "test-user".to_string(),
-        event_store,
-    );
-    let addr = agent.start();
+    let (event_store, _event_handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::InMemory,
+    )
+    .await
+    .unwrap();
 
-    let result = addr
-        .send(ExecuteTool {
+    let (agent, _agent_handle) = Actor::spawn(
+        None,
+        ChatAgent::new(),
+        ChatAgentArguments {
+            actor_id: "test-agent-3".to_string(),
+            user_id: "test-user".to_string(),
+            event_store,
+        },
+    )
+    .await
+    .unwrap();
+
+    let result = ractor::call!(
+        agent,
+        |reply| ChatAgentMsg::ExecuteTool {
             tool_name: "write_file".to_string(),
             tool_args: json!({
                 "path": test_file.to_str().unwrap(),
                 "content": "Written by agent"
             })
             .to_string(),
-        })
-        .await;
+            reply,
+        }
+    );
 
     assert!(result.is_ok());
     let output = result.unwrap().unwrap();
@@ -796,24 +838,38 @@ async fn test_agent_executes_write_tool() {
     cleanup_test_dir(test_file.parent().unwrap());
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_agent_tool_error_handling() {
-    let event_store = EventStoreActor::new_in_memory().await.unwrap().start();
-    let agent = ChatAgent::new(
-        "test-agent-4".to_string(),
-        "test-user".to_string(),
-        event_store,
-    );
-    let addr = agent.start();
+    let (event_store, _event_handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::InMemory,
+    )
+    .await
+    .unwrap();
+
+    let (agent, _agent_handle) = Actor::spawn(
+        None,
+        ChatAgent::new(),
+        ChatAgentArguments {
+            actor_id: "test-agent-4".to_string(),
+            user_id: "test-user".to_string(),
+            event_store,
+        },
+    )
+    .await
+    .unwrap();
 
     // Try to read non-existent file
-    let result = addr
-        .send(ExecuteTool {
+    let result = ractor::call!(
+        agent,
+        |reply| ChatAgentMsg::ExecuteTool {
             tool_name: "read_file".to_string(),
             tool_args: json!({"path": "/Users/wiz/choiros-rs/target/nonexistent_agent_test.txt"})
                 .to_string(),
-        })
-        .await;
+            reply,
+        }
+    );
 
     // Agent should handle the error gracefully (return error in result, not panic)
     assert!(result.is_ok(), "agent should not panic on tool error");
@@ -824,40 +880,57 @@ async fn test_agent_tool_error_handling() {
     );
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_agent_multiple_tools() {
     let test_dir = setup_test_dir();
-    let event_store = EventStoreActor::new_in_memory().await.unwrap().start();
-    let agent = ChatAgent::new(
-        "test-agent-5".to_string(),
-        "test-user".to_string(),
-        event_store,
-    );
-    let addr = agent.start();
+
+    let (event_store, _event_handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::InMemory,
+    )
+    .await
+    .unwrap();
+
+    let (agent, _agent_handle) = Actor::spawn(
+        None,
+        ChatAgent::new(),
+        ChatAgentArguments {
+            actor_id: "test-agent-5".to_string(),
+            user_id: "test-user".to_string(),
+            event_store,
+        },
+    )
+    .await
+    .unwrap();
 
     // Execute write tool
-    let write_result = addr
-        .send(ExecuteTool {
+    let write_result = ractor::call!(
+        agent,
+        |reply| ChatAgentMsg::ExecuteTool {
             tool_name: "write_file".to_string(),
             tool_args: json!({
                 "path": test_dir.join("multi.txt").to_str().unwrap(),
                 "content": "Multi tool test"
             })
             .to_string(),
-        })
-        .await;
+            reply,
+        }
+    );
     assert!(write_result.unwrap().unwrap().success);
 
     // Execute read tool
-    let read_result = addr
-        .send(ExecuteTool {
+    let read_result = ractor::call!(
+        agent,
+        |reply| ChatAgentMsg::ExecuteTool {
             tool_name: "read_file".to_string(),
             tool_args: json!({
                 "path": test_dir.join("multi.txt").to_str().unwrap()
             })
             .to_string(),
-        })
-        .await;
+            reply,
+        }
+    );
     assert!(read_result.unwrap().unwrap().success);
 
     // Note: Bash tool would fail due to runtime conflict
@@ -989,17 +1062,33 @@ fn test_read_file_tool_parameters_schema() {
     assert!(schema.get("properties").unwrap().get("offset").is_some());
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_agent_get_available_tools() {
-    let event_store = EventStoreActor::new_in_memory().await.unwrap().start();
-    let agent = ChatAgent::new(
-        "test-agent-tools".to_string(),
-        "test-user".to_string(),
-        event_store,
-    );
-    let addr = agent.start();
+    let (event_store, _event_handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::InMemory,
+    )
+    .await
+    .unwrap();
 
-    let tools = addr.send(GetAvailableTools).await.unwrap();
+    let (agent, _agent_handle) = Actor::spawn(
+        None,
+        ChatAgent::new(),
+        ChatAgentArguments {
+            actor_id: "test-agent-tools".to_string(),
+            user_id: "test-user".to_string(),
+            event_store,
+        },
+    )
+    .await
+    .unwrap();
+
+    let tools = ractor::call!(
+        agent,
+        |reply| ChatAgentMsg::GetAvailableTools { reply }
+    )
+    .unwrap();
 
     assert_eq!(tools.len(), 5);
     assert!(tools.contains(&"bash".to_string()));

@@ -2,10 +2,10 @@
 //!
 //! Tests full HTTP request/response cycles for desktop endpoints
 
-use actix::Actor;
 use actix_web::{http::StatusCode, test, web, App};
+use ractor::Actor;
 use sandbox::actor_manager::AppState;
-use sandbox::actors::EventStoreActor;
+use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};
 use sandbox::api;
 use serde_json::json;
 
@@ -22,11 +22,14 @@ macro_rules! setup_test_app {
             let db_path = temp_dir.path().join("test_events.db");
             let db_path_str = db_path.to_str().expect("Invalid database path");
 
-            // Create event store with test database
-            let event_store = EventStoreActor::new(db_path_str)
-                .await
-                .expect("Failed to create event store")
-                .start();
+            // Create event store with test database using ractor
+            let (event_store, _handle) = Actor::spawn(
+                None,
+                EventStoreActor,
+                EventStoreArguments::File(db_path_str.to_string()),
+            )
+            .await
+            .expect("Failed to create event store");
 
             // Create app state
             let app_state = web::Data::new(AppState::new(event_store));

@@ -4,16 +4,16 @@
 //! Tests cover connection, message streaming, ping/pong, error handling, and
 //! concurrent connections.
 
-use actix::Actor;
 use actix_http::ws::{Frame, ProtocolError};
 use actix_web::{web, App, Error};
 use futures::{SinkExt, StreamExt};
+use ractor::Actor;
 use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::time::timeout;
 
 use sandbox::actor_manager::AppState;
-use sandbox::actors::event_store::EventStoreActor;
+use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};
 use sandbox::api;
 
 /// Generate a unique test actor ID
@@ -79,15 +79,18 @@ async fn send_json(
 
 #[actix_web::test]
 async fn test_websocket_connection_with_query_param() {
-    // Create event store for this test
+    // Create event store for this test using ractor
     let temp_dir = tempfile::tempdir().expect("Failed to create temp directory");
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
 
-    let event_store = EventStoreActor::new(db_path_str)
-        .await
-        .expect("Failed to create event store")
-        .start();
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
 
     let app_state = web::Data::new(AppState::new(event_store));
 
@@ -123,10 +126,13 @@ async fn test_websocket_connection_with_path_param() {
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
 
-    let event_store = EventStoreActor::new(db_path_str)
-        .await
-        .expect("Failed to create event store")
-        .start();
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
 
     let app_state = web::Data::new(AppState::new(event_store));
 
@@ -159,10 +165,13 @@ async fn test_websocket_connection_default_user() {
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
 
-    let event_store = EventStoreActor::new(db_path_str)
-        .await
-        .expect("Failed to create event store")
-        .start();
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
 
     let app_state = web::Data::new(AppState::new(event_store));
 
@@ -194,10 +203,13 @@ async fn test_websocket_ping_pong() {
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
 
-    let event_store = EventStoreActor::new(db_path_str)
-        .await
-        .expect("Failed to create event store")
-        .start();
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
 
     let app_state = web::Data::new(AppState::new(event_store));
 
@@ -234,10 +246,13 @@ async fn test_websocket_error_handling_invalid_json() {
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
 
-    let event_store = EventStoreActor::new(db_path_str)
-        .await
-        .expect("Failed to create event store")
-        .start();
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
 
     let app_state = web::Data::new(AppState::new(event_store));
 
@@ -279,10 +294,13 @@ async fn test_websocket_model_switch_success() {
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
 
-    let event_store = EventStoreActor::new(db_path_str)
-        .await
-        .expect("Failed to create event store")
-        .start();
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
 
     let app_state = web::Data::new(AppState::new(event_store));
 
@@ -329,10 +347,13 @@ async fn test_websocket_model_switch_another_valid() {
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
 
-    let event_store = EventStoreActor::new(db_path_str)
-        .await
-        .expect("Failed to create event store")
-        .start();
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
 
     let app_state = web::Data::new(AppState::new(event_store));
 
@@ -378,10 +399,13 @@ async fn test_websocket_concurrent_connections() {
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
 
-    let event_store = EventStoreActor::new(db_path_str)
-        .await
-        .expect("Failed to create event store")
-        .start();
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
 
     let app_state = web::Data::new(AppState::new(event_store));
 
@@ -438,10 +462,13 @@ async fn test_websocket_connection_isolation() {
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
 
-    let event_store = EventStoreActor::new(db_path_str)
-        .await
-        .expect("Failed to create event store")
-        .start();
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
 
     let app_state = web::Data::new(AppState::new(event_store));
 
@@ -485,10 +512,13 @@ async fn test_websocket_multiple_pings() {
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
 
-    let event_store = EventStoreActor::new(db_path_str)
-        .await
-        .expect("Failed to create event store")
-        .start();
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
 
     let app_state = web::Data::new(AppState::new(event_store));
 
@@ -529,10 +559,13 @@ async fn test_websocket_unknown_message_type() {
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
 
-    let event_store = EventStoreActor::new(db_path_str)
-        .await
-        .expect("Failed to create event store")
-        .start();
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
 
     let app_state = web::Data::new(AppState::new(event_store));
 
@@ -575,10 +608,13 @@ async fn test_websocket_large_actor_id() {
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
 
-    let event_store = EventStoreActor::new(db_path_str)
-        .await
-        .expect("Failed to create event store")
-        .start();
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
 
     let app_state = web::Data::new(AppState::new(event_store));
 
@@ -611,10 +647,13 @@ async fn test_websocket_empty_message_handling() {
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
 
-    let event_store = EventStoreActor::new(db_path_str)
-        .await
-        .expect("Failed to create event store")
-        .start();
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
 
     let app_state = web::Data::new(AppState::new(event_store));
 
@@ -664,10 +703,13 @@ async fn test_websocket_close_connection() {
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
 
-    let event_store = EventStoreActor::new(db_path_str)
-        .await
-        .expect("Failed to create event store")
-        .start();
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
 
     let app_state = web::Data::new(AppState::new(event_store));
 
@@ -721,10 +763,13 @@ async fn test_websocket_protocol_version_required() {
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
 
-    let event_store = EventStoreActor::new(db_path_str)
-        .await
-        .expect("Failed to create event store")
-        .start();
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
 
     let app_state = web::Data::new(AppState::new(event_store));
 
@@ -756,10 +801,13 @@ async fn test_websocket_special_chars_in_actor_id() {
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
 
-    let event_store = EventStoreActor::new(db_path_str)
-        .await
-        .expect("Failed to create event store")
-        .start();
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
 
     let app_state = web::Data::new(AppState::new(event_store));
 
@@ -794,10 +842,13 @@ async fn test_websocket_rapid_connect_disconnect() {
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
 
-    let event_store = EventStoreActor::new(db_path_str)
-        .await
-        .expect("Failed to create event store")
-        .start();
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
 
     let app_state = web::Data::new(AppState::new(event_store));
 

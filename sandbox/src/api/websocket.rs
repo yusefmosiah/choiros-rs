@@ -8,8 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::actor_manager::AppState;
-use crate::actors::desktop::GetDesktopState;
+use crate::actor_manager::{AppState, DesktopActorMsg};
 use futures_util::stream::StreamExt;
 
 /// Shared state for WebSocket sessions
@@ -107,10 +106,13 @@ pub async fn ws_handler(
                             // Get or create the desktop actor
                             let desktop_actor = app_state_clone
                                 .actor_manager
-                                .get_or_create_desktop(desktop_id.clone(), "anonymous".to_string());
+                                .get_or_create_desktop(desktop_id.clone(), "anonymous".to_string()).await;
 
-                            // Get current desktop state and send it
-                            match desktop_actor.send(GetDesktopState).await {
+                            // Get current desktop state and send it using ractor
+                            match ractor::call!(
+                                desktop_actor,
+                                |reply| DesktopActorMsg::GetDesktopState { reply }
+                            ) {
                                 Ok(desktop) => {
                                     let state_msg = WsMessage::DesktopState { desktop };
                                     if let Ok(json) = serde_json::to_string(&state_msg) {

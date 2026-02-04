@@ -9,14 +9,13 @@ use actix_web_actors::ws;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::actor_manager::AppState;
-use crate::actors::chat_agent::{ChatAgent, ProcessMessage};
+use crate::actor_manager::{AppState, ChatAgentMsg};
 
 /// WebSocket actor for chat sessions with streaming responses
 pub struct ChatWebSocket {
     actor_id: String,
     user_id: String,
-    chat_agent: Option<actix::Addr<ChatAgent>>,
+    chat_agent: Option<ractor::ActorRef<ChatAgentMsg>>,
     app_state: web::Data<AppState>,
 }
 
@@ -30,19 +29,8 @@ impl ChatWebSocket {
         }
     }
 
-    /// Initialize the chat agent
+    /// Initialize the chat agent (synchronous version - agent fetched on-demand)
     fn init_agent(&mut self, ctx: &mut ws::WebsocketContext<Self>) {
-        let actor_id = self.actor_id.clone();
-        let user_id = self.user_id.clone();
-
-        // Get or create ChatAgent via the ActorManager
-        let agent_addr = self
-            .app_state
-            .actor_manager
-            .get_or_create_chat_agent(actor_id.clone(), user_id.clone());
-
-        self.chat_agent = Some(agent_addr);
-
         // Send connection confirmation
         ctx.text(
             json!({
@@ -52,6 +40,13 @@ impl ChatWebSocket {
             })
             .to_string(),
         );
+    }
+    
+    /// Get or create the chat agent asynchronously
+    async fn get_chat_agent(&self) -> ractor::ActorRef<ChatAgentMsg> {
+        self.app_state
+            .actor_manager
+            .get_or_create_chat_agent(self.actor_id.clone(), self.user_id.clone()).await
     }
 
     /// Send a stream chunk to the client
@@ -151,112 +146,122 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ChatWebSocket {
             Ok(ws::Message::Text(text)) => {
                 match serde_json::from_str::<ClientMessage>(&text) {
                     Ok(ClientMessage::Message { text: user_text }) => {
-                        if let Some(agent) = self.chat_agent.clone() {
-                            let actor_id = self.actor_id.clone();
+                        let actor_id = self.actor_id.clone();
+                        let app_state = self.app_state.clone();
 
-                            // Send thinking start
-                            self.send_chunk(
-                                StreamChunk {
-                                    chunk_type: "thinking".to_string(),
-                                    content: "Processing your message...".to_string(),
-                                },
-                                ctx,
-                            );
+                        // Send thinking start
+                        self.send_chunk(
+                            StreamChunk {
+                                chunk_type: "thinking".to_string(),
+                                content: "Processing your message...".to_string(),
+                            },
+                            ctx,
+                        );
 
-                            // Process message asynchronously
-                            let fut = agent.send(ProcessMessage { text: user_text });
-
-                            ctx.spawn(
-                                async move {
-                                    match fut.await {
-                                        Ok(Ok(response)) => Some(response),
-                                        Ok(Err(e)) => {
-                                            tracing::error!(
-                                                actor_id = %actor_id,
-                                                error = %e,
-                                                "Message processing failed"
-                                            );
-                                            None
-                                        }
-                                        Err(e) => {
-                                            tracing::error!(
-                                                actor_id = %actor_id,
-                                                error = %e,
-                                                "Actor mailbox error"
-                                            );
-                                            None
-                                        }
+                        // Process message asynchronously - fetch agent and process
+                        ctx.spawn(
+                            async move {
+                                // Get the agent asynchronously
+                                let agent = app_state
+                                    .actor_manager
+                                    .get_or_create_chat_agent(actor_id.clone(), "anonymous".to_string())
+                                    .await;
+                                
+                                // Process the message using ractor
+                                match ractor::call!(
+                                    agent,
+                                    |reply| ChatAgentMsg::ProcessMessage {
+                                        text: user_text,
+                                        reply,
+                                    }
+                                ) {
+                                    Ok(Ok(response)) => Some(response),
+                                    Ok(Err(e)) => {
+                                        tracing::error!(
+                                            actor_id = %actor_id,
+                                            error = %e,
+                                            "Message processing failed"
+                                        );
+                                        None
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            actor_id = %actor_id,
+                                            error = %e,
+                                            "Actor error"
+                                        );
+                                        None
                                     }
                                 }
-                                .into_actor(self)
-                                .map(|response, actor, ctx| {
-                                    if let Some(resp) = response {
-                                        // Send thinking
+                            }
+                            .into_actor(self)
+                            .map(|response, actor, ctx| {
+                                if let Some(resp) = response {
+                                    // Send thinking
+                                    actor.send_chunk(
+                                        StreamChunk {
+                                            chunk_type: "thinking".to_string(),
+                                            content: resp.thinking,
+                                        },
+                                        ctx,
+                                    );
+
+                                    // Send tool calls
+                                    for tool in &resp.tool_calls {
                                         actor.send_chunk(
                                             StreamChunk {
-                                                chunk_type: "thinking".to_string(),
-                                                content: resp.thinking,
-                                            },
-                                            ctx,
-                                        );
-
-                                        // Send tool calls
-                                        for tool in &resp.tool_calls {
-                                            actor.send_chunk(
-                                                StreamChunk {
-                                                    chunk_type: "tool_call".to_string(),
-                                                    content: json!({
-                                                        "tool_name": tool.tool_name,
-                                                        "tool_args": tool.tool_args,
-                                                        "reasoning": tool.reasoning,
-                                                    }).to_string(),
-                                                },
-                                                ctx,
-                                            );
-
-                                            actor.send_chunk(
-                                                StreamChunk {
-                                                    chunk_type: "tool_result".to_string(),
-                                                    content: json!({
-                                                        "tool_name": tool.tool_name,
-                                                        "success": tool.result.success,
-                                                        "output": &tool.result.content[..tool.result.content.len().min(500)],
-                                                    }).to_string(),
-                                                },
-                                                ctx,
-                                            );
-                                        }
-
-                                        // Send final response
-                                        actor.send_chunk(
-                                            StreamChunk {
-                                                chunk_type: "response".to_string(),
+                                                chunk_type: "tool_call".to_string(),
                                                 content: json!({
-                                                    "text": resp.text,
-                                                    "confidence": resp.confidence,
-                                                    "model_used": resp.model_used,
+                                                    "tool_name": tool.tool_name,
+                                                    "tool_args": tool.tool_args,
+                                                    "reasoning": tool.reasoning,
                                                 }).to_string(),
                                             },
                                             ctx,
                                         );
-                                    } else {
+
                                         actor.send_chunk(
                                             StreamChunk {
-                                                chunk_type: "error".to_string(),
-                                                content: "Failed to process message".to_string(),
+                                                chunk_type: "tool_result".to_string(),
+                                                content: json!({
+                                                    "tool_name": tool.tool_name,
+                                                    "success": tool.result.success,
+                                                    "output": &tool.result.content[..tool.result.content.len().min(500)],
+                                                }).to_string(),
                                             },
                                             ctx,
                                         );
                                     }
-                                }),
-                            );
-                        }
+
+                                    // Send final response
+                                    actor.send_chunk(
+                                        StreamChunk {
+                                            chunk_type: "response".to_string(),
+                                            content: json!({
+                                                "text": resp.text,
+                                                "confidence": resp.confidence,
+                                                "model_used": resp.model_used,
+                                            }).to_string(),
+                                        },
+                                        ctx,
+                                    );
+                                } else {
+                                    actor.send_chunk(
+                                        StreamChunk {
+                                            chunk_type: "error".to_string(),
+                                            content: "Failed to process message".to_string(),
+                                        },
+                                        ctx,
+                                    );
+                                }
+                            }),
+                        );
                     }
                     Ok(ClientMessage::Ping) => {
                         ctx.text(json!({"type": "pong"}).to_string());
                     }
                     Ok(ClientMessage::SwitchModel { model }) => {
-                        // Handle model switching
+                        // Handle model switching - would need to send message to agent
                         ctx.text(
                             json!({
                                 "type": "model_switched",

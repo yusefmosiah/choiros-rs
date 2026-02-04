@@ -12,7 +12,9 @@
 //!
 //! # Example
 //!
-//! ```rust
+//! ```rust,ignore
+//! use ractor::cast;
+//!
 //! // Subscribe to a topic
 //! cast!(event_bus, EventBusMsg::Subscribe {
 //!     topic: "worker.complete".to_string(),
@@ -364,12 +366,20 @@ impl EventBusActor {
                     actor_id: event.source.clone(),
                     user_id: "system".to_string(), // TODO: Extract from event
                 };
-                
+
                 // Fire-and-forget persistence (don't block publish on store)
                 let store_ref = store_ref.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = cast!(store_ref, crate::actors::EventStoreMsg::Append(store_event)) {
-                        tracing::warn!("Failed to persist event: {}", e);
+                    match ractor::call!(
+                        store_ref,
+                        |reply| crate::actors::EventStoreMsg::Append {
+                            event: store_event,
+                            reply,
+                        }
+                    ) {
+                        Ok(Err(e)) => tracing::warn!("Failed to persist event: {}", e),
+                        Err(e) => tracing::warn!("Failed to send persist request: {}", e),
+                        _ => {} // Success
                     }
                 });
             } else {
