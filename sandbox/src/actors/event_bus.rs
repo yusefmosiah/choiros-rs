@@ -237,8 +237,8 @@ impl Default for EventBusConfig {
 /// Arguments for spawning EventBusActor
 #[derive(Debug, Clone)]
 pub struct EventBusArguments {
-    /// Reference to EventStoreActor for persistence
-    pub event_store: ActorRef<crate::actors::EventStoreMsg>,
+    /// Reference to EventStoreActor for persistence (optional for testing)
+    pub event_store: Option<ActorRef<crate::actors::EventStoreMsg>>,
 
     /// Configuration
     pub config: EventBusConfig,
@@ -246,8 +246,8 @@ pub struct EventBusArguments {
 
 /// State for EventBusActor
 pub struct EventBusState {
-    /// Reference to EventStoreActor for persistence
-    event_store: ActorRef<crate::actors::EventStoreMsg>,
+    /// Reference to EventStoreActor for persistence (optional for testing)
+    event_store: Option<ActorRef<crate::actors::EventStoreMsg>>,
 
     /// Cache of topic -> subscriber count (for metrics/debugging)
     subscription_stats: HashMap<String, usize>,
@@ -356,21 +356,25 @@ impl EventBusActor {
             && !state.config.no_persist_topics.contains(&event.topic);
 
         if should_persist {
-            // Convert Event to EventStore format and append
-            let store_event = crate::actors::AppendEvent {
-                event_type: event.event_type.to_string(),
-                payload: event.payload.clone(),
-                actor_id: event.source.clone(),
-                user_id: "system".to_string(), // TODO: Extract from event
-            };
-            
-            // Fire-and-forget persistence (don't block publish on store)
-            let store_ref = state.event_store.clone();
-            tokio::spawn(async move {
-                if let Err(e) = cast!(store_ref, crate::actors::EventStoreMsg::Append(store_event)) {
-                    tracing::warn!("Failed to persist event: {}", e);
-                }
-            });
+            if let Some(ref store_ref) = state.event_store {
+                // Convert Event to EventStore format and append
+                let store_event = crate::actors::AppendEvent {
+                    event_type: event.event_type.to_string(),
+                    payload: event.payload.clone(),
+                    actor_id: event.source.clone(),
+                    user_id: "system".to_string(), // TODO: Extract from event
+                };
+                
+                // Fire-and-forget persistence (don't block publish on store)
+                let store_ref = store_ref.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = cast!(store_ref, crate::actors::EventStoreMsg::Append(store_event)) {
+                        tracing::warn!("Failed to persist event: {}", e);
+                    }
+                });
+            } else {
+                tracing::debug!("Event persistence skipped: no event store configured");
+            }
         }
 
         // Broadcast to exact topic subscribers via Process Groups

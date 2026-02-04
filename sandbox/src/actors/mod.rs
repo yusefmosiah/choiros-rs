@@ -2,6 +2,8 @@ pub mod chat;
 pub mod chat_agent;
 pub mod desktop;
 pub mod event_bus;
+#[cfg(test)]
+mod event_bus_test;
 pub mod event_store;
 
 pub use chat::ChatActor;
