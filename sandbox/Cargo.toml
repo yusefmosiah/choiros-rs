@@ -36,6 +36,9 @@ actix-web-actors = "4.3"
 pulldown-cmark = "0.12"
 regex = { workspace = true }
 futures-util = "0.3.31"
+ractor = { version = "0.15", features = ["async-trait"] }
+async-trait = "0.1"
+strum = { version = "0.26", features = ["derive"] }
 
 [dev-dependencies]
 actix-rt = { workspace = true }

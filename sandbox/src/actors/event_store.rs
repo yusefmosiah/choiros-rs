@@ -6,6 +6,25 @@ pub struct EventStoreActor {
     conn: Connection,
 }
 
+// ============================================================================
+// Ractor-compatible message enum (for integration with EventBusActor)
+// ============================================================================
+
+/// Messages for EventStoreActor when used with ractor
+#[derive(Debug, Clone)]
+pub enum EventStoreMsg {
+    Append(AppendEvent),
+    GetEventsForActor {
+        actor_id: String,
+        since_seq: i64,
+    },
+    GetEventBySeq {
+        seq: i64,
+    },
+}
+
+
+
 impl EventStoreActor {
     pub async fn new(database_path: &str) -> Result<Self, libsql::Error> {
         // Ensure parent directory exists for file-based databases
@@ -72,7 +91,7 @@ impl Actor for EventStoreActor {
 // Messages
 // ============================================================================
 
-#[derive(Message)]
+#[derive(Message, Debug, Clone)]
 #[rtype(result = "Result<shared_types::Event, EventStoreError>")]
 pub struct AppendEvent {
     pub event_type: String,
