@@ -167,6 +167,12 @@ pub struct OpenWindowResponse {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UserPreferencesResponse {
+    pub success: bool,
+    pub theme: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct RegisterAppRequest {
     pub id: String,
@@ -260,6 +266,57 @@ pub async fn open_window(
     }
 
     data.window.ok_or_else(|| "Window not returned".to_string())
+}
+
+pub async fn fetch_user_theme_preference(user_id: &str) -> Result<String, String> {
+    let url = format!("{}/user/{}/preferences", api_base(), user_id);
+
+    let response = Request::get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    if !response.ok() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+
+    let data: UserPreferencesResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
+
+    if !data.success {
+        return Err("API returned success=false".to_string());
+    }
+
+    Ok(data.theme)
+}
+
+pub async fn update_user_theme_preference(user_id: &str, theme: &str) -> Result<String, String> {
+    let url = format!("{}/user/{}/preferences", api_base(), user_id);
+    let request = serde_json::json!({ "theme": theme });
+
+    let response = Request::patch(&url)
+        .json(&request)
+        .map_err(|e| format!("Failed to serialize request: {e}"))?
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    if !response.ok() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+
+    let data: UserPreferencesResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
+
+    if !data.success {
+        return Err("API returned success=false".to_string());
+    }
+
+    Ok(data.theme)
 }
 
 pub async fn close_window(desktop_id: &str, window_id: &str) -> Result<(), String> {

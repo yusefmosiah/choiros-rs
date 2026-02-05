@@ -598,3 +598,75 @@ async fn test_desktop_state_persists_events() {
         .collect();
     assert!(app_ids.contains(&"test-chat".to_string()));
 }
+
+#[tokio::test]
+async fn test_get_user_preferences_default_theme() {
+    let (app, _temp_dir) = setup_test_app().await;
+    let user_id = "test-user";
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(&format!("/user/{user_id}/preferences"))
+        .body(Body::empty())
+        .unwrap();
+
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["success"].as_bool().unwrap());
+    assert_eq!(body["theme"], "dark");
+}
+
+#[tokio::test]
+async fn test_update_and_get_user_preferences_theme() {
+    let (app, _temp_dir) = setup_test_app().await;
+    let user_id = "test-user";
+
+    let update_req = json!({
+        "theme": "light"
+    });
+
+    let req = Request::builder()
+        .method("PATCH")
+        .uri(&format!("/user/{user_id}/preferences"))
+        .header("content-type", "application/json")
+        .body(Body::from(update_req.to_string()))
+        .unwrap();
+
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["success"].as_bool().unwrap());
+    assert_eq!(body["theme"], "light");
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(&format!("/user/{user_id}/preferences"))
+        .body(Body::empty())
+        .unwrap();
+
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["success"].as_bool().unwrap());
+    assert_eq!(body["theme"], "light");
+}
+
+#[tokio::test]
+async fn test_update_user_preferences_rejects_invalid_theme() {
+    let (app, _temp_dir) = setup_test_app().await;
+    let user_id = "test-user";
+
+    let update_req = json!({
+        "theme": "solarized"
+    });
+
+    let req = Request::builder()
+        .method("PATCH")
+        .uri(&format!("/user/{user_id}/preferences"))
+        .header("content-type", "application/json")
+        .body(Body::from(update_req.to_string()))
+        .unwrap();
+
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(!body["success"].as_bool().unwrap());
+    assert_eq!(body["error"], "theme must be 'light' or 'dark'");
+}

@@ -12,6 +12,7 @@ use std::sync::Arc;
 use tower::ServiceExt;
 
 use sandbox::actor_manager::AppState;
+use sandbox::actors::event_store::{AppendEvent, EventStoreMsg};
 use sandbox::actors::{EventStoreActor, EventStoreArguments};
 use sandbox::api;
 
@@ -20,7 +21,11 @@ fn test_chat_id() -> String {
     format!("test-chat-{}", uuid::Uuid::new_v4())
 }
 
-async fn setup_test_app() -> (axum::Router, tempfile::TempDir) {
+async fn setup_test_app() -> (
+    axum::Router,
+    tempfile::TempDir,
+    ractor::ActorRef<EventStoreMsg>,
+) {
     let temp_dir = tempfile::tempdir().expect("Failed to create temp directory");
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
@@ -33,7 +38,7 @@ async fn setup_test_app() -> (axum::Router, tempfile::TempDir) {
     .await
     .expect("Failed to create event store");
 
-    let app_state = Arc::new(AppState::new(event_store));
+    let app_state = Arc::new(AppState::new(event_store.clone()));
     let ws_sessions: sandbox::api::websocket::WsSessions =
         Arc::new(tokio::sync::Mutex::new(HashMap::new()));
 
@@ -43,7 +48,7 @@ async fn setup_test_app() -> (axum::Router, tempfile::TempDir) {
     };
 
     let app = api::router().with_state(api_state);
-    (app, temp_dir)
+    (app, temp_dir, event_store)
 }
 
 async fn json_response(app: &axum::Router, req: Request<Body>) -> (StatusCode, Value) {
@@ -61,7 +66,7 @@ async fn json_response(app: &axum::Router, req: Request<Body>) -> (StatusCode, V
 
 #[tokio::test]
 async fn test_send_message_success() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let (app, _temp_dir, _event_store) = setup_test_app().await;
     let chat_id = test_chat_id();
 
     let message_req = json!({
@@ -85,7 +90,7 @@ async fn test_send_message_success() {
 
 #[tokio::test]
 async fn test_send_empty_message_rejected() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let (app, _temp_dir, _event_store) = setup_test_app().await;
     let chat_id = test_chat_id();
 
     let message_req = json!({
@@ -108,7 +113,7 @@ async fn test_send_empty_message_rejected() {
 
 #[tokio::test]
 async fn test_get_messages_empty() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let (app, _temp_dir, _event_store) = setup_test_app().await;
     let chat_id = test_chat_id();
 
     let req = Request::builder()
@@ -126,7 +131,7 @@ async fn test_get_messages_empty() {
 
 #[tokio::test]
 async fn test_send_and_get_messages() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let (app, _temp_dir, _event_store) = setup_test_app().await;
     let chat_id = test_chat_id();
 
     let message_req = json!({
@@ -166,7 +171,7 @@ async fn test_send_and_get_messages() {
 
 #[tokio::test]
 async fn test_send_multiple_messages() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let (app, _temp_dir, _event_store) = setup_test_app().await;
     let chat_id = test_chat_id();
 
     for i in 1..=3 {
@@ -209,7 +214,7 @@ async fn test_send_multiple_messages() {
 
 #[tokio::test]
 async fn test_different_chat_isolation() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let (app, _temp_dir, _event_store) = setup_test_app().await;
     let chat_id1 = test_chat_id();
     let chat_id2 = test_chat_id();
 
@@ -260,4 +265,78 @@ async fn test_different_chat_isolation() {
     let messages = body["messages"].as_array().unwrap();
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0]["text"], "Chat 2 message");
+}
+
+#[tokio::test]
+async fn test_get_messages_includes_tool_events_as_system_messages() {
+    let (app, _temp_dir, event_store) = setup_test_app().await;
+    let chat_id = test_chat_id();
+    let user_id = "test-user";
+
+    let _ = ractor::call!(event_store, |reply| EventStoreMsg::Append {
+        event: AppendEvent {
+            event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
+            payload: json!("Find current weather"),
+            actor_id: chat_id.clone(),
+            user_id: user_id.to_string(),
+        },
+        reply,
+    })
+    .unwrap()
+    .unwrap();
+
+    let _ = ractor::call!(event_store, |reply| EventStoreMsg::Append {
+        event: AppendEvent {
+            event_type: shared_types::EVENT_CHAT_TOOL_CALL.to_string(),
+            payload: json!({
+                "tool_name": "weather",
+                "tool_args": "{\"location\":\"San Francisco, CA\"}",
+                "reasoning": "Need live weather"
+            }),
+            actor_id: chat_id.clone(),
+            user_id: user_id.to_string(),
+        },
+        reply,
+    })
+    .unwrap()
+    .unwrap();
+
+    let _ = ractor::call!(event_store, |reply| EventStoreMsg::Append {
+        event: AppendEvent {
+            event_type: shared_types::EVENT_CHAT_TOOL_RESULT.to_string(),
+            payload: json!({
+                "tool_name": "weather",
+                "success": true,
+                "output": "{\"temp\":\"61F\"}"
+            }),
+            actor_id: chat_id.clone(),
+            user_id: user_id.to_string(),
+        },
+        reply,
+    })
+    .unwrap()
+    .unwrap();
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(&format!("/chat/{chat_id}/messages"))
+        .body(Body::empty())
+        .unwrap();
+
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let messages = body["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 3);
+
+    assert_eq!(messages[1]["sender"], "System");
+    assert!(messages[1]["text"]
+        .as_str()
+        .unwrap_or_default()
+        .starts_with("__tool_call__:"));
+
+    assert_eq!(messages[2]["sender"], "System");
+    assert!(messages[2]["text"]
+        .as_str()
+        .unwrap_or_default()
+        .starts_with("__tool_result__:"));
 }

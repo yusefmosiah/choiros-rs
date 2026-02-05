@@ -14,6 +14,7 @@ use std::sync::Arc;
 pub mod chat;
 pub mod desktop;
 pub mod terminal;
+pub mod user;
 pub mod websocket;
 pub mod websocket_chat;
 
@@ -34,6 +35,11 @@ pub fn router() -> Router<ApiState> {
         // Chat routes
         .route("/chat/send", post(chat::send_message))
         .route("/chat/{actor_id}/messages", get(chat::get_messages))
+        // User preference routes
+        .route(
+            "/user/{user_id}/preferences",
+            get(user::get_user_preferences).patch(user::update_user_preferences),
+        )
         // Desktop routes
         .route("/desktop/{desktop_id}", get(desktop::get_desktop_state))
         .route(

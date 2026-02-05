@@ -103,7 +103,7 @@ def scan_for_secrets(content: str) -> list[tuple[str, str]]:
     return findings
 
 
-def check_file_references(content: str, base_path: str) -> tuple[list[str], list[str]]:
+def check_file_references(content: str, handoff_path: Path) -> tuple[list[str], list[str]]:
     """Check if referenced files exist."""
     # Extract file paths from content (look for common patterns)
     # Pattern 1: | path/to/file | in tables
@@ -129,9 +129,17 @@ def check_file_references(content: str, base_path: str) -> tuple[list[str], list
     existing = []
     missing = []
 
+    handoff_dir = handoff_path.parent
+    docs_dir = handoff_dir.parent
+    repo_root = docs_dir.parent
+
     for filepath in found_files:
-        full_path = Path(base_path) / filepath
-        if full_path.exists():
+        candidates = [
+            handoff_dir / filepath,  # relative to handoff file
+            docs_dir / filepath,     # relative to docs/
+            repo_root / filepath,    # relative to repository root
+        ]
+        if any(candidate.exists() for candidate in candidates):
             existing.append(filepath)
         else:
             missing.append(filepath)
@@ -203,14 +211,12 @@ def validate_handoff(filepath: str) -> dict:
         return {"error": f"File not found: {filepath}"}
 
     content = path.read_text()
-    base_path = path.parent.parent  # Go up from docs/handoffs/
-
     # Run checks
     todos_clear, remaining_todos = check_todos(content)
     required_complete, missing_required = check_required_sections(content)
     missing_recommended = check_recommended_sections(content)
     secrets_found = scan_for_secrets(content)
-    existing_files, missing_files = check_file_references(content, str(base_path))
+    existing_files, missing_files = check_file_references(content, path)
 
     # Calculate score
     score, rating = calculate_quality_score(

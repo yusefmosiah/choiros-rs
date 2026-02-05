@@ -244,6 +244,7 @@ pub const EVENT_CHAT_USER_MSG: &str = "chat.user_msg";
 pub const EVENT_CHAT_ASSISTANT_MSG: &str = "chat.assistant_msg";
 pub const EVENT_CHAT_TOOL_CALL: &str = "chat.tool_call";
 pub const EVENT_CHAT_TOOL_RESULT: &str = "chat.tool_result";
+pub const EVENT_USER_THEME_PREFERENCE: &str = "user.theme_preference";
 pub const EVENT_FILE_WRITE: &str = "file.write";
 pub const EVENT_FILE_EDIT: &str = "file.edit";
 pub const EVENT_ACTOR_SPAWNED: &str = "actor.spawned";

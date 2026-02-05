@@ -9,11 +9,10 @@ use dioxus::prelude::*;
 use shared_types::{AppDefinition, DesktopState, WindowState};
 
 use crate::api::{
-    close_window, fetch_desktop_state, focus_window, move_window, open_window, register_app,
-    resize_window, send_chat_message,
+    close_window, fetch_desktop_state, fetch_user_theme_preference, focus_window, move_window,
+    open_window, register_app, resize_window, send_chat_message, update_user_theme_preference,
 };
-use crate::components::ChatView;
-use crate::terminal::TerminalView;
+use crate::desktop_window::FloatingWindow;
 
 // ============================================================================
 // Desktop Component - Main Container
@@ -28,12 +27,65 @@ pub fn Desktop(desktop_id: String) -> Element {
     let desktop_id_signal = use_signal(|| desktop_id.clone());
     let mut viewport = use_signal(|| (1920u32, 1080u32));
     let mut apps_registered = use_signal(|| false);
+    let mut theme_initialized = use_signal(|| false);
+    let mut current_theme = use_signal(|| "dark".to_string());
 
     // Track viewport size for responsive behavior
     use_effect(move || {
         spawn(async move {
             if let Ok((w, h)) = get_viewport_size().await {
                 viewport.set((w, h));
+            }
+        });
+    });
+
+    // Initialize theme from cache first, then backend user-global preference.
+    use_effect(move || {
+        if theme_initialized() {
+            return;
+        }
+        theme_initialized.set(true);
+
+        if let Some(theme) = get_cached_theme_preference() {
+            apply_theme_to_document(&theme);
+            current_theme.set(theme);
+        }
+
+        spawn(async move {
+            let user_id = "user-1";
+            match fetch_user_theme_preference(user_id).await {
+                Ok(theme) => {
+                    set_cached_theme_preference(&theme);
+                    apply_theme_to_document(&theme);
+                    current_theme.set(theme);
+                }
+                Err(e) => {
+                    dioxus_logger::tracing::warn!(
+                        "Failed to fetch backend theme preference, using cache/default: {}",
+                        e
+                    );
+                    if get_cached_theme_preference().is_none() {
+                        apply_theme_to_document("dark");
+                        current_theme.set("dark".to_string());
+                    }
+                }
+            }
+        });
+    });
+
+    let toggle_theme = use_callback(move |_| {
+        let next_theme = if current_theme() == "light" {
+            "dark".to_string()
+        } else {
+            "light".to_string()
+        };
+        current_theme.set(next_theme.clone());
+        apply_theme_to_document(&next_theme);
+        set_cached_theme_preference(&next_theme);
+
+        spawn(async move {
+            if let Err(e) = update_user_theme_preference("user-1", &next_theme).await {
+                dioxus_logger::tracing::warn!("Failed to persist theme preference: {}", e);
             }
         });
     });
@@ -307,6 +359,8 @@ pub fn Desktop(desktop_id: String) -> Element {
                         active_window: state.active_window.clone(),
                         on_submit: handle_prompt_submit,
                         on_focus_window: focus_window_cb,
+                        current_theme: current_theme(),
+                        on_toggle_theme: toggle_theme,
                     }
                 } else {
                     PromptBar {
@@ -315,6 +369,8 @@ pub fn Desktop(desktop_id: String) -> Element {
                         active_window: None,
                         on_submit: handle_prompt_submit,
                         on_focus_window: focus_window_cb,
+                        current_theme: current_theme(),
+                        on_toggle_theme: toggle_theme,
                     }
                 }
             }
@@ -426,116 +482,6 @@ fn DesktopIcon(
 }
 
 // ============================================================================
-// Floating Window - Draggable, resizable window chrome
-// ============================================================================
-
-#[component]
-fn FloatingWindow(
-    window: WindowState,
-    is_active: bool,
-    viewport: (u32, u32),
-    on_close: Callback<String>,
-    on_focus: Callback<String>,
-    on_move: Callback<(String, i32, i32)>,
-    on_resize: Callback<(String, i32, i32)>,
-) -> Element {
-    let window_id = window.id.clone();
-    let (vw, vh) = viewport;
-    let is_mobile = vw <= 1024;
-
-    // Responsive sizing - no dock offset needed anymore
-    let (width, height, x, y) = if is_mobile {
-        // Mobile: Full screen with small margin
-        (vw as i32 - 20, vh as i32 - 100, 10i32, 10i32)
-    } else {
-        // Desktop: Use window state, clamp to viewport (no dock offset)
-        let w = window.width.min(vw as i32 - 40);
-        let h = window.height.min(vh as i32 - 120);
-        let x = window.x.max(10).min(vw as i32 - w - 10);
-        let y = window.y.max(10).min(vh as i32 - h - 60);
-        (w, h, x, y)
-    };
-
-    let z_index = window.z_index;
-    let window_id_for_focus = window_id.clone();
-    let window_id_for_drag = window_id.clone();
-    let window_id_for_close = window_id.clone();
-    let window_id_for_resize = window_id.clone();
-    let on_move_drag = on_move;
-
-    rsx! {
-        div {
-            class: if is_active { "floating-window active" } else { "floating-window" },
-            style: "position: absolute; left: {x}px; top: {y}px; width: {width}px; height: {height}px; z-index: {z_index}; display: flex; flex-direction: column; background: var(--window-bg, #1f2937); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-lg, 12px); overflow: hidden; box-shadow: var(--shadow-lg, 0 10px 40px rgba(0,0,0,0.5));",
-            onclick: move |_| on_focus.call(window_id_for_focus.clone()),
-
-            // Title bar (draggable)
-            div {
-                class: "window-titlebar",
-                style: "display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: var(--titlebar-bg, #111827); border-bottom: 1px solid var(--border-color, #374151); cursor: grab; user-select: none;",
-                onmousedown: move |e| {
-                    if !is_mobile {
-                        start_drag(e, window_id_for_drag.clone(), on_move_drag);
-                    }
-                },
-
-                div {
-                    style: "display: flex; align-items: center; gap: 0.5rem;",
-                    span { style: "font-size: 1rem;", {get_app_icon(&window.app_id)} }
-                    span { style: "font-weight: 500; color: var(--text-primary, white);", "{window.title}" }
-                }
-
-                button {
-                    class: "window-close",
-                    style: "width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--text-secondary, #9ca3af); border: none; border-radius: var(--radius-sm, 4px); cursor: pointer; font-size: 1.25rem; line-height: 1;",
-                    onclick: move |e| {
-                        e.stop_propagation();
-                        on_close.call(window_id_for_close.clone());
-                    },
-                    "×"
-                }
-            }
-
-            // Window content
-            div {
-                class: "window-content",
-                style: "flex: 1; overflow: hidden;",
-
-                match window.app_id.as_str() {
-                    "chat" => rsx! {
-                        ChatView { actor_id: window.id.clone() }
-                    },
-                    "terminal" => rsx! {
-                        TerminalView {
-                            terminal_id: window.id.clone(),
-                            width: width,
-                            height: height,
-                        }
-                    },
-                    _ => rsx! {
-                        div {
-                            style: "display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-muted, #6b7280); padding: 1rem;",
-                            "App not yet implemented"
-                        }
-                    }
-                }
-            }
-
-            // Resize handle (desktop only)
-            if !is_mobile {
-                div {
-                    class: "resize-handle",
-                    style: "position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: se-resize;",
-                    onmousedown: move |e| {
-                        start_resize(e, window_id_for_resize.clone(), on_resize);
-                    },
-                }
-            }
-        }
-    }
-}
-
-// ============================================================================
 // Prompt Bar - Command input with running app indicators
 // ============================================================================
 
@@ -546,6 +492,8 @@ fn PromptBar(
     active_window: Option<String>,
     on_submit: Callback<String>,
     on_focus_window: Callback<String>,
+    current_theme: String,
+    on_toggle_theme: Callback<()>,
 ) -> Element {
     let mut input_value = use_signal(String::new);
 
@@ -562,6 +510,18 @@ fn PromptBar(
                     // TODO: Show command palette
                 },
                 "?"
+            }
+
+            button {
+                class: "prompt-theme-btn",
+                style: "width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--window-bg, #1f2937); color: var(--text-secondary, #9ca3af); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); cursor: pointer; flex-shrink: 0;",
+                onclick: move |_| on_toggle_theme.call(()),
+                title: "Toggle theme",
+                if current_theme == "dark" {
+                    "☀️"
+                } else {
+                    "🌙"
+                }
             }
 
             // Input field
@@ -709,6 +669,58 @@ const DEFAULT_TOKENS: &str = r#"
     --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.5);
 }
 
+:root[data-theme="dark"] {
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --accent-bg: #3b82f6;
+    --accent-bg-hover: #2563eb;
+    --accent-text: #ffffff;
+    --border-color: #334155;
+    --window-bg: var(--bg-secondary);
+    --titlebar-bg: var(--bg-primary);
+    --dock-bg: rgba(30, 41, 59, 0.8);
+    --promptbar-bg: var(--bg-primary);
+    --input-bg: var(--bg-secondary);
+    --hover-bg: rgba(255, 255, 255, 0.1);
+    --danger-bg: #ef4444;
+    --danger-text: #ef4444;
+    --success-bg: #10b981;
+    --warning-bg: #f59e0b;
+    --chat-bg: var(--bg-primary);
+    --chat-header-bg: var(--bg-secondary);
+    --user-bubble-bg: var(--accent-bg);
+    --assistant-bubble-bg: var(--bg-secondary);
+}
+
+:root[data-theme="light"] {
+    --bg-primary: #f8fafc;
+    --bg-secondary: #ffffff;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+    --accent-bg: #2563eb;
+    --accent-bg-hover: #1d4ed8;
+    --accent-text: #ffffff;
+    --border-color: #cbd5e1;
+    --window-bg: var(--bg-secondary);
+    --titlebar-bg: #e2e8f0;
+    --dock-bg: rgba(255, 255, 255, 0.9);
+    --promptbar-bg: #e2e8f0;
+    --input-bg: #ffffff;
+    --hover-bg: rgba(15, 23, 42, 0.08);
+    --danger-bg: #dc2626;
+    --danger-text: #b91c1c;
+    --success-bg: #059669;
+    --warning-bg: #d97706;
+    --chat-bg: #f1f5f9;
+    --chat-header-bg: #e2e8f0;
+    --user-bubble-bg: var(--accent-bg);
+    --assistant-bubble-bg: #ffffff;
+}
+
 * {
     box-sizing: border-box;
 }
@@ -772,6 +784,35 @@ fn get_app_icon(app_id: &str) -> &'static str {
     }
 }
 
+fn apply_theme_to_document(theme: &str) {
+    if !matches!(theme, "light" | "dark") {
+        return;
+    }
+    if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+        if let Some(root) = document.document_element() {
+            let _ = root.set_attribute("data-theme", theme);
+        }
+    }
+}
+
+fn get_cached_theme_preference() -> Option<String> {
+    web_sys::window()
+        .and_then(|window| window.local_storage().ok().flatten())
+        .and_then(|storage| storage.get_item("theme-preference").ok().flatten())
+        .filter(|theme| matches!(theme.as_str(), "light" | "dark"))
+}
+
+fn set_cached_theme_preference(theme: &str) {
+    if !matches!(theme, "light" | "dark") {
+        return;
+    }
+    if let Some(storage) =
+        web_sys::window().and_then(|window| window.local_storage().ok().flatten())
+    {
+        let _ = storage.set_item("theme-preference", theme);
+    }
+}
+
 fn handle_ws_event(
     event: WsEvent,
     desktop_state: &mut Signal<Option<DesktopState>>,
@@ -823,18 +864,6 @@ fn handle_ws_event(
             }
         }
     }
-}
-
-// Drag and resize helpers (WASM interop)
-fn start_drag(e: Event<MouseData>, window_id: String, on_move: Callback<(String, i32, i32)>) {
-    // TODO: Implement drag via JS interop
-    // This would capture mouse movement and call on_move with new coordinates
-    let _ = (e, window_id, on_move);
-}
-
-fn start_resize(e: Event<MouseData>, window_id: String, on_resize: Callback<(String, i32, i32)>) {
-    // TODO: Implement resize via JS interop
-    let _ = (e, window_id, on_resize);
 }
 
 async fn get_viewport_size() -> Result<(u32, u32), String> {
