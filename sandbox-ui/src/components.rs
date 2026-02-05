@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use gloo_timers::future::TimeoutFuture;
 use shared_types::{ChatMessage, Sender};
+use std::collections::VecDeque;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::prelude::*;
 use web_sys::{CloseEvent, ErrorEvent, Event, MessageEvent, WebSocket};
@@ -10,6 +11,20 @@ use crate::api::{fetch_messages, send_chat_message};
 
 const TOOL_CALL_PREFIX: &str = "__tool_call__:";
 const TOOL_RESULT_PREFIX: &str = "__tool_result__:";
+const ASSISTANT_BUNDLE_PREFIX: &str = "__assistant_bundle__:";
+
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct ToolEntry {
+    kind: String,
+    payload: serde_json::Value,
+}
+
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct AssistantBundle {
+    text: String,
+    thinking: Vec<String>,
+    tools: Vec<ToolEntry>,
+}
 
 struct ChatRuntime {
     ws: WebSocket,
@@ -36,7 +51,7 @@ pub fn ChatView(actor_id: String) -> Element {
         spawn(async move {
             match fetch_messages(&actor_id).await {
                 Ok(msgs) => {
-                    messages.set(msgs);
+                    messages.set(collapse_tool_messages(msgs));
                 }
                 Err(e) => {
                     dioxus_logger::tracing::error!("Failed to fetch messages: {}", e);
@@ -88,33 +103,35 @@ pub fn ChatView(actor_id: String) -> Element {
                     ws_connected_message.set(true);
                 }
                 "thinking" => {
-                    loading_message.set(true);
+                    let content = json.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                    let mut list = messages_message.write();
+                    update_or_create_pending_assistant_bundle(&mut list, |bundle| {
+                        if !content.trim().is_empty() {
+                            bundle.thinking.push(content.to_string());
+                        }
+                    });
                 }
                 "tool_call" => {
                     let content = json.get("content").and_then(|v| v.as_str()).unwrap_or("");
-                    let text = format!("{TOOL_CALL_PREFIX}{content}");
-                    if !text.is_empty() {
+                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(content) {
                         let mut list = messages_message.write();
-                        list.push(ChatMessage {
-                            id: format!("tool-call-{}", chrono::Utc::now().timestamp_millis()),
-                            text,
-                            sender: Sender::System,
-                            timestamp: chrono::Utc::now(),
-                            pending: false,
+                        update_or_create_pending_assistant_bundle(&mut list, |bundle| {
+                            bundle.tools.push(ToolEntry {
+                                kind: "call".to_string(),
+                                payload,
+                            });
                         });
                     }
                 }
                 "tool_result" => {
                     let content = json.get("content").and_then(|v| v.as_str()).unwrap_or("");
-                    let text = format!("{TOOL_RESULT_PREFIX}{content}");
-                    if !text.is_empty() {
+                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(content) {
                         let mut list = messages_message.write();
-                        list.push(ChatMessage {
-                            id: format!("tool-result-{}", chrono::Utc::now().timestamp_millis()),
-                            text,
-                            sender: Sender::System,
-                            timestamp: chrono::Utc::now(),
-                            pending: false,
+                        update_or_create_pending_assistant_bundle(&mut list, |bundle| {
+                            bundle.tools.push(ToolEntry {
+                                kind: "result".to_string(),
+                                payload,
+                            });
                         });
                     }
                 }
@@ -124,13 +141,10 @@ pub fn ChatView(actor_id: String) -> Element {
 
                     let mut list = messages_message.write();
                     clear_pending_user_message(&mut list);
-                    list.push(ChatMessage {
-                        id: format!("assistant-{}", chrono::Utc::now().timestamp_millis()),
-                        text: response_text,
-                        sender: Sender::Assistant,
-                        timestamp: chrono::Utc::now(),
-                        pending: false,
+                    update_or_create_pending_assistant_bundle(&mut list, |bundle| {
+                        bundle.text = response_text;
                     });
+                    mark_last_pending_assistant_complete(&mut list);
                     loading_message.set(false);
                 }
                 "error" => {
@@ -142,13 +156,20 @@ pub fn ChatView(actor_id: String) -> Element {
 
                     let mut list = messages_message.write();
                     clear_pending_user_message(&mut list);
-                    list.push(ChatMessage {
-                        id: format!("error-{}", chrono::Utc::now().timestamp_millis()),
-                        text: message.to_string(),
-                        sender: Sender::Assistant,
-                        timestamp: chrono::Utc::now(),
-                        pending: false,
-                    });
+                    if has_pending_assistant_bundle(&list) {
+                        update_or_create_pending_assistant_bundle(&mut list, |bundle| {
+                            bundle.text = message.to_string();
+                        });
+                        mark_last_pending_assistant_complete(&mut list);
+                    } else {
+                        list.push(ChatMessage {
+                            id: format!("error-{}", chrono::Utc::now().timestamp_millis()),
+                            text: message.to_string(),
+                            sender: Sender::Assistant,
+                            timestamp: chrono::Utc::now(),
+                            pending: false,
+                        });
+                    }
                     loading_message.set(false);
                 }
                 _ => {}
@@ -221,6 +242,8 @@ pub fn ChatView(actor_id: String) -> Element {
         };
 
         if ws_sent {
+            // WebSocket path streams per-chunk updates; avoid duplicate global typing row.
+            loading.set(false);
             return;
         }
 
@@ -228,7 +251,7 @@ pub fn ChatView(actor_id: String) -> Element {
             match send_chat_message(&actor_id_val, &user_id_val, &text).await {
                 Ok(_) => {
                     match fetch_messages(&actor_id_val).await {
-                        Ok(msgs) => messages.set(msgs),
+                        Ok(msgs) => messages.set(collapse_tool_messages(msgs)),
                         Err(e) => {
                             dioxus_logger::tracing::error!("Failed to refresh messages: {}", e)
                         }
@@ -237,10 +260,13 @@ pub fn ChatView(actor_id: String) -> Element {
                     for _ in 0..6 {
                         TimeoutFuture::new(500).await;
                         if let Ok(msgs) = fetch_messages(&actor_id_val).await {
-                            let has_new_assistant = msgs.len() > initial_count
-                                && msgs.iter().any(|m| matches!(m.sender, Sender::Assistant));
+                            let normalized = collapse_tool_messages(msgs);
+                            let has_new_assistant = normalized.len() > initial_count
+                                && normalized
+                                    .iter()
+                                    .any(|m| matches!(m.sender, Sender::Assistant));
                             if has_new_assistant {
-                                messages.set(msgs);
+                                messages.set(normalized);
                                 break;
                             }
                         }
@@ -405,10 +431,21 @@ pub fn MessageBubble(message: ChatMessage) -> Element {
                 }
 
                 // Message bubble
-                if let Some(payload) = parse_tool_payload(&message.text, TOOL_CALL_PREFIX) {
-                    ToolCallSection { payload: payload.clone() }
+                if let Some(bundle) = parse_assistant_bundle(&message.text) {
+                    AssistantMessageWithTools {
+                        bundle,
+                        pending: message.pending
+                    }
+                } else if let Some(payload) = parse_tool_payload(&message.text, TOOL_CALL_PREFIX) {
+                    ToolCallSection {
+                        payload: payload.clone(),
+                        force_open: false
+                    }
                 } else if let Some(payload) = parse_tool_payload(&message.text, TOOL_RESULT_PREFIX) {
-                    ToolResultSection { payload: payload.clone() }
+                    ToolResultSection {
+                        payload: payload.clone(),
+                        force_open: false
+                    }
                 } else {
                     div {
                         class: if is_user {
@@ -470,6 +507,78 @@ fn parse_tool_payload(text: &str, prefix: &str) -> Option<serde_json::Value> {
     serde_json::from_str::<serde_json::Value>(payload).ok()
 }
 
+fn parse_assistant_bundle(text: &str) -> Option<AssistantBundle> {
+    let payload = text.strip_prefix(ASSISTANT_BUNDLE_PREFIX)?;
+    serde_json::from_str::<AssistantBundle>(payload).ok()
+}
+
+fn encode_assistant_bundle_text(response_text: &str, tools: Vec<ToolEntry>) -> String {
+    if tools.is_empty() {
+        return response_text.to_string();
+    }
+    let bundle = AssistantBundle {
+        text: response_text.to_string(),
+        thinking: Vec::new(),
+        tools,
+    };
+    match serde_json::to_string(&bundle) {
+        Ok(payload) => format!("{ASSISTANT_BUNDLE_PREFIX}{payload}"),
+        Err(_) => response_text.to_string(),
+    }
+}
+
+fn collapse_tool_messages(messages: Vec<ChatMessage>) -> Vec<ChatMessage> {
+    let mut out = Vec::with_capacity(messages.len());
+    let mut pending_tools: VecDeque<ToolEntry> = VecDeque::new();
+
+    for msg in messages {
+        if matches!(msg.sender, Sender::System) {
+            if let Some(payload) = parse_tool_payload(&msg.text, TOOL_CALL_PREFIX) {
+                pending_tools.push_back(ToolEntry {
+                    kind: "call".to_string(),
+                    payload,
+                });
+                continue;
+            }
+            if let Some(payload) = parse_tool_payload(&msg.text, TOOL_RESULT_PREFIX) {
+                pending_tools.push_back(ToolEntry {
+                    kind: "result".to_string(),
+                    payload,
+                });
+                continue;
+            }
+        }
+
+        if matches!(msg.sender, Sender::Assistant) && !pending_tools.is_empty() {
+            let tools = pending_tools.drain(..).collect::<Vec<_>>();
+            let bundled_text = encode_assistant_bundle_text(&msg.text, tools);
+            out.push(ChatMessage {
+                text: bundled_text,
+                ..msg
+            });
+            continue;
+        }
+
+        while let Some(tool) = pending_tools.pop_front() {
+            let prefix = if tool.kind == "call" {
+                TOOL_CALL_PREFIX
+            } else {
+                TOOL_RESULT_PREFIX
+            };
+            out.push(ChatMessage {
+                id: format!("legacy-tool-{}", chrono::Utc::now().timestamp_millis()),
+                text: format!("{prefix}{}", tool.payload),
+                sender: Sender::System,
+                timestamp: chrono::Utc::now(),
+                pending: false,
+            });
+        }
+        out.push(msg);
+    }
+
+    out
+}
+
 fn format_tool_args(raw: &str) -> String {
     match serde_json::from_str::<serde_json::Value>(raw) {
         Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_else(|_| raw.to_string()),
@@ -478,7 +587,142 @@ fn format_tool_args(raw: &str) -> String {
 }
 
 #[component]
-fn ToolCallSection(payload: serde_json::Value) -> Element {
+fn AssistantMessageWithTools(bundle: AssistantBundle, pending: bool) -> Element {
+    let latest_thinking = bundle.thinking.last().cloned().unwrap_or_default();
+    let mut tool_activity_open = use_signal(|| false);
+    let mut expand_all = use_signal(|| false);
+    rsx! {
+        if !latest_thinking.is_empty() && pending {
+            p {
+                class: "tool-meta",
+                "Thinking: {latest_thinking}"
+            }
+        }
+        if !bundle.tools.is_empty() {
+            div {
+                class: "tool-details",
+                div {
+                    class: "tool-activity-header",
+                    button {
+                        class: "tool-activity-toggle",
+                        onclick: move |_| tool_activity_open.set(!tool_activity_open()),
+                        if tool_activity_open() {
+                            "▼ Tool activity ({bundle.tools.len()})"
+                        } else {
+                            "▶ Tool activity ({bundle.tools.len()})"
+                        }
+                    }
+                    button {
+                        class: "tool-action-button",
+                        onclick: move |_| {
+                            let next = !expand_all();
+                            expand_all.set(next);
+                            if next {
+                                // "Expand all" should be a single-click reveal of everything.
+                                tool_activity_open.set(true);
+                            }
+                        },
+                        if expand_all() {
+                            "Collapse all"
+                        } else {
+                            "Expand all"
+                        }
+                    }
+                }
+                if tool_activity_open() {
+                    div {
+                        class: "tool-body",
+                        for tool in bundle.tools {
+                            if tool.kind == "call" {
+                                ToolCallSection {
+                                    payload: tool.payload.clone(),
+                                    force_open: expand_all()
+                                }
+                            } else {
+                                ToolResultSection {
+                                    payload: tool.payload.clone(),
+                                    force_open: expand_all()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if !bundle.text.is_empty() {
+            div {
+                class: "message-bubble assistant-bubble",
+                "{bundle.text}"
+            }
+        } else if pending {
+            div {
+                class: "typing-indicator",
+                span {}
+                span {}
+                span {}
+            }
+        }
+    }
+}
+
+fn has_pending_assistant_bundle(messages: &[ChatMessage]) -> bool {
+    messages.last().is_some_and(|msg| {
+        msg.pending
+            && matches!(msg.sender, Sender::Assistant)
+            && parse_assistant_bundle(&msg.text).is_some()
+    })
+}
+
+fn update_or_create_pending_assistant_bundle<F>(messages: &mut Vec<ChatMessage>, f: F)
+where
+    F: FnOnce(&mut AssistantBundle),
+{
+    if has_pending_assistant_bundle(messages) {
+        if let Some(last) = messages.last_mut() {
+            let mut bundle =
+                parse_assistant_bundle(&last.text).unwrap_or_else(empty_assistant_bundle);
+            f(&mut bundle);
+            last.text = encode_assistant_bundle(bundle);
+        }
+        return;
+    }
+
+    let mut bundle = empty_assistant_bundle();
+    f(&mut bundle);
+    messages.push(ChatMessage {
+        id: format!("assistant-stream-{}", chrono::Utc::now().timestamp_millis()),
+        text: encode_assistant_bundle(bundle),
+        sender: Sender::Assistant,
+        timestamp: chrono::Utc::now(),
+        pending: true,
+    });
+}
+
+fn mark_last_pending_assistant_complete(messages: &mut [ChatMessage]) {
+    if let Some(last) = messages.last_mut() {
+        if last.pending && matches!(last.sender, Sender::Assistant) {
+            last.pending = false;
+        }
+    }
+}
+
+fn empty_assistant_bundle() -> AssistantBundle {
+    AssistantBundle {
+        text: String::new(),
+        thinking: Vec::new(),
+        tools: Vec::new(),
+    }
+}
+
+fn encode_assistant_bundle(bundle: AssistantBundle) -> String {
+    match serde_json::to_string(&bundle) {
+        Ok(payload) => format!("{ASSISTANT_BUNDLE_PREFIX}{payload}"),
+        Err(_) => String::new(),
+    }
+}
+
+#[component]
+fn ToolCallSection(payload: serde_json::Value, force_open: bool) -> Element {
     let tool_name = payload
         .get("tool_name")
         .and_then(|v| v.as_str())
@@ -496,6 +740,7 @@ fn ToolCallSection(payload: serde_json::Value) -> Element {
     rsx! {
         details {
             class: "tool-details",
+            open: force_open,
             summary {
                 class: "tool-summary",
                 "Tool call: {tool_name}"
@@ -513,7 +758,7 @@ fn ToolCallSection(payload: serde_json::Value) -> Element {
 }
 
 #[component]
-fn ToolResultSection(payload: serde_json::Value) -> Element {
+fn ToolResultSection(payload: serde_json::Value, force_open: bool) -> Element {
     let tool_name = payload
         .get("tool_name")
         .and_then(|v| v.as_str())
@@ -540,6 +785,7 @@ fn ToolResultSection(payload: serde_json::Value) -> Element {
     rsx! {
         details {
             class: "tool-details",
+            open: force_open,
             summary {
                 class: "tool-summary",
                 "Tool result: {tool_name} ({status})"
@@ -833,6 +1079,37 @@ const CHAT_STYLES: &str = r#"
     cursor: pointer;
     color: #93c5fd;
     font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.tool-activity-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.tool-activity-toggle {
+    background: transparent;
+    color: #93c5fd;
+    border: none;
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 0;
+}
+
+.tool-action-button {
+    background: #1f2937;
+    color: #cbd5e1;
+    border: 1px solid #475569;
+    border-radius: 0.4rem;
+    font-size: 0.75rem;
+    padding: 0.1rem 0.45rem;
+    cursor: pointer;
 }
 
 .tool-body {
