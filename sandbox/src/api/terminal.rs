@@ -10,7 +10,7 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
-use crate::actor_manager::{ActorManager, AppState};
+use crate::actor_manager::AppState;
 use crate::actors::terminal::{TerminalArguments, TerminalMsg};
 
 /// WebSocket message types for terminal communication
@@ -131,6 +131,17 @@ pub async fn terminal_websocket(
                 return;
             }
         };
+
+        // Send buffered output to new client (best-effort)
+        if let Ok(buffer) = ractor::call!(terminal_actor, |reply| TerminalMsg::GetOutput { reply })
+        {
+            for data in buffer {
+                let output_msg = TerminalWsMessage::Output { data };
+                let _ = session
+                    .text(serde_json::to_string(&output_msg).unwrap_or_default())
+                    .await;
+            }
+        }
 
         // Get terminal info
         let info = match ractor::call!(

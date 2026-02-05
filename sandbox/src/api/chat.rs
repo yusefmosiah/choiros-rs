@@ -55,7 +55,6 @@ pub async fn send_message(
             let actor_id_for_event = actor_id.clone();
             let user_id_for_event = user_id.clone();
             let text_for_event = text.clone();
-            let temp_id_for_event = temp_id.clone();
             
             // Spawn async task to persist the event (fire-and-forget)
             tokio::spawn(async move {

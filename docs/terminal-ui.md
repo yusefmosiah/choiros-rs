@@ -72,8 +72,12 @@ The bridge holds a map of terminal handles to xterm instances.
 Use the xterm `FitAddon` to size to container.
 
 ## Assets
-- `sandbox-ui/assets/terminal.js`
-- `sandbox-ui/assets/xterm.css`
+- `sandbox-ui/public/terminal.js`
+- `sandbox-ui/public/xterm.js` (xterm.js 5.3.0)
+- `sandbox-ui/public/xterm-addon-fit.js` (fit addon 0.8.0)
+- `sandbox-ui/public/xterm.css`
+
+`sandbox-ui/dioxus.toml` sets `asset_dir = "public"` so `dx serve` serves these at `/`.
 
 Include CSS in Dioxus via a `link` tag in the top-level app or in `TerminalView`:
 `<link rel="stylesheet" href="/assets/xterm.css">`
@@ -89,10 +93,25 @@ Include CSS in Dioxus via a `link` tag in the top-level app or in `TerminalView`
 - Optional backend improvement: on connect, call `TerminalMsg::GetOutput` and send
   buffered output before streaming live output.
 
-## Phase Plan
-1. Add JS bridge and xterm assets.
-2. Implement `TerminalView` and wire it into `desktop.rs`.
-3. Add WS glue and resize handling.
-4. Add reconnect + simple status UI.
-5. Optional backend replay on connect.
+## Implementation Status (2026-02-05)
+- JS bridge added in `sandbox-ui/assets/terminal.js` using xterm.js + fit addon.
+- `TerminalView` implemented in `sandbox-ui/src/terminal.rs`.
+- `TerminalView` wired into `sandbox-ui/src/desktop.rs` for app id `terminal`.
+- `xterm.css` linked in the desktop root.
 
+Open work:
+- Consider improving reconnect UX (surface countdown, manual retry button).
+
+## Phase Plan
+1. Add JS bridge and xterm assets. (done)
+2. Implement `TerminalView` and wire it into `desktop.rs`. (done)
+3. Add WS glue and resize handling. (done)
+4. Add reconnect + simple status UI. (done)
+5. Optional backend replay on connect. (done)
+
+## E2E Smoke Script
+Run from repo root after `just dev-sandbox` + `just dev-ui`:
+
+```bash
+scripts/e2e_terminal.sh http://localhost:3000 tests/screenshots/terminal-e2e.png
+```

@@ -9,10 +9,11 @@ use dioxus::prelude::*;
 use shared_types::{AppDefinition, DesktopState, WindowState};
 
 use crate::api::{
-    close_window, fetch_desktop_state, focus_window, move_window, open_window, resize_window,
-    send_chat_message,
+    close_window, fetch_desktop_state, focus_window, move_window, open_window, register_app,
+    resize_window, send_chat_message,
 };
 use crate::components::ChatView;
+use crate::terminal::TerminalView;
 
 // ============================================================================
 // Desktop Component - Main Container
@@ -26,6 +27,7 @@ pub fn Desktop(desktop_id: String) -> Element {
     let mut ws_connected = use_signal(|| false);
     let desktop_id_signal = use_signal(|| desktop_id.clone());
     let mut viewport = use_signal(|| (1920u32, 1080u32));
+    let mut apps_registered = use_signal(|| false);
 
     // Track viewport size for responsive behavior
     use_effect(move || {
@@ -223,9 +225,36 @@ pub fn Desktop(desktop_id: String) -> Element {
         },
     ];
 
+    // Register core apps in backend (best-effort)
+    {
+        let desktop_id = desktop_id_signal.to_string();
+        let apps = core_apps.clone();
+        use_effect(move || {
+            if apps_registered() {
+                return;
+            }
+            apps_registered.set(true);
+            let desktop_id_inner = desktop_id.clone();
+            let apps_inner = apps.clone();
+            spawn(async move {
+                for app in apps_inner {
+                    let _ = register_app(&desktop_id_inner, &app).await;
+                }
+            });
+        });
+    }
+
     rsx! {
             // Global CSS variables for theming
             style { {DEFAULT_TOKENS} }
+
+            link {
+                rel: "stylesheet",
+                href: "/xterm.css",
+            }
+            script { src: "/xterm.js" }
+            script { src: "/xterm-addon-fit.js" }
+            script { src: "/terminal.js" }
 
             div {
                 class: "desktop-shell",
@@ -480,6 +509,13 @@ fn FloatingWindow(
                 match window.app_id.as_str() {
                     "chat" => rsx! {
                         ChatView { actor_id: window.id.clone() }
+                    },
+                    "terminal" => rsx! {
+                        TerminalView {
+                            terminal_id: window.id.clone(),
+                            width: width,
+                            height: height,
+                        }
                     },
                     _ => rsx! {
                         div {
