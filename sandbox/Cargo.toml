@@ -12,11 +12,10 @@ name = "sandbox"
 path = "src/main.rs"
 
 [dependencies]
-actix = { workspace = true }
-actix-web = { workspace = true }
-actix-rt = { workspace = true }
-actix-ws = { workspace = true }
-actix-cors = "0.7"
+axum = { version = "0.8.8", features = ["ws"] }
+hyper = "1"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -31,7 +30,6 @@ thiserror = { workspace = true }
 shared-types = { path = "../shared-types" }
 dashmap = "5.5"
 walkdir = "2.5"
-actix-web-actors = "4.3"
 
 pulldown-cmark = "0.12"
 regex = { workspace = true }
@@ -44,11 +42,8 @@ tokio-util = { version = "0.7", features = ["codec"] }
 bytes = "1.5"
 
 [dev-dependencies]
-actix-rt = { workspace = true }
+http-body-util = "0.1"
 tempfile = "3.8"
-actix-web = { workspace = true }
-actix-http = "3.9"
-actix-service = "2"
 futures = { workspace = true }
-actix-test = "0.1"
+tokio-tungstenite = "0.23"
 reqwest = { version = "0.12", features = ["blocking"] }

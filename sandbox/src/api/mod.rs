@@ -3,8 +3,13 @@
 //! PREDICTION: RESTful endpoints can bridge the actor system to the UI,
 //! providing stateless HTTP access to the event-sourced backend.
 
-use actix_web::{web, HttpResponse};
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum::routing::{delete, get, patch, post};
+use axum::{Json, Router};
 use serde_json::json;
+use std::sync::Arc;
 
 pub mod chat;
 pub mod desktop;
@@ -12,45 +17,86 @@ pub mod terminal;
 pub mod websocket;
 pub mod websocket_chat;
 
+use crate::actor_manager::AppState;
+use crate::api::websocket::WsSessions;
+
+#[derive(Clone)]
+pub struct ApiState {
+    pub app_state: Arc<AppState>,
+    pub ws_sessions: WsSessions,
+}
+
 /// Configure all API routes
-pub fn config(cfg: &mut web::ServiceConfig) {
-    cfg.service(chat::send_message)
-        .service(chat::get_messages)
+pub fn router() -> Router<ApiState> {
+    Router::new()
+        .route("/health", get(health_check))
+        .route("/ws", get(websocket::ws_handler))
+        // Chat routes
+        .route("/chat/send", post(chat::send_message))
+        .route("/chat/{actor_id}/messages", get(chat::get_messages))
         // Desktop routes
-        .service(desktop::get_desktop_state)
-        .service(desktop::get_windows)
-        .service(desktop::open_window)
-        .service(desktop::close_window)
-        .service(desktop::move_window)
-        .service(desktop::resize_window)
-        .service(desktop::focus_window)
-        .service(desktop::get_apps)
-        .service(desktop::register_app)
+        .route("/desktop/{desktop_id}", get(desktop::get_desktop_state))
+        .route(
+            "/desktop/{desktop_id}/windows",
+            get(desktop::get_windows).post(desktop::open_window),
+        )
+        .route(
+            "/desktop/{desktop_id}/windows/{window_id}",
+            delete(desktop::close_window),
+        )
+        .route(
+            "/desktop/{desktop_id}/windows/{window_id}/position",
+            patch(desktop::move_window),
+        )
+        .route(
+            "/desktop/{desktop_id}/windows/{window_id}/size",
+            patch(desktop::resize_window),
+        )
+        .route(
+            "/desktop/{desktop_id}/windows/{window_id}/focus",
+            post(desktop::focus_window),
+        )
+        .route(
+            "/desktop/{desktop_id}/apps",
+            get(desktop::get_apps).post(desktop::register_app),
+        )
         // Terminal routes
-        .service(terminal::create_terminal)
-        .service(terminal::get_terminal_info)
-        .service(terminal::stop_terminal)
+        .route(
+            "/api/terminals/{terminal_id}",
+            get(terminal::create_terminal),
+        )
+        .route(
+            "/api/terminals/{terminal_id}/info",
+            get(terminal::get_terminal_info),
+        )
+        .route(
+            "/api/terminals/{terminal_id}/stop",
+            get(terminal::stop_terminal),
+        )
         // Terminal WebSocket route
         .route(
             "/ws/terminal/{terminal_id}",
-            web::get().to(terminal::terminal_websocket),
+            get(terminal::terminal_websocket),
         )
         // Chat agent WebSocket routes
         .route(
             "/ws/chat/{actor_id}",
-            web::get().to(websocket_chat::chat_websocket),
+            get(websocket_chat::chat_websocket),
         )
         .route(
             "/ws/chat/{actor_id}/{user_id}",
-            web::get().to(websocket_chat::chat_websocket_with_user),
-        );
+            get(websocket_chat::chat_websocket_with_user),
+        )
 }
 
 /// Health check endpoint
-pub async fn health_check() -> HttpResponse {
-    HttpResponse::Ok().json(json!({
+pub async fn health_check(State(_state): State<ApiState>) -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        Json(json!({
         "status": "healthy",
         "service": "choiros-sandbox",
         "version": "0.1.0"
-    }))
+        })),
+    )
 }

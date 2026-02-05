@@ -4,13 +4,16 @@ mod api;
 mod baml_client;
 mod tools;
 
-use actix_cors::Cors;
-use actix_web::{http::header, web, App, HttpServer};
+use axum::http::{header, HeaderValue, Method};
 use actor_manager::AppState;
 use actors::event_store::{AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg};
 use ractor::Actor;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::net::TcpListener;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
-#[actix_web::main]
+#[tokio::main]
 async fn main() -> std::io::Result<()> {
     // Initialize logging
     tracing_subscriber::fmt::init();
@@ -59,39 +62,49 @@ async fn main() -> std::io::Result<()> {
     }
 
     // Create app state with actor manager
-    let app_state = web::Data::new(AppState::new(event_store.clone()));
+    let app_state = Arc::new(AppState::new(event_store.clone()));
 
     // Create WebSocket sessions state
-    let ws_sessions = web::Data::new(api::websocket::WsSessions::default());
+    let ws_sessions: api::websocket::WsSessions =
+        Arc::new(tokio::sync::Mutex::new(HashMap::new()));
 
     tracing::info!("Starting HTTP server on http://0.0.0.0:8080");
 
-    // Start HTTP server with CORS
-    HttpServer::new(move || {
-        // Configure CORS to allow known UI origins
-        let cors = Cors::default()
-            .allowed_origin("http://13.218.213.227")
-            .allowed_origin("http://choir.chat")
-            .allowed_origin("https://choir.chat")
-            .allowed_origin("http://localhost:3000")
-            .allowed_origin("http://127.0.0.1:3000")
-            .allowed_methods(vec!["GET", "POST", "DELETE", "PATCH", "OPTIONS"])
-            .allowed_headers(vec![
-                header::CONTENT_TYPE,
-                header::ACCEPT,
-                header::AUTHORIZATION,
-            ])
-            .max_age(3600);
+    // Configure CORS to allow known UI origins
+    let allowed_origins = [
+        "http://13.218.213.227",
+        "http://choir.chat",
+        "https://choir.chat",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+    .iter()
+    .map(|origin| HeaderValue::from_str(origin).expect("Invalid CORS origin"))
+    .collect::<Vec<_>>();
 
-        App::new()
-            .wrap(cors)
-            .app_data(app_state.clone())
-            .app_data(ws_sessions.clone())
-            .route("/health", web::get().to(api::health_check))
-            .route("/ws", web::get().to(api::websocket::ws_handler))
-            .configure(api::config)
-    })
-    .bind("0.0.0.0:8080")?
-    .run()
-    .await
+    let cors = CorsLayer::new()
+        .allow_origin(AllowOrigin::list(allowed_origins))
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::DELETE,
+            Method::PATCH,
+            Method::OPTIONS,
+        ])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::ACCEPT,
+            header::AUTHORIZATION,
+        ])
+        .max_age(std::time::Duration::from_secs(3600));
+
+    let api_state = api::ApiState {
+        app_state,
+        ws_sessions,
+    };
+
+    let app = api::router().with_state(api_state).layer(cors);
+
+    let listener = TcpListener::bind("0.0.0.0:8080").await?;
+    axum::serve(listener, app).await
 }

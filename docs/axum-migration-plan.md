@@ -1,11 +1,14 @@
 # Actix-Web -> Axum/Tower Migration Plan (ChoirOS Sandbox)
 
 Date: 2026-02-04
+Status: Completed (2026-02-05)
+
+Note: The Actix inventory below is historical context.
 
 ## Goal
 Replace `actix-web` (and related Actix web stack crates) with `axum` + `tower` in the Sandbox HTTP/WebSocket server, while keeping the existing actor system (ractor) and API behavior intact. This plan focuses on the current code footprint and concrete changes required.
 
-## Current Actix Usage (Inventory)
+## Previous Actix Usage (Historical Inventory)
 
 Primary server:
 - `sandbox/src/main.rs` — `HttpServer`, `App`, `web::Data`, `actix-cors`, routes `/health`, `/ws`, and `api::config`.
@@ -24,10 +27,10 @@ Tests:
 
 Dependencies:
 - `sandbox/Cargo.toml` uses `actix`, `actix-web`, `actix-rt`, `actix-ws`, `actix-cors`, `actix-web-actors`, and dev deps `actix-http`, `actix-service`, `actix-test`.
-- `hypervisor/Cargo.toml` lists Actix deps but `hypervisor/src/main.rs` is a placeholder.
+- `hypervisor/Cargo.toml` previously listed Actix deps but `hypervisor/src/main.rs` is a placeholder.
 
 Documentation references:
-- `README.md`, `docs/ARCHITECTURE_SPECIFICATION.md`, `docs/TESTING_STRATEGY.md`, and other docs mention Actix as the backend stack.
+- `README.md`, `docs/ARCHITECTURE_SPECIFICATION.md`, `docs/TESTING_STRATEGY.md`, and other docs referenced Actix as the backend stack.
 
 ## Key Behavior to Preserve
 - REST endpoints and JSON payloads:

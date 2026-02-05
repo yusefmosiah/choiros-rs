@@ -17,11 +17,6 @@ license = "MIT"
 [workspace.dependencies]
 # Async runtime
 tokio = { version = "1.40", features = ["full", "tracing"] }
-actix = "0.13"
-actix-rt = "2.10"
-actix-web = "4.9"
-actix-cors = "0.7"
-actix-ws = "0.2"
 futures = "0.3"
 async-trait = "0.1"
 
@@ -50,7 +45,6 @@ anyhow = "1.0"
 # Logging/Tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-actix-web = "0.7"
 
 # Configuration
 config = "0.14"

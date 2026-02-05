@@ -9,7 +9,7 @@
 ## Executive Summary
 
 ChoirOS requires a multi-layered testing strategy that accounts for its unique architecture:
-- **Backend:** Rust + Actix Web + SQLite (libsql) with Event Sourcing
+- **Backend:** Rust + Axum + SQLite (libsql) with Event Sourcing
 - **Frontend:** Dioxus (WASM) + Rust compiled to WebAssembly
 - **Architecture:** Actor-based state management (DesktopActor, ChatActor)
 - **Communication:** HTTP REST API with CORS
@@ -51,14 +51,14 @@ This strategy combines patterns from multiple testing methodologies while stayin
 - DesktopActor (7 tests)
 
 **Patterns Used:**
-- Actix test framework (`#[actix::test]`)
+- Tokio test runtime (`#[tokio::test]`)
 - In-memory SQLite for isolation
 - Event projection testing
 - Optimistic update testing
 
 **Example Pattern (ChatActor):**
 ```rust
-#[actix::test]
+#[tokio::test]
 async fn test_send_message_creates_pending() {
     let chat = ChatActor::new(
         "chat-1".to_string(),
@@ -150,8 +150,8 @@ mod tests {
 **Goal:** Test full HTTP request/response cycles with real database
 
 **Approach:**
-- Use Actix Web's test framework
-- Spin up full server with test database
+- Use Axum router + `tower::ServiceExt::oneshot`
+- Spin up full router with test database
 - Test HTTP endpoints end-to-end
 - Clean database between tests
 
@@ -159,52 +159,44 @@ mod tests {
 
 ```rust
 // tests/api_integration_tests.rs
-use actix_web::{test, App};
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
+use ractor::Actor;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tower::ServiceExt;
+
+use sandbox::actor_manager::AppState;
+use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};
 use sandbox::api;
 
-#[actix::test]
+#[tokio::test]
 async fn test_desktop_api_end_to_end() {
-    // Setup test database
-    let db_path = "/tmp/test_choiros.db";
-    let event_store = EventStoreActor::new(db_path).await.unwrap().start();
-    let app_state = AppState::new(event_store);
+    let temp_dir = tempfile::tempdir().expect("temp dir");
+    let db_path = temp_dir.path().join("test_events.db");
+    let db_path_str = db_path.to_str().expect("db path");
 
-    // Create test app
-    let app = test::init_service(
-        App::new()
-            .app_data(web::Data::new(app_state))
-            .configure(api::config)
-    ).await;
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("event store");
 
-    // Test 1: Get desktop state (empty)
-    let req = test::TestRequest::get()
+    let app_state = Arc::new(AppState::new(event_store));
+    let ws_sessions = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+    let api_state = api::ApiState { app_state, ws_sessions };
+    let app = api::router().with_state(api_state);
+
+    let req = Request::builder()
+        .method("GET")
         .uri("/desktop/test-desktop")
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert!(resp.status().is_success());
+        .body(Body::empty())
+        .unwrap();
 
-    let body: serde_json::Value = test::read_body_json(resp).await;
-    assert!(body["success"].as_bool().unwrap());
-    assert!(body["desktop"]["windows"].as_array().unwrap().is_empty());
-
-    // Test 2: Open window
-    let req = test::TestRequest::post()
-        .uri("/desktop/test-desktop/windows")
-        .set_json(&json!({"app_id": "chat", "title": "Test Chat"}))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert!(resp.status().is_success());
-
-    // Test 3: Verify window created
-    let req = test::TestRequest::get()
-        .uri("/desktop/test-desktop")
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    let body: serde_json::Value = test::read_body_json(resp).await;
-    assert_eq!(body["desktop"]["windows"].as_array().unwrap().len(), 1);
-
-    // Cleanup
-    std::fs::remove_file(db_path).ok();
+    let resp = app.oneshot(req).await.expect("request");
+    assert_eq!(resp.status(), StatusCode::OK);
 }
 ```
 
@@ -789,7 +781,7 @@ async def test_desktop_accessibility(page):
 ## Resources
 
 ### Tools
-- **Backend:** Built-in Rust testing + Actix test utils
+- **Backend:** Built-in Rust testing + Axum/Tower helpers
 - **Frontend:** agent-browser skill (Playwright-based)
 - **API Testing:** curl, HTTPie, or Playwright
 - **Coverage:** cargo-tarpaulin (Rust), upcoming Dioxus coverage
@@ -803,7 +795,7 @@ async def test_desktop_accessibility(page):
 ### References
 - Patterns from: webapp-testing, e2e-testing-patterns, javascript-testing-patterns, frontend-testing skills
 - Rust testing: https://doc.rust-lang.org/book/ch11-00-testing.html
-- Actix testing: https://actix.rs/docs/testing/
+- Axum testing: https://docs.rs/axum/latest/axum/#testing
 - agent-browser: (installed globally via npm)
 
 ---

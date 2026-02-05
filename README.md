@@ -7,7 +7,7 @@
 ## Current Status (2026-02-01)
 
 **✅ Working:**
-- **Agent Choir** - Multi-agent system with Actix actors
+- **Agent Choir** - Multi-agent system with ractor actors
 - EventStoreActor with libsql/SQLite backend
 - ChatActor with message persistence
 - HTTP API for agent communication
@@ -90,7 +90,7 @@ On the production server, the database path is hardcoded to `/opt/choiros/data/e
 | Component | Technology |
 |-----------|-----------|
 | Frontend | Dioxus 0.7 (WASM) |
-| Backend | Actix Web + Actix Actors |
+| Backend | Axum + Ractor |
 | Database | SQLite via libsql 0.9 |
 | Serialization | serde + serde_json |
 | IDs | ULID |

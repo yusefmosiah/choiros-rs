@@ -2,93 +2,100 @@
 //!
 //! Tests full HTTP request/response cycles for desktop endpoints
 
-use actix_web::{http::StatusCode, test, web, App};
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
+use http_body_util::BodyExt;
 use ractor::Actor;
+use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tower::ServiceExt;
+
 use sandbox::actor_manager::AppState;
 use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};
 use sandbox::api;
-use serde_json::json;
-
-/// Macro to set up a test app with isolated database
-///
-/// This macro avoids type erasure issues by expanding the setup code inline.
-/// Usage: let (app, _temp_dir) = setup_test_app!().await;
-#[macro_export]
-macro_rules! setup_test_app {
-    () => {{
-        async {
-            // Create temp directory for isolated test database
-            let temp_dir = tempfile::tempdir().expect("Failed to create temp directory");
-            let db_path = temp_dir.path().join("test_events.db");
-            let db_path_str = db_path.to_str().expect("Invalid database path");
-
-            // Create event store with test database using ractor
-            let (event_store, _handle) = Actor::spawn(
-                None,
-                EventStoreActor,
-                EventStoreArguments::File(db_path_str.to_string()),
-            )
-            .await
-            .expect("Failed to create event store");
-
-            // Create app state
-            let app_state = web::Data::new(AppState::new(event_store));
-
-            // Create app with all routes
-            let app = test::init_service(
-                App::new()
-                    .app_data(app_state.clone())
-                    .route("/health", web::get().to(api::health_check))
-                    .configure(api::config),
-            )
-            .await;
-
-            (app, temp_dir)
-        }
-    }};
-}
 
 /// Generate a unique test desktop ID
 fn test_desktop_id() -> String {
     format!("test-desktop-{}", uuid::Uuid::new_v4())
 }
 
-#[actix_web::test]
+async fn setup_test_app() -> (axum::Router, tempfile::TempDir) {
+    let temp_dir = tempfile::tempdir().expect("Failed to create temp directory");
+    let db_path = temp_dir.path().join("test_events.db");
+    let db_path_str = db_path.to_str().expect("Invalid database path");
+
+    let (event_store, _handle) = Actor::spawn(
+        None,
+        EventStoreActor,
+        EventStoreArguments::File(db_path_str.to_string()),
+    )
+    .await
+    .expect("Failed to create event store");
+
+    let app_state = Arc::new(AppState::new(event_store));
+    let ws_sessions: sandbox::api::websocket::WsSessions =
+        Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+    let api_state = api::ApiState {
+        app_state,
+        ws_sessions,
+    };
+
+    let app = api::router().with_state(api_state);
+    (app, temp_dir)
+}
+
+async fn json_response(app: &axum::Router, req: Request<Body>) -> (StatusCode, Value) {
+    let response = app.clone().oneshot(req).await.expect("Request failed");
+    let status = response.status();
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Failed to read body")
+        .to_bytes();
+    let value: Value = serde_json::from_slice(&body).expect("Invalid JSON response");
+    (status, value)
+}
+
+#[tokio::test]
 async fn test_health_check() {
-    let (app, _temp_dir) = setup_test_app!().await;
+    let (app, _temp_dir) = setup_test_app().await;
 
-    let req = test::TestRequest::get().uri("/health").to_request();
+    let req = Request::builder()
+        .method("GET")
+        .uri("/health")
+        .body(Body::empty())
+        .unwrap();
 
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body: serde_json::Value = test::read_body_json(resp).await;
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
     assert_eq!(body["status"], "healthy");
     assert_eq!(body["service"], "choiros-sandbox");
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn test_get_desktop_state_empty() {
-    let (app, _temp_dir) = setup_test_app!().await;
+    let (app, _temp_dir) = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
-    let req = test::TestRequest::get()
+    let req = Request::builder()
+        .method("GET")
         .uri(&format!("/desktop/{desktop_id}"))
-        .to_request();
+        .body(Body::empty())
+        .unwrap();
 
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body: serde_json::Value = test::read_body_json(resp).await;
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
     assert!(body["success"].as_bool().unwrap());
     assert!(body["desktop"].is_object());
     assert!(body["desktop"]["windows"].is_array());
     assert!(body["desktop"]["apps"].is_array());
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn test_register_app() {
-    let (app, _temp_dir) = setup_test_app!().await;
+    let (app, _temp_dir) = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
@@ -100,24 +107,23 @@ async fn test_register_app() {
         "default_height": 600
     });
 
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/apps"))
-        .set_json(&app_def)
-        .to_request();
+        .header("content-type", "application/json")
+        .body(Body::from(app_def.to_string()))
+        .unwrap();
 
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body: serde_json::Value = test::read_body_json(resp).await;
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
     assert!(body["success"].as_bool().unwrap());
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn test_open_window_success() {
-    let (app, _temp_dir) = setup_test_app!().await;
+    let (app, _temp_dir) = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
-    // First register an app
     let app_def = json!({
         "id": "test-chat",
         "name": "Test Chat",
@@ -127,85 +133,83 @@ async fn test_open_window_success() {
         "default_height": 600
     });
 
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/apps"))
-        .set_json(&app_def)
-        .to_request();
+        .header("content-type", "application/json")
+        .body(Body::from(app_def.to_string()))
+        .unwrap();
 
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::OK);
+    let (_status, _body) = json_response(&app, req).await;
 
-    // Now open a window
     let open_req = json!({
         "app_id": "test-chat",
         "title": "Chat Window",
         "props": null
     });
 
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/windows"))
-        .set_json(&open_req)
-        .to_request();
+        .header("content-type", "application/json")
+        .body(Body::from(open_req.to_string()))
+        .unwrap();
 
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body: serde_json::Value = test::read_body_json(resp).await;
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
     assert!(body["success"].as_bool().unwrap());
     assert!(body["window"].is_object());
     assert_eq!(body["window"]["title"], "Chat Window");
     assert_eq!(body["window"]["app_id"], "test-chat");
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn test_open_window_unknown_app_fails() {
-    let (app, _temp_dir) = setup_test_app!().await;
+    let (app, _temp_dir) = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
-    // Try to open window for unregistered app
     let open_req = json!({
         "app_id": "unknown-app",
         "title": "Test Window",
         "props": null
     });
 
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/windows"))
-        .set_json(&open_req)
-        .to_request();
+        .header("content-type", "application/json")
+        .body(Body::from(open_req.to_string()))
+        .unwrap();
 
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-
-    let body: serde_json::Value = test::read_body_json(resp).await;
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(!body["success"].as_bool().unwrap());
     assert!(body["error"].as_str().unwrap().contains("not found"));
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn test_get_windows_empty() {
-    let (app, _temp_dir) = setup_test_app!().await;
+    let (app, _temp_dir) = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
-    let req = test::TestRequest::get()
+    let req = Request::builder()
+        .method("GET")
         .uri(&format!("/desktop/{desktop_id}/windows"))
-        .to_request();
+        .body(Body::empty())
+        .unwrap();
 
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body: serde_json::Value = test::read_body_json(resp).await;
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
     assert!(body["success"].as_bool().unwrap());
     let windows = body["windows"].as_array().unwrap();
     assert!(windows.is_empty());
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn test_get_windows_after_open() {
-    let (app, _temp_dir) = setup_test_app!().await;
+    let (app, _temp_dir) = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
-    // Setup: register app and open window
     let app_def = json!({
         "id": "test-chat",
         "name": "Test Chat",
@@ -215,11 +219,13 @@ async fn test_get_windows_after_open() {
         "default_height": 600
     });
 
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/apps"))
-        .set_json(&app_def)
-        .to_request();
-    test::call_service(&app, req).await;
+        .header("content-type", "application/json")
+        .body(Body::from(app_def.to_string()))
+        .unwrap();
+    let _ = json_response(&app, req).await;
 
     let open_req = json!({
         "app_id": "test-chat",
@@ -227,34 +233,33 @@ async fn test_get_windows_after_open() {
         "props": null
     });
 
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/windows"))
-        .set_json(&open_req)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    let body: serde_json::Value = test::read_body_json(resp).await;
+        .header("content-type", "application/json")
+        .body(Body::from(open_req.to_string()))
+        .unwrap();
+    let (_status, body) = json_response(&app, req).await;
     let window_id = body["window"]["id"].as_str().unwrap();
 
-    // Test: get windows
-    let req = test::TestRequest::get()
+    let req = Request::builder()
+        .method("GET")
         .uri(&format!("/desktop/{desktop_id}/windows"))
-        .to_request();
+        .body(Body::empty())
+        .unwrap();
 
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body: serde_json::Value = test::read_body_json(resp).await;
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
     let windows = body["windows"].as_array().unwrap();
     assert_eq!(windows.len(), 1);
     assert_eq!(windows[0]["id"], window_id);
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn test_close_window() {
-    let (app, _temp_dir) = setup_test_app!().await;
+    let (app, _temp_dir) = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
-    // Setup: register app and open window
     let app_def = json!({
         "id": "test-chat",
         "name": "Test Chat",
@@ -264,11 +269,13 @@ async fn test_close_window() {
         "default_height": 600
     });
 
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/apps"))
-        .set_json(&app_def)
-        .to_request();
-    test::call_service(&app, req).await;
+        .header("content-type", "application/json")
+        .body(Body::from(app_def.to_string()))
+        .unwrap();
+    let _ = json_response(&app, req).await;
 
     let open_req = json!({
         "app_id": "test-chat",
@@ -276,41 +283,40 @@ async fn test_close_window() {
         "props": null
     });
 
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/windows"))
-        .set_json(&open_req)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    let body: serde_json::Value = test::read_body_json(resp).await;
+        .header("content-type", "application/json")
+        .body(Body::from(open_req.to_string()))
+        .unwrap();
+    let (_status, body) = json_response(&app, req).await;
     let window_id = body["window"]["id"].as_str().unwrap();
 
-    // Test: close window
-    let req = test::TestRequest::delete()
+    let req = Request::builder()
+        .method("DELETE")
         .uri(&format!("/desktop/{desktop_id}/windows/{window_id}"))
-        .to_request();
+        .body(Body::empty())
+        .unwrap();
 
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body: serde_json::Value = test::read_body_json(resp).await;
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
     assert!(body["success"].as_bool().unwrap());
 
-    // Verify window is gone
-    let req = test::TestRequest::get()
+    let req = Request::builder()
+        .method("GET")
         .uri(&format!("/desktop/{desktop_id}/windows"))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    let body: serde_json::Value = test::read_body_json(resp).await;
+        .body(Body::empty())
+        .unwrap();
+    let (_status, body) = json_response(&app, req).await;
     let windows = body["windows"].as_array().unwrap();
     assert!(windows.is_empty());
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn test_move_window() {
-    let (app, _temp_dir) = setup_test_app!().await;
+    let (app, _temp_dir) = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
-    // Setup: register app and open window
     let app_def = json!({
         "id": "test-chat",
         "name": "Test Chat",
@@ -320,11 +326,13 @@ async fn test_move_window() {
         "default_height": 600
     });
 
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/apps"))
-        .set_json(&app_def)
-        .to_request();
-    test::call_service(&app, req).await;
+        .header("content-type", "application/json")
+        .body(Body::from(app_def.to_string()))
+        .unwrap();
+    let _ = json_response(&app, req).await;
 
     let open_req = json!({
         "app_id": "test-chat",
@@ -332,40 +340,39 @@ async fn test_move_window() {
         "props": null
     });
 
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/windows"))
-        .set_json(&open_req)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    let body: serde_json::Value = test::read_body_json(resp).await;
+        .header("content-type", "application/json")
+        .body(Body::from(open_req.to_string()))
+        .unwrap();
+    let (_status, body) = json_response(&app, req).await;
     let window_id = body["window"]["id"].as_str().unwrap();
 
-    // Test: move window
     let move_req = json!({
         "x": 200,
         "y": 150
     });
 
-    let req = test::TestRequest::patch()
+    let req = Request::builder()
+        .method("PATCH")
         .uri(&format!(
             "/desktop/{desktop_id}/windows/{window_id}/position"
         ))
-        .set_json(&move_req)
-        .to_request();
+        .header("content-type", "application/json")
+        .body(Body::from(move_req.to_string()))
+        .unwrap();
 
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body: serde_json::Value = test::read_body_json(resp).await;
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
     assert!(body["success"].as_bool().unwrap());
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn test_resize_window() {
-    let (app, _temp_dir) = setup_test_app!().await;
+    let (app, _temp_dir) = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
-    // Setup: register app and open window
     let app_def = json!({
         "id": "test-chat",
         "name": "Test Chat",
@@ -375,11 +382,13 @@ async fn test_resize_window() {
         "default_height": 600
     });
 
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/apps"))
-        .set_json(&app_def)
-        .to_request();
-    test::call_service(&app, req).await;
+        .header("content-type", "application/json")
+        .body(Body::from(app_def.to_string()))
+        .unwrap();
+    let _ = json_response(&app, req).await;
 
     let open_req = json!({
         "app_id": "test-chat",
@@ -387,38 +396,39 @@ async fn test_resize_window() {
         "props": null
     });
 
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/windows"))
-        .set_json(&open_req)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    let body: serde_json::Value = test::read_body_json(resp).await;
+        .header("content-type", "application/json")
+        .body(Body::from(open_req.to_string()))
+        .unwrap();
+    let (_status, body) = json_response(&app, req).await;
     let window_id = body["window"]["id"].as_str().unwrap();
 
-    // Test: resize window
     let resize_req = json!({
         "width": 800,
         "height": 600
     });
 
-    let req = test::TestRequest::patch()
-        .uri(&format!("/desktop/{desktop_id}/windows/{window_id}/size"))
-        .set_json(&resize_req)
-        .to_request();
+    let req = Request::builder()
+        .method("PATCH")
+        .uri(&format!(
+            "/desktop/{desktop_id}/windows/{window_id}/size"
+        ))
+        .header("content-type", "application/json")
+        .body(Body::from(resize_req.to_string()))
+        .unwrap();
 
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body: serde_json::Value = test::read_body_json(resp).await;
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
     assert!(body["success"].as_bool().unwrap());
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn test_focus_window() {
-    let (app, _temp_dir) = setup_test_app!().await;
+    let (app, _temp_dir) = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
-    // Setup: register app and open two windows
     let app_def = json!({
         "id": "test-chat",
         "name": "Test Chat",
@@ -428,11 +438,13 @@ async fn test_focus_window() {
         "default_height": 600
     });
 
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/apps"))
-        .set_json(&app_def)
-        .to_request();
-    test::call_service(&app, req).await;
+        .header("content-type", "application/json")
+        .body(Body::from(app_def.to_string()))
+        .unwrap();
+    let _ = json_response(&app, req).await;
 
     let open_req1 = json!({
         "app_id": "test-chat",
@@ -440,11 +452,13 @@ async fn test_focus_window() {
         "props": null
     });
 
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/windows"))
-        .set_json(&open_req1)
-        .to_request();
-    test::call_service(&app, req).await;
+        .header("content-type", "application/json")
+        .body(Body::from(open_req1.to_string()))
+        .unwrap();
+    let _ = json_response(&app, req).await;
 
     let open_req2 = json!({
         "app_id": "test-chat",
@@ -452,52 +466,50 @@ async fn test_focus_window() {
         "props": null
     });
 
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/windows"))
-        .set_json(&open_req2)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    let body: serde_json::Value = test::read_body_json(resp).await;
+        .header("content-type", "application/json")
+        .body(Body::from(open_req2.to_string()))
+        .unwrap();
+    let (_status, body) = json_response(&app, req).await;
     let window_id = body["window"]["id"].as_str().unwrap();
 
-    // Test: focus window
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/windows/{window_id}/focus"))
-        .to_request();
+        .body(Body::empty())
+        .unwrap();
 
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body: serde_json::Value = test::read_body_json(resp).await;
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
     assert!(body["success"].as_bool().unwrap());
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn test_get_apps_empty() {
-    let (app, _temp_dir) = setup_test_app!().await;
+    let (app, _temp_dir) = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
-    let req = test::TestRequest::get()
+    let req = Request::builder()
+        .method("GET")
         .uri(&format!("/desktop/{desktop_id}/apps"))
-        .to_request();
+        .body(Body::empty())
+        .unwrap();
 
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body: serde_json::Value = test::read_body_json(resp).await;
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
     assert!(body["success"].as_bool().unwrap());
     let apps = body["apps"].as_array().unwrap();
-    // DesktopActor automatically registers a default "chat" app
     assert_eq!(apps.len(), 1);
     assert_eq!(apps[0]["id"], "chat");
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn test_get_apps_after_register() {
-    let (app, _temp_dir) = setup_test_app!().await;
+    let (app, _temp_dir) = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
-    // Register an app
     let app_def = json!({
         "id": "test-chat",
         "name": "Test Chat",
@@ -507,25 +519,24 @@ async fn test_get_apps_after_register() {
         "default_height": 600
     });
 
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/apps"))
-        .set_json(&app_def)
-        .to_request();
-    test::call_service(&app, req).await;
+        .header("content-type", "application/json")
+        .body(Body::from(app_def.to_string()))
+        .unwrap();
+    let _ = json_response(&app, req).await;
 
-    // Get apps
-    let req = test::TestRequest::get()
+    let req = Request::builder()
+        .method("GET")
         .uri(&format!("/desktop/{desktop_id}/apps"))
-        .to_request();
+        .body(Body::empty())
+        .unwrap();
 
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body: serde_json::Value = test::read_body_json(resp).await;
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
     let apps = body["apps"].as_array().unwrap();
-    // DesktopActor has 1 default app + 1 registered app = 2 total
     assert_eq!(apps.len(), 2);
-    // Check that our registered app is present
     let app_ids: Vec<String> = apps
         .iter()
         .map(|a| a["id"].as_str().unwrap().to_string())
@@ -533,12 +544,11 @@ async fn test_get_apps_after_register() {
     assert!(app_ids.contains(&"test-chat".to_string()));
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn test_desktop_state_persists_events() {
-    let (app, _temp_dir) = setup_test_app!().await;
+    let (app, _temp_dir) = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
-    // Register app and open window
     let app_def = json!({
         "id": "test-chat",
         "name": "Test Chat",
@@ -548,11 +558,13 @@ async fn test_desktop_state_persists_events() {
         "default_height": 600
     });
 
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/apps"))
-        .set_json(&app_def)
-        .to_request();
-    test::call_service(&app, req).await;
+        .header("content-type", "application/json")
+        .body(Body::from(app_def.to_string()))
+        .unwrap();
+    let _ = json_response(&app, req).await;
 
     let open_req = json!({
         "app_id": "test-chat",
@@ -560,30 +572,28 @@ async fn test_desktop_state_persists_events() {
         "props": null
     });
 
-    let req = test::TestRequest::post()
+    let req = Request::builder()
+        .method("POST")
         .uri(&format!("/desktop/{desktop_id}/windows"))
-        .set_json(&open_req)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    let body: serde_json::Value = test::read_body_json(resp).await;
+        .header("content-type", "application/json")
+        .body(Body::from(open_req.to_string()))
+        .unwrap();
+    let (_status, body) = json_response(&app, req).await;
     let window_id = body["window"]["id"].as_str().unwrap();
 
-    // Get full desktop state
-    let req = test::TestRequest::get()
+    let req = Request::builder()
+        .method("GET")
         .uri(&format!("/desktop/{desktop_id}"))
-        .to_request();
+        .body(Body::empty())
+        .unwrap();
 
-    let resp = test::call_service(&app, req).await;
-    let body: serde_json::Value = test::read_body_json(resp).await;
-
+    let (_status, body) = json_response(&app, req).await;
     assert!(body["success"].as_bool().unwrap());
     let desktop = &body["desktop"];
     assert_eq!(desktop["windows"].as_array().unwrap().len(), 1);
     assert_eq!(desktop["windows"][0]["id"], window_id);
-    // DesktopActor has 1 default app + 1 registered app = 2 total
     let apps = desktop["apps"].as_array().unwrap();
     assert_eq!(apps.len(), 2);
-    // Check that our registered app is present
     let app_ids: Vec<String> = apps
         .iter()
         .map(|a| a["id"].as_str().unwrap().to_string())

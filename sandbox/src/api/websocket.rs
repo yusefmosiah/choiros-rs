@@ -1,18 +1,22 @@
 //! WebSocket API for real-time desktop events
 //!
-//! Uses actix-ws (native Actix Web 4 WebSocket support)
+//! Uses Axum WebSocket support.
 
-use actix_web::{web, HttpRequest, HttpResponse};
-use actix_ws::Message;
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::State;
+use axum::response::IntoResponse;
+use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex};
+use uuid::Uuid;
 
 use crate::actor_manager::{AppState, DesktopActorMsg};
-use futures_util::stream::StreamExt;
+use crate::api::ApiState;
 
 /// Shared state for WebSocket sessions
-pub type WsSessions = Arc<Mutex<HashMap<String, Vec<actix_ws::Session>>>>;
+pub type WsSessions = Arc<Mutex<HashMap<String, HashMap<Uuid, mpsc::UnboundedSender<Message>>>>>;
 
 /// WebSocket message types
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,111 +64,97 @@ pub enum WsMessage {
 
 /// WebSocket handler
 pub async fn ws_handler(
-    req: HttpRequest,
-    body: web::Payload,
-    app_state: web::Data<AppState>,
-    sessions: web::Data<WsSessions>,
-) -> Result<HttpResponse, actix_web::Error> {
-    let (response, mut session, msg_stream) = actix_ws::handle(&req, body)?;
+    ws: WebSocketUpgrade,
+    State(state): State<ApiState>,
+) -> impl IntoResponse {
+    let app_state = state.app_state.clone();
+    let sessions = state.ws_sessions.clone();
+    ws.on_upgrade(move |socket| handle_socket(socket, app_state, sessions))
+}
 
+async fn handle_socket(socket: WebSocket, app_state: Arc<AppState>, sessions: WsSessions) {
     tracing::info!("WebSocket connection established");
 
-    // Clone for the spawned task
-    let app_state_clone = app_state.clone();
-    let sessions_clone = sessions.clone();
-
-    // Spawn handler task to process messages and keep connection alive
-    actix_web::rt::spawn(async move {
-        let mut current_desktop_id: Option<String> = None;
-        let mut stream = msg_stream;
-
-        // Send initial pong to confirm connection
-        let pong_msg = WsMessage::Pong;
-        if let Ok(json) = serde_json::to_string(&pong_msg) {
-            let _ = session.text(json).await;
-        }
-
-        // Process messages in a loop to keep connection alive
-        loop {
-            match stream.next().await {
-                Some(Ok(Message::Text(text))) => {
-                    tracing::debug!("WebSocket received: {}", text);
-
-                    // Parse the message
-                    match serde_json::from_str::<WsMessage>(&text) {
-                        Ok(WsMessage::Ping) => {
-                            // Respond with pong
-                            let pong = WsMessage::Pong;
-                            if let Ok(json) = serde_json::to_string(&pong) {
-                                let _ = session.text(json).await;
-                            }
-                        }
-                        Ok(WsMessage::Subscribe { desktop_id }) => {
-                            tracing::info!("WebSocket subscribed to desktop: {}", desktop_id);
-                            current_desktop_id = Some(desktop_id.clone());
-
-                            // Get or create the desktop actor
-                            let desktop_actor = app_state_clone
-                                .actor_manager
-                                .get_or_create_desktop(desktop_id.clone(), "anonymous".to_string()).await;
-
-                            // Get current desktop state and send it using ractor
-                            match ractor::call!(
-                                desktop_actor,
-                                |reply| DesktopActorMsg::GetDesktopState { reply }
-                            ) {
-                                Ok(desktop) => {
-                                    let state_msg = WsMessage::DesktopState { desktop };
-                                    if let Ok(json) = serde_json::to_string(&state_msg) {
-                                        let _ = session.text(json).await;
-                                    }
-                                }
-                                Err(e) => {
-                                    tracing::error!("Failed to get desktop state: {}", e);
-                                    let error_msg = WsMessage::Error {
-                                        message: format!("Failed to get desktop state: {e}"),
-                                    };
-                                    if let Ok(json) = serde_json::to_string(&error_msg) {
-                                        let _ = session.text(json).await;
-                                    }
-                                }
-                            }
-
-                            // Store session for broadcasting
-                            subscribe_session(&sessions_clone, desktop_id, session.clone());
-                        }
-                        _ => {
-                            tracing::warn!("Unknown or invalid WebSocket message: {}", text);
-                        }
-                    }
-                }
-                Some(Ok(Message::Ping(_data))) => {
-                    // Automatic pong response by actix-ws
-                    tracing::debug!("WebSocket ping received");
-                }
-                Some(Ok(Message::Close(_))) => {
-                    tracing::info!("WebSocket close message received");
-                    break;
-                }
-                Some(Err(e)) => {
-                    tracing::error!("WebSocket error: {}", e);
-                    break;
-                }
-                None => {
-                    tracing::info!("WebSocket stream ended");
-                    break;
-                }
-                _ => {}
+    let (mut sender, mut receiver) = socket.split();
+    let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
+    let writer = tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            if sender.send(msg).await.is_err() {
+                break;
             }
-        }
-
-        // Cleanup: remove from sessions when connection closes
-        if let Some(desktop_id) = current_desktop_id {
-            tracing::info!("WebSocket disconnected from desktop: {}", desktop_id);
         }
     });
 
-    Ok(response)
+    let _ = send_json(&tx, &WsMessage::Pong);
+
+    let mut current_desktop_id: Option<String> = None;
+    let session_id = Uuid::new_v4();
+
+    while let Some(Ok(msg)) = receiver.next().await {
+        match msg {
+            Message::Text(text) => {
+                tracing::debug!("WebSocket received: {}", text);
+
+                match serde_json::from_str::<WsMessage>(&text) {
+                    Ok(WsMessage::Ping) => {
+                        let _ = send_json(&tx, &WsMessage::Pong);
+                    }
+                    Ok(WsMessage::Subscribe { desktop_id }) => {
+                        tracing::info!("WebSocket subscribed to desktop: {}", desktop_id);
+
+                        if let Some(prev_desktop_id) = current_desktop_id.take() {
+                            unsubscribe_session(&sessions, &prev_desktop_id, session_id).await;
+                        }
+
+                        current_desktop_id = Some(desktop_id.clone());
+
+                        let desktop_actor = app_state
+                            .actor_manager
+                            .get_or_create_desktop(desktop_id.clone(), "anonymous".to_string())
+                            .await;
+
+                        match ractor::call!(
+                            desktop_actor,
+                            |reply| DesktopActorMsg::GetDesktopState { reply }
+                        ) {
+                            Ok(desktop) => {
+                                let _ = send_json(&tx, &WsMessage::DesktopState { desktop });
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to get desktop state: {}", e);
+                                let _ = send_json(
+                                    &tx,
+                                    &WsMessage::Error {
+                                        message: format!("Failed to get desktop state: {e}"),
+                                    },
+                                );
+                            }
+                        }
+
+                        subscribe_session(&sessions, &desktop_id, session_id, tx.clone()).await;
+                    }
+                    _ => {
+                        tracing::warn!("Unknown or invalid WebSocket message: {}", text);
+                    }
+                }
+            }
+            Message::Ping(data) => {
+                let _ = tx.send(Message::Pong(data));
+            }
+            Message::Close(_) => {
+                tracing::info!("WebSocket close message received");
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(desktop_id) = current_desktop_id {
+        tracing::info!("WebSocket disconnected from desktop: {}", desktop_id);
+        unsubscribe_session(&sessions, &desktop_id, session_id).await;
+    }
+
+    writer.abort();
 }
 
 /// Broadcast an event to all subscribers of a desktop
@@ -178,22 +168,45 @@ pub async fn broadcast_event(sessions: &WsSessions, desktop_id: &str, event: WsM
         }
     };
 
-    if let Ok(sessions) = sessions.lock() {
-        if let Some(subscribers) = sessions.get(desktop_id) {
-            for session in subscribers {
-                let mut session = session.clone();
-                let json_clone = json.clone();
-                actix_web::rt::spawn(async move {
-                    let _ = session.text(json_clone).await;
-                });
-            }
-        }
+    let mut sessions = sessions.lock().await;
+    if let Some(subscribers) = sessions.get_mut(desktop_id) {
+        subscribers.retain(|_, sender| {
+            sender.send(Message::Text(json.clone().into())).is_ok()
+        });
     }
 }
 
 /// Subscribe a session to a desktop
-pub fn subscribe_session(sessions: &WsSessions, desktop_id: String, session: actix_ws::Session) {
-    if let Ok(mut sessions) = sessions.lock() {
-        sessions.entry(desktop_id).or_default().push(session);
+pub async fn subscribe_session(
+    sessions: &WsSessions,
+    desktop_id: &str,
+    session_id: Uuid,
+    sender: mpsc::UnboundedSender<Message>,
+) {
+    let mut sessions = sessions.lock().await;
+    sessions
+        .entry(desktop_id.to_string())
+        .or_default()
+        .insert(session_id, sender);
+}
+
+/// Remove a session from a desktop
+pub async fn unsubscribe_session(sessions: &WsSessions, desktop_id: &str, session_id: Uuid) {
+    let mut sessions = sessions.lock().await;
+    if let Some(subscribers) = sessions.get_mut(desktop_id) {
+        subscribers.remove(&session_id);
+        if subscribers.is_empty() {
+            sessions.remove(desktop_id);
+        }
+    }
+}
+
+fn send_json(tx: &mpsc::UnboundedSender<Message>, msg: &WsMessage) -> bool {
+    match serde_json::to_string(msg) {
+        Ok(text) => tx.send(Message::Text(text.into())).is_ok(),
+        Err(e) => {
+            tracing::error!("Failed to serialize WS message: {}", e);
+            false
+        }
     }
 }

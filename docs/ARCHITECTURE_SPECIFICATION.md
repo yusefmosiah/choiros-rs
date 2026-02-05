@@ -53,11 +53,11 @@ A web-based "automatic computer" where:
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
 | Frontend | Dioxus (WASM) | Reactive UI with signals |
-| Backend | Actix (Actors) | Async actor system |
+| Backend | Ractor (Actors) | Async actor system |
 | Database | libSQL (Turso fork) | Event log + projections |
 | LLM | BAML + Bedrock | Code generation |
 | Sandbox | Local process (port 8080) - containerization planned for future | One per user |
-| Hypervisor | Actix Web | Edge routing |
+| Hypervisor | Axum (planned) | Edge routing |
 | Protocol | WebSocket + HTTP | Real-time communication |
 
 ---
@@ -107,7 +107,7 @@ A web-based "automatic computer" where:
 │  (Port 9001)    │   │  (Port 9002)    │   │  (Port 9003)    │
 │                 │   │                 │   │                 │
 │ ┌─────────────┐ │   │ ┌─────────────┐ │   │ ┌─────────────┐ │
-│ │ Actix Web   │ │   │ │ Actix Web   │ │   │ │ Actix Web   │ │
+│ │ Axum       │ │   │ │ Axum       │ │   │ │ Axum       │ │
 │ │ Server      │ │   │ │ Server      │ │   │ │ Server      │ │
 │ │             │ │   │ │             │ │   │ │             │ │
 │ │ • /api/*    │ │   │ │ • /api/*    │ │   │ │ • /api/*    │ │
@@ -358,7 +358,7 @@ Dioxus: optimistic.set(msg) [instant UI update]
     ↓
 POST /api/chat/send {actor_id, text}
     ↓
-Actix Handler
+Axum Handler
     ↓
 ChatActor.handle(SendMessage)
     ↓
@@ -703,7 +703,7 @@ cargo test --test integration
 
 **Actor Tests:**
 ```rust
-#[actix::test]
+#[tokio::test]
 async fn test_chat_actor_send_message() {
     let event_store = EventStoreActor::new_in_memory().start();
     let chat = ChatActor::new("test-chat", event_store).start();
@@ -723,7 +723,7 @@ async fn test_chat_actor_send_message() {
 
 **Event Store Tests:**
 ```rust
-#[actix::test]
+#[tokio::test]
 async fn test_event_append_and_query() {
     let store = EventStoreActor::new_in_memory().await.unwrap().start();
     
@@ -1092,7 +1092,7 @@ Current models (from your Python setup):
 | Dioxus vs Yew? | Dioxus (better dev experience) | **Decided: Dioxus** |
 | Hot reload mechanism? | WASM swap vs iframe | **TBD: Start with WASM** |
 | State sync protocol? | Polling vs WebSocket push | **TBD: WebSocket for real-time** |
-| Actor supervision? | Actix Supervisor vs custom | **TBD: Actix Supervisor** |
+| Actor supervision? | Ractor supervision vs custom | **TBD: Ractor supervision** |
 | BAML in Rust? | Native crate vs Python bridge | **TBD: Try native first** |
 
 ### 13.2 Scope Questions

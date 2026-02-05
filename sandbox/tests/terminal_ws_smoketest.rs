@@ -3,13 +3,17 @@
 //! Verifies that a terminal WebSocket connection can be established
 //! and that basic input produces output.
 
-use actix_http::ws::{Frame, ProtocolError};
-use actix_web::{web, App, Error};
-use futures::{SinkExt, StreamExt};
+use axum::Router;
+use futures_util::{SinkExt, StreamExt};
 use ractor::Actor;
 use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::net::TcpListener;
 use tokio::time::timeout;
+use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use sandbox::actor_manager::AppState;
 use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};
@@ -23,70 +27,19 @@ fn test_user_id() -> String {
     format!("test-user-{}", uuid::Uuid::new_v4())
 }
 
-async fn recv_json(
-    ws: &mut (impl StreamExt<Item = Result<Frame, ProtocolError>> + Unpin),
-    total_timeout: Duration,
-) -> Result<Value, Error> {
-    let start = Instant::now();
+struct TestServer {
+    addr: SocketAddr,
+    _temp_dir: tempfile::TempDir,
+    handle: tokio::task::JoinHandle<()>,
+}
 
-    loop {
-        let elapsed = start.elapsed();
-        if elapsed >= total_timeout {
-            return Err(actix_web::error::ErrorRequestTimeout(
-                "Timeout waiting for frame",
-            ));
-        }
-        let remaining = total_timeout - elapsed;
-
-        match timeout(remaining, ws.next()).await {
-            Ok(Some(Ok(Frame::Text(bytes)))) => {
-                let text = std::str::from_utf8(&bytes).map_err(|e| {
-                    actix_web::error::ErrorInternalServerError(format!(
-                        "Invalid UTF-8: {e}"
-                    ))
-                })?;
-                let value: Value = serde_json::from_str(text).map_err(|e| {
-                    actix_web::error::ErrorInternalServerError(format!(
-                        "Invalid JSON: {e}"
-                    ))
-                })?;
-                return Ok(value);
-            }
-            Ok(Some(Ok(Frame::Close(_)))) => {
-                return Err(actix_web::error::ErrorBadRequest("Connection closed"))
-            }
-            Ok(Some(Ok(_))) => continue,
-            Ok(Some(Err(e))) => {
-                return Err(actix_web::error::ErrorInternalServerError(format!(
-                    "Frame error: {e:?}"
-                )))
-            }
-            Ok(None) => return Err(actix_web::error::ErrorBadRequest("Stream ended")),
-            Err(_) => {
-                return Err(actix_web::error::ErrorRequestTimeout(
-                    "Timeout waiting for frame",
-                ))
-            }
-        }
+impl Drop for TestServer {
+    fn drop(&mut self) {
+        self.handle.abort();
     }
 }
 
-async fn send_json(
-    ws: &mut (impl SinkExt<actix_http::ws::Message, Error = ProtocolError> + Unpin),
-    msg: Value,
-) -> Result<(), Error> {
-    let text = msg.to_string();
-    ws.send(actix_http::ws::Message::Text(text.into()))
-        .await
-        .map_err(|e| actix_web::error::ErrorInternalServerError(format!(
-            "Send error: {e:?}"
-        )))?;
-    Ok(())
-}
-
-#[cfg(unix)]
-#[actix_web::test]
-async fn test_terminal_ws_smoke() {
+async fn start_test_server() -> TestServer {
     let temp_dir = tempfile::tempdir().expect("Failed to create temp directory");
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
@@ -99,44 +52,96 @@ async fn test_terminal_ws_smoke() {
     .await
     .expect("Failed to create event store");
 
-    let app_state = web::Data::new(AppState::new(event_store));
+    let app_state = Arc::new(AppState::new(event_store));
+    let ws_sessions: sandbox::api::websocket::WsSessions =
+        Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+    let api_state = api::ApiState {
+        app_state,
+        ws_sessions,
+    };
 
-    let mut srv = actix_test::start(move || {
-        App::new()
-            .app_data(app_state.clone())
-            .route("/health", web::get().to(api::health_check))
-            .configure(api::config)
+    let app: Router = api::router().with_state(api_state);
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("Failed to bind listener");
+    let addr = listener.local_addr().expect("Failed to get addr");
+
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app.into_make_service())
+            .await
+            .expect("Server failed");
     });
 
+    TestServer {
+        addr,
+        _temp_dir: temp_dir,
+        handle,
+    }
+}
+
+fn ws_url(addr: SocketAddr, path: &str) -> String {
+    format!("ws://{addr}{path}")
+}
+
+async fn recv_json(
+    ws: &mut (impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin),
+    total_timeout: Duration,
+) -> Value {
+    let start = Instant::now();
+
+    loop {
+        let elapsed = start.elapsed();
+        if elapsed >= total_timeout {
+            panic!("Timeout waiting for frame");
+        }
+        let remaining = total_timeout - elapsed;
+
+        match timeout(remaining, ws.next()).await {
+            Ok(Some(Ok(Message::Text(text)))) => {
+                let value: Value = serde_json::from_str(&text).expect("Invalid JSON");
+                return value;
+            }
+            Ok(Some(Ok(Message::Close(_)))) => panic!("Connection closed"),
+            Ok(Some(Ok(_))) => continue,
+            Ok(Some(Err(e))) => panic!("Frame error: {e:?}"),
+            Ok(None) => panic!("Stream ended"),
+            Err(_) => panic!("Timeout waiting for frame"),
+        }
+    }
+}
+
+async fn send_json(
+    ws: &mut (impl SinkExt<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin),
+    msg: Value,
+) {
+    let text = msg.to_string();
+    ws.send(Message::Text(text)).await.expect("Send error");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_terminal_ws_smoke() {
+    let server = start_test_server().await;
     let terminal_id = test_terminal_id();
     let user_id = test_user_id();
 
-    let mut framed = srv
-        .ws_at(&format!(
-            "/ws/terminal/{terminal_id}?user_id={user_id}"
-        ))
-        .await
-        .expect("Failed to connect WebSocket");
+    let (mut ws, _) = connect_async(ws_url(
+        server.addr,
+        &format!("/ws/terminal/{terminal_id}?user_id={user_id}"),
+    ))
+    .await
+    .expect("Failed to connect WebSocket");
 
-    let info = recv_json(&mut framed, Duration::from_secs(5))
-        .await
-        .expect("Should receive info message");
+    let info = recv_json(&mut ws, Duration::from_secs(5)).await;
     assert_eq!(info["type"], "info");
     assert_eq!(info["terminal_id"], terminal_id);
 
-    send_json(
-        &mut framed,
-        json!({"type":"input","data":"echo hi\r"}),
-    )
-    .await
-    .expect("Failed to send input");
+    send_json(&mut ws, json!({"type":"input","data":"echo hi\r"})).await;
 
     let start = Instant::now();
     let mut saw_hi = false;
     while start.elapsed() < Duration::from_secs(5) {
-        let msg = recv_json(&mut framed, Duration::from_secs(5))
-            .await
-            .expect("Failed to receive output message");
+        let msg = recv_json(&mut ws, Duration::from_secs(5)).await;
         if msg["type"] == "output" {
             if let Some(data) = msg["data"].as_str() {
                 if data.contains("hi") {

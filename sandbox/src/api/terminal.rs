@@ -4,14 +4,18 @@
 //! enabling real-time bidirectional communication between the browser
 //! and PTY processes.
 
-use actix_web::{get, web, HttpRequest, HttpResponse};
-use actix_ws::Message;
-use futures_util::StreamExt;
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum::Json;
+use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 
 use crate::actor_manager::AppState;
 use crate::actors::terminal::{TerminalArguments, TerminalMsg};
+use crate::api::ApiState;
 
 /// WebSocket message types for terminal communication
 #[derive(Debug, Serialize, Deserialize)]
@@ -35,7 +39,7 @@ pub enum TerminalWsMessage {
 }
 
 /// Query parameters for terminal WebSocket connection
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct TerminalWsQuery {
     user_id: String,
     #[serde(default = "default_shell")]
@@ -56,225 +60,225 @@ fn default_working_dir() -> String {
 
 /// WebSocket handler for terminal sessions
 pub async fn terminal_websocket(
-    req: HttpRequest,
-    stream: web::Payload,
-    path: web::Path<String>,
-    query: web::Query<TerminalWsQuery>,
-    app_state: web::Data<AppState>,
-) -> Result<HttpResponse, actix_web::Error> {
-    let (response, mut session, mut msg_stream) = actix_ws::handle(&req, stream)?;
+    ws: WebSocketUpgrade,
+    Path(terminal_id): Path<String>,
+    Query(query): Query<TerminalWsQuery>,
+    State(state): State<ApiState>,
+) -> impl IntoResponse {
+    let app_state = state.app_state.clone();
+    ws.on_upgrade(move |socket| handle_terminal_socket(socket, app_state, terminal_id, query))
+}
 
-    let terminal_id = path.into_inner();
-    let user_id = query.user_id.clone();
-    let shell = query.shell.clone();
-    let working_dir = query.working_dir.clone();
-    let actor_manager = app_state.actor_manager.clone();
-
-    // Spawn WebSocket handler task
-    actix_web::rt::spawn(async move {
-        // Get or create terminal actor
-        let event_store = actor_manager.event_store();
-        let terminal_actor = match actor_manager
-            .get_or_create_terminal(
-                &terminal_id,
-                TerminalArguments {
-                    terminal_id: terminal_id.clone(),
-                    user_id: user_id.clone(),
-                    shell: shell.clone(),
-                    working_dir: working_dir.clone(),
-                    event_store,
-                },
-            )
-            .await
-        {
-            Ok(actor) => actor,
-            Err(e) => {
-                let error_msg = TerminalWsMessage::Error {
-                    message: format!("Failed to create terminal: {}", e),
-                };
-                let _ = session
-                    .text(serde_json::to_string(&error_msg).unwrap_or_default())
-                    .await;
-                return;
-            }
-        };
-
-        // Start the terminal if not already running
-        let start_result = ractor::call!(
-            terminal_actor,
-            |reply| TerminalMsg::Start { reply }
-        );
-
-        if let Err(e) = start_result {
-            let error_msg = TerminalWsMessage::Error {
-                message: format!("Failed to start terminal: {:?}", e),
-            };
-            let _ = session
-                .text(serde_json::to_string(&error_msg).unwrap_or_default())
-                .await;
-            return;
-        }
-
-        // Subscribe to output
-        let output_rx = match ractor::call!(
-            terminal_actor,
-            |reply| TerminalMsg::SubscribeOutput { reply }
-        ) {
-            Ok(rx) => rx,
-            Err(e) => {
-                let error_msg = TerminalWsMessage::Error {
-                    message: format!("Failed to subscribe to output: {:?}", e),
-                };
-                let _ = session
-                    .text(serde_json::to_string(&error_msg).unwrap_or_default())
-                    .await;
-                return;
-            }
-        };
-
-        // Send buffered output to new client (best-effort)
-        if let Ok(buffer) = ractor::call!(terminal_actor, |reply| TerminalMsg::GetOutput { reply })
-        {
-            for data in buffer {
-                let output_msg = TerminalWsMessage::Output { data };
-                let _ = session
-                    .text(serde_json::to_string(&output_msg).unwrap_or_default())
-                    .await;
+async fn handle_terminal_socket(
+    socket: WebSocket,
+    app_state: std::sync::Arc<AppState>,
+    terminal_id: String,
+    query: TerminalWsQuery,
+) {
+    let (mut sender, mut receiver) = socket.split();
+    let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
+    let writer = tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            if sender.send(msg).await.is_err() {
+                break;
             }
         }
-
-        // Get terminal info
-        let info = match ractor::call!(
-            terminal_actor,
-            |reply| TerminalMsg::GetInfo { reply }
-        ) {
-            Ok(info) => info,
-            Err(_) => {
-                let _ = session.close(None).await;
-                return;
-            }
-        };
-
-        // Send info to client
-        let info_msg = TerminalWsMessage::Info {
-            terminal_id: info.terminal_id,
-            is_running: info.is_running,
-        };
-        let _ = session
-            .text(serde_json::to_string(&info_msg).unwrap_or_default())
-            .await;
-
-        // Spawn output forwarding task
-        let mut output_rx = output_rx;
-        let mut session_clone = session.clone();
-        let forward_task = actix_web::rt::spawn(async move {
-            loop {
-                match output_rx.recv().await {
-                    Ok(data) => {
-                        let output_msg = TerminalWsMessage::Output { data };
-                        if session_clone
-                            .text(serde_json::to_string(&output_msg).unwrap_or_default())
-                            .await
-                            .is_err()
-                        {
-                            break;
-                        }
-                    }
-                    Err(broadcast::error::RecvError::Lagged(_)) => {
-                        // Skip lagged messages; keep the stream alive.
-                        continue;
-                    }
-                    Err(broadcast::error::RecvError::Closed) => break,
-                }
-            }
-        });
-
-        // Handle incoming WebSocket messages
-        while let Some(Ok(msg)) = msg_stream.next().await {
-            match msg {
-                Message::Text(text) => {
-                    match serde_json::from_str::<TerminalWsMessage>(&text) {
-                        Ok(TerminalWsMessage::Input { data }) => {
-                            // Send input to terminal
-                            let _ = ractor::call!(
-                                terminal_actor,
-                                |reply| TerminalMsg::SendInput { input: data, reply }
-                            );
-                        }
-                        Ok(TerminalWsMessage::Resize { rows, cols }) => {
-                            // Resize terminal
-                            let _ = ractor::call!(
-                                terminal_actor,
-                                |reply| TerminalMsg::Resize { rows, cols, reply }
-                            );
-                        }
-                        _ => {
-                            // Unknown message type
-                            let error_msg = TerminalWsMessage::Error {
-                                message: "Unknown message type".to_string(),
-                            };
-                            let _ = session
-                                .text(serde_json::to_string(&error_msg).unwrap_or_default())
-                                .await;
-                        }
-                    }
-                }
-                Message::Close(_) => {
-                    break;
-                }
-                _ => {}
-            }
-        }
-
-        // Cancel output forwarding task
-        forward_task.abort();
-
-        // Close session
-        let _ = session.close(None).await;
     });
 
-    Ok(response)
+    let actor_manager = app_state.actor_manager.clone();
+    let event_store = actor_manager.event_store();
+
+    let terminal_actor = match actor_manager
+        .get_or_create_terminal(
+            &terminal_id,
+            TerminalArguments {
+                terminal_id: terminal_id.clone(),
+                user_id: query.user_id.clone(),
+                shell: query.shell.clone(),
+                working_dir: query.working_dir.clone(),
+                event_store,
+            },
+        )
+        .await
+    {
+        Ok(actor) => actor,
+        Err(e) => {
+            let _ = send_terminal_message(
+                &tx,
+                TerminalWsMessage::Error {
+                    message: format!("Failed to create terminal: {e}"),
+                },
+            );
+            writer.abort();
+            return;
+        }
+    };
+
+    match ractor::call!(terminal_actor, |reply| TerminalMsg::Start { reply }) {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            let _ = send_terminal_message(
+                &tx,
+                TerminalWsMessage::Error {
+                    message: format!("Failed to start terminal: {e}"),
+                },
+            );
+            writer.abort();
+            return;
+        }
+        Err(e) => {
+            let _ = send_terminal_message(
+                &tx,
+                TerminalWsMessage::Error {
+                    message: format!("Failed to start terminal: {e:?}"),
+                },
+            );
+            writer.abort();
+            return;
+        }
+    }
+
+    let output_rx = match ractor::call!(
+        terminal_actor,
+        |reply| TerminalMsg::SubscribeOutput { reply }
+    ) {
+        Ok(rx) => rx,
+        Err(e) => {
+            let _ = send_terminal_message(
+                &tx,
+                TerminalWsMessage::Error {
+                    message: format!("Failed to subscribe to output: {e:?}"),
+                },
+            );
+            writer.abort();
+            return;
+        }
+    };
+
+    if let Ok(buffer) = ractor::call!(terminal_actor, |reply| TerminalMsg::GetOutput { reply }) {
+        for data in buffer {
+            let _ = send_terminal_message(&tx, TerminalWsMessage::Output { data });
+        }
+    }
+
+    let info = match ractor::call!(terminal_actor, |reply| TerminalMsg::GetInfo { reply }) {
+        Ok(info) => info,
+        Err(_) => {
+            writer.abort();
+            return;
+        }
+    };
+
+    let _ = send_terminal_message(
+        &tx,
+        TerminalWsMessage::Info {
+            terminal_id: info.terminal_id,
+            is_running: info.is_running,
+        },
+    );
+
+    let mut output_rx = output_rx;
+    let tx_clone = tx.clone();
+    let forward_task = tokio::spawn(async move {
+        loop {
+            match output_rx.recv().await {
+                Ok(data) => {
+                    let _ = send_terminal_message(&tx_clone, TerminalWsMessage::Output { data });
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+
+    while let Some(Ok(msg)) = receiver.next().await {
+        match msg {
+            Message::Text(text) => match serde_json::from_str::<TerminalWsMessage>(&text) {
+                Ok(TerminalWsMessage::Input { data }) => {
+                    let _ = ractor::call!(
+                        terminal_actor,
+                        |reply| TerminalMsg::SendInput { input: data, reply }
+                    );
+                }
+                Ok(TerminalWsMessage::Resize { rows, cols }) => {
+                    let _ = ractor::call!(
+                        terminal_actor,
+                        |reply| TerminalMsg::Resize { rows, cols, reply }
+                    );
+                }
+                _ => {
+                    let _ = send_terminal_message(
+                        &tx,
+                        TerminalWsMessage::Error {
+                            message: "Unknown message type".to_string(),
+                        },
+                    );
+                }
+            },
+            Message::Close(_) => {
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    forward_task.abort();
+    writer.abort();
+}
+
+fn send_terminal_message(tx: &mpsc::UnboundedSender<Message>, msg: TerminalWsMessage) -> bool {
+    match serde_json::to_string(&msg) {
+        Ok(text) => tx.send(Message::Text(text.into())).is_ok(),
+        Err(e) => {
+            tracing::error!("Failed to serialize terminal WS message: {}", e);
+            false
+        }
+    }
 }
 
 /// HTTP handler to create a new terminal session
-#[get("/api/terminals/{terminal_id}")]
 pub async fn create_terminal(
-    app_state: web::Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
-    let terminal_id = path.into_inner();
-    let actor_manager = &app_state.actor_manager;
+    State(state): State<ApiState>,
+    Path(terminal_id): Path<String>,
+) -> impl IntoResponse {
+    let actor_manager = &state.app_state.actor_manager;
     let event_store = actor_manager.event_store();
 
     let args = TerminalArguments {
         terminal_id: terminal_id.clone(),
-        user_id: "anonymous".to_string(), // TODO: Get from auth
+        user_id: "anonymous".to_string(),
         shell: default_shell(),
         working_dir: default_working_dir(),
         event_store,
     };
 
     match actor_manager.get_or_create_terminal(&terminal_id, args).await {
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
-            "terminal_id": terminal_id,
-            "status": "created"
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": format!("Failed to create terminal: {:?}", e)
-        })),
+        Ok(_) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "terminal_id": terminal_id,
+                "status": "created"
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": format!("Failed to create terminal: {e:?}")
+            })),
+        )
+            .into_response(),
     }
 }
 
 /// HTTP handler to get terminal info
-#[get("/api/terminals/{terminal_id}/info")]
 pub async fn get_terminal_info(
-    app_state: web::Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
-    let terminal_id = path.into_inner();
-    let actor_manager = &app_state.actor_manager;
-
+    State(state): State<ApiState>,
+    Path(terminal_id): Path<String>,
+) -> impl IntoResponse {
+    let actor_manager = &state.app_state.actor_manager;
     let event_store = actor_manager.event_store();
+
     let args = TerminalArguments {
         terminal_id: terminal_id.clone(),
         user_id: "anonymous".to_string(),
@@ -286,33 +290,36 @@ pub async fn get_terminal_info(
     let terminal_actor = match actor_manager.get_or_create_terminal(&terminal_id, args).await {
         Ok(actor) => actor,
         Err(e) => {
-            return HttpResponse::InternalServerError().json(serde_json::json!({
-                "error": format!("Failed to get terminal: {:?}", e)
-            }));
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": format!("Failed to get terminal: {e:?}")
+                })),
+            )
+                .into_response();
         }
     };
 
-    match ractor::call!(
-        terminal_actor,
-        |reply| TerminalMsg::GetInfo { reply }
-    ) {
-        Ok(info) => HttpResponse::Ok().json(info),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": format!("Failed to get info: {:?}", e)
-        })),
+    match ractor::call!(terminal_actor, |reply| TerminalMsg::GetInfo { reply }) {
+        Ok(info) => (StatusCode::OK, Json(info)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": format!("Failed to get info: {e:?}")
+            })),
+        )
+            .into_response(),
     }
 }
 
 /// HTTP handler to stop a terminal session
-#[get("/api/terminals/{terminal_id}/stop")]
 pub async fn stop_terminal(
-    app_state: web::Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
-    let terminal_id = path.into_inner();
-    let actor_manager = &app_state.actor_manager;
-
+    State(state): State<ApiState>,
+    Path(terminal_id): Path<String>,
+) -> impl IntoResponse {
+    let actor_manager = &state.app_state.actor_manager;
     let event_store = actor_manager.event_store();
+
     let args = TerminalArguments {
         terminal_id: terminal_id.clone(),
         user_id: "anonymous".to_string(),
@@ -324,22 +331,38 @@ pub async fn stop_terminal(
     let terminal_actor = match actor_manager.get_or_create_terminal(&terminal_id, args).await {
         Ok(actor) => actor,
         Err(e) => {
-            return HttpResponse::InternalServerError().json(serde_json::json!({
-                "error": format!("Failed to get terminal: {:?}", e)
-            }));
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": format!("Failed to get terminal: {e:?}")
+                })),
+            )
+                .into_response();
         }
     };
 
-    match ractor::call!(
-        terminal_actor,
-        |reply| TerminalMsg::Stop { reply }
-    ) {
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
-            "terminal_id": terminal_id,
-            "status": "stopped"
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": format!("Failed to stop terminal: {:?}", e)
-        })),
+    match ractor::call!(terminal_actor, |reply| TerminalMsg::Stop { reply }) {
+        Ok(Ok(())) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "terminal_id": terminal_id,
+                "status": "stopped"
+            })),
+        )
+            .into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": format!("Failed to stop terminal: {e:?}")
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": format!("Failed to stop terminal: {e:?}")
+            })),
+        )
+            .into_response(),
     }
 }

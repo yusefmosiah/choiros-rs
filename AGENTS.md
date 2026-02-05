@@ -189,7 +189,7 @@ agent-browser screenshot tests/screenshots/result.png
 
 **Integration Tests:**
 - Place in `tests/*.rs` files
-- Use real HTTP requests via `actix_web::test`
+- Use Axum router + `tower::ServiceExt::oneshot`
 - Use temp directories for isolated databases
 - Example pattern: `tests/desktop_api_test.rs`
 
@@ -207,8 +207,8 @@ cargo test -p sandbox test_name -- --nocapture
 
 ## Key Dependencies
 
-- **Async**: tokio, actix, actix-web, futures
-- **Web**: dioxus (frontend), actix-ws (WebSocket)
+- **Async**: tokio, futures
+- **Web**: axum, tower, tower-http, dioxus (frontend)
 - **Database**: sqlx (SQLite), libsql
 - **Serialization**: serde, serde_json
 - **IDs**: uuid, ulid

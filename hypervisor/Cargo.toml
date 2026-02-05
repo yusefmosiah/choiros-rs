@@ -12,14 +12,8 @@ name = "hypervisor"
 path = "src/main.rs"
 
 [dependencies]
-actix = { workspace = true }
-actix-web = { workspace = true }
-actix-rt = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 shared-types = { path = "../shared-types" }
-
-[dev-dependencies]
-actix-rt = { workspace = true }
