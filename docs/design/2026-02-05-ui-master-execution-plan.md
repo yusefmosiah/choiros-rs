@@ -1,7 +1,7 @@
 # UI Master Execution Plan (Research -> Parallel Agent Tasks)
 
 **Date:** 2026-02-05
-**Status:** Draft for execution
+**Status:** Research lanes R1-R5 finalized; ready for R6 backlog recomposition
 **Scope:** Consolidates the following documents into one executable plan:
 - `docs/content-viewer-research.md`
 - `docs/research-dioxus-architecture.md`
@@ -15,6 +15,20 @@
 Convert existing UI research and backlog items into parallelizable, agent-executable work with clear contracts, dependency ordering, and acceptance criteria.
 
 This document is intentionally research-first. Implementation should begin only after each research lane publishes an approved execution spec.
+
+## 1.1 Research Output Status (2026-02-05)
+
+Completed lane specs:
+
+- `docs/design/2026-02-05-r1-dioxus-architecture-decomposition.md`
+- `docs/design/2026-02-05-r2-window-management-execution-spec.md`
+- `docs/design/2026-02-05-r3-content-viewer-mvp-spec.md`
+- `docs/design/2026-02-05-r4-storage-conformance-audit.md`
+- `docs/design/2026-02-05-r5-theme-style-profile-architecture.md`
+
+Remaining research-planning step:
+
+- `R6` backlog recomposition into implementation control plane.
 
 ## 2. Non-Negotiable Architecture Constraints
 
