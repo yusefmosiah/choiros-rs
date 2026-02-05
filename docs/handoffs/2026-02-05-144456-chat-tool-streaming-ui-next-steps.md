@@ -87,32 +87,32 @@ Findings are ordered by severity and reference exact doc lines.
 - `research-dioxus-architecture.md:6` claims Dioxus `0.5.7`, but workspace currently builds against `0.7.x`.
 - `research-dioxus-architecture.md:50` says `components.rs` is empty; it now contains active chat UI and tool section rendering.
 
-3. **Medium:** Some “comprehensive” docs listed in summary are not currently present as standalone files under ``.
-- Present at root: `window-management-research.md`, `content-viewer-research.md`, `theme-system-research.md`, `research-dioxus-architecture.md`.
-- Not found as separate files at `*` during this review: drag/drop, mail/calendar, JS interop, file explorer research docs.
+3. **Medium:** Some “comprehensive” docs listed in summary are not currently present as standalone files under `../`.
+- Present at root: `../window-management-research.md`, `../content-viewer-research.md`, `../theme-system-research.md`, `../research-dioxus-architecture.md`.
+- Not found as separate files in `../` during this review: drag/drop, mail/calendar, JS interop, file explorer research docs.
 - Action: either add those docs or update the summary inventory to avoid planning off missing artifacts.
 
 ## Pending Work
 
 ## Immediate Next Steps
-1. Create a short architecture reconciliation note (ADR-style) that defines UI storage policy:
+1. [x] Create a short architecture reconciliation note (ADR-style) that defines UI storage policy:
    - Authoritative domain state (windows/files/messages/tool history/themes if shared) stays in actors/EventStore.
    - Browser persistence limited to optional non-authoritative UX cache and feature flags.
-2. Update research docs with an explicit “ChoirOS Compatibility” section per document:
+2. [x] Update research docs with an explicit “ChoirOS Compatibility” section per document:
    - Keep techniques (e.g., Pointer Events, transforms, lazy loading).
    - Replace storage recommendations that violate backend source-of-truth.
-3. Build a UI implementation backlog from reconciled docs:
+3. [x] Build a UI implementation backlog from reconciled docs:
    - Window management refactor/decomposition.
    - Viewer framework shell (without IndexedDB migration).
    - Theme system via backend-backed preference endpoint first, optional client cache second.
-4. Chat UI follow-up:
-   - Persist/restore tool sections from `GET /chat/{actor_id}/messages` payload mapping (currently WS path has richer tool section UX).
+4. [x] Chat UI follow-up:
+   - Persist/restore tool sections from `GET /chat/{actor_id}/messages` payload mapping.
    - Improve incremental thinking/status chunk UX (optional).
 
 ### Blockers/Open Questions
-- [ ] Decide final policy for browser-side caches: allowed for ephemeral performance hints only, or allowed for non-critical preferences as write-through cache.
+- [x] Decide final policy for browser-side caches: allowed as optional non-authoritative cache/write-through optimization only.
 - [ ] Confirm whether theme preference is user-global (backend profile) or sandbox-local actor state.
-- [ ] Confirm where missing research docs are stored (if not ``).
+- [ ] Confirm where missing research docs are stored (if not `../`).
 
 ### Deferred Items
 - Drag/resize implementation details from research were deferred pending reconciliation policy.
@@ -125,12 +125,12 @@ The immediate priority is not implementing new UI features blindly from research
 
 ### Assumptions Made
 - `ARCHITECTURE_SPECIFICATION.md` is still the canonical contract unless explicitly superseded.
-- Missing research docs in `` may exist elsewhere or were not committed yet.
+- Missing research docs outside `../` may exist elsewhere or were not committed yet.
 - Local browser persistence, if used, should be additive cache, never canonical state.
 
 ### Potential Gotchas
 - Reintroducing duplicate tool events is easy if both “live event stream” and “post-response replay” are active; keep only one emission path.
-- Chat UI currently parses WS tool payloads for expandable sections; API fetch path may still flatten history into generic message text unless endpoint is enhanced.
+- Chat UI tool sections now render from both WS and HTTP history mapping; keep payload prefix format (`__tool_call__:`/`__tool_result__:`) stable across paths.
 - The repo has many unrelated modified files; avoid broad cleanup/reformat while doing focused UI reconciliation tasks.
 
 ## Environment State
@@ -149,11 +149,13 @@ The immediate priority is not implementing new UI features blindly from research
 - `ZAI_API_KEY`
 
 ## Related Resources
-- `ARCHITECTURE_SPECIFICATION.md`
-- `window-management-research.md`
-- `content-viewer-research.md`
-- `theme-system-research.md`
-- `research-dioxus-architecture.md`
+- `../ARCHITECTURE_SPECIFICATION.md`
+- `../window-management-research.md`
+- `../content-viewer-research.md`
+- `../theme-system-research.md`
+- `../research-dioxus-architecture.md`
+- `../design/2026-02-05-ui-storage-reconciliation.md`
+- `../design/2026-02-05-ui-implementation-backlog.md`
 - `../sandbox/src/api/websocket_chat.rs`
 - `../sandbox/src/actors/chat_agent.rs`
 - `../sandbox-ui/src/components.rs`

@@ -6,6 +6,15 @@ This document provides comprehensive research findings and recommendations for i
 
 ---
 
+## ChoirOS Compatibility Notes (2026-02-05)
+
+- Canonical theme preference should be stored in backend actor/EventStore state.
+- Browser `localStorage` can be used only as a write-through/read-through cache to improve
+  startup UX, never as authoritative storage.
+- Conflicts between backend value and cached browser value must resolve in favor of backend.
+
+---
+
 ## 1. Theme Architecture
 
 ### 1.1 Recommended Approach: CSS Custom Properties (Variables)
@@ -238,23 +247,23 @@ pub fn ThemeToggle() -> Element {
 
 ### 3.3 Theme Persistence
 
-**localStorage Approach (Recommended)**
+**Backend-first with Optional localStorage Cache (Recommended)**
 ```rust
-// Store user preference
+// Cache user preference (non-authoritative)
 fn save_theme_preference(theme: &str) {
     window().local_storage()
         .set_item("theme-preference", theme)
         .unwrap();
 }
 
-// Load saved preference on app init
+// Load cached preference on app init
 fn load_theme_preference() -> Option<String> {
     window().local_storage()
         .get_item("theme-preference")
         .ok()?
 }
 
-// Apply theme on app initialization
+// Apply theme on app initialization while backend preference is loading
 fn initialize_theme() {
     let saved = load_theme_preference();
     let system_prefers_dark = window()
@@ -269,7 +278,7 @@ fn initialize_theme() {
 }
 ```
 
-**Backend Storage (for authenticated users)**
+**Backend Storage (authoritative)**
 ```rust
 // Sync with user profile
 async fn sync_theme_to_backend(theme: &str) -> Result<(), ApiError> {
@@ -436,12 +445,12 @@ pub fn generate_share_url(theme: &Theme) -> String {
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Storage Priority (Highest to Lowest)                 │
-│  1. User Account (Database)                     │
+│  1. Backend Actor/EventStore                     │
 │     - Synced across devices                          │
 │     - Persistent across sessions                       │
-│  2. localStorage (Browser)                      │
+│  2. localStorage cache (Browser)                │
 │     - Device-specific                               │
-│     - Survives browser restart                     │
+│     - Fast startup hint, not canonical                 │
 │  3. System Preference (OS)                     │
 │     - Default for new users                        │
 │     - Respects user's OS settings                    │
@@ -459,33 +468,31 @@ pub struct ThemeStorage {
 impl ThemeStorage {
     /// Save theme preference with sync
     pub async fn save_theme(&self, theme_id: &str) -> Result<(), StorageError> {
-        // Save to localStorage (immediate)
-        self.local.set("theme", theme_id)?;
-        
-        // Sync to backend if authenticated (background)
+        // Persist canonical state first
         if let Some(user_id) = self.backend.get_user_id()? {
-            spawn(async move {
-                let _ = self.backend.update_user_theme(user_id, theme_id).await;
-            });
+            self.backend.update_user_theme(user_id, theme_id).await?;
         }
+
+        // Cache in localStorage for startup speed
+        self.local.set("theme", theme_id)?;
         
         Ok(())
     }
     
     /// Load theme with fallback chain
     pub async fn load_theme(&self) -> String {
-        // 1. Try localStorage
-        if let Some(theme) = self.local.get("theme") {
-            return theme;
-        }
-        
-        // 2. Try backend
+        // 1. Try backend first (canonical)
         if let Some(user_id) = self.backend.get_user_id().await {
             if let Ok(Some(theme)) = self.backend.get_user_theme(user_id).await {
                 // Cache to localStorage
                 self.local.set("theme", &theme).ok();
                 return theme;
             }
+        }
+
+        // 2. Use localStorage cache
+        if let Some(theme) = self.local.get("theme") {
+            return theme;
         }
         
         // 3. Fallback to system preference
@@ -1168,7 +1175,7 @@ pub fn ColorPicker(props: ColorPickerProps) -> Element {
 - [ ] Implement light/dark theme tokens
 - [ ] Add `[data-theme]` attribute support
 - [ ] Create theme toggle component
-- [ ] Add localStorage persistence
+- [ ] Add backend preference persistence + localStorage cache
 
 ### Phase 2: Components (Week 2)
 - [ ] Migrate existing components to use CSS variables
@@ -1225,7 +1232,7 @@ sandbox-ui/
 - **Define tokens semantically** (--color-primary, not --blue-500)
 - **Support system preferences** with `prefers-color-scheme`
 - **Provide manual override** for user control
-- **Persist preferences** in localStorage
+- **Persist canonical preferences** in backend actor/EventStore and optionally cache in localStorage
 - **Ensure WCAG compliance** for all color combinations
 - **Test with screen readers** and keyboard navigation
 - **Support reduced motion** preferences

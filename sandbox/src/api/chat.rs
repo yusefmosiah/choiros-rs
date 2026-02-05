@@ -14,6 +14,9 @@ use crate::actor_manager::{ChatActorMsg, ChatAgentMsg};
 use crate::actors::event_store::get_events_for_actor;
 use crate::api::ApiState;
 
+const TOOL_CALL_PREFIX: &str = "__tool_call__:";
+const TOOL_RESULT_PREFIX: &str = "__tool_result__:";
+
 /// Request to send a chat message
 #[derive(Debug, Deserialize)]
 pub struct SendMessageRequest {
@@ -175,45 +178,9 @@ pub async fn get_messages(
 
     match get_events_for_actor(&event_store, actor_id.clone(), 0).await {
         Ok(Ok(events)) => {
-            // Convert events to ChatMessages
             let messages: Vec<shared_types::ChatMessage> = events
                 .into_iter()
-                .filter_map(|event| match event.event_type.as_str() {
-                    shared_types::EVENT_CHAT_USER_MSG => {
-                        if let Ok(text) = serde_json::from_value::<String>(event.payload.clone()) {
-                            Some(shared_types::ChatMessage {
-                                id: event.event_id.clone(),
-                                text,
-                                sender: shared_types::Sender::User,
-                                timestamp: event.timestamp,
-                                pending: false,
-                            })
-                        } else {
-                            None
-                        }
-                    }
-                    shared_types::EVENT_CHAT_ASSISTANT_MSG => {
-                        if let Ok(payload) =
-                            serde_json::from_value::<serde_json::Value>(event.payload.clone())
-                        {
-                            let text = payload
-                                .get("text")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            Some(shared_types::ChatMessage {
-                                id: event.event_id.clone(),
-                                text,
-                                sender: shared_types::Sender::Assistant,
-                                timestamp: event.timestamp,
-                                pending: false,
-                            })
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                })
+                .filter_map(event_to_chat_message)
                 .collect();
 
             (
@@ -242,4 +209,39 @@ pub async fn get_messages(
         )
             .into_response(),
     }
+}
+
+fn event_to_chat_message(event: shared_types::Event) -> Option<shared_types::ChatMessage> {
+    let (text, sender) = match event.event_type.as_str() {
+        shared_types::EVENT_CHAT_USER_MSG => (
+            serde_json::from_value::<String>(event.payload.clone()).ok()?,
+            shared_types::Sender::User,
+        ),
+        shared_types::EVENT_CHAT_ASSISTANT_MSG => {
+            let text = event
+                .payload
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            (text, shared_types::Sender::Assistant)
+        }
+        shared_types::EVENT_CHAT_TOOL_CALL => (
+            format!("{TOOL_CALL_PREFIX}{}", event.payload),
+            shared_types::Sender::System,
+        ),
+        shared_types::EVENT_CHAT_TOOL_RESULT => (
+            format!("{TOOL_RESULT_PREFIX}{}", event.payload),
+            shared_types::Sender::System,
+        ),
+        _ => return None,
+    };
+
+    Some(shared_types::ChatMessage {
+        id: event.event_id,
+        text,
+        sender,
+        timestamp: event.timestamp,
+        pending: false,
+    })
 }

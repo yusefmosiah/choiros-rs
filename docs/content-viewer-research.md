@@ -12,6 +12,14 @@ This document provides a comprehensive research guide for implementing content v
 - **Library options** - Recommended libraries and their trade-offs
 - **Best practices** - Implementation considerations and patterns
 
+## ChoirOS Compatibility Notes (2026-02-05)
+
+- Canonical state policy: actor/EventStore is authoritative for domain state.
+- Browser storage (`IndexedDB`, `localStorage`) is optional cache only and must never be treated
+  as source-of-truth.
+- Viewer content metadata, playlists, and shared preferences must persist via backend APIs/events.
+  Client-side caches may be used for performance with safe invalidation.
+
 ---
 
 ## 1. Text Editor
@@ -167,7 +175,8 @@ require(['vs/editor/editor.main'], function() {
 ### Best Practices
 
 1. **Lazy Loading**: Load editor JS bundle only when text viewer window opens
-2. **Content Caching**: Store document in `IndexedDB` for persistence
+2. **Content Caching**: Optional `IndexedDB` cache for offline/perf; persist canonical content
+   through backend actor APIs/events
 3. **Worker Processing**: Offload syntax highlighting to Web Worker for large files
 4. **Virtual Scrolling**: Implement for files >10,000 lines to maintain performance
 5. **Memory Management**: Destroy editor instance when window closes
@@ -799,7 +808,8 @@ pub async fn parse_pdf(url: String) -> Result<PDFInfo, JsError> {
 - **Queue management**: Add/remove tracks
 - **Shuffle**: Randomize playback order
 - **Repeat**: Loop playlist, loop single track, no repeat
-- **Save/Load**: Persist playlist to IndexedDB
+- **Save/Load**: Persist playlist through backend actor APIs/events; optionally mirror in
+  `IndexedDB` as a non-authoritative cache
 
 #### Audio Visualization
 - **Waveform**: Display audio waveform visualization

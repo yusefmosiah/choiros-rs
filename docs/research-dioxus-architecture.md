@@ -3,7 +3,15 @@
 
 **Research Date:** February 5, 2026
 **Project:** ChoirOS (Dioxus Desktop UI)
-**Dioxus Version:** 0.5.7 (current implementation)
+**Dioxus Version:** 0.7.x (workspace dependency)
+
+## ChoirOS Compatibility Notes (2026-02-05)
+
+- Backend actor/EventStore remains authoritative for domain state; Dioxus signals are projection
+  and optimistic UX state.
+- `components.rs` is active (chat UI + tool call/result sections), not empty.
+- Use this document for decomposition/perf guidance, but apply it within the actor-backed state
+  model from `ARCHITECTURE_SPECIFICATION.md`.
 
 ---
 
@@ -47,7 +55,7 @@ sandbox-ui/
 │   ├── main.rs           # Entry point, launches App
 │   ├── lib.rs            # Module exports
 │   ├── desktop.rs        # Main Desktop component (1043 lines)
-│   ├── components.rs     # UI components (currently empty)
+│   ├── components.rs     # Chat UI + shared UI components
 │   ├── terminal.rs       # TerminalView component (409 lines)
 │   ├── api.rs           # API integration layer (485 lines)
 │   └── interop.rs       # JavaScript interop helpers (93 lines)

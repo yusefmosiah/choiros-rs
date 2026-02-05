@@ -86,10 +86,10 @@ pub async fn fetch_messages(actor_id: &str) -> Result<Vec<ChatMessage>, String> 
         .map(|m| ChatMessage {
             id: m.id,
             text: m.text,
-            sender: if m.sender == "User" {
-                Sender::User
-            } else {
-                Sender::Assistant
+            sender: match m.sender.as_str() {
+                "User" => Sender::User,
+                "System" => Sender::System,
+                _ => Sender::Assistant,
             },
             timestamp: m.timestamp,
             pending: m.pending,
