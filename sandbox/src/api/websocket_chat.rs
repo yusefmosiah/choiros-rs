@@ -12,8 +12,11 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tokio::sync::oneshot;
+use tokio::time::{sleep, Duration};
 
 use crate::actor_manager::{AppState, ChatAgentMsg};
+use crate::actors::event_store::{get_events_for_actor, EventStoreMsg};
 use crate::api::ApiState;
 
 /// Stream chunk types for WebSocket
@@ -193,6 +196,36 @@ async fn handle_chat_socket(
                             }
                         }
 
+                        let last_seq =
+                            match get_events_for_actor(&event_store, actor_id.clone(), 0).await {
+                                Ok(Ok(events)) => events.last().map(|e| e.seq).unwrap_or(0),
+                                Ok(Err(e)) => {
+                                    tracing::warn!(
+                                        actor_id = %actor_id,
+                                        error = %e,
+                                        "Failed to get initial event cursor for tool streaming"
+                                    );
+                                    0
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        actor_id = %actor_id,
+                                        error = %e,
+                                        "EventStore actor error while preparing tool streaming"
+                                    );
+                                    0
+                                }
+                            };
+
+                        let (stream_done_tx, stream_done_rx) = oneshot::channel::<()>();
+                        let stream_task = tokio::spawn(stream_tool_events(
+                            tx_clone.clone(),
+                            event_store.clone(),
+                            actor_id.clone(),
+                            last_seq,
+                            stream_done_rx,
+                        ));
+
                         let agent = app_state
                             .actor_manager
                             .get_or_create_chat_agent(actor_id.clone(), user_id.clone())
@@ -203,6 +236,9 @@ async fn handle_chat_socket(
                             reply,
                         }) {
                             Ok(Ok(resp)) => {
+                                let _ = stream_done_tx.send(());
+                                let _ = stream_task.await;
+
                                 let _ = send_chunk(
                                     &tx_clone,
                                     StreamChunk {
@@ -210,36 +246,6 @@ async fn handle_chat_socket(
                                         content: resp.thinking,
                                     },
                                 );
-
-                                for tool in &resp.tool_calls {
-                                    let _ = send_chunk(
-                                        &tx_clone,
-                                        StreamChunk {
-                                            chunk_type: "tool_call".to_string(),
-                                            content: json!({
-                                                "tool_name": tool.tool_name,
-                                                "tool_args": tool.tool_args,
-                                                "reasoning": tool.reasoning,
-                                            })
-                                            .to_string(),
-                                        },
-                                    );
-
-                                    let output =
-                                        &tool.result.content[..tool.result.content.len().min(500)];
-                                    let _ = send_chunk(
-                                        &tx_clone,
-                                        StreamChunk {
-                                            chunk_type: "tool_result".to_string(),
-                                            content: json!({
-                                                "tool_name": tool.tool_name,
-                                                "success": tool.result.success,
-                                                "output": output,
-                                            })
-                                            .to_string(),
-                                        },
-                                    );
-                                }
 
                                 let _ = send_chunk(
                                     &tx_clone,
@@ -255,6 +261,8 @@ async fn handle_chat_socket(
                                 );
                             }
                             Ok(Err(e)) => {
+                                let _ = stream_done_tx.send(());
+                                let _ = stream_task.await;
                                 tracing::error!(
                                     actor_id = %actor_id,
                                     error = %e,
@@ -263,6 +271,8 @@ async fn handle_chat_socket(
                                 let _ = send_error(&tx_clone, "Failed to process message");
                             }
                             Err(e) => {
+                                let _ = stream_done_tx.send(());
+                                let _ = stream_task.await;
                                 tracing::error!(
                                     actor_id = %actor_id,
                                     error = %e,
@@ -375,4 +385,81 @@ fn send_error(tx: &mpsc::UnboundedSender<Message>, message: &str) -> bool {
         .into(),
     ))
     .is_ok()
+}
+
+async fn stream_tool_events(
+    tx: mpsc::UnboundedSender<Message>,
+    event_store: ractor::ActorRef<EventStoreMsg>,
+    actor_id: String,
+    mut since_seq: i64,
+    mut done: oneshot::Receiver<()>,
+) {
+    loop {
+        tokio::select! {
+            _ = sleep(Duration::from_millis(120)) => {
+                if !emit_tool_events_since(&tx, &event_store, &actor_id, &mut since_seq).await {
+                    return;
+                }
+            }
+            _ = &mut done => {
+                let _ = emit_tool_events_since(&tx, &event_store, &actor_id, &mut since_seq).await;
+                return;
+            }
+        }
+    }
+}
+
+async fn emit_tool_events_since(
+    tx: &mpsc::UnboundedSender<Message>,
+    event_store: &ractor::ActorRef<EventStoreMsg>,
+    actor_id: &str,
+    since_seq: &mut i64,
+) -> bool {
+    let events = match get_events_for_actor(event_store, actor_id.to_string(), *since_seq).await {
+        Ok(Ok(events)) => events,
+        Ok(Err(e)) => {
+            tracing::warn!(
+                actor_id = %actor_id,
+                error = %e,
+                "Failed to fetch incremental events for tool streaming"
+            );
+            return true;
+        }
+        Err(e) => {
+            tracing::warn!(
+                actor_id = %actor_id,
+                error = %e,
+                "EventStore actor error while fetching incremental tool events"
+            );
+            return true;
+        }
+    };
+
+    for event in events {
+        *since_seq = (*since_seq).max(event.seq);
+
+        match event.event_type.as_str() {
+            shared_types::EVENT_CHAT_TOOL_CALL => {
+                let _ = send_chunk(
+                    tx,
+                    StreamChunk {
+                        chunk_type: "tool_call".to_string(),
+                        content: event.payload.to_string(),
+                    },
+                );
+            }
+            shared_types::EVENT_CHAT_TOOL_RESULT => {
+                let _ = send_chunk(
+                    tx,
+                    StreamChunk {
+                        chunk_type: "tool_result".to_string(),
+                        content: event.payload.to_string(),
+                    },
+                );
+            }
+            _ => {}
+        }
+    }
+
+    true
 }

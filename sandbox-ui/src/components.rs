@@ -8,6 +8,9 @@ use web_sys::{CloseEvent, ErrorEvent, Event, MessageEvent, WebSocket};
 
 use crate::api::{fetch_messages, send_chat_message};
 
+const TOOL_CALL_PREFIX: &str = "__tool_call__:";
+const TOOL_RESULT_PREFIX: &str = "__tool_result__:";
+
 struct ChatRuntime {
     ws: WebSocket,
     _on_open: Closure<dyn FnMut(Event)>,
@@ -89,7 +92,7 @@ pub fn ChatView(actor_id: String) -> Element {
                 }
                 "tool_call" => {
                     let content = json.get("content").and_then(|v| v.as_str()).unwrap_or("");
-                    let text = parse_tool_call_text(content);
+                    let text = format!("{TOOL_CALL_PREFIX}{content}");
                     if !text.is_empty() {
                         let mut list = messages_message.write();
                         list.push(ChatMessage {
@@ -103,7 +106,7 @@ pub fn ChatView(actor_id: String) -> Element {
                 }
                 "tool_result" => {
                     let content = json.get("content").and_then(|v| v.as_str()).unwrap_or("");
-                    let text = parse_tool_result_text(content);
+                    let text = format!("{TOOL_RESULT_PREFIX}{content}");
                     if !text.is_empty() {
                         let mut list = messages_message.write();
                         list.push(ChatMessage {
@@ -349,16 +352,41 @@ pub fn ChatView(actor_id: String) -> Element {
 #[component]
 pub fn MessageBubble(message: ChatMessage) -> Element {
     let is_user = matches!(message.sender, Sender::User);
-    let sender_name = if is_user { "You" } else { "Assistant" };
-    let sender_initial = if is_user { "Y" } else { "A" };
+    let is_system = matches!(message.sender, Sender::System);
+    let sender_name = if is_user {
+        "You"
+    } else if is_system {
+        "Tools"
+    } else {
+        "Assistant"
+    };
+    let sender_initial = if is_user {
+        "Y"
+    } else if is_system {
+        "T"
+    } else {
+        "A"
+    };
 
     rsx! {
         div {
-            class: if is_user { "message-row user-row" } else { "message-row assistant-row" },
+            class: if is_user {
+                "message-row user-row"
+            } else if is_system {
+                "message-row system-row"
+            } else {
+                "message-row assistant-row"
+            },
 
             // Avatar
             div {
-                class: if is_user { "avatar user-avatar" } else { "avatar assistant-avatar" },
+                class: if is_user {
+                    "avatar user-avatar"
+                } else if is_system {
+                    "avatar system-avatar"
+                } else {
+                    "avatar assistant-avatar"
+                },
                 "{sender_initial}"
             }
 
@@ -377,9 +405,21 @@ pub fn MessageBubble(message: ChatMessage) -> Element {
                 }
 
                 // Message bubble
-                div {
-                    class: if is_user { "message-bubble user-bubble" } else { "message-bubble assistant-bubble" },
-                    "{message.text}"
+                if let Some(payload) = parse_tool_payload(&message.text, TOOL_CALL_PREFIX) {
+                    ToolCallSection { payload: payload.clone() }
+                } else if let Some(payload) = parse_tool_payload(&message.text, TOOL_RESULT_PREFIX) {
+                    ToolResultSection { payload: payload.clone() }
+                } else {
+                    div {
+                        class: if is_user {
+                            "message-bubble user-bubble"
+                        } else if is_system {
+                            "message-bubble system-bubble"
+                        } else {
+                            "message-bubble assistant-bubble"
+                        },
+                        "{message.text}"
+                    }
                 }
             }
         }
@@ -425,49 +465,95 @@ fn parse_chat_response_text(content: &str) -> String {
     content.to_string()
 }
 
-fn parse_tool_call_text(content: &str) -> String {
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
-        let tool_name = json
-            .get("tool_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown_tool");
-        let reasoning = json
-            .get("reasoning")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default();
-
-        if reasoning.is_empty() {
-            return format!("Running tool: {tool_name}");
-        }
-        return format!("Running tool: {tool_name} ({reasoning})");
-    }
-    String::new()
+fn parse_tool_payload(text: &str, prefix: &str) -> Option<serde_json::Value> {
+    let payload = text.strip_prefix(prefix)?;
+    serde_json::from_str::<serde_json::Value>(payload).ok()
 }
 
-fn parse_tool_result_text(content: &str) -> String {
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
-        let tool_name = json
-            .get("tool_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown_tool");
-        let success = json
-            .get("success")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let output = json
-            .get("output")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default();
-
-        let status = if success { "success" } else { "failed" };
-        if output.trim().is_empty() {
-            return format!("Tool {tool_name} {status}.");
-        }
-
-        let preview: String = output.chars().take(200).collect();
-        return format!("Tool {tool_name} {status}: {preview}");
+fn format_tool_args(raw: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(raw) {
+        Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_else(|_| raw.to_string()),
+        Err(_) => raw.to_string(),
     }
-    String::new()
+}
+
+#[component]
+fn ToolCallSection(payload: serde_json::Value) -> Element {
+    let tool_name = payload
+        .get("tool_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown_tool");
+    let tool_args = payload
+        .get("tool_args")
+        .and_then(|v| v.as_str())
+        .unwrap_or("{}");
+    let reasoning = payload
+        .get("reasoning")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let tool_args_formatted = format_tool_args(tool_args);
+
+    rsx! {
+        details {
+            class: "tool-details",
+            summary {
+                class: "tool-summary",
+                "Tool call: {tool_name}"
+            }
+            div {
+                class: "tool-body",
+                if !reasoning.is_empty() {
+                    p { class: "tool-meta", "Reasoning: {reasoning}" }
+                }
+                p { class: "tool-label", "Arguments" }
+                pre { class: "tool-pre", "{tool_args_formatted}" }
+            }
+        }
+    }
+}
+
+#[component]
+fn ToolResultSection(payload: serde_json::Value) -> Element {
+    let tool_name = payload
+        .get("tool_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown_tool");
+    let success = payload
+        .get("success")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let output = payload
+        .get("output")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let error = payload
+        .get("error")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let status = if success { "success" } else { "failed" };
+    let details_text = if !error.is_empty() {
+        error.to_string()
+    } else {
+        output.to_string()
+    };
+
+    rsx! {
+        details {
+            class: "tool-details",
+            summary {
+                class: "tool-summary",
+                "Tool result: {tool_name} ({status})"
+            }
+            div {
+                class: "tool-body",
+                if !details_text.trim().is_empty() {
+                    pre { class: "tool-pre", "{details_text}" }
+                } else {
+                    p { class: "tool-meta", "No output" }
+                }
+            }
+        }
+    }
 }
 
 fn clear_pending_user_message(messages: &mut Vec<ChatMessage>) {
@@ -626,6 +712,10 @@ const CHAT_STYLES: &str = r#"
     flex-direction: row;
 }
 
+.system-row {
+    flex-direction: row;
+}
+
 /* Avatar */
 .avatar {
     width: 2rem;
@@ -650,6 +740,11 @@ const CHAT_STYLES: &str = r#"
     border: 1px solid var(--border-color, #334155);
 }
 
+.system-avatar {
+    background: #115e59;
+    color: #f0fdfa;
+}
+
 /* Message Content */
 .message-content {
     display: flex;
@@ -663,6 +758,10 @@ const CHAT_STYLES: &str = r#"
 }
 
 .assistant-row .message-content {
+    align-items: flex-start;
+}
+
+.system-row .message-content {
     align-items: flex-start;
 }
 
@@ -713,6 +812,58 @@ const CHAT_STYLES: &str = r#"
     color: var(--text-primary, #f8fafc);
     border: 1px solid var(--border-color, #334155);
     border-bottom-left-radius: 0.25rem;
+}
+
+.system-bubble {
+    background: #111827;
+    color: #e5e7eb;
+    border: 1px solid #374151;
+    border-bottom-left-radius: 0.25rem;
+}
+
+.tool-details {
+    width: 100%;
+    background: #111827;
+    border: 1px solid #374151;
+    border-radius: 0.75rem;
+    padding: 0.5rem 0.75rem;
+}
+
+.tool-summary {
+    cursor: pointer;
+    color: #93c5fd;
+    font-weight: 600;
+}
+
+.tool-body {
+    margin-top: 0.5rem;
+}
+
+.tool-label {
+    margin: 0.25rem 0;
+    color: #cbd5e1;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.tool-meta {
+    margin: 0 0 0.5rem 0;
+    color: #cbd5e1;
+    font-size: 0.8rem;
+}
+
+.tool-pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #030712;
+    border: 1px solid #374151;
+    border-radius: 0.5rem;
+    padding: 0.5rem;
+    color: #e2e8f0;
+    font-size: 0.78rem;
+    max-height: 260px;
+    overflow: auto;
 }
 
 /* Typing Indicator */
