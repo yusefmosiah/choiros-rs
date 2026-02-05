@@ -54,18 +54,16 @@ pub async fn open_window(
     // Get or create DesktopActor
     let desktop = app_state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string()).await;
+        .get_or_create_desktop(desktop_id, "system".to_string())
+        .await;
 
     // Use ractor call pattern
-    match ractor::call!(
-        desktop,
-        |reply| DesktopActorMsg::OpenWindow {
-            app_id: req.app_id.clone(),
-            title: req.title.clone(),
-            props: req.props.clone(),
-            reply,
-        }
-    ) {
+    match ractor::call!(desktop, |reply| DesktopActorMsg::OpenWindow {
+        app_id: req.app_id.clone(),
+        title: req.title.clone(),
+        props: req.props.clone(),
+        reply,
+    }) {
         Ok(Ok(window)) => (
             StatusCode::OK,
             Json(OpenWindowResponse {
@@ -105,7 +103,8 @@ pub async fn get_windows(
 
     let desktop = app_state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string()).await;
+        .get_or_create_desktop(desktop_id, "system".to_string())
+        .await;
 
     // Use ractor call pattern
     match ractor::call!(desktop, |reply| DesktopActorMsg::GetWindows { reply }) {
@@ -137,16 +136,14 @@ pub async fn close_window(
 
     let desktop = app_state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string()).await;
+        .get_or_create_desktop(desktop_id, "system".to_string())
+        .await;
 
     // Use ractor call pattern
-    match ractor::call!(
-        desktop,
-        |reply| DesktopActorMsg::CloseWindow {
-            window_id: window_id.clone(),
-            reply,
-        }
-    ) {
+    match ractor::call!(desktop, |reply| DesktopActorMsg::CloseWindow {
+        window_id: window_id.clone(),
+        reply,
+    }) {
         Ok(Ok(())) => (
             StatusCode::OK,
             Json(json!({
@@ -184,18 +181,16 @@ pub async fn move_window(
 
     let desktop = app_state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string()).await;
+        .get_or_create_desktop(desktop_id, "system".to_string())
+        .await;
 
     // Use ractor call pattern
-    match ractor::call!(
-        desktop,
-        |reply| DesktopActorMsg::MoveWindow {
-            window_id: window_id.clone(),
-            x: req.x,
-            y: req.y,
-            reply,
-        }
-    ) {
+    match ractor::call!(desktop, |reply| DesktopActorMsg::MoveWindow {
+        window_id: window_id.clone(),
+        x: req.x,
+        y: req.y,
+        reply,
+    }) {
         Ok(Ok(())) => (
             StatusCode::OK,
             Json(json!({
@@ -233,18 +228,16 @@ pub async fn resize_window(
 
     let desktop = app_state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string()).await;
+        .get_or_create_desktop(desktop_id, "system".to_string())
+        .await;
 
     // Use ractor call pattern
-    match ractor::call!(
-        desktop,
-        |reply| DesktopActorMsg::ResizeWindow {
-            window_id: window_id.clone(),
-            width: req.width,
-            height: req.height,
-            reply,
-        }
-    ) {
+    match ractor::call!(desktop, |reply| DesktopActorMsg::ResizeWindow {
+        window_id: window_id.clone(),
+        width: req.width,
+        height: req.height,
+        reply,
+    }) {
         Ok(Ok(())) => (
             StatusCode::OK,
             Json(json!({
@@ -281,16 +274,14 @@ pub async fn focus_window(
 
     let desktop = app_state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string()).await;
+        .get_or_create_desktop(desktop_id, "system".to_string())
+        .await;
 
     // Use ractor call pattern
-    match ractor::call!(
-        desktop,
-        |reply| DesktopActorMsg::FocusWindow {
-            window_id: window_id.clone(),
-            reply,
-        }
-    ) {
+    match ractor::call!(desktop, |reply| DesktopActorMsg::FocusWindow {
+        window_id: window_id.clone(),
+        reply,
+    }) {
         Ok(Ok(())) => (
             StatusCode::OK,
             Json(json!({
@@ -327,7 +318,8 @@ pub async fn get_desktop_state(
 
     let desktop = app_state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string()).await;
+        .get_or_create_desktop(desktop_id, "system".to_string())
+        .await;
 
     // Use ractor call pattern
     match ractor::call!(desktop, |reply| DesktopActorMsg::GetDesktopState { reply }) {
@@ -360,16 +352,14 @@ pub async fn register_app(
 
     let desktop = app_state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string()).await;
+        .get_or_create_desktop(desktop_id, "system".to_string())
+        .await;
 
     // Use ractor call pattern
-    match ractor::call!(
-        desktop,
-        |reply| DesktopActorMsg::RegisterApp {
-            app: req,
-            reply,
-        }
-    ) {
+    match ractor::call!(desktop, |reply| DesktopActorMsg::RegisterApp {
+        app: req,
+        reply,
+    }) {
         Ok(Ok(())) => (
             StatusCode::OK,
             Json(json!({
@@ -406,7 +396,8 @@ pub async fn get_apps(
 
     let desktop = app_state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string()).await;
+        .get_or_create_desktop(desktop_id, "system".to_string())
+        .await;
 
     // Use ractor call pattern
     match ractor::call!(desktop, |reply| DesktopActorMsg::GetApps { reply }) {

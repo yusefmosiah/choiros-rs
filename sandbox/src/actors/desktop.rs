@@ -100,9 +100,7 @@ pub enum DesktopActorMsg {
         reply: RpcReplyPort<Vec<shared_types::AppDefinition>>,
     },
     /// Sync events (from EventStore)
-    SyncEvents {
-        events: Vec<shared_types::Event>,
-    },
+    SyncEvents { events: Vec<shared_types::Event> },
     /// Get actor info
     GetActorInfo {
         reply: RpcReplyPort<(String, String)>,
@@ -256,7 +254,9 @@ impl Actor for DesktopActor {
                 height,
                 reply,
             } => {
-                let result = self.handle_resize_window(window_id, width, height, state).await;
+                let result = self
+                    .handle_resize_window(window_id, width, height, state)
+                    .await;
                 let _ = reply.send(result);
             }
             DesktopActorMsg::FocusWindow { window_id, reply } => {
@@ -406,16 +406,20 @@ impl DesktopActor {
     }
 
     /// Sync with EventStore - load historical events
-    async fn sync_with_event_store(&self, state: &mut DesktopState) -> Option<Vec<shared_types::Event>> {
-        let result: Result<Result<Vec<shared_types::Event>, EventStoreError>, ractor::RactorErr<EventStoreMsg>> =
-            ractor::call!(
-                &state.event_store,
-                |reply| EventStoreMsg::GetEventsForActor {
-                    actor_id: state.desktop_id.clone(),
-                    since_seq: state.last_seq,
-                    reply,
-                }
-            );
+    async fn sync_with_event_store(
+        &self,
+        state: &mut DesktopState,
+    ) -> Option<Vec<shared_types::Event>> {
+        let result: Result<
+            Result<Vec<shared_types::Event>, EventStoreError>,
+            ractor::RactorErr<EventStoreMsg>,
+        > = ractor::call!(&state.event_store, |reply| {
+            EventStoreMsg::GetEventsForActor {
+                actor_id: state.desktop_id.clone(),
+                since_seq: state.last_seq,
+                reply,
+            }
+        });
 
         match result {
             Ok(Ok(events)) => Some(events),
@@ -430,19 +434,18 @@ impl DesktopActor {
         payload: serde_json::Value,
         state: &DesktopState,
     ) -> Result<(), DesktopError> {
-        let result: Result<Result<shared_types::Event, EventStoreError>, ractor::RactorErr<EventStoreMsg>> =
-            ractor::call!(
-                &state.event_store,
-                |reply| EventStoreMsg::Append {
-                    event: AppendEvent {
-                        event_type: event_type.to_string(),
-                        payload,
-                        actor_id: state.desktop_id.clone(),
-                        user_id: state.user_id.clone(),
-                    },
-                    reply,
-                }
-            );
+        let result: Result<
+            Result<shared_types::Event, EventStoreError>,
+            ractor::RactorErr<EventStoreMsg>,
+        > = ractor::call!(&state.event_store, |reply| EventStoreMsg::Append {
+            event: AppendEvent {
+                event_type: event_type.to_string(),
+                payload,
+                actor_id: state.desktop_id.clone(),
+                user_id: state.user_id.clone(),
+            },
+            reply,
+        });
 
         match result {
             Ok(Ok(_)) => Ok(()),
@@ -459,19 +462,18 @@ impl DesktopActor {
         payload: serde_json::Value,
         state: &DesktopState,
     ) -> Result<shared_types::Event, DesktopError> {
-        let result: Result<Result<shared_types::Event, EventStoreError>, ractor::RactorErr<EventStoreMsg>> =
-            ractor::call!(
-                &state.event_store,
-                |reply| EventStoreMsg::Append {
-                    event: AppendEvent {
-                        event_type: event_type.to_string(),
-                        payload,
-                        actor_id: state.desktop_id.clone(),
-                        user_id: state.user_id.clone(),
-                    },
-                    reply,
-                }
-            );
+        let result: Result<
+            Result<shared_types::Event, EventStoreError>,
+            ractor::RactorErr<EventStoreMsg>,
+        > = ractor::call!(&state.event_store, |reply| EventStoreMsg::Append {
+            event: AppendEvent {
+                event_type: event_type.to_string(),
+                payload,
+                actor_id: state.desktop_id.clone(),
+                user_id: state.user_id.clone(),
+            },
+            reply,
+        });
 
         match result {
             Ok(Ok(event)) => Ok(event),
@@ -519,7 +521,8 @@ impl DesktopActor {
 
         // Append event to EventStore
         let payload = serde_json::to_value(&window)?;
-        self.append_event_unit(EVENT_WINDOW_OPENED, payload, state).await?;
+        self.append_event_unit(EVENT_WINDOW_OPENED, payload, state)
+            .await?;
 
         Ok(window)
     }
@@ -541,7 +544,8 @@ impl DesktopActor {
 
         // Append event
         let payload = serde_json::json!({"window_id": window_id});
-        self.append_event_unit(EVENT_WINDOW_CLOSED, payload, state).await
+        self.append_event_unit(EVENT_WINDOW_CLOSED, payload, state)
+            .await
     }
 
     async fn handle_move_window(
@@ -565,7 +569,8 @@ impl DesktopActor {
             "x": x,
             "y": y,
         });
-        self.append_event_unit(EVENT_WINDOW_MOVED, payload, state).await
+        self.append_event_unit(EVENT_WINDOW_MOVED, payload, state)
+            .await
     }
 
     async fn handle_resize_window(
@@ -589,7 +594,8 @@ impl DesktopActor {
             "width": width,
             "height": height,
         });
-        self.append_event_unit(EVENT_WINDOW_RESIZED, payload, state).await
+        self.append_event_unit(EVENT_WINDOW_RESIZED, payload, state)
+            .await
     }
 
     async fn handle_focus_window(
@@ -612,7 +618,8 @@ impl DesktopActor {
 
         // Append event
         let payload = serde_json::json!({"window_id": window_id});
-        self.append_event_unit(EVENT_WINDOW_FOCUSED, payload, state).await
+        self.append_event_unit(EVENT_WINDOW_FOCUSED, payload, state)
+            .await
     }
 
     fn handle_get_windows(&self, state: &DesktopState) -> Vec<shared_types::WindowState> {
@@ -670,7 +677,8 @@ impl DesktopActor {
 
         // Append event
         let payload = serde_json::to_value(&app)?;
-        self.append_event_unit(EVENT_APP_REGISTERED, payload, state).await
+        self.append_event_unit(EVENT_APP_REGISTERED, payload, state)
+            .await
     }
 
     fn handle_get_apps(&self, state: &DesktopState) -> Vec<shared_types::AppDefinition> {
@@ -783,7 +791,9 @@ pub async fn sync_events(
     desktop: &ActorRef<DesktopActorMsg>,
     events: Vec<shared_types::Event>,
 ) -> Result<(), ractor::RactorErr<DesktopActorMsg>> {
-    desktop.cast(DesktopActorMsg::SyncEvents { events }).map_err(|e| ractor::RactorErr::from(e))
+    desktop
+        .cast(DesktopActorMsg::SyncEvents { events })
+        .map_err(|e| ractor::RactorErr::from(e))
 }
 
 /// Convenience function to get actor info
@@ -809,13 +819,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_open_window_creates_window() {
-        let (event_store, _handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (event_store, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         let (desktop, _handle) = Actor::spawn(
             None,
@@ -868,13 +875,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_open_window_unknown_app_fails() {
-        let (event_store, _handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (event_store, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         let (desktop, _handle) = Actor::spawn(
             None,
@@ -906,13 +910,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_close_window_removes_it() {
-        let (event_store, _handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (event_store, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         let (desktop, _handle) = Actor::spawn(
             None,
@@ -967,13 +968,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_move_window_updates_position() {
-        let (event_store, _handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (event_store, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         let (desktop, _handle) = Actor::spawn(
             None,
@@ -1029,13 +1027,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_focus_window_brings_to_front() {
-        let (event_store, _handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (event_store, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         let (desktop, _handle) = Actor::spawn(
             None,
@@ -1095,13 +1090,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_desktop_state() {
-        let (event_store, _handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (event_store, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         let (desktop, _handle) = Actor::spawn(
             None,
@@ -1153,13 +1145,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_register_app() {
-        let (event_store, _handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (event_store, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         let (desktop, _handle) = Actor::spawn(
             None,

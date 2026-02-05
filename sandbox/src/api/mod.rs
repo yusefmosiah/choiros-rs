@@ -79,10 +79,7 @@ pub fn router() -> Router<ApiState> {
             get(terminal::terminal_websocket),
         )
         // Chat agent WebSocket routes
-        .route(
-            "/ws/chat/{actor_id}",
-            get(websocket_chat::chat_websocket),
-        )
+        .route("/ws/chat/{actor_id}", get(websocket_chat::chat_websocket))
         .route(
             "/ws/chat/{actor_id}/{user_id}",
             get(websocket_chat::chat_websocket_with_user),

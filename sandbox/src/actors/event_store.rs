@@ -81,8 +81,6 @@ pub enum EventStoreMsg {
     },
 }
 
-
-
 impl EventStoreActor {
     async fn new_with_path(database_path: &str) -> Result<Connection, libsql::Error> {
         // Ensure parent directory exists for file-based databases
@@ -198,7 +196,9 @@ impl Actor for EventStoreActor {
                 since_seq,
                 reply,
             } => {
-                let result = self.handle_get_events_for_actor(actor_id, since_seq, state).await;
+                let result = self
+                    .handle_get_events_for_actor(actor_id, since_seq, state)
+                    .await;
                 let _ = reply.send(result);
             }
             EventStoreMsg::GetEventBySeq { seq, reply } => {
@@ -377,8 +377,9 @@ impl EventStoreActor {
         while let Some(row) = rows.next().await? {
             // Parse SQLite datetime format: "2026-01-31 02:24:30"
             let timestamp_str: String = row.get(2)?;
-            let naive_dt = chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
-                .map_err(|e| EventStoreError::InvalidTimestamp(e.to_string()))?;
+            let naive_dt =
+                chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
+                    .map_err(|e| EventStoreError::InvalidTimestamp(e.to_string()))?;
 
             let event = shared_types::Event {
                 seq: row.get(0)?,
@@ -417,11 +418,9 @@ impl EventStoreActor {
             Some(row) => {
                 // Parse SQLite datetime format: "2026-01-31 02:24:30"
                 let timestamp_str: String = row.get(2)?;
-                let naive_dt = chrono::NaiveDateTime::parse_from_str(
-                    &timestamp_str,
-                    "%Y-%m-%d %H:%M:%S",
-                )
-                .map_err(|e| EventStoreError::InvalidTimestamp(e.to_string()))?;
+                let naive_dt =
+                    chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
+                        .map_err(|e| EventStoreError::InvalidTimestamp(e.to_string()))?;
 
                 let event = shared_types::Event {
                     seq: row.get(0)?,
@@ -448,10 +447,7 @@ pub async fn append_event(
     store: &ActorRef<EventStoreMsg>,
     event: AppendEvent,
 ) -> Result<Result<shared_types::Event, EventStoreError>, ractor::RactorErr<EventStoreMsg>> {
-    ractor::call!(store, |reply| EventStoreMsg::Append {
-        event,
-        reply,
-    })
+    ractor::call!(store, |reply| EventStoreMsg::Append { event, reply })
 }
 
 /// Convenience function to get events for an actor
@@ -471,7 +467,8 @@ pub async fn get_events_for_actor(
 pub async fn get_event_by_seq(
     store: &ActorRef<EventStoreMsg>,
     seq: i64,
-) -> Result<Result<Option<shared_types::Event>, EventStoreError>, ractor::RactorErr<EventStoreMsg>> {
+) -> Result<Result<Option<shared_types::Event>, EventStoreError>, ractor::RactorErr<EventStoreMsg>>
+{
     ractor::call!(store, |reply| EventStoreMsg::GetEventBySeq { seq, reply })
 }
 
@@ -486,13 +483,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_append_and_retrieve_event() {
-        let (store_ref, _handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (store_ref, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         // Append an event
         let event = append_event(
@@ -527,13 +521,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_events_since_seq() {
-        let (store_ref, _handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (store_ref, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         // Append multiple events
         for i in 0..5 {
@@ -569,13 +560,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_events_isolated_by_actor() {
-        let (store_ref, _handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (store_ref, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         // Events for different actors
         append_event(

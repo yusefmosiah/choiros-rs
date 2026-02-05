@@ -7,7 +7,6 @@
 
 use async_trait::async_trait;
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
@@ -16,14 +15,7 @@ use crate::baml_client::ClientRegistry;
 use crate::tools::{ToolError, ToolOutput, ToolRegistry};
 
 /// ChatAgent - AI assistant with planning and tool execution capabilities
-pub struct ChatAgent {
-    actor_id: String,
-    user_id: String,
-    messages: Vec<BamlMessage>,
-    tool_registry: Arc<ToolRegistry>,
-    current_model: String,
-    conversation_context: HashMap<String, String>,
-}
+pub struct ChatAgent;
 
 /// Arguments for spawning ChatAgent
 #[derive(Debug, Clone)]
@@ -36,6 +28,9 @@ pub struct ChatAgentArguments {
 /// State for ChatAgent
 pub struct ChatAgentState {
     args: ChatAgentArguments,
+    messages: Vec<BamlMessage>,
+    tool_registry: Arc<ToolRegistry>,
+    current_model: String,
 }
 
 // ============================================================================
@@ -60,9 +55,7 @@ pub enum ChatAgentMsg {
         reply: RpcReplyPort<Vec<BamlMessage>>,
     },
     /// Get available tools list
-    GetAvailableTools {
-        reply: RpcReplyPort<Vec<String>>,
-    },
+    GetAvailableTools { reply: RpcReplyPort<Vec<String>> },
     /// Execute a specific tool (for testing/debugging)
     ExecuteTool {
         tool_name: String,
@@ -113,6 +106,9 @@ pub enum ChatAgentError {
 
     #[error("Invalid model: {0}")]
     InvalidModel(String),
+
+    #[error("Validation error: {0}")]
+    Validation(String),
 }
 
 impl From<serde_json::Error> for ChatAgentError {
@@ -128,23 +124,14 @@ impl From<serde_json::Error> for ChatAgentError {
 impl ChatAgent {
     /// Create a new ChatAgent actor instance
     pub fn new() -> Self {
-        Self {
-            actor_id: String::new(),
-            user_id: String::new(),
-            messages: Vec::new(),
-            tool_registry: Arc::new(ToolRegistry::new()),
-            current_model: "ClaudeBedrock".to_string(),
-            conversation_context: HashMap::new(),
-        }
+        Self
     }
 
-    /// Get available tools description for BAML prompt
-    fn get_tools_description(&self) -> String {
-        self.tool_registry.descriptions()
+    fn get_tools_description(state: &ChatAgentState) -> String {
+        state.tool_registry.descriptions()
     }
 
-    /// Get system context for agent planning
-    fn get_system_context(&self, state: &ChatAgentState) -> String {
+    fn get_system_context(state: &ChatAgentState) -> String {
         format!(
             r#"You are ChoirOS, an AI assistant in a web desktop environment.
 
@@ -161,11 +148,75 @@ You have access to tools for:
 
 Be helpful, accurate, and concise. Use tools when needed to complete user requests."#,
             state.args.user_id,
-            self.actor_id,
+            state.args.actor_id,
             std::env::current_dir()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|_| ".".to_string())
         )
+    }
+
+    fn create_client_registry(current_model: &str) -> ClientRegistry {
+        let mut cr = ClientRegistry::new();
+
+        match current_model {
+            "GLM47" => {
+                let mut glm_options = std::collections::HashMap::new();
+                glm_options.insert("api_key".to_string(), serde_json::json!("env.ZAI_API_KEY"));
+                glm_options.insert(
+                    "base_url".to_string(),
+                    serde_json::json!("https://api.z.ai/api/anthropic"),
+                );
+                glm_options.insert("model".to_string(), serde_json::json!("glm-4.7"));
+                // Keep alias as ClaudeBedrock since BAML functions target this client name.
+                cr.add_llm_client("ClaudeBedrock", "anthropic", glm_options);
+            }
+            _ => {
+                let mut bedrock_options = std::collections::HashMap::new();
+                bedrock_options.insert(
+                    "model".to_string(),
+                    serde_json::json!("us.anthropic.claude-opus-4-5-20251101-v1:0"),
+                );
+                bedrock_options.insert("region".to_string(), serde_json::json!("us-east-1"));
+                cr.add_llm_client("ClaudeBedrock", "aws-bedrock", bedrock_options);
+            }
+        }
+
+        cr
+    }
+
+    fn history_from_events(events: Vec<shared_types::Event>) -> Vec<BamlMessage> {
+        let mut history = Vec::new();
+
+        for event in events {
+            match event.event_type.as_str() {
+                shared_types::EVENT_CHAT_USER_MSG => {
+                    if let Ok(text) = serde_json::from_value::<String>(event.payload) {
+                        history.push(BamlMessage {
+                            role: "user".to_string(),
+                            content: text,
+                        });
+                    }
+                }
+                shared_types::EVENT_CHAT_ASSISTANT_MSG => {
+                    let text = event
+                        .payload
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+
+                    if !text.is_empty() {
+                        history.push(BamlMessage {
+                            role: "assistant".to_string(),
+                            content: text,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        history
     }
 
     /// Log an event to the EventStore using RPC
@@ -174,18 +225,18 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         state: &ChatAgentState,
         event_type: &str,
         payload: serde_json::Value,
+        user_id: String,
     ) -> Result<(), ChatAgentError> {
         let event = AppendEvent {
             event_type: event_type.to_string(),
             payload,
-            actor_id: self.actor_id.clone(),
-            user_id: self.user_id.clone(),
+            actor_id: state.args.actor_id.clone(),
+            user_id,
         };
 
-        let result = ractor::call!(
-            state.args.event_store,
-            |reply| EventStoreMsg::Append { event, reply }
-        );
+        let result = ractor::call!(state.args.event_store.clone(), |reply| {
+            EventStoreMsg::Append { event, reply }
+        });
 
         match result {
             Ok(Ok(_)) => Ok(()),
@@ -196,85 +247,85 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
 
     /// Handle ProcessMessage
     async fn handle_process_message(
-        &mut self,
-        state: &ChatAgentState,
+        &self,
+        state: &mut ChatAgentState,
         text: String,
     ) -> Result<AgentResponse, ChatAgentError> {
-        let actor_id = self.actor_id.clone();
-        let tools_description = self.get_tools_description();
-        let system_context = self.get_system_context(state);
-        let current_model = self.current_model.clone();
+        let user_text = text.trim().to_string();
+        if user_text.is_empty() {
+            return Err(ChatAgentError::Validation(
+                "Message cannot be empty".to_string(),
+            ));
+        }
 
-        // Add user message to conversation history
-        self.messages.push(BamlMessage {
+        state.messages.push(BamlMessage {
             role: "user".to_string(),
-            content: text.clone(),
+            content: user_text.clone(),
         });
 
-        let messages = self.messages.clone();
-        let user_text_async = text.clone();
+        let tools_description = Self::get_tools_description(state);
+        let system_context = Self::get_system_context(state);
+        let current_model = state.current_model.clone();
+        let client_registry = Self::create_client_registry(&current_model);
 
-        // Create client registry
-        let client_registry = {
-            let mut cr = ClientRegistry::new();
-            let mut bedrock_options = std::collections::HashMap::new();
-            bedrock_options.insert(
-                "model".to_string(),
-                serde_json::json!("us.anthropic.claude-opus-4-5-20251101-v1:0"),
-            );
-            bedrock_options.insert("region".to_string(), serde_json::json!("us-east-1"));
-            cr.add_llm_client("ClaudeBedrock", "aws-bedrock", bedrock_options);
-            cr
-        };
-
-        // Step 1: Plan the action using BAML
-        let plan_result = crate::baml_client::B
+        let plan = crate::baml_client::B
             .PlanAction
             .with_client_registry(&client_registry)
-            .call(&messages, &system_context, &tools_description)
-            .await;
-
-        let plan = match plan_result {
-            Ok(p) => p,
-            Err(e) => return Err(ChatAgentError::Baml(e.to_string())),
-        };
+            .call(&state.messages, &system_context, &tools_description)
+            .await
+            .map_err(|e| ChatAgentError::Baml(e.to_string()))?;
 
         tracing::info!(
-            actor_id = %actor_id,
+            actor_id = %state.args.actor_id,
             thinking = %plan.thinking,
             confidence = %plan.confidence,
             tool_count = plan.tool_calls.len(),
             "Agent planned action"
         );
 
-        // Step 2: Execute tool calls if any
         let mut executed_tools: Vec<ExecutedToolCall> = Vec::new();
         let mut tool_results: Vec<ToolResult> = Vec::new();
 
         for tool_call in &plan.tool_calls {
-            tracing::info!(
-                tool = %tool_call.tool_name,
-                args = %tool_call.tool_args,
-                "Executing tool"
-            );
+            self.log_event(
+                state,
+                shared_types::EVENT_CHAT_TOOL_CALL,
+                serde_json::json!({
+                    "tool_name": tool_call.tool_name,
+                    "tool_args": tool_call.tool_args,
+                    "reasoning": tool_call.reasoning,
+                }),
+                state.args.user_id.clone(),
+            )
+            .await?;
 
-            // Execute the tool
-            let result = execute_tool_impl(&tool_call.tool_name, &tool_call.tool_args).await;
+            let result = execute_tool_impl(
+                state.tool_registry.clone(),
+                tool_call.tool_name.clone(),
+                tool_call.tool_args.clone(),
+            )
+            .await;
 
             match result {
                 Ok(output) => {
-                    tracing::info!(
-                        tool = %tool_call.tool_name,
-                        success = %output.success,
-                        "Tool executed"
-                    );
-
                     executed_tools.push(ExecutedToolCall {
                         tool_name: tool_call.tool_name.clone(),
                         tool_args: tool_call.tool_args.clone(),
                         reasoning: tool_call.reasoning.clone(),
                         result: output.clone(),
                     });
+
+                    self.log_event(
+                        state,
+                        shared_types::EVENT_CHAT_TOOL_RESULT,
+                        serde_json::json!({
+                            "tool_name": tool_call.tool_name,
+                            "success": output.success,
+                            "output": output.content,
+                        }),
+                        state.args.user_id.clone(),
+                    )
+                    .await?;
 
                     tool_results.push(ToolResult {
                         tool_name: tool_call.tool_name.clone(),
@@ -284,138 +335,89 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                     });
                 }
                 Err(e) => {
-                    tracing::error!(
-                        tool = %tool_call.tool_name,
-                        error = %e,
-                        "Tool execution failed"
-                    );
+                    self.log_event(
+                        state,
+                        shared_types::EVENT_CHAT_TOOL_RESULT,
+                        serde_json::json!({
+                            "tool_name": tool_call.tool_name,
+                            "success": false,
+                            "error": e.message,
+                        }),
+                        state.args.user_id.clone(),
+                    )
+                    .await?;
 
                     tool_results.push(ToolResult {
                         tool_name: tool_call.tool_name.clone(),
                         success: false,
                         output: String::new(),
-                        error: Some(e.message.clone()),
+                        error: Some(e.message),
                     });
                 }
             }
         }
 
-        // Step 3: Synthesize response
-        let conversation_context = messages
+        let conversation_context = state
+            .messages
             .iter()
             .map(|m| format!("{}: {}", m.role, m.content))
             .collect::<Vec<_>>()
             .join("\n");
 
         let response_text = if let Some(final_response) = plan.final_response {
-            // Agent already provided a final response
             final_response
         } else {
-            // Need to synthesize from tool results
-            match crate::baml_client::B
+            crate::baml_client::B
                 .SynthesizeResponse
                 .with_client_registry(&client_registry)
-                .call(&user_text_async, &tool_results, &conversation_context)
+                .call(&user_text, &tool_results, &conversation_context)
                 .await
-            {
-                Ok(text) => text,
-                Err(e) => return Err(ChatAgentError::Baml(e.to_string())),
-            }
+                .map_err(|e| ChatAgentError::Baml(e.to_string()))?
         };
 
-        let response = AgentResponse {
-            text: response_text.clone(),
-            tool_calls: executed_tools.clone(),
-            thinking: plan.thinking.clone(),
-            confidence: plan.confidence,
-            model_used: current_model.clone(),
-        };
-
-        // Add assistant response to conversation history
-        self.messages.push(BamlMessage {
+        state.messages.push(BamlMessage {
             role: "assistant".to_string(),
             content: response_text.clone(),
         });
 
-        // Log events for the interaction (fire and forget)
-        let event_store = state.args.event_store.clone();
-        let actor_id_log = self.actor_id.clone();
-        let user_id_log = self.user_id.clone();
-        let user_text_log = text.clone();
-        let response_clone = response.clone();
+        self.log_event(
+            state,
+            shared_types::EVENT_CHAT_ASSISTANT_MSG,
+            serde_json::json!({
+                "text": response_text,
+                "thinking": plan.thinking,
+                "confidence": plan.confidence,
+                "model": current_model,
+                "tools_used": executed_tools.len(),
+            }),
+            "system".to_string(),
+        )
+        .await?;
 
-        tokio::spawn(async move {
-            // Log user message
-            let _ = ractor::call!(
-                event_store.clone(),
-                |reply| EventStoreMsg::Append {
-                    event: AppendEvent {
-                        event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
-                        payload: serde_json::json!(user_text_log),
-                        actor_id: actor_id_log.clone(),
-                        user_id: user_id_log.clone(),
-                    },
-                    reply,
-                }
-            );
-
-            // Log assistant response
-            let _ = ractor::call!(
-                event_store.clone(),
-                |reply| EventStoreMsg::Append {
-                    event: AppendEvent {
-                        event_type: shared_types::EVENT_CHAT_ASSISTANT_MSG.to_string(),
-                        payload: serde_json::json!({
-                            "text": response_clone.text,
-                            "thinking": response_clone.thinking,
-                            "confidence": response_clone.confidence,
-                            "model": response_clone.model_used,
-                            "tools_used": response_clone.tool_calls.len(),
-                        }),
-                        actor_id: actor_id_log.clone(),
-                        user_id: "system".to_string(),
-                    },
-                    reply,
-                }
-            );
-
-            // Log tool calls
-            for tool in &response_clone.tool_calls {
-                let _ = ractor::call!(
-                    event_store.clone(),
-                    |reply| EventStoreMsg::Append {
-                        event: AppendEvent {
-                            event_type: shared_types::EVENT_CHAT_TOOL_CALL.to_string(),
-                            payload: serde_json::json!({
-                                "tool_name": tool.tool_name,
-                                "tool_args": tool.tool_args,
-                                "reasoning": tool.reasoning,
-                                "success": tool.result.success,
-                                "output_preview": &tool.result.content.chars().take(200).collect::<String>(),
-                            }),
-                            actor_id: actor_id_log.clone(),
-                            user_id: user_id_log.clone(),
-                        },
-                        reply,
-                    }
-                );
-            }
-        });
-
-        Ok(response)
+        Ok(AgentResponse {
+            text: response_text,
+            tool_calls: executed_tools,
+            thinking: plan.thinking,
+            confidence: plan.confidence,
+            model_used: state.current_model.clone(),
+        })
     }
 
     /// Handle SwitchModel
-    fn handle_switch_model(&mut self, model: String) -> Result<(), ChatAgentError> {
+    fn handle_switch_model(
+        &self,
+        state: &mut ChatAgentState,
+        model: String,
+    ) -> Result<(), ChatAgentError> {
         match model.as_str() {
             "ClaudeBedrock" | "GLM47" => {
                 tracing::info!(
-                    actor_id = %self.actor_id,
-                    old_model = %self.current_model,
+                    actor_id = %state.args.actor_id,
+                    old_model = %state.current_model,
                     new_model = %model,
                     "Switching model"
                 );
-                self.current_model = model;
+                state.current_model = model;
                 Ok(())
             }
             _ => Err(ChatAgentError::InvalidModel(format!(
@@ -426,22 +428,23 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
     }
 
     /// Handle GetConversationHistory
-    fn handle_get_conversation_history(&self) -> Vec<BamlMessage> {
-        self.messages.clone()
+    fn handle_get_conversation_history(&self, state: &ChatAgentState) -> Vec<BamlMessage> {
+        state.messages.clone()
     }
 
     /// Handle GetAvailableTools
-    fn handle_get_available_tools(&self) -> Vec<String> {
-        self.tool_registry.available_tools()
+    fn handle_get_available_tools(&self, state: &ChatAgentState) -> Vec<String> {
+        state.tool_registry.available_tools()
     }
 
     /// Handle ExecuteTool
     async fn handle_execute_tool(
         &self,
+        state: &ChatAgentState,
         tool_name: String,
         tool_args: String,
     ) -> Result<ToolOutput, ToolError> {
-        execute_tool_impl(&tool_name, &tool_args).await
+        execute_tool_impl(state.tool_registry.clone(), tool_name, tool_args).await
     }
 }
 
@@ -463,7 +466,38 @@ impl Actor for ChatAgent {
             "ChatAgent starting"
         );
 
-        Ok(ChatAgentState { args })
+        let messages = match ractor::call!(args.event_store.clone(), |reply| {
+            EventStoreMsg::GetEventsForActor {
+                actor_id: args.actor_id.clone(),
+                since_seq: 0,
+                reply,
+            }
+        }) {
+            Ok(Ok(events)) => Self::history_from_events(events),
+            Ok(Err(e)) => {
+                tracing::warn!(
+                    actor_id = %args.actor_id,
+                    error = %e,
+                    "Failed to load conversation history"
+                );
+                Vec::new()
+            }
+            Err(e) => {
+                tracing::warn!(
+                    actor_id = %args.actor_id,
+                    error = %e,
+                    "Failed to contact EventStore during history load"
+                );
+                Vec::new()
+            }
+        };
+
+        Ok(ChatAgentState {
+            args,
+            messages,
+            tool_registry: Arc::new(ToolRegistry::new()),
+            current_model: "ClaudeBedrock".to_string(),
+        })
     }
 
     async fn post_start(
@@ -484,75 +518,21 @@ impl Actor for ChatAgent {
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        // We need to handle messages that require mutable self
-        // Since handle takes &self, we use interior mutability pattern
-        // For now, we'll process the message and use unsafe to get mutable access
-        // This is a temporary solution - in production, use proper interior mutability
-        
-        // Actually, we need to restructure this. Let's use a different approach
-        // where we spawn a task for async operations and use channels for state updates
-        
         match message {
             ChatAgentMsg::ProcessMessage { text, reply } => {
-                // For async operations, we need to clone data and spawn
-                let actor_id = self.actor_id.clone();
-                let user_id = self.user_id.clone();
-                let messages = self.messages.clone();
-                let tool_registry = self.tool_registry.clone();
-                let current_model = self.current_model.clone();
-                let conversation_context = self.conversation_context.clone();
-                let state_clone = ChatAgentState {
-                    args: state.args.clone(),
-                };
-                
-                let handle = tokio::spawn(async move {
-                    let mut agent = ChatAgent {
-                        actor_id,
-                        user_id,
-                        messages,
-                        tool_registry,
-                        current_model,
-                        conversation_context,
-                    };
-                    agent.handle_process_message(&state_clone, text).await
-                });
-                
-                match handle.await {
-                    Ok(result) => {
-                        let _ = reply.send(result);
-                    }
-                    Err(e) => {
-                        let _ = reply.send(Err(ChatAgentError::Baml(format!("Task join error: {}", e))));
-                    }
-                }
+                let result = self.handle_process_message(state, text).await;
+                let _ = reply.send(result);
             }
             ChatAgentMsg::SwitchModel { model, reply } => {
-                // For sync operations, we can use a similar pattern
-                let actor_id = self.actor_id.clone();
-                let user_id = self.user_id.clone();
-                let messages = self.messages.clone();
-                let tool_registry = self.tool_registry.clone();
-                let current_model = self.current_model.clone();
-                let conversation_context = self.conversation_context.clone();
-                
-                let mut agent = ChatAgent {
-                    actor_id,
-                    user_id,
-                    messages,
-                    tool_registry,
-                    current_model,
-                    conversation_context,
-                };
-                
-                let result = agent.handle_switch_model(model);
+                let result = self.handle_switch_model(state, model);
                 let _ = reply.send(result);
             }
             ChatAgentMsg::GetConversationHistory { reply } => {
-                let history = self.handle_get_conversation_history();
+                let history = self.handle_get_conversation_history(state);
                 let _ = reply.send(history);
             }
             ChatAgentMsg::GetAvailableTools { reply } => {
-                let tools = self.handle_get_available_tools();
+                let tools = self.handle_get_available_tools(state);
                 let _ = reply.send(tools);
             }
             ChatAgentMsg::ExecuteTool {
@@ -560,36 +540,11 @@ impl Actor for ChatAgent {
                 tool_args,
                 reply,
             } => {
-                let actor_id = self.actor_id.clone();
-                let user_id = self.user_id.clone();
-                let messages = self.messages.clone();
-                let tool_registry = self.tool_registry.clone();
-                let current_model = self.current_model.clone();
-                let conversation_context = self.conversation_context.clone();
-                
-                let handle = tokio::spawn(async move {
-                    let agent = ChatAgent {
-                        actor_id,
-                        user_id,
-                        messages,
-                        tool_registry,
-                        current_model,
-                        conversation_context,
-                    };
-                    agent.handle_execute_tool(tool_name, tool_args).await
-                });
-                
-                match handle.await {
-                    Ok(result) => {
-                        let _ = reply.send(result);
-                    }
-                    Err(e) => {
-                        let _ = reply.send(Err(ToolError::new(format!("Task join error: {}", e))));
-                    }
-                }
+                let result = self.handle_execute_tool(state, tool_name, tool_args).await;
+                let _ = reply.send(result);
             }
         }
-        
+
         Ok(())
     }
 
@@ -607,13 +562,17 @@ impl Actor for ChatAgent {
 }
 
 // Helper function to execute a tool outside of the actor context
-async fn execute_tool_impl(tool_name: &str, tool_args: &str) -> Result<ToolOutput, ToolError> {
-    let registry = ToolRegistry::new();
-
-    let args: serde_json::Value = serde_json::from_str(tool_args)
+async fn execute_tool_impl(
+    registry: Arc<ToolRegistry>,
+    tool_name: String,
+    tool_args: String,
+) -> Result<ToolOutput, ToolError> {
+    let args: serde_json::Value = serde_json::from_str(&tool_args)
         .map_err(|e| ToolError::new(format!("Invalid tool arguments: {e}")))?;
 
-    registry.execute(tool_name, args)
+    tokio::task::spawn_blocking(move || registry.execute(&tool_name, args))
+        .await
+        .map_err(|e| ToolError::new(format!("Tool execution task failed: {e}")))?
 }
 
 // ============================================================================
@@ -646,7 +605,9 @@ pub async fn switch_model(
 pub async fn get_conversation_history(
     agent: &ActorRef<ChatAgentMsg>,
 ) -> Result<Vec<BamlMessage>, ractor::RactorErr<ChatAgentMsg>> {
-    ractor::call!(agent, |reply| ChatAgentMsg::GetConversationHistory { reply })
+    ractor::call!(agent, |reply| ChatAgentMsg::GetConversationHistory {
+        reply
+    })
 }
 
 /// Convenience function to get available tools
@@ -681,13 +642,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_chat_agent_creation() {
-        let (event_store_ref, _event_handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (event_store_ref, _event_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         let (agent_ref, _agent_handle) = Actor::spawn(
             None,
@@ -701,27 +659,22 @@ mod tests {
         .await
         .unwrap();
 
-        // Test getting available tools
         let tools = get_available_tools(&agent_ref).await.unwrap();
         assert!(!tools.is_empty());
         assert!(tools.contains(&"bash".to_string()));
         assert!(tools.contains(&"read_file".to_string()));
         assert!(tools.contains(&"write_file".to_string()));
 
-        // Cleanup
         agent_ref.stop(None);
         event_store_ref.stop(None);
     }
 
     #[tokio::test]
     async fn test_model_switching() {
-        let (event_store_ref, _event_handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (event_store_ref, _event_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         let (agent_ref, _agent_handle) = Actor::spawn(
             None,
@@ -735,17 +688,70 @@ mod tests {
         .await
         .unwrap();
 
-        // Test valid model switch
         let result = switch_model(&agent_ref, "GLM47").await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_ok());
 
-        // Test invalid model
         let result = switch_model(&agent_ref, "InvalidModel").await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_err());
 
-        // Cleanup
+        agent_ref.stop(None);
+        event_store_ref.stop(None);
+    }
+
+    #[tokio::test]
+    async fn test_history_loaded_from_event_store() {
+        let (event_store_ref, _event_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
+
+        let actor_id = "history-actor".to_string();
+
+        let _ = ractor::call!(event_store_ref, |reply| EventStoreMsg::Append {
+            event: AppendEvent {
+                event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
+                payload: serde_json::json!("Hello"),
+                actor_id: actor_id.clone(),
+                user_id: "user-1".to_string(),
+            },
+            reply,
+        })
+        .unwrap()
+        .unwrap();
+
+        let _ = ractor::call!(event_store_ref, |reply| EventStoreMsg::Append {
+            event: AppendEvent {
+                event_type: shared_types::EVENT_CHAT_ASSISTANT_MSG.to_string(),
+                payload: serde_json::json!({"text": "Hi there"}),
+                actor_id: actor_id.clone(),
+                user_id: "system".to_string(),
+            },
+            reply,
+        })
+        .unwrap()
+        .unwrap();
+
+        let (agent_ref, _agent_handle) = Actor::spawn(
+            None,
+            ChatAgent::new(),
+            ChatAgentArguments {
+                actor_id,
+                user_id: "user-1".to_string(),
+                event_store: event_store_ref.clone(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let history = get_conversation_history(&agent_ref).await.unwrap();
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].role, "user");
+        assert_eq!(history[0].content, "Hello");
+        assert_eq!(history[1].role, "assistant");
+        assert_eq!(history[1].content, "Hi there");
+
         agent_ref.stop(None);
         event_store_ref.stop(None);
     }

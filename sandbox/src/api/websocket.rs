@@ -63,10 +63,7 @@ pub enum WsMessage {
 }
 
 /// WebSocket handler
-pub async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<ApiState>,
-) -> impl IntoResponse {
+pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<ApiState>) -> impl IntoResponse {
     let app_state = state.app_state.clone();
     let sessions = state.ws_sessions.clone();
     ws.on_upgrade(move |socket| handle_socket(socket, app_state, sessions))
@@ -113,10 +110,9 @@ async fn handle_socket(socket: WebSocket, app_state: Arc<AppState>, sessions: Ws
                             .get_or_create_desktop(desktop_id.clone(), "anonymous".to_string())
                             .await;
 
-                        match ractor::call!(
-                            desktop_actor,
-                            |reply| DesktopActorMsg::GetDesktopState { reply }
-                        ) {
+                        match ractor::call!(desktop_actor, |reply| {
+                            DesktopActorMsg::GetDesktopState { reply }
+                        }) {
                             Ok(desktop) => {
                                 let _ = send_json(&tx, &WsMessage::DesktopState { desktop });
                             }
@@ -170,9 +166,7 @@ pub async fn broadcast_event(sessions: &WsSessions, desktop_id: &str, event: WsM
 
     let mut sessions = sessions.lock().await;
     if let Some(subscribers) = sessions.get_mut(desktop_id) {
-        subscribers.retain(|_, sender| {
-            sender.send(Message::Text(json.clone().into())).is_ok()
-        });
+        subscribers.retain(|_, sender| sender.send(Message::Text(json.clone().into())).is_ok());
     }
 }
 

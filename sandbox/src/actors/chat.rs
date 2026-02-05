@@ -59,9 +59,7 @@ pub enum ChatActorMsg {
         reply: RpcReplyPort<Vec<shared_types::ChatMessage>>,
     },
     /// Sync with event store (new events available)
-    SyncEvents {
-        events: Vec<shared_types::Event>,
-    },
+    SyncEvents { events: Vec<shared_types::Event> },
     /// Get actor info
     GetActorInfo {
         reply: RpcReplyPort<(String, String)>,
@@ -337,13 +335,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_message_creates_pending() {
-        let (event_store_ref, _event_handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (event_store_ref, _event_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         let (chat_ref, _chat_handle) = Actor::spawn(
             None,
@@ -383,13 +378,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_empty_message_rejected() {
-        let (event_store_ref, _event_handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (event_store_ref, _event_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         let (chat_ref, _chat_handle) = Actor::spawn(
             None,
@@ -426,13 +418,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_event_projection_user_message() {
-        let (event_store_ref, _event_handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (event_store_ref, _event_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         let (chat_ref, _chat_handle) = Actor::spawn(
             None,
@@ -476,13 +465,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_event_projection_assistant_message() {
-        let (event_store_ref, _event_handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (event_store_ref, _event_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         let (chat_ref, _chat_handle) = Actor::spawn(
             None,
@@ -526,13 +512,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_multiple_events_ordered() {
-        let (event_store_ref, _event_handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (event_store_ref, _event_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         let (chat_ref, _chat_handle) = Actor::spawn(
             None,
@@ -594,13 +577,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_actor_info() {
-        let (event_store_ref, _event_handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (event_store_ref, _event_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         let (chat_ref, _chat_handle) = Actor::spawn(
             None,
@@ -628,13 +608,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_pending_and_confirmed_combined() {
-        let (event_store_ref, _event_handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (event_store_ref, _event_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         let (chat_ref, _chat_handle) = Actor::spawn(
             None,
@@ -688,13 +665,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_invalid_event_payload_graceful() {
-        let (event_store_ref, _event_handle) = Actor::spawn(
-            None,
-            EventStoreActor,
-            EventStoreArguments::InMemory,
-        )
-        .await
-        .unwrap();
+        let (event_store_ref, _event_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
 
         let (chat_ref, _chat_handle) = Actor::spawn(
             None,

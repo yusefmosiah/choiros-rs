@@ -23,7 +23,7 @@ pub fn ChatView(actor_id: String) -> Element {
     let user_id = use_signal(|| "user-1".to_string());
     let mut loading = use_signal(|| false);
     let mut ws_runtime = use_signal(|| None::<ChatRuntime>);
-    let mut ws_connected = use_signal(|| false);
+    let ws_connected = use_signal(|| false);
     let actor_id_signal = use_signal(|| actor_id.clone());
     let _messages_end_ref = use_signal(|| None::<dioxus::prelude::Element>);
 
@@ -86,6 +86,34 @@ pub fn ChatView(actor_id: String) -> Element {
                 }
                 "thinking" => {
                     loading_message.set(true);
+                }
+                "tool_call" => {
+                    let content = json.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                    let text = parse_tool_call_text(content);
+                    if !text.is_empty() {
+                        let mut list = messages_message.write();
+                        list.push(ChatMessage {
+                            id: format!("tool-call-{}", chrono::Utc::now().timestamp_millis()),
+                            text,
+                            sender: Sender::System,
+                            timestamp: chrono::Utc::now(),
+                            pending: false,
+                        });
+                    }
+                }
+                "tool_result" => {
+                    let content = json.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                    let text = parse_tool_result_text(content);
+                    if !text.is_empty() {
+                        let mut list = messages_message.write();
+                        list.push(ChatMessage {
+                            id: format!("tool-result-{}", chrono::Utc::now().timestamp_millis()),
+                            text,
+                            sender: Sender::System,
+                            timestamp: chrono::Utc::now(),
+                            pending: false,
+                        });
+                    }
                 }
                 "response" => {
                     let content = json.get("content").and_then(|v| v.as_str()).unwrap_or("");
@@ -395,6 +423,51 @@ fn parse_chat_response_text(content: &str) -> String {
         }
     }
     content.to_string()
+}
+
+fn parse_tool_call_text(content: &str) -> String {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
+        let tool_name = json
+            .get("tool_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown_tool");
+        let reasoning = json
+            .get("reasoning")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+
+        if reasoning.is_empty() {
+            return format!("Running tool: {tool_name}");
+        }
+        return format!("Running tool: {tool_name} ({reasoning})");
+    }
+    String::new()
+}
+
+fn parse_tool_result_text(content: &str) -> String {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
+        let tool_name = json
+            .get("tool_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown_tool");
+        let success = json
+            .get("success")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let output = json
+            .get("output")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+
+        let status = if success { "success" } else { "failed" };
+        if output.trim().is_empty() {
+            return format!("Tool {tool_name} {status}.");
+        }
+
+        let preview: String = output.chars().take(200).collect();
+        return format!("Tool {tool_name} {status}: {preview}");
+    }
+    String::new()
 }
 
 fn clear_pending_user_message(messages: &mut Vec<ChatMessage>) {

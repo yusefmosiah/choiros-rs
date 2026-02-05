@@ -415,7 +415,9 @@ async fn test_websocket_close_connection() {
 
     let _ = recv_json(&mut ws).await;
 
-    ws.send(Message::Close(None)).await.expect("Failed to send close");
+    ws.send(Message::Close(None))
+        .await
+        .expect("Failed to send close");
 
     let _ = timeout(Duration::from_secs(2), ws.next()).await;
 }
@@ -458,10 +460,9 @@ async fn test_websocket_rapid_connect_disconnect() {
     let actor_id = test_actor_id();
 
     for _ in 0..3 {
-        let (mut ws, _) =
-            connect_async(ws_url(server.addr, &format!("/ws/chat/{actor_id}")))
-                .await
-                .expect("Failed to connect WebSocket");
+        let (mut ws, _) = connect_async(ws_url(server.addr, &format!("/ws/chat/{actor_id}")))
+            .await
+            .expect("Failed to connect WebSocket");
 
         let connected = recv_json(&mut ws).await;
         assert_eq!(connected["type"], "connected");

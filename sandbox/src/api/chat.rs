@@ -43,41 +43,35 @@ pub async fn send_message(
     // Get or create persistent ChatActor via Manager
     let chat_actor = app_state
         .actor_manager
-        .get_or_create_chat(actor_id.clone(), user_id.clone()).await;
+        .get_or_create_chat(actor_id.clone(), user_id.clone())
+        .await;
 
     // Send the message (optimistic) using ractor call pattern
-    match ractor::call!(
-        chat_actor,
-        |reply| ChatActorMsg::SendUserMessage {
-            text: text.clone(),
-            reply,
-        }
-    ) {
+    match ractor::call!(chat_actor, |reply| ChatActorMsg::SendUserMessage {
+        text: text.clone(),
+        reply,
+    }) {
         Ok(Ok(temp_id)) => {
-            // Persist the user message to EventStore immediately
+            // Persist user message immediately to keep HTTP chat responsive even if the
+            // agent is currently processing another turn.
             let event_store = app_state.actor_manager.event_store();
             let actor_id_for_event = actor_id.clone();
             let user_id_for_event = user_id.clone();
             let text_for_event = text.clone();
-            
-            // Spawn async task to persist the event (fire-and-forget)
             tokio::spawn(async move {
                 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
-                
+
                 let append_event = AppendEvent {
                     event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
                     payload: serde_json::json!(text_for_event),
                     actor_id: actor_id_for_event.clone(),
                     user_id: user_id_for_event.clone(),
                 };
-                
-                match ractor::call!(
-                    event_store,
-                    |reply| EventStoreMsg::Append {
-                        event: append_event,
-                        reply,
-                    }
-                ) {
+
+                match ractor::call!(event_store, |reply| EventStoreMsg::Append {
+                    event: append_event,
+                    reply,
+                }) {
                     Ok(Ok(event)) => {
                         tracing::info!(
                             actor_id = %actor_id_for_event,
@@ -101,23 +95,21 @@ pub async fn send_message(
                     }
                 }
             });
-            
-            // Trigger ChatAgent to process the message and generate response (fire and forget)
-            // Note: ChatAgent will log the assistant response to EventStore
+
+            // Trigger ChatAgent to process the message and generate response (fire and forget).
+            // ChatAgent logs assistant + tool events to EventStore.
             let chat_agent = app_state
                 .actor_manager
-                .get_or_create_chat_agent(actor_id.clone(), user_id.clone()).await;
+                .get_or_create_chat_agent(actor_id.clone(), user_id.clone())
+                .await;
             let text_for_agent = text.clone();
-            
+
             // Spawn async task for fire-and-forget processing
             tokio::spawn(async move {
-                match ractor::call!(
-                    chat_agent,
-                    |reply| ChatAgentMsg::ProcessMessage {
-                        text: text_for_agent,
-                        reply,
-                    }
-                ) {
+                match ractor::call!(chat_agent, |reply| ChatAgentMsg::ProcessMessage {
+                    text: text_for_agent,
+                    reply,
+                }) {
                     Ok(Ok(response)) => {
                         tracing::info!(
                             actor_id = %actor_id,

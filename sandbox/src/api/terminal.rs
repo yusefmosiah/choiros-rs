@@ -32,7 +32,10 @@ pub enum TerminalWsMessage {
     Resize { rows: u16, cols: u16 },
     /// Terminal info
     #[serde(rename = "info")]
-    Info { terminal_id: String, is_running: bool },
+    Info {
+        terminal_id: String,
+        is_running: bool,
+    },
     /// Error message
     #[serde(rename = "error")]
     Error { message: String },
@@ -138,10 +141,9 @@ async fn handle_terminal_socket(
         }
     }
 
-    let output_rx = match ractor::call!(
-        terminal_actor,
-        |reply| TerminalMsg::SubscribeOutput { reply }
-    ) {
+    let output_rx = match ractor::call!(terminal_actor, |reply| TerminalMsg::SubscribeOutput {
+        reply
+    }) {
         Ok(rx) => rx,
         Err(e) => {
             let _ = send_terminal_message(
@@ -195,16 +197,17 @@ async fn handle_terminal_socket(
         match msg {
             Message::Text(text) => match serde_json::from_str::<TerminalWsMessage>(&text) {
                 Ok(TerminalWsMessage::Input { data }) => {
-                    let _ = ractor::call!(
-                        terminal_actor,
-                        |reply| TerminalMsg::SendInput { input: data, reply }
-                    );
+                    let _ = ractor::call!(terminal_actor, |reply| TerminalMsg::SendInput {
+                        input: data,
+                        reply
+                    });
                 }
                 Ok(TerminalWsMessage::Resize { rows, cols }) => {
-                    let _ = ractor::call!(
-                        terminal_actor,
-                        |reply| TerminalMsg::Resize { rows, cols, reply }
-                    );
+                    let _ = ractor::call!(terminal_actor, |reply| TerminalMsg::Resize {
+                        rows,
+                        cols,
+                        reply
+                    });
                 }
                 _ => {
                     let _ = send_terminal_message(
@@ -252,7 +255,10 @@ pub async fn create_terminal(
         event_store,
     };
 
-    match actor_manager.get_or_create_terminal(&terminal_id, args).await {
+    match actor_manager
+        .get_or_create_terminal(&terminal_id, args)
+        .await
+    {
         Ok(_) => (
             StatusCode::OK,
             Json(serde_json::json!({
@@ -287,7 +293,10 @@ pub async fn get_terminal_info(
         event_store,
     };
 
-    let terminal_actor = match actor_manager.get_or_create_terminal(&terminal_id, args).await {
+    let terminal_actor = match actor_manager
+        .get_or_create_terminal(&terminal_id, args)
+        .await
+    {
         Ok(actor) => actor,
         Err(e) => {
             return (
@@ -328,7 +337,10 @@ pub async fn stop_terminal(
         event_store,
     };
 
-    let terminal_actor = match actor_manager.get_or_create_terminal(&terminal_id, args).await {
+    let terminal_actor = match actor_manager
+        .get_or_create_terminal(&terminal_id, args)
+        .await
+    {
         Ok(actor) => actor,
         Err(e) => {
             return (

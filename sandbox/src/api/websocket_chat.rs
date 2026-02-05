@@ -158,18 +158,50 @@ async fn handle_chat_socket(
                     let user_id = user_id.clone();
 
                     tokio::spawn(async move {
+                        let event_store = app_state.actor_manager.event_store();
+                        let append_user_event = crate::actors::event_store::AppendEvent {
+                            event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
+                            payload: serde_json::json!(user_text.clone()),
+                            actor_id: actor_id.clone(),
+                            user_id: user_id.clone(),
+                        };
+
+                        match ractor::call!(event_store, |reply| {
+                            crate::actors::event_store::EventStoreMsg::Append {
+                                event: append_user_event,
+                                reply,
+                            }
+                        }) {
+                            Ok(Ok(_)) => {}
+                            Ok(Err(e)) => {
+                                tracing::error!(
+                                    actor_id = %actor_id,
+                                    error = %e,
+                                    "Failed to persist WebSocket user message"
+                                );
+                                let _ = send_error(&tx_clone, "Failed to persist user message");
+                                return;
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    actor_id = %actor_id,
+                                    error = %e,
+                                    "EventStore actor error while persisting WebSocket user message"
+                                );
+                                let _ = send_error(&tx_clone, "Failed to persist user message");
+                                return;
+                            }
+                        }
+
                         let agent = app_state
                             .actor_manager
                             .get_or_create_chat_agent(actor_id.clone(), user_id.clone())
                             .await;
 
-                        match ractor::call!(
-                            agent,
-                            |reply| ChatAgentMsg::ProcessMessage {
-                                text: user_text,
-                                reply,
-                            }
-                        ) {
+                        match ractor::call!(agent, |reply| ChatAgentMsg::ProcessMessage {
+                            text: user_text,
+                            reply,
+                        }) {
                             Ok(Ok(resp)) => {
                                 let _ = send_chunk(
                                     &tx_clone,
@@ -193,8 +225,8 @@ async fn handle_chat_socket(
                                         },
                                     );
 
-                                    let output = &tool.result.content
-                                        [..tool.result.content.len().min(500)];
+                                    let output =
+                                        &tool.result.content[..tool.result.content.len().min(500)];
                                     let _ = send_chunk(
                                         &tx_clone,
                                         StreamChunk {
@@ -242,20 +274,57 @@ async fn handle_chat_socket(
                     });
                 }
                 Ok(ClientMessage::Ping) => {
-                    let _ = tx.send(Message::Text(
-                        json!({"type": "pong"}).to_string().into(),
-                    ));
+                    let _ = tx.send(Message::Text(json!({"type": "pong"}).to_string().into()));
                 }
                 Ok(ClientMessage::SwitchModel { model }) => {
-                    let _ = tx.send(Message::Text(
-                        json!({
-                            "type": "model_switched",
-                            "model": model,
-                            "status": "success"
-                        })
-                        .to_string()
-                        .into(),
-                    ));
+                    let tx_clone = tx.clone();
+                    let app_state = app_state.clone();
+                    let actor_id = actor_id.clone();
+                    let user_id = user_id.clone();
+
+                    tokio::spawn(async move {
+                        let agent = app_state
+                            .actor_manager
+                            .get_or_create_chat_agent(actor_id.clone(), user_id.clone())
+                            .await;
+
+                        match ractor::call!(agent, |reply| ChatAgentMsg::SwitchModel {
+                            model: model.clone(),
+                            reply,
+                        }) {
+                            Ok(Ok(())) => {
+                                let _ = tx_clone.send(Message::Text(
+                                    json!({
+                                        "type": "model_switched",
+                                        "model": model,
+                                        "status": "success"
+                                    })
+                                    .to_string()
+                                    .into(),
+                                ));
+                            }
+                            Ok(Err(e)) => {
+                                let _ = tx_clone.send(Message::Text(
+                                    json!({
+                                        "type": "error",
+                                        "message": e.to_string()
+                                    })
+                                    .to_string()
+                                    .into(),
+                                ));
+                            }
+                            Err(e) => {
+                                let _ = tx_clone.send(Message::Text(
+                                    json!({
+                                        "type": "error",
+                                        "message": format!("Model switch failed: {e}")
+                                    })
+                                    .to_string()
+                                    .into(),
+                                ));
+                            }
+                        }
+                    });
                 }
                 Err(e) => {
                     tracing::warn!("Invalid WebSocket message: {}", e);

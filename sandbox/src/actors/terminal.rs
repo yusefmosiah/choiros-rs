@@ -83,9 +83,7 @@ pub enum TerminalMsg {
         reply: RpcReplyPort<Result<(), TerminalError>>,
     },
     /// Get recent output (for new connections)
-    GetOutput {
-        reply: RpcReplyPort<Vec<String>>,
-    },
+    GetOutput { reply: RpcReplyPort<Vec<String>> },
     /// Subscribe to output stream (returns channel receiver)
     SubscribeOutput {
         reply: RpcReplyPort<broadcast::Receiver<String>>,
@@ -97,21 +95,15 @@ pub enum TerminalMsg {
         reply: RpcReplyPort<Result<(), TerminalError>>,
     },
     /// Get terminal info
-    GetInfo {
-        reply: RpcReplyPort<TerminalInfo>,
-    },
+    GetInfo { reply: RpcReplyPort<TerminalInfo> },
     /// Stop/kill terminal
     Stop {
         reply: RpcReplyPort<Result<(), TerminalError>>,
     },
     /// Internal: output received from PTY
-    OutputReceived {
-        data: String,
-    },
+    OutputReceived { data: String },
     /// Internal: process exited
-    ProcessExited {
-        exit_code: Option<i32>,
-    },
+    ProcessExited { exit_code: Option<i32> },
 }
 
 /// Terminal information
@@ -239,9 +231,8 @@ impl Actor for TerminalActor {
                             let _ = reply.send(Ok(()));
                         }
                         Err(_) => {
-                            let _ = reply.send(Err(TerminalError::Io(
-                                "Failed to send input".to_string(),
-                            )));
+                            let _ = reply
+                                .send(Err(TerminalError::Io("Failed to send input".to_string())));
                         }
                     }
                 } else {
@@ -392,13 +383,15 @@ async fn spawn_pty(
     let (output_tx, _output_rx) = broadcast::channel::<String>(1000);
 
     // Get handles for I/O
-    let mut master_writer = pair.master.take_writer().map_err(|e| {
-        TerminalError::SpawnFailed(format!("Failed to get PTY writer: {}", e))
-    })?;
+    let mut master_writer = pair
+        .master
+        .take_writer()
+        .map_err(|e| TerminalError::SpawnFailed(format!("Failed to get PTY writer: {}", e)))?;
 
-    let mut master_reader = pair.master.try_clone_reader().map_err(|e| {
-        TerminalError::SpawnFailed(format!("Failed to clone PTY reader: {}", e))
-    })?;
+    let mut master_reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|e| TerminalError::SpawnFailed(format!("Failed to clone PTY reader: {}", e)))?;
 
     // Spawn input task: read from channel, write to PTY (blocking I/O in spawn_blocking)
     tokio::task::spawn_blocking(move || {
@@ -428,9 +421,7 @@ async fn spawn_pty(
                     let data = String::from_utf8_lossy(&buffer[..n]).to_string();
 
                     // Send to actor for buffering
-                    let _ = actor.send_message(TerminalMsg::OutputReceived {
-                        data: data.clone(),
-                    });
+                    let _ = actor.send_message(TerminalMsg::OutputReceived { data: data.clone() });
 
                     // Send to subscribers. Ignore errors if there are no listeners.
                     let _ = output_tx_clone.send(data);

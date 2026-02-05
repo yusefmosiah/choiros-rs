@@ -28,14 +28,10 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use ractor::{
-    cast, Actor, ActorProcessingErr, ActorRef, RpcReplyPort,
-};
+use ractor::{cast, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use tracing;
-
-
 
 // ============================================================================
 // Data Types
@@ -95,8 +91,7 @@ impl Event {
         if pattern.ends_with(".*") {
             let prefix = &pattern[..pattern.len() - 2];
             self.topic.starts_with(prefix)
-                && (self.topic.len() == prefix.len()
-                    || self.topic[prefix.len()..].starts_with('.'))
+                && (self.topic.len() == prefix.len() || self.topic[prefix.len()..].starts_with('.'))
         } else {
             self.topic == pattern
         }
@@ -211,8 +206,6 @@ pub enum EventBusMsg {
     },
 }
 
-
-
 /// Configuration for EventBusActor
 #[derive(Debug, Clone)]
 pub struct EventBusConfig {
@@ -321,7 +314,10 @@ impl Actor for EventBusActor {
                 since,
                 limit,
                 reply,
-            } => self.handle_query_events(topic, since, limit, reply, state).await,
+            } => {
+                self.handle_query_events(topic, since, limit, reply, state)
+                    .await
+            }
         }
     }
 
@@ -370,13 +366,10 @@ impl EventBusActor {
                 // Fire-and-forget persistence (don't block publish on store)
                 let store_ref = store_ref.clone();
                 tokio::spawn(async move {
-                    match ractor::call!(
-                        store_ref,
-                        |reply| crate::actors::EventStoreMsg::Append {
-                            event: store_event,
-                            reply,
-                        }
-                    ) {
+                    match ractor::call!(store_ref, |reply| crate::actors::EventStoreMsg::Append {
+                        event: store_event,
+                        reply,
+                    }) {
                         Ok(Err(e)) => tracing::warn!("Failed to persist event: {}", e),
                         Err(e) => tracing::warn!("Failed to send persist request: {}", e),
                         _ => {} // Success
@@ -463,10 +456,7 @@ impl EventBusActor {
     ) -> Result<(), ActorProcessingErr> {
         // Get members of the process group for this topic
         let members = ractor::pg::get_members(&topic);
-        let actor_ids: Vec<ractor::ActorId> = members
-            .iter()
-            .map(|cell| cell.get_id())
-            .collect();
+        let actor_ids: Vec<ractor::ActorId> = members.iter().map(|cell| cell.get_id()).collect();
 
         // Send reply (ignore errors - caller may have timed out)
         let _ = reply.send(actor_ids);
@@ -495,7 +485,7 @@ impl EventBusActor {
     ) -> Result<(), ActorProcessingErr> {
         // Get all members of the process group for this topic
         let members = ractor::pg::get_members(&topic.to_string());
-        
+
         for member in members {
             let actor_id = member.get_id();
             // Convert ActorCell to ActorRef<Event> and send
@@ -513,10 +503,7 @@ impl EventBusActor {
         Ok(())
     }
 
-    async fn broadcast_to_wildcards(
-        &self,
-        event: &Event,
-    ) -> Result<(), ActorProcessingErr> {
+    async fn broadcast_to_wildcards(&self, event: &Event) -> Result<(), ActorProcessingErr> {
         // Handle wildcard patterns like "worker.*"
         // Split topic and broadcast to parent patterns
         let parts: Vec<&str> = event.topic.split('.').collect();

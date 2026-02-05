@@ -412,9 +412,7 @@ async fn test_resize_window() {
 
     let req = Request::builder()
         .method("PATCH")
-        .uri(&format!(
-            "/desktop/{desktop_id}/windows/{window_id}/size"
-        ))
+        .uri(&format!("/desktop/{desktop_id}/windows/{window_id}/size"))
         .header("content-type", "application/json")
         .body(Body::from(resize_req.to_string()))
         .unwrap();

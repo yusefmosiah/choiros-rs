@@ -20,7 +20,7 @@ use std::sync::Arc;
 // Re-export message types from actors
 pub use crate::actors::chat::{ChatActor, ChatActorArguments, ChatActorMsg};
 pub use crate::actors::chat_agent::{ChatAgent, ChatAgentArguments, ChatAgentMsg};
-pub use crate::actors::desktop::{DesktopActor, DesktopArguments, DesktopActorMsg};
+pub use crate::actors::desktop::{DesktopActor, DesktopActorMsg, DesktopArguments};
 pub use crate::actors::event_store::EventStoreMsg;
 pub use crate::actors::terminal::{TerminalActor, TerminalArguments, TerminalMsg};
 
@@ -64,7 +64,7 @@ impl ActorManager {
         // Slow path: create new actor
         let event_store = self.event_store.clone();
         let actor_id_clone = actor_id.clone();
-        
+
         let (chat_ref, _handle) = Actor::spawn(
             None,
             ChatActor,
@@ -103,7 +103,7 @@ impl ActorManager {
         // Slow path: create new actor
         let event_store = self.event_store.clone();
         let desktop_id_clone = desktop_id.clone();
-        
+
         let (desktop_ref, _handle) = Actor::spawn(
             None,
             DesktopActor,
@@ -142,7 +142,7 @@ impl ActorManager {
         // Slow path: create new actor
         let event_store = self.event_store.clone();
         let agent_id_clone = agent_id.clone();
-        
+
         let (agent_ref, _handle) = Actor::spawn(
             None,
             ChatAgent::new(),
@@ -180,16 +180,12 @@ impl ActorManager {
 
         // Slow path: create new actor
         let terminal_id_clone = terminal_id.to_string();
-        
-        let (terminal_ref, _handle) = Actor::spawn(
-            None,
-            TerminalActor,
-            args,
-        )
-        .await?;
+
+        let (terminal_ref, _handle) = Actor::spawn(None, TerminalActor, args).await?;
 
         // Store in registry
-        self.terminal_actors.insert(terminal_id_clone, terminal_ref.clone());
+        self.terminal_actors
+            .insert(terminal_id_clone, terminal_ref.clone());
 
         Ok(terminal_ref)
     }

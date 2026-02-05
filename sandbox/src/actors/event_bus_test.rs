@@ -4,15 +4,17 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::actors::event_bus::{Event, EventBusActor, EventBusArguments, EventBusConfig, EventBusMsg, EventType};
+    use crate::actors::event_bus::{
+        Event, EventBusActor, EventBusArguments, EventBusConfig, EventBusMsg, EventType,
+    };
     use ractor::{concurrency::Duration, Actor, ActorProcessingErr, ActorRef};
     use serde_json::json;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
     use tokio::sync::Mutex;
 
     static TOPIC_COUNTER: AtomicU64 = AtomicU64::new(0);
-    
+
     fn unique_topic(base: &str) -> String {
         format!("{}-{}", base, TOPIC_COUNTER.fetch_add(1, Ordering::SeqCst))
     }
@@ -77,13 +79,9 @@ mod tests {
         };
 
         // When: Spawn EventBusActor
-        let (bus_ref, bus_handle) = Actor::spawn(
-            None,
-            EventBusActor,
-            args,
-        )
-        .await
-        .expect("Failed to spawn event bus");
+        let (bus_ref, bus_handle) = Actor::spawn(None, EventBusActor, args)
+            .await
+            .expect("Failed to spawn event bus");
 
         // Wait a bit for the actor to fully start
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -104,13 +102,7 @@ mod tests {
             config: EventBusConfig::default(),
         };
 
-        let (bus_ref, _bus_handle) = Actor::spawn(
-            None,
-            EventBusActor,
-            args,
-        )
-        .await
-        .unwrap();
+        let (bus_ref, _bus_handle) = Actor::spawn(None, EventBusActor, args).await.unwrap();
 
         let topic = unique_topic("test.topic");
         let event = test_event(&topic, json!({"message": "hello"}));
@@ -136,13 +128,7 @@ mod tests {
             config: EventBusConfig::default(),
         };
 
-        let (bus_ref, _bus_handle) = Actor::spawn(
-            None,
-            EventBusActor,
-            args,
-        )
-        .await
-        .unwrap();
+        let (bus_ref, _bus_handle) = Actor::spawn(None, EventBusActor, args).await.unwrap();
 
         let received_events = Arc::new(Mutex::new(Vec::new()));
         let (sub_ref, _sub_handle) = Actor::spawn(
@@ -200,13 +186,7 @@ mod tests {
             config: EventBusConfig::default(),
         };
 
-        let (bus_ref, _bus_handle) = Actor::spawn(
-            None,
-            EventBusActor,
-            args,
-        )
-        .await
-        .unwrap();
+        let (bus_ref, _bus_handle) = Actor::spawn(None, EventBusActor, args).await.unwrap();
 
         let received_1 = Arc::new(Mutex::new(Vec::new()));
         let received_2 = Arc::new(Mutex::new(Vec::new()));
@@ -276,13 +256,7 @@ mod tests {
             config: EventBusConfig::default(),
         };
 
-        let (bus_ref, _bus_handle) = Actor::spawn(
-            None,
-            EventBusActor,
-            args,
-        )
-        .await
-        .unwrap();
+        let (bus_ref, _bus_handle) = Actor::spawn(None, EventBusActor, args).await.unwrap();
 
         let received_a = Arc::new(Mutex::new(Vec::new()));
         let received_b = Arc::new(Mutex::new(Vec::new()));
@@ -357,13 +331,7 @@ mod tests {
             config: EventBusConfig::default(),
         };
 
-        let (bus_ref, _bus_handle) = Actor::spawn(
-            None,
-            EventBusActor,
-            args,
-        )
-        .await
-        .unwrap();
+        let (bus_ref, _bus_handle) = Actor::spawn(None, EventBusActor, args).await.unwrap();
 
         let received = Arc::new(Mutex::new(Vec::new()));
         let (sub_ref, _sub_handle) = Actor::spawn(
@@ -445,13 +413,7 @@ mod tests {
             config: EventBusConfig::default(),
         };
 
-        let (bus_ref, _bus_handle) = Actor::spawn(
-            None,
-            EventBusActor,
-            args,
-        )
-        .await
-        .unwrap();
+        let (bus_ref, _bus_handle) = Actor::spawn(None, EventBusActor, args).await.unwrap();
 
         let received = Arc::new(Mutex::new(Vec::new()));
         let (sub_ref, _sub_handle) = Actor::spawn(
@@ -516,13 +478,7 @@ mod tests {
             config: EventBusConfig::default(),
         };
 
-        let (bus_ref, _bus_handle) = Actor::spawn(
-            None,
-            EventBusActor,
-            args,
-        )
-        .await
-        .unwrap();
+        let (bus_ref, _bus_handle) = Actor::spawn(None, EventBusActor, args).await.unwrap();
 
         let received = Arc::new(Mutex::new(Vec::new()));
         let (sub_ref, _sub_handle) = Actor::spawn(
@@ -586,13 +542,7 @@ mod tests {
             config: EventBusConfig::default(),
         };
 
-        let (bus_ref, _bus_handle) = Actor::spawn(
-            None,
-            EventBusActor,
-            args,
-        )
-        .await
-        .unwrap();
+        let (bus_ref, _bus_handle) = Actor::spawn(None, EventBusActor, args).await.unwrap();
 
         let topic = unique_topic("nonexistent.topic");
         let event = test_event(&topic, json!({}));
@@ -621,13 +571,7 @@ mod tests {
             config: EventBusConfig::default(),
         };
 
-        let (bus_ref, _bus_handle) = Actor::spawn(
-            None,
-            EventBusActor,
-            args,
-        )
-        .await
-        .unwrap();
+        let (bus_ref, _bus_handle) = Actor::spawn(None, EventBusActor, args).await.unwrap();
 
         let received = Arc::new(Mutex::new(Vec::new()));
         let (sub_ref, _sub_handle) = Actor::spawn(
@@ -701,13 +645,7 @@ mod tests {
             config: EventBusConfig::default(),
         };
 
-        let (bus_ref, _bus_handle) = Actor::spawn(
-            None,
-            EventBusActor,
-            args,
-        )
-        .await
-        .unwrap();
+        let (bus_ref, _bus_handle) = Actor::spawn(None, EventBusActor, args).await.unwrap();
 
         // Create 10 subscribers
         let mut subscriber_refs = Vec::new();
@@ -795,20 +733,21 @@ mod tests {
     async fn test_topic_matching_properties() {
         // Property: Topic matching follows expected rules
         let test_cases = vec![
-            ("a.b.c", "a.b.c", true),     // Exact match
-            ("a.b.c", "a.b.*", true),     // Wildcard at end
-            ("a.b.c", "a.*", true),       // Wildcard at parent
-            ("a.b.c", "*", true),         // Root wildcard
-            ("a.b.c", "a.b.d", false),    // Different leaf
-            ("a.b.c", "x.*", false),      // Different root
-            ("a.b", "a.b.c", false),      // Pattern shorter than topic
+            ("a.b.c", "a.b.c", true),  // Exact match
+            ("a.b.c", "a.b.*", true),  // Wildcard at end
+            ("a.b.c", "a.*", true),    // Wildcard at parent
+            ("a.b.c", "*", true),      // Root wildcard
+            ("a.b.c", "a.b.d", false), // Different leaf
+            ("a.b.c", "x.*", false),   // Different root
+            ("a.b", "a.b.c", false),   // Pattern shorter than topic
         ];
 
         for (topic, pattern, should_match) in test_cases {
             let event = test_event(topic, json!({}));
             let matches = event.matches_topic(pattern);
             assert_eq!(
-                matches, should_match,
+                matches,
+                should_match,
                 "Topic '{}' should{} match pattern '{}'",
                 topic,
                 if should_match { "" } else { " not" },

@@ -4,9 +4,9 @@ mod api;
 mod baml_client;
 mod tools;
 
-use axum::http::{header, HeaderValue, Method};
 use actor_manager::AppState;
 use actors::event_store::{AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg};
+use axum::http::{header, HeaderValue, Method};
 use ractor::Actor;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -65,8 +65,7 @@ async fn main() -> std::io::Result<()> {
     let app_state = Arc::new(AppState::new(event_store.clone()));
 
     // Create WebSocket sessions state
-    let ws_sessions: api::websocket::WsSessions =
-        Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+    let ws_sessions: api::websocket::WsSessions = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
 
     tracing::info!("Starting HTTP server on http://0.0.0.0:8080");
 
@@ -91,11 +90,7 @@ async fn main() -> std::io::Result<()> {
             Method::PATCH,
             Method::OPTIONS,
         ])
-        .allow_headers([
-            header::CONTENT_TYPE,
-            header::ACCEPT,
-            header::AUTHORIZATION,
-        ])
+        .allow_headers([header::CONTENT_TYPE, header::ACCEPT, header::AUTHORIZATION])
         .max_age(std::time::Duration::from_secs(3600));
 
     let api_state = api::ApiState {

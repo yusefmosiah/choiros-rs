@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
-use wasm_bindgen::prelude::*;
-use wasm_bindgen::closure::Closure;
 use gloo_timers::future::TimeoutFuture;
+use wasm_bindgen::closure::Closure;
+use wasm_bindgen::prelude::*;
 use web_sys::{CloseEvent, ErrorEvent, Event, MessageEvent, WebSocket};
 
 use crate::api::api_base;
@@ -90,93 +90,97 @@ pub fn TerminalView(terminal_id: String, width: i32, height: i32) -> Element {
                 }
             };
 
-        let ws_for_data = ws.clone();
-        let on_data = Closure::wrap(Box::new(move |data: String| {
-            let msg = serde_json::json!({
-                "type": "input",
-                "data": data,
-            });
-            let _ = ws_for_data.send_with_str(&msg.to_string());
-        }) as Box<dyn FnMut(String)>);
-        on_terminal_data(term_id, &on_data);
+            let ws_for_data = ws.clone();
+            let on_data = Closure::wrap(Box::new(move |data: String| {
+                let msg = serde_json::json!({
+                    "type": "input",
+                    "data": data,
+                });
+                let _ = ws_for_data.send_with_str(&msg.to_string());
+            }) as Box<dyn FnMut(String)>);
+            on_terminal_data(term_id, &on_data);
 
-        let mut status_open = status.clone();
-        let mut reconnect_attempts_open = reconnect_attempts.clone();
-        let mut error_open = error.clone();
-        let ws_for_open = ws.clone();
-        let on_open = Closure::wrap(Box::new(move |_e: Event| {
-            status_open.set("Connected".to_string());
-            reconnect_attempts_open.set(0);
-            error_open.set(None);
-            let (rows, cols) = fit_and_get_size(term_id);
-            let _ = send_resize(&ws_for_open, rows, cols);
-        }) as Box<dyn FnMut(Event)>);
-        ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
+            let mut status_open = status.clone();
+            let mut reconnect_attempts_open = reconnect_attempts.clone();
+            let mut error_open = error.clone();
+            let ws_for_open = ws.clone();
+            let on_open = Closure::wrap(Box::new(move |_e: Event| {
+                status_open.set("Connected".to_string());
+                reconnect_attempts_open.set(0);
+                error_open.set(None);
+                let (rows, cols) = fit_and_get_size(term_id);
+                let _ = send_resize(&ws_for_open, rows, cols);
+            }) as Box<dyn FnMut(Event)>);
+            ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
 
-        let mut status_message = status.clone();
-        let mut error_message = error.clone();
-        let on_message = Closure::wrap(Box::new(move |e: MessageEvent| {
-            let Ok(text) = e.data().dyn_into::<js_sys::JsString>() else {
-                return;
-            };
-            let text_str = text.as_string().unwrap_or_default();
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text_str) {
-                if let Some(msg_type) = json.get("type").and_then(|t| t.as_str()) {
-                    match msg_type {
-                        "output" => {
-                            if let Some(data) = json.get("data").and_then(|v| v.as_str()) {
-                                write_terminal(term_id, data);
+            let mut status_message = status.clone();
+            let mut error_message = error.clone();
+            let on_message = Closure::wrap(Box::new(move |e: MessageEvent| {
+                let Ok(text) = e.data().dyn_into::<js_sys::JsString>() else {
+                    return;
+                };
+                let text_str = text.as_string().unwrap_or_default();
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text_str) {
+                    if let Some(msg_type) = json.get("type").and_then(|t| t.as_str()) {
+                        match msg_type {
+                            "output" => {
+                                if let Some(data) = json.get("data").and_then(|v| v.as_str()) {
+                                    write_terminal(term_id, data);
+                                }
                             }
-                        }
-                        "info" => {
-                            let is_running = json
-                                .get("is_running")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false);
-                            if is_running {
-                                status_message.set("Connected".to_string());
-                            } else {
-                                status_message.set("Stopped".to_string());
+                            "info" => {
+                                let is_running = json
+                                    .get("is_running")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false);
+                                if is_running {
+                                    status_message.set("Connected".to_string());
+                                } else {
+                                    status_message.set("Stopped".to_string());
+                                }
                             }
-                        }
-                        "error" => {
-                            if let Some(message) = json.get("message").and_then(|v| v.as_str()) {
-                                dioxus_logger::tracing::error!("Terminal WS error: {}", message);
-                                error_message.set(Some(message.to_string()));
+                            "error" => {
+                                if let Some(message) = json.get("message").and_then(|v| v.as_str())
+                                {
+                                    dioxus_logger::tracing::error!(
+                                        "Terminal WS error: {}",
+                                        message
+                                    );
+                                    error_message.set(Some(message.to_string()));
+                                }
                             }
+                            _ => {}
                         }
-                        _ => {}
                     }
                 }
-            }
-        }) as Box<dyn FnMut(MessageEvent)>);
-        ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
+            }) as Box<dyn FnMut(MessageEvent)>);
+            ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
 
-        let mut status_error = status.clone();
-        let mut error_signal = error.clone();
-        let on_error = Closure::wrap(Box::new(move |e: ErrorEvent| {
-            status_error.set("Disconnected".to_string());
-            error_signal.set(Some(format!("WebSocket error: {}", e.message())));
-        }) as Box<dyn FnMut(ErrorEvent)>);
-        ws.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+            let mut status_error = status.clone();
+            let mut error_signal = error.clone();
+            let on_error = Closure::wrap(Box::new(move |e: ErrorEvent| {
+                status_error.set("Disconnected".to_string());
+                error_signal.set(Some(format!("WebSocket error: {}", e.message())));
+            }) as Box<dyn FnMut(ErrorEvent)>);
+            ws.set_onerror(Some(on_error.as_ref().unchecked_ref()));
 
-        let mut status_close = status.clone();
-        let reconnect_attempts_close = reconnect_attempts;
-        let reconnect_timeout_close = reconnect_timeout_id;
-        let runtime_close = runtime;
-        let error_close = error;
-        let on_close = Closure::wrap(Box::new(move |_e: CloseEvent| {
-            status_close.set("Disconnected".to_string());
-            let status_for_reconnect = status_close.clone();
-            schedule_reconnect(
-                reconnect_attempts_close,
-                reconnect_timeout_close,
-                runtime_close,
-                status_for_reconnect,
-                error_close,
-            );
-        }) as Box<dyn FnMut(CloseEvent)>);
-        ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
+            let mut status_close = status.clone();
+            let reconnect_attempts_close = reconnect_attempts;
+            let reconnect_timeout_close = reconnect_timeout_id;
+            let runtime_close = runtime;
+            let error_close = error;
+            let on_close = Closure::wrap(Box::new(move |_e: CloseEvent| {
+                status_close.set("Disconnected".to_string());
+                let status_for_reconnect = status_close.clone();
+                schedule_reconnect(
+                    reconnect_attempts_close,
+                    reconnect_timeout_close,
+                    runtime_close,
+                    status_for_reconnect,
+                    error_close,
+                );
+            }) as Box<dyn FnMut(CloseEvent)>);
+            ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
 
             runtime.set(Some(TerminalRuntime {
                 term_id,
@@ -189,7 +193,6 @@ pub fn TerminalView(terminal_id: String, width: i32, height: i32) -> Element {
             }));
         });
     });
-
 
     // Re-fit on window size changes
     use_effect(move || {
@@ -385,8 +388,7 @@ fn schedule_reconnect(
         window.clear_timeout_with_handle(timeout_id);
     }
 
-    let base_delay = (500u32.saturating_mul(2u32.saturating_pow(attempt.min(6))))
-        .min(8000) as i32;
+    let base_delay = (500u32.saturating_mul(2u32.saturating_pow(attempt.min(6)))).min(8000) as i32;
     let jitter = (js_sys::Math::random() * 0.4 + 0.8) as f64;
     let delay_ms = (base_delay as f64 * jitter).round() as i32;
 
