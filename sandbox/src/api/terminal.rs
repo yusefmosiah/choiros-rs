@@ -8,7 +8,7 @@ use actix_web::{get, web, HttpRequest, HttpResponse};
 use actix_ws::Message;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
+use tokio::sync::broadcast;
 
 use crate::actor_manager::{ActorManager, AppState};
 use crate::actors::terminal::{TerminalArguments, TerminalMsg};
@@ -37,7 +37,6 @@ pub enum TerminalWsMessage {
 /// Query parameters for terminal WebSocket connection
 #[derive(Debug, Deserialize)]
 pub struct TerminalWsQuery {
-    terminal_id: String,
     user_id: String,
     #[serde(default = "default_shell")]
     shell: String,
@@ -59,12 +58,13 @@ fn default_working_dir() -> String {
 pub async fn terminal_websocket(
     req: HttpRequest,
     stream: web::Payload,
+    path: web::Path<String>,
     query: web::Query<TerminalWsQuery>,
     app_state: web::Data<AppState>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let (response, mut session, mut msg_stream) = actix_ws::handle(&req, stream)?;
 
-    let terminal_id = query.terminal_id.clone();
+    let terminal_id = path.into_inner();
     let user_id = query.user_id.clone();
     let shell = query.shell.clone();
     let working_dir = query.working_dir.clone();
@@ -157,14 +157,23 @@ pub async fn terminal_websocket(
         let mut output_rx = output_rx;
         let mut session_clone = session.clone();
         let forward_task = actix_web::rt::spawn(async move {
-            while let Some(data) = output_rx.recv().await {
-                let output_msg = TerminalWsMessage::Output { data };
-                if session_clone
-                    .text(serde_json::to_string(&output_msg).unwrap_or_default())
-                    .await
-                    .is_err()
-                {
-                    break;
+            loop {
+                match output_rx.recv().await {
+                    Ok(data) => {
+                        let output_msg = TerminalWsMessage::Output { data };
+                        if session_clone
+                            .text(serde_json::to_string(&output_msg).unwrap_or_default())
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        // Skip lagged messages; keep the stream alive.
+                        continue;
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
         });

@@ -21,7 +21,7 @@ use portable_pty::{CommandBuilder, PtySize};
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 
 use crate::actors::event_store::EventStoreMsg;
 
@@ -50,8 +50,8 @@ pub struct TerminalState {
     pty_master: Option<Box<dyn portable_pty::MasterPty + Send>>,
     /// Channel for sending input to PTY
     input_tx: Option<mpsc::Sender<String>>,
-    /// Channel for receiving output from PTY
-    output_rx: Option<mpsc::Receiver<String>>,
+    /// Broadcast channel for output from PTY
+    output_tx: Option<broadcast::Sender<String>>,
     /// Buffer of recent output (for new connections)
     output_buffer: Vec<String>,
     /// Whether terminal is running
@@ -88,7 +88,7 @@ pub enum TerminalMsg {
     },
     /// Subscribe to output stream (returns channel receiver)
     SubscribeOutput {
-        reply: RpcReplyPort<mpsc::Receiver<String>>,
+        reply: RpcReplyPort<broadcast::Receiver<String>>,
     },
     /// Resize terminal (rows, cols)
     Resize {
@@ -180,7 +180,7 @@ impl Actor for TerminalActor {
             working_dir: args.working_dir,
             pty_master: None,
             input_tx: None,
-            output_rx: None,
+            output_tx: None,
             output_buffer: Vec::with_capacity(1000), // Keep last 1000 lines
             is_running: false,
             exit_code: None,
@@ -213,10 +213,10 @@ impl Actor for TerminalActor {
                 )
                 .await
                 {
-                    Ok((pty_master, input_tx, output_rx)) => {
+                    Ok((pty_master, input_tx, output_tx)) => {
                         state.pty_master = Some(pty_master);
                         state.input_tx = Some(input_tx);
-                        state.output_rx = Some(output_rx);
+                        state.output_tx = Some(output_tx);
                         state.is_running = true;
                         state.exit_code = None;
                         let _ = reply.send(Ok(()));
@@ -254,12 +254,15 @@ impl Actor for TerminalActor {
             }
 
             TerminalMsg::SubscribeOutput { reply } => {
-                // Create a new channel for this subscriber
-                let (_tx, rx) = mpsc::channel::<String>(1000);
-
-                // TODO: Implement proper broadcast using tokio::sync::broadcast
-                // For now, return an empty channel
-                let _ = reply.send(rx);
+                if let Some(ref tx) = state.output_tx {
+                    let rx = tx.subscribe();
+                    let _ = reply.send(rx);
+                } else {
+                    // Not running yet; return a closed channel so callers can handle end-of-stream.
+                    let (tx, rx) = broadcast::channel::<String>(1);
+                    drop(tx);
+                    let _ = reply.send(rx);
+                }
             }
 
             TerminalMsg::Resize { rows, cols, reply } => {
@@ -303,7 +306,7 @@ impl Actor for TerminalActor {
                 state.pty_master = None;
                 state.is_running = false;
                 state.input_tx = None;
-                state.output_rx = None;
+                state.output_tx = None;
                 let _ = reply.send(Ok(()));
             }
 
@@ -323,7 +326,7 @@ impl Actor for TerminalActor {
                 state.exit_code = exit_code;
                 state.pty_master = None;
                 state.input_tx = None;
-                state.output_rx = None;
+                state.output_tx = None;
                 // TODO: Emit event to EventStore
             }
         }
@@ -357,7 +360,7 @@ async fn spawn_pty(
     (
         Box<dyn portable_pty::MasterPty + Send>,
         mpsc::Sender<String>,
-        mpsc::Receiver<String>,
+        broadcast::Sender<String>,
     ),
     TerminalError,
 > {
@@ -386,7 +389,7 @@ async fn spawn_pty(
 
     // Create channels for communication
     let (input_tx, mut input_rx) = mpsc::channel::<String>(100);
-    let (output_tx, output_rx) = mpsc::channel::<String>(1000);
+    let (output_tx, _output_rx) = broadcast::channel::<String>(1000);
 
     // Get handles for I/O
     let mut master_writer = pair.master.take_writer().map_err(|e| {
@@ -429,8 +432,8 @@ async fn spawn_pty(
                         data: data.clone(),
                     });
 
-                    // Send to subscribers - use blocking_send since we're in spawn_blocking
-                    let _ = output_tx_clone.blocking_send(data);
+                    // Send to subscribers. Ignore errors if there are no listeners.
+                    let _ = output_tx_clone.send(data);
                 }
                 Err(_) => {
                     // Read error
@@ -456,5 +459,5 @@ async fn spawn_pty(
         }
     });
 
-    Ok((pair.master, input_tx, output_rx))
+    Ok((pair.master, input_tx, output_tx))
 }
