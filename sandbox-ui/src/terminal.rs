@@ -113,6 +113,8 @@ pub fn TerminalView(terminal_id: String, width: i32, height: i32) -> Element {
         }) as Box<dyn FnMut(Event)>);
         ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
 
+        let mut status_message = status.clone();
+        let mut error_message = error.clone();
         let on_message = Closure::wrap(Box::new(move |e: MessageEvent| {
             let Ok(text) = e.data().dyn_into::<js_sys::JsString>() else {
                 return;
@@ -126,9 +128,21 @@ pub fn TerminalView(terminal_id: String, width: i32, height: i32) -> Element {
                                 write_terminal(term_id, data);
                             }
                         }
+                        "info" => {
+                            let is_running = json
+                                .get("is_running")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false);
+                            if is_running {
+                                status_message.set("Connected".to_string());
+                            } else {
+                                status_message.set("Stopped".to_string());
+                            }
+                        }
                         "error" => {
                             if let Some(message) = json.get("message").and_then(|v| v.as_str()) {
                                 dioxus_logger::tracing::error!("Terminal WS error: {}", message);
+                                error_message.set(Some(message.to_string()));
                             }
                         }
                         _ => {}

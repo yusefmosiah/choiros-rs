@@ -277,7 +277,7 @@ pub fn Desktop(desktop_id: String) -> Element {
                     // Window canvas (full width, positioned over icons)
                     div {
                         class: "window-canvas",
-                        style: "flex: 1; position: relative; overflow: hidden; z-index: 10;",
+                        style: "flex: 1; position: relative; overflow: hidden;",
 
                         if loading() {
                             LoadingState {}
@@ -371,13 +371,8 @@ fn DesktopIcon(
         let now = js_sys::Date::now() as i64;
         let last = *last_click_time.read();
 
-        // Double-click detection: 500ms threshold (desktop convention)
-        if !is_mobile && now - last < 500 {
-            // Double click - open the app
+        if now - last >= 500 {
             on_open_app.call(app_for_closure.clone());
-            last_click_time.set(0); // Reset
-        } else {
-            // Single click - just mark as selected/pressed
             last_click_time.set(now);
         }
 

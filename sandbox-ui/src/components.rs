@@ -1,8 +1,20 @@
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use gloo_timers::future::TimeoutFuture;
 use shared_types::{ChatMessage, Sender};
+use wasm_bindgen::closure::Closure;
+use wasm_bindgen::prelude::*;
+use web_sys::{CloseEvent, ErrorEvent, Event, MessageEvent, WebSocket};
 
 use crate::api::{fetch_messages, send_chat_message};
+
+struct ChatRuntime {
+    ws: WebSocket,
+    _on_open: Closure<dyn FnMut(Event)>,
+    _on_message: Closure<dyn FnMut(MessageEvent)>,
+    _on_error: Closure<dyn FnMut(ErrorEvent)>,
+    _on_close: Closure<dyn FnMut(CloseEvent)>,
+}
 
 #[component]
 pub fn ChatView(actor_id: String) -> Element {
@@ -10,6 +22,8 @@ pub fn ChatView(actor_id: String) -> Element {
     let mut input_text = use_signal(String::new);
     let user_id = use_signal(|| "user-1".to_string());
     let mut loading = use_signal(|| false);
+    let mut ws_runtime = use_signal(|| None::<ChatRuntime>);
+    let mut ws_connected = use_signal(|| false);
     let actor_id_signal = use_signal(|| actor_id.clone());
     let _messages_end_ref = use_signal(|| None::<dioxus::prelude::Element>);
 
@@ -28,6 +42,111 @@ pub fn ChatView(actor_id: String) -> Element {
         });
     });
 
+    // Connect WebSocket for streaming responses
+    use_effect(move || {
+        if ws_runtime.read().is_some() {
+            return;
+        }
+
+        let actor_id = actor_id_signal.to_string();
+        let user_id = user_id.to_string();
+        let ws_url = build_chat_ws_url(&actor_id, &user_id);
+
+        let ws = match WebSocket::new(&ws_url) {
+            Ok(ws) => ws,
+            Err(e) => {
+                dioxus_logger::tracing::error!("Chat WS error: {:?}", e);
+                return;
+            }
+        };
+
+        let mut ws_connected_open = ws_connected.clone();
+        let on_open = Closure::wrap(Box::new(move |_e: Event| {
+            ws_connected_open.set(true);
+        }) as Box<dyn FnMut(Event)>);
+        ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
+
+        let mut ws_connected_message = ws_connected.clone();
+        let mut messages_message = messages;
+        let mut loading_message = loading;
+        let on_message = Closure::wrap(Box::new(move |e: MessageEvent| {
+            let Ok(text) = e.data().dyn_into::<js_sys::JsString>() else {
+                return;
+            };
+            let text_str = text.as_string().unwrap_or_default();
+
+            let Ok(json) = serde_json::from_str::<serde_json::Value>(&text_str) else {
+                return;
+            };
+
+            let msg_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            match msg_type {
+                "connected" => {
+                    ws_connected_message.set(true);
+                }
+                "thinking" => {
+                    loading_message.set(true);
+                }
+                "response" => {
+                    let content = json.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                    let response_text = parse_chat_response_text(content);
+
+                    let mut list = messages_message.write();
+                    clear_pending_user_message(&mut list);
+                    list.push(ChatMessage {
+                        id: format!("assistant-{}", chrono::Utc::now().timestamp_millis()),
+                        text: response_text,
+                        sender: Sender::Assistant,
+                        timestamp: chrono::Utc::now(),
+                        pending: false,
+                    });
+                    loading_message.set(false);
+                }
+                "error" => {
+                    let message = json
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .or_else(|| json.get("message").and_then(|v| v.as_str()))
+                        .unwrap_or("Chat error");
+
+                    let mut list = messages_message.write();
+                    clear_pending_user_message(&mut list);
+                    list.push(ChatMessage {
+                        id: format!("error-{}", chrono::Utc::now().timestamp_millis()),
+                        text: message.to_string(),
+                        sender: Sender::Assistant,
+                        timestamp: chrono::Utc::now(),
+                        pending: false,
+                    });
+                    loading_message.set(false);
+                }
+                _ => {}
+            }
+        }) as Box<dyn FnMut(MessageEvent)>);
+        ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
+
+        let mut ws_connected_error = ws_connected.clone();
+        let on_error = Closure::wrap(Box::new(move |e: ErrorEvent| {
+            ws_connected_error.set(false);
+            dioxus_logger::tracing::error!("Chat WS error: {}", e.message());
+        }) as Box<dyn FnMut(ErrorEvent)>);
+        ws.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+
+        let mut ws_connected_close = ws_connected.clone();
+        let on_close = Closure::wrap(Box::new(move |_e: CloseEvent| {
+            ws_connected_close.set(false);
+        }) as Box<dyn FnMut(CloseEvent)>);
+        ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
+
+        ws_runtime.set(Some(ChatRuntime {
+            ws,
+            _on_open: on_open,
+            _on_message: on_message,
+            _on_error: on_error,
+            _on_close: on_close,
+        }));
+    });
+
     // Scroll to bottom when messages change
     use_effect(move || {
         let _ = messages.len();
@@ -42,6 +161,7 @@ pub fn ChatView(actor_id: String) -> Element {
 
         let actor_id_val = actor_id_signal.to_string();
         let user_id_val = user_id.to_string();
+        let initial_count = messages.read().len();
 
         // Optimistic update
         let optimistic_msg = ChatMessage {
@@ -55,14 +175,43 @@ pub fn ChatView(actor_id: String) -> Element {
         input_text.set(String::new());
         loading.set(true);
 
+        let ws_sent = if let Some(runtime) = ws_runtime.read().as_ref() {
+            if runtime.ws.ready_state() == WebSocket::OPEN {
+                let msg = serde_json::json!({
+                    "type": "message",
+                    "text": text.clone(),
+                });
+                runtime.ws.send_with_str(&msg.to_string()).is_ok()
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if ws_sent {
+            return;
+        }
+
         spawn(async move {
             match send_chat_message(&actor_id_val, &user_id_val, &text).await {
                 Ok(_) => {
-                    // Refresh messages
                     match fetch_messages(&actor_id_val).await {
                         Ok(msgs) => messages.set(msgs),
                         Err(e) => {
                             dioxus_logger::tracing::error!("Failed to refresh messages: {}", e)
+                        }
+                    }
+
+                    for _ in 0..6 {
+                        TimeoutFuture::new(500).await;
+                        if let Ok(msgs) = fetch_messages(&actor_id_val).await {
+                            let has_new_assistant = msgs.len() > initial_count
+                                && msgs.iter().any(|m| matches!(m.sender, Sender::Assistant));
+                            if has_new_assistant {
+                                messages.set(msgs);
+                                break;
+                            }
                         }
                     }
                 }
@@ -237,6 +386,53 @@ pub fn LoadingIndicator() -> Element {
 
 fn format_timestamp(timestamp: DateTime<Utc>) -> String {
     timestamp.format("%H:%M").to_string()
+}
+
+fn parse_chat_response_text(content: &str) -> String {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
+        if let Some(text) = json.get("text").and_then(|v| v.as_str()) {
+            return text.to_string();
+        }
+    }
+    content.to_string()
+}
+
+fn clear_pending_user_message(messages: &mut Vec<ChatMessage>) {
+    if let Some(msg) = messages
+        .iter_mut()
+        .rev()
+        .find(|m| matches!(m.sender, Sender::User) && m.pending)
+    {
+        msg.pending = false;
+    }
+}
+
+fn build_chat_ws_url(actor_id: &str, user_id: &str) -> String {
+    let ws_base = http_to_ws_url(crate::api::api_base());
+    format!("{}/ws/chat/{}/{}", ws_base, actor_id, user_id)
+}
+
+fn http_to_ws_url(http_url: &str) -> String {
+    if http_url.starts_with("http://") {
+        http_url.replace("http://", "ws://")
+    } else if http_url.starts_with("https://") {
+        http_url.replace("https://", "wss://")
+    } else if http_url.is_empty() {
+        let protocol = web_sys::window()
+            .and_then(|w| w.location().protocol().ok())
+            .unwrap_or_else(|| "http:".to_string());
+        let host = web_sys::window()
+            .and_then(|w| w.location().host().ok())
+            .unwrap_or_else(|| "localhost".to_string());
+
+        if protocol == "https:" {
+            format!("wss://{host}")
+        } else {
+            format!("ws://{host}")
+        }
+    } else {
+        format!("ws://{http_url}")
+    }
 }
 
 // Chat-specific CSS styles

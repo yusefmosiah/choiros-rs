@@ -25,6 +25,8 @@
     term.loadAddon(fitAddon);
     term.open(container);
     fitAddon.fit();
+    term.focus();
+    container.addEventListener("click", () => term.focus());
 
     const id = nextId++;
     terminals.set(id, {
