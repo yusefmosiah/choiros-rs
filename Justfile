@@ -87,57 +87,6 @@ deploy-ec2:
     rsync -avz --delete ./ ubuntu@3.83.131.245:~/choiros-rs/
     ssh ubuntu@3.83.131.245 'cd ~/choiros-rs && just build-sandbox'
 
-# Actorcode
-# Execute actorcode script with given arguments
-actorcode *ARGS:
-    node skills/actorcode/scripts/actorcode.js {{ARGS}}
-
-# Research tasks (non-blocking)
-# Launch research task from template(s)
-research *TEMPLATES:
-    node skills/actorcode/scripts/research-launch.js {{TEMPLATES}}
-
-# Monitor research sessions (collects findings in background)
-research-monitor *SESSIONS:
-    node skills/actorcode/scripts/research-monitor.js {{SESSIONS}}
-
-# Research status - show active/completed research tasks
-research-status *ARGS:
-    node skills/actorcode/scripts/research-status.js {{ARGS}}
-
-# Findings database commands
-# Query findings database (stats, export, etc.)
-findings *ARGS:
-    node skills/actorcode/scripts/findings.js {{ARGS}}
-
-# Research dashboard (tmux) - live findings view
-research-dashboard CMD="compact":
-    python skills/actorcode/scripts/research-dashboard.py {{CMD}}
-
-# Open web dashboard in browser
-research-web:
-    open skills/actorcode/dashboard.html
-
-# Start findings API server for web dashboard
-findings-server:
-    node skills/actorcode/scripts/findings-server.js
-
-# Cleanup old research sessions
-research-cleanup *ARGS:
-    node skills/actorcode/scripts/cleanup-sessions.js {{ARGS}}
-
-# Run diagnostics on research system
-research-diagnose:
-    node skills/actorcode/scripts/diagnose.js
-
-# Fix findings with worktree isolation
-fix-findings *ARGS:
-    node skills/actorcode/scripts/fix-findings.js {{ARGS}}
-
-# Check test hygiene before merging
-check-test-hygiene:
-    node skills/actorcode/scripts/check-test-hygiene.js
-
 # System Monitor
 # View actor network as ASCII diagram
 monitor:
@@ -151,21 +100,6 @@ monitor-save:
 monitor-compact:
     node skills/system-monitor/scripts/system-monitor.js --compact
 
-# Dashboard
-# Open new dashboard with network/timeline/hierarchy views
-dashboard:
-    open skills/actorcode/dashboard/index.html
-
-# Serve dashboard via HTTP (for development)
-dashboard-serve:
-    python -m http.server 8766 --directory skills/actorcode/dashboard
-
-# NixOS Research
-# Spawn supervisor to research Nix/NixOS for Rust + EC2
-nixos-research:
-    node skills/actorcode/scripts/nixos-research-supervisor.cjs
-
-# Docs Upgrade
-# Execute the docs coherence runbook fixes
-docs-upgrade:
-    node skills/actorcode/scripts/docs-upgrade-supervisor.cjs
+# Dashboard (Native ChoirOS - Coming Soon)
+# Note: Native dashboard will be integrated into ChoirOS UI
+# For now, use the UI at http://localhost:3000

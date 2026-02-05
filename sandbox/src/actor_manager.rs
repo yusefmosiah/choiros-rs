@@ -22,12 +22,15 @@ pub use crate::actors::chat::{ChatActor, ChatActorArguments, ChatActorMsg};
 pub use crate::actors::chat_agent::{ChatAgent, ChatAgentArguments, ChatAgentMsg};
 pub use crate::actors::desktop::{DesktopActor, DesktopArguments, DesktopActorMsg};
 pub use crate::actors::event_store::EventStoreMsg;
+pub use crate::actors::terminal::{TerminalActor, TerminalArguments, TerminalMsg};
 
 /// Global manager for persistent actor instances
+#[derive(Clone)]
 pub struct ActorManager {
     chat_actors: Arc<DashMap<String, ActorRef<ChatActorMsg>>>,
     chat_agents: Arc<DashMap<String, ActorRef<ChatAgentMsg>>>,
     desktop_actors: Arc<DashMap<String, ActorRef<DesktopActorMsg>>>,
+    terminal_actors: Arc<DashMap<String, ActorRef<TerminalMsg>>>,
     event_store: ActorRef<EventStoreMsg>,
 }
 
@@ -37,6 +40,7 @@ impl ActorManager {
             chat_actors: Arc::new(DashMap::new()),
             chat_agents: Arc::new(DashMap::new()),
             desktop_actors: Arc::new(DashMap::new()),
+            terminal_actors: Arc::new(DashMap::new()),
             event_store: event_store.clone(),
         }
     }
@@ -161,6 +165,39 @@ impl ActorManager {
     #[allow(dead_code)]
     pub fn get_chat_agent(&self, agent_id: &str) -> Option<ActorRef<ChatAgentMsg>> {
         self.chat_agents.get(agent_id).map(|e| e.clone())
+    }
+
+    /// Get existing TerminalActor or create new instance
+    pub async fn get_or_create_terminal(
+        &self,
+        terminal_id: &str,
+        args: TerminalArguments,
+    ) -> Result<ActorRef<TerminalMsg>, ractor::ActorProcessingErr> {
+        // Fast path: check if exists
+        if let Some(entry) = self.terminal_actors.get(terminal_id) {
+            return Ok(entry.clone());
+        }
+
+        // Slow path: create new actor
+        let terminal_id_clone = terminal_id.to_string();
+        
+        let (terminal_ref, _handle) = Actor::spawn(
+            None,
+            TerminalActor,
+            args,
+        )
+        .await?;
+
+        // Store in registry
+        self.terminal_actors.insert(terminal_id_clone, terminal_ref.clone());
+
+        Ok(terminal_ref)
+    }
+
+    /// Get existing TerminalActor if it exists
+    #[allow(dead_code)]
+    pub fn get_terminal(&self, terminal_id: &str) -> Option<ActorRef<TerminalMsg>> {
+        self.terminal_actors.get(terminal_id).map(|e| e.clone())
     }
 }
 

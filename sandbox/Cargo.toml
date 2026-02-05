@@ -39,6 +39,9 @@ futures-util = "0.3.31"
 ractor = { version = "0.15", features = ["async-trait"] }
 async-trait = "0.1"
 strum = { version = "0.26", features = ["derive"] }
+portable-pty = "0.9"
+tokio-util = { version = "0.7", features = ["codec"] }
+bytes = "1.5"
 
 [dev-dependencies]
 actix-rt = { workspace = true }

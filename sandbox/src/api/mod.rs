@@ -8,6 +8,7 @@ use serde_json::json;
 
 pub mod chat;
 pub mod desktop;
+pub mod terminal;
 pub mod websocket;
 pub mod websocket_chat;
 
@@ -25,6 +26,15 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .service(desktop::focus_window)
         .service(desktop::get_apps)
         .service(desktop::register_app)
+        // Terminal routes
+        .service(terminal::create_terminal)
+        .service(terminal::get_terminal_info)
+        .service(terminal::stop_terminal)
+        // Terminal WebSocket route
+        .route(
+            "/ws/terminal/{terminal_id}",
+            web::get().to(terminal::terminal_websocket),
+        )
         // Chat agent WebSocket routes
         .route(
             "/ws/chat/{actor_id}",

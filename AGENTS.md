@@ -54,14 +54,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 // External crates (alphabetical within groups)
-use actix::{Actor, Addr};
 use chrono::{DateTime, Utc};
+use ractor::{concurrency::Duration, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::{info, error};
 
 // Internal modules
-use crate::actors::{ChatActor, EventStoreActor};
+use crate::actors::{ChatActor, EventStoreActor, TerminalActor};
 use shared_types::{ActorId, Event};
 ```
 
@@ -111,7 +111,7 @@ pub enum ActorError {
 **Async/Await:**
 - Use `tokio` runtime (configured in workspace)
 - Prefer `async fn` over raw futures
-- Use `actix::Actor` pattern for concurrent stateful components
+- Use `ractor::Actor` pattern for concurrent stateful components
 
 ## Project Structure
 
@@ -122,7 +122,7 @@ choiros-rs/
 ├── sandbox/             # Backend API + actors
 │   ├── src/
 │   │   ├── main.rs      # Server entry point
-│   │   ├── actors/      # Actix actors (chat, desktop, events)
+│   │   ├── actors/      # Ractor actors (chat, desktop, events, terminal)
 │   │   ├── api/         # HTTP/WebSocket endpoints
 │   │   ├── tools/       # Agent tool system
 │   │   └── baml_client/ # LLM integration
@@ -231,9 +231,10 @@ cargo test -p sandbox test_name -- --nocapture
    - Supervisors: Plan, delegate, aggregate results
    - Workers: Perform actual work, report back
 
-3. **Use actorcode runs for parallel work**
-   - Fire-and-forget async execution
+3. **Use OpenCode subagent tasks for parallel work (interim)**
+   - Fire-and-forget async execution via OpenCode SDK
    - Workers run independently without blocking supervisor
+   - Note: Native actor messaging coming to ChoirOS (TerminalActor, EventBus)
 
 4. **Tool call budgets:**
    - Supervisor: 50 calls (coordination only)
