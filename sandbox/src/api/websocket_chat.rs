@@ -31,7 +31,11 @@ pub struct StreamChunk {
 #[serde(tag = "type")]
 pub enum ClientMessage {
     #[serde(rename = "message")]
-    Message { text: String },
+    Message {
+        text: String,
+        #[serde(default)]
+        client_message_id: Option<String>,
+    },
 
     #[serde(rename = "ping")]
     Ping,
@@ -146,7 +150,10 @@ async fn handle_chat_socket(
     while let Some(Ok(msg)) = receiver.next().await {
         match msg {
             Message::Text(text) => match serde_json::from_str::<ClientMessage>(&text) {
-                Ok(ClientMessage::Message { text: user_text }) => {
+                Ok(ClientMessage::Message {
+                    text: user_text,
+                    client_message_id,
+                }) => {
                     let _ = send_chunk(
                         &tx,
                         StreamChunk {
@@ -159,6 +166,7 @@ async fn handle_chat_socket(
                     let app_state = app_state.clone();
                     let actor_id = actor_id.clone();
                     let user_id = user_id.clone();
+                    let client_message_id = client_message_id.clone();
 
                     tokio::spawn(async move {
                         let event_store = app_state.actor_manager.event_store();
@@ -255,6 +263,7 @@ async fn handle_chat_socket(
                                             "text": resp.text,
                                             "confidence": resp.confidence,
                                             "model_used": resp.model_used,
+                                            "client_message_id": client_message_id,
                                         })
                                         .to_string(),
                                     },

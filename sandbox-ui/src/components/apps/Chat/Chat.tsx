@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getMessages, sendMessage } from '@/lib/api/chat';
 import type { ChatMessage } from '@/types/generated';
 import { useChatStore } from '@/stores/chat';
-import { buildChatWebSocketUrl, parseChatStreamMessage, parseResponseText } from './ws';
+import { buildChatWebSocketUrl, parseChatStreamMessage, parseResponsePayload } from './ws';
 import './Chat.css';
 
 interface ChatProps {
@@ -10,8 +10,29 @@ interface ChatProps {
   userId?: string;
 }
 
+type StreamEventType = 'thinking' | 'tool_call' | 'tool_result';
+
+interface StreamEvent {
+  id: string;
+  type: StreamEventType;
+  text: string;
+  timestamp: string;
+}
+
 function sortMessages(messages: ChatMessage[]): ChatMessage[] {
   return [...messages].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+}
+
+function parseStreamContent(content: string): string {
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    if (typeof parsed === 'string') {
+      return parsed;
+    }
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    return content;
+  }
 }
 
 export function Chat({ actorId, userId = 'user-1' }: ChatProps) {
@@ -26,10 +47,34 @@ export function Chat({ actorId, userId = 'user-1' }: ChatProps) {
 
   const [draft, setDraft] = useState('');
   const [connected, setConnected] = useState(false);
+  const [streamEvents, setStreamEvents] = useState<StreamEvent[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const pendingQueueRef = useRef<string[]>([]);
+  const pendingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  const clearPendingTimeout = useCallback((messageId: string) => {
+    const timeout = pendingTimeoutsRef.current.get(messageId);
+    if (timeout) {
+      clearTimeout(timeout);
+      pendingTimeoutsRef.current.delete(messageId);
+    }
+  }, []);
+
+  const startPendingTimeout = useCallback(
+    (messageId: string) => {
+      clearPendingTimeout(messageId);
+      const timeout = setTimeout(() => {
+        updatePendingMessage(messageId, false);
+        setError('Assistant response timeout. You can retry or refresh.');
+        pendingQueueRef.current = pendingQueueRef.current.filter((id) => id !== messageId);
+        pendingTimeoutsRef.current.delete(messageId);
+      }, 20_000);
+      pendingTimeoutsRef.current.set(messageId, timeout);
+    },
+    [clearPendingTimeout, setError, updatePendingMessage],
+  );
 
   const loadMessages = useCallback(async () => {
     try {
@@ -92,17 +137,49 @@ export function Chat({ actorId, userId = 'user-1' }: ChatProps) {
         }
 
         if (message.type === 'response') {
-          const pendingId = pendingQueueRef.current.shift();
+          const payload = parseResponsePayload(message.content);
+          let pendingId = payload.client_message_id;
+
+          if (pendingId && !pendingQueueRef.current.includes(pendingId)) {
+            pendingId = undefined;
+          }
+          if (!pendingId) {
+            pendingId = pendingQueueRef.current.shift();
+          } else {
+            pendingQueueRef.current = pendingQueueRef.current.filter((id) => id !== pendingId);
+          }
+
           if (pendingId) {
+            clearPendingTimeout(pendingId);
             updatePendingMessage(pendingId, false);
           }
 
           addMessage({
             id: `assistant-${Date.now()}`,
-            text: parseResponseText(message.content),
+            text: payload.text,
             sender: 'Assistant',
             timestamp: new Date().toISOString(),
             pending: false,
+          });
+          return;
+        }
+
+        if (
+          message.type === 'thinking' ||
+          message.type === 'tool_call' ||
+          message.type === 'tool_result'
+        ) {
+          setStreamEvents((prev) => {
+            const next = [
+              ...prev,
+              {
+                id: `${message.type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                type: message.type,
+                text: parseStreamContent(message.content),
+                timestamp: new Date().toISOString(),
+              },
+            ];
+            return next.slice(-24);
           });
           return;
         }
@@ -132,12 +209,16 @@ export function Chat({ actorId, userId = 'user-1' }: ChatProps) {
     return () => {
       cancelled = true;
       clearReconnect();
+      for (const timeout of pendingTimeoutsRef.current.values()) {
+        clearTimeout(timeout);
+      }
+      pendingTimeoutsRef.current.clear();
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
       }
     };
-  }, [actorId, addMessage, loadMessages, setError, updatePendingMessage, userId]);
+  }, [actorId, addMessage, clearPendingTimeout, loadMessages, setError, updatePendingMessage, userId]);
 
   const handleSend = useCallback(async () => {
     const text = draft.trim();
@@ -155,6 +236,7 @@ export function Chat({ actorId, userId = 'user-1' }: ChatProps) {
     });
 
     pendingQueueRef.current.push(tempId);
+    setStreamEvents([]);
     setDraft('');
 
     const ws = wsRef.current;
@@ -163,8 +245,10 @@ export function Chat({ actorId, userId = 'user-1' }: ChatProps) {
         JSON.stringify({
           type: 'message',
           text,
+          client_message_id: tempId,
         }),
       );
+      startPendingTimeout(tempId);
       return;
     }
 
@@ -174,15 +258,27 @@ export function Chat({ actorId, userId = 'user-1' }: ChatProps) {
         user_id: userId,
       });
 
+      clearPendingTimeout(tempId);
       updatePendingMessage(tempId, false);
       setError(null);
       setTimeout(() => {
         void loadMessages();
       }, 500);
     } catch (err) {
+      clearPendingTimeout(tempId);
       setError(err instanceof Error ? err.message : 'Failed to send message');
     }
-  }, [actorId, addMessage, draft, loadMessages, setError, updatePendingMessage, userId]);
+  }, [
+    actorId,
+    addMessage,
+    clearPendingTimeout,
+    draft,
+    loadMessages,
+    setError,
+    startPendingTimeout,
+    updatePendingMessage,
+    userId,
+  ]);
 
   const renderedMessages = useMemo(() => sortMessages(messages), [messages]);
 
@@ -201,6 +297,23 @@ export function Chat({ actorId, userId = 'user-1' }: ChatProps) {
       </header>
 
       <div className="chat-app__messages">
+        {streamEvents.length > 0 && (
+          <section className="chat-stream" aria-live="polite">
+            <h4 className="chat-stream__title">Live activity</h4>
+            <div className="chat-stream__list">
+              {streamEvents.map((event) => (
+                <article key={event.id} className={`chat-stream__event chat-stream__event--${event.type}`}>
+                  <div className="chat-stream__meta">
+                    <span>{event.type.replace('_', ' ')}</span>
+                    <span>{new Date(event.timestamp).toLocaleTimeString()}</span>
+                  </div>
+                  <pre>{event.text}</pre>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+
         {isLoading && renderedMessages.length === 0 && <p className="chat-app__status">Loading messages...</p>}
 
         {!isLoading && renderedMessages.length === 0 && (

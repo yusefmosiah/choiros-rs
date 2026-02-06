@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseChatStreamMessage, parseResponseText } from './ws';
+import { parseChatStreamMessage, parseResponsePayload } from './ws';
 
 describe('chat ws utils', () => {
   it('parses response stream message', () => {
@@ -10,13 +10,24 @@ describe('chat ws utils', () => {
   it('returns null for invalid stream payload', () => {
     expect(parseChatStreamMessage('bad-json')).toBeNull();
     expect(parseChatStreamMessage('{"ok":true}')).toBeNull();
+    expect(parseChatStreamMessage('{"type":"response"}')).toBeNull();
+    expect(parseChatStreamMessage('{"type":"error"}')).toBeNull();
   });
 
-  it('extracts text from JSON response content', () => {
-    expect(parseResponseText('{"text":"assistant reply"}')).toBe('assistant reply');
+  it('extracts response payload from JSON content', () => {
+    expect(
+      parseResponsePayload(
+        '{"text":"assistant reply","confidence":0.8,"model_used":"foo","client_message_id":"pending-1"}',
+      ),
+    ).toEqual({
+      text: 'assistant reply',
+      confidence: 0.8,
+      model_used: 'foo',
+      client_message_id: 'pending-1',
+    });
   });
 
   it('falls back to raw content when not json', () => {
-    expect(parseResponseText('plain text')).toBe('plain text');
+    expect(parseResponsePayload('plain text')).toEqual({ text: 'plain text' });
   });
 });

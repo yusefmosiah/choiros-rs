@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AppDefinition } from '@/types/generated';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { CORE_APPS } from '@/lib/apps';
+
+// Module-level bootstrap tracking to survive React StrictMode double-render
+const bootstrapState = new Map<string, boolean>();
 import {
   closeWindow,
   focusWindow,
   getApps,
-  getDesktopState,
   maximizeWindow,
   minimizeWindow,
   moveWindow,
@@ -20,7 +22,6 @@ import { useDesktopStore } from '@/stores/desktop';
 import { useWindowsStore } from '@/stores/windows';
 import { Icon } from './Icon';
 import { PromptBar } from './PromptBar';
-import { Taskbar } from './Taskbar';
 import { WindowManager } from '@/components/window/WindowManager';
 import './Desktop.css';
 import '@/components/window/Window.css';
@@ -34,36 +35,47 @@ export function Desktop({ desktopId = 'desktop-1' }: DesktopProps) {
   const windows = useWindowsStore((state) => state.windows);
 
   const activeWindowId = useDesktopStore((state) => state.activeWindowId);
-  const setDesktopState = useDesktopStore((state) => state.setDesktopState);
   const setDesktopError = useDesktopStore((state) => state.setError);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Bootstrap: Wait for WebSocket connection before fetching state
+  const maxRetries = 3;
+  const retryCountRef = { current: 0 };
+
   useEffect(() => {
     let cancelled = false;
+    const bootstrapKey = `${desktopId}-bootstrap`;
 
     const bootstrap = async () => {
+      // Only run bootstrap once per connection (module-level tracking for StrictMode)
+      if (bootstrapState.get(bootstrapKey) || status !== 'connected') {
+        return;
+      }
+      bootstrapState.set(bootstrapKey, true);
+
       try {
         const existingApps = await getApps(desktopId).catch(() => []);
         const existingIds = new Set(existingApps.map((app) => app.id));
         const missingApps = CORE_APPS.filter((app) => !existingIds.has(app.id));
 
-        await Promise.all(
-          missingApps.map(async (app) => {
-            await registerApp(desktopId, app);
-          }),
-        );
-
-        const desktopState = await getDesktopState(desktopId);
-        if (cancelled) {
-          return;
+        if (missingApps.length > 0) {
+          await Promise.all(
+            missingApps.map(async (app) => {
+              await registerApp(desktopId, app);
+            }),
+          );
         }
 
-        setDesktopState(desktopState);
-        useWindowsStore.getState().setWindows(desktopState.windows);
+        // Note: Desktop state comes via WebSocket (desktop_state message)
+        // We only need to register apps here, not fetch state via API
         setError(null);
+        retryCountRef.current = 0; // Reset retry count on success
       } catch (err) {
+        // Reset bootstrap state on error to allow retry
+        bootstrapState.delete(bootstrapKey);
+
         if (cancelled) {
           return;
         }
@@ -71,6 +83,16 @@ export function Desktop({ desktopId = 'desktop-1' }: DesktopProps) {
         const message = err instanceof Error ? err.message : 'Failed to load desktop state';
         setError(message);
         setDesktopError(message);
+
+        // Retry on failure (up to maxRetries)
+        if (retryCountRef.current < maxRetries) {
+          retryCountRef.current++;
+          setTimeout(() => {
+            if (!cancelled) {
+              void bootstrap();
+            }
+          }, 1000 * retryCountRef.current); // Exponential backoff
+        }
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -83,7 +105,7 @@ export function Desktop({ desktopId = 'desktop-1' }: DesktopProps) {
     return () => {
       cancelled = true;
     };
-  }, [desktopId, setDesktopError, setDesktopState]);
+  }, [desktopId, setDesktopError, status]);
 
   const handleOpenApp = useCallback(
     async (app: AppDefinition) => {
@@ -104,6 +126,12 @@ export function Desktop({ desktopId = 'desktop-1' }: DesktopProps) {
   const handleCloseWindow = useCallback(
     async (windowId: string) => {
       try {
+        // Check if window exists before attempting to close
+        const window = useWindowsStore.getState().windows.find((w) => w.id === windowId);
+        if (!window) {
+          console.warn(`Window ${windowId} not found in local state, may already be closed`);
+          return;
+        }
         await closeWindow(desktopId, windowId);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to close window';
@@ -117,6 +145,15 @@ export function Desktop({ desktopId = 'desktop-1' }: DesktopProps) {
   const handleFocusWindow = useCallback(
     async (windowId: string) => {
       try {
+        const window = useWindowsStore.getState().windows.find((w) => w.id === windowId);
+
+        // If window is minimized, restore it first before focusing
+        // Backend rejects focus operations on minimized windows
+        if (window?.minimized) {
+          await restoreWindow(desktopId, windowId);
+          return;
+        }
+
         await focusWindow(desktopId, windowId);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to focus window';
@@ -127,9 +164,34 @@ export function Desktop({ desktopId = 'desktop-1' }: DesktopProps) {
     [desktopId, setDesktopError],
   );
 
+  const handleActivateWindow = useCallback(
+    async (windowId: string) => {
+      try {
+        const window = useWindowsStore.getState().windows.find((item) => item.id === windowId);
+        if (window?.minimized) {
+          await restoreWindow(desktopId, windowId);
+          return;
+        }
+
+        await focusWindow(desktopId, windowId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to activate window';
+        setError(message);
+        setDesktopError(message);
+      }
+    },
+    [desktopId, setDesktopError],
+  );
+
   const handleMoveWindow = useCallback(
     async (windowId: string, x: number, y: number) => {
       try {
+        // Validate window exists before operation
+        const window = useWindowsStore.getState().windows.find((w) => w.id === windowId);
+        if (!window) {
+          console.warn(`Window ${windowId} not found, skipping move`);
+          return;
+        }
         await moveWindow(desktopId, windowId, x, y);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to move window';
@@ -143,6 +205,12 @@ export function Desktop({ desktopId = 'desktop-1' }: DesktopProps) {
   const handleResizeWindow = useCallback(
     async (windowId: string, width: number, height: number) => {
       try {
+        // Validate window exists before operation
+        const window = useWindowsStore.getState().windows.find((w) => w.id === windowId);
+        if (!window) {
+          console.warn(`Window ${windowId} not found, skipping resize`);
+          return;
+        }
         await resizeWindow(desktopId, windowId, width, height);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to resize window';
@@ -156,6 +224,12 @@ export function Desktop({ desktopId = 'desktop-1' }: DesktopProps) {
   const handleMinimizeWindow = useCallback(
     async (windowId: string) => {
       try {
+        // Validate window exists before operation
+        const window = useWindowsStore.getState().windows.find((w) => w.id === windowId);
+        if (!window) {
+          console.warn(`Window ${windowId} not found, skipping minimize`);
+          return;
+        }
         await minimizeWindow(desktopId, windowId);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to minimize window';
@@ -169,7 +243,21 @@ export function Desktop({ desktopId = 'desktop-1' }: DesktopProps) {
   const handleMaximizeWindow = useCallback(
     async (windowId: string) => {
       try {
-        await maximizeWindow(desktopId, windowId);
+        // Validate window exists before operation
+        const window = useWindowsStore.getState().windows.find((w) => w.id === windowId);
+        if (!window) {
+          console.warn(`Window ${windowId} not found, skipping maximize`);
+          return;
+        }
+        const updatedWindow = await maximizeWindow(desktopId, windowId);
+        // Optimistically update local state in case WebSocket is lagging
+        useWindowsStore.getState().maximizeWindow(
+          windowId,
+          updatedWindow.x,
+          updatedWindow.y,
+          updatedWindow.width,
+          updatedWindow.height,
+        );
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to maximize window';
         setError(message);
@@ -182,7 +270,21 @@ export function Desktop({ desktopId = 'desktop-1' }: DesktopProps) {
   const handleRestoreWindow = useCallback(
     async (windowId: string) => {
       try {
-        await restoreWindow(desktopId, windowId);
+        // Validate window exists before operation
+        const window = useWindowsStore.getState().windows.find((w) => w.id === windowId);
+        if (!window) {
+          console.warn(`Window ${windowId} not found, skipping restore`);
+          return;
+        }
+        const updatedWindow = await restoreWindow(desktopId, windowId);
+        // Optimistically update local state in case WebSocket is lagging
+        useWindowsStore.getState().restoreWindow(
+          windowId,
+          updatedWindow.x,
+          updatedWindow.y,
+          updatedWindow.width,
+          updatedWindow.height,
+        );
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to restore window';
         setError(message);
@@ -198,7 +300,7 @@ export function Desktop({ desktopId = 'desktop-1' }: DesktopProps) {
         const chatWindow = useWindowsStore.getState().windows.find((window) => window.app_id === 'chat');
 
         if (chatWindow) {
-          await focusWindow(desktopId, chatWindow.id);
+          await handleActivateWindow(chatWindow.id);
           await sendMessage(chatWindow.id, { text, user_id: 'user-1' });
           return;
         }
@@ -215,7 +317,7 @@ export function Desktop({ desktopId = 'desktop-1' }: DesktopProps) {
         setDesktopError(message);
       }
     },
-    [desktopId, setDesktopError],
+    [desktopId, handleActivateWindow, setDesktopError],
   );
 
   const sortedWindows = useMemo(
@@ -250,14 +352,12 @@ export function Desktop({ desktopId = 'desktop-1' }: DesktopProps) {
         )}
       </section>
 
-      <Taskbar windows={sortedWindows} activeWindowId={activeWindowId} onFocusWindow={handleFocusWindow} />
-
       <PromptBar
         connected={status === 'connected'}
         windows={sortedWindows}
         activeWindowId={activeWindowId}
         onSubmit={handlePromptSubmit}
-        onFocusWindow={handleFocusWindow}
+        onFocusWindow={handleActivateWindow}
       />
     </main>
   );

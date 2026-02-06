@@ -1,8 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DesktopWebSocketClient } from '@/lib/ws/client';
 import type { WsConnectionStatus, WsServerMessage } from '@/lib/ws/types';
 import { useDesktopStore } from '@/stores/desktop';
 import { useWindowsStore } from '@/stores/windows';
+
+// Singleton WebSocket client instance
+let wsClientInstance: DesktopWebSocketClient | null = null;
+
+function getWsClient(): DesktopWebSocketClient {
+  if (!wsClientInstance) {
+    wsClientInstance = new DesktopWebSocketClient();
+  }
+  return wsClientInstance;
+}
 
 function applyWsMessage(message: WsServerMessage): void {
   const desktopStore = useDesktopStore.getState();
@@ -96,7 +106,9 @@ export function useWebSocket(desktopId: string | null): UseWebSocketResult {
   const wsConnected = useDesktopStore((state) => state.wsConnected);
   const [status, setStatus] = useState<WsConnectionStatus>('disconnected');
 
-  const client = useMemo(() => new DesktopWebSocketClient(), []);
+  // Use ref to maintain stable client reference
+  const clientRef = useRef<DesktopWebSocketClient>(getWsClient());
+  const client = clientRef.current;
 
   useEffect(() => {
     const unsubscribeMessage = client.onMessage((message) => {
@@ -117,7 +129,7 @@ export function useWebSocket(desktopId: string | null): UseWebSocketResult {
       unsubscribeStatus();
       unsubscribeError();
     };
-  }, [client]);
+  }, []);
 
   useEffect(() => {
     if (!desktopId) {
@@ -130,7 +142,7 @@ export function useWebSocket(desktopId: string | null): UseWebSocketResult {
     return () => {
       client.disconnect();
     };
-  }, [client, desktopId]);
+  }, [desktopId]);
 
   return {
     status: wsConnected ? 'connected' : status,

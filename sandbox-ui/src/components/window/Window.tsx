@@ -1,7 +1,12 @@
-import { useRef, type PointerEventHandler } from 'react';
+import { Suspense, lazy, useRef, type PointerEventHandler } from 'react';
 import type { WindowState } from '@/types/generated';
 import { Chat } from '@/components/apps/Chat/Chat';
-import { Terminal } from '@/components/apps/Terminal/Terminal';
+
+const Terminal = lazy(() =>
+  import('@/components/apps/Terminal/Terminal').then((module) => ({
+    default: module.Terminal,
+  })),
+);
 
 interface WindowProps {
   window: WindowState;
@@ -187,7 +192,11 @@ function AppPlaceholder({ appId, windowId }: { appId: string; windowId: string }
   }
 
   if (appId === 'terminal') {
-    return <Terminal terminalId={windowId} />;
+    return (
+      <Suspense fallback={<div className="window__placeholder">Loading terminal...</div>}>
+        <Terminal terminalId={windowId} />
+      </Suspense>
+    );
   }
 
   if (appId === 'writer') {

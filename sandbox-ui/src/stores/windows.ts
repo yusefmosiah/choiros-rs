@@ -41,7 +41,13 @@ export const useWindowsStore = create<WindowsStore>((set) => ({
     set({ windows });
   },
   openWindow: (window) => {
-    set((state) => ({ windows: [...state.windows, window] }));
+    set((state) => {
+      // Prevent duplicates - check if window already exists
+      if (state.windows.some((w) => w.id === window.id)) {
+        return state;
+      }
+      return { windows: [...state.windows, window] };
+    });
   },
   closeWindow: (windowId) => {
     set((state) => ({ windows: state.windows.filter((window) => window.id !== windowId) }));

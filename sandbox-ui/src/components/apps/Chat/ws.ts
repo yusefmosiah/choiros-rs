@@ -9,10 +9,35 @@ export type ChatStreamMessage =
   | { type: 'error'; message: string }
   | { type: 'pong' };
 
+export interface ChatResponsePayload {
+  text: string;
+  confidence?: number;
+  model_used?: string;
+  client_message_id?: string;
+}
+
 export function parseChatStreamMessage(raw: string): ChatStreamMessage | null {
   try {
-    const parsed = JSON.parse(raw) as { type?: unknown };
-    if (!parsed || typeof parsed !== 'object' || typeof parsed.type !== 'string') {
+    const parsed = JSON.parse(raw) as { type?: unknown; content?: unknown; message?: unknown };
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+
+    if (typeof parsed.type !== 'string') {
+      return null;
+    }
+
+    if (
+      (parsed.type === 'thinking' ||
+        parsed.type === 'tool_call' ||
+        parsed.type === 'tool_result' ||
+        parsed.type === 'response') &&
+      typeof parsed.content !== 'string'
+    ) {
+      return null;
+    }
+
+    if (parsed.type === 'error' && typeof parsed.message !== 'string') {
       return null;
     }
 
@@ -22,12 +47,31 @@ export function parseChatStreamMessage(raw: string): ChatStreamMessage | null {
   }
 }
 
-export function parseResponseText(content: string): string {
+export function parseResponsePayload(content: string): ChatResponsePayload {
   try {
-    const parsed = JSON.parse(content) as { text?: unknown };
-    return typeof parsed.text === 'string' ? parsed.text : content;
+    const parsed = JSON.parse(content) as {
+      text?: unknown;
+      confidence?: unknown;
+      model_used?: unknown;
+      client_message_id?: unknown;
+    };
+
+    const text = typeof parsed.text === 'string' ? parsed.text : content;
+    const confidence =
+      typeof parsed.confidence === 'number' ? parsed.confidence : undefined;
+    const modelUsed =
+      typeof parsed.model_used === 'string' ? parsed.model_used : undefined;
+    const clientMessageId =
+      typeof parsed.client_message_id === 'string' ? parsed.client_message_id : undefined;
+
+    return {
+      text,
+      confidence,
+      model_used: modelUsed,
+      client_message_id: clientMessageId,
+    };
   } catch {
-    return content;
+    return { text: content };
   }
 }
 
