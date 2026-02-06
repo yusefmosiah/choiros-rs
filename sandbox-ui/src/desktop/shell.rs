@@ -1,0 +1,308 @@
+use dioxus::prelude::*;
+use shared_types::DesktopState;
+
+use crate::desktop::actions;
+use crate::desktop::apps::core_apps;
+use crate::desktop::components::prompt_bar::PromptBar;
+use crate::desktop::components::workspace_canvas::WorkspaceCanvas;
+use crate::desktop::effects;
+use crate::desktop::theme::{
+    apply_theme_to_document, next_theme, set_cached_theme_preference, DEFAULT_THEME,
+};
+
+#[component]
+pub fn DesktopShell(desktop_id: String) -> Element {
+    let desktop_state = use_signal(|| None::<DesktopState>);
+    let loading = use_signal(|| true);
+    let error = use_signal(|| None::<String>);
+    let ws_connected = use_signal(|| false);
+    let desktop_id_signal = use_signal(|| desktop_id.clone());
+    let viewport = use_signal(|| (1920u32, 1080u32));
+    let apps_registered = use_signal(|| false);
+    let theme_initialized = use_signal(|| false);
+    let mut current_theme = use_signal(|| DEFAULT_THEME.to_string());
+
+    use_effect(move || {
+        spawn(async move {
+            effects::track_viewport(viewport).await;
+        });
+    });
+
+    use_effect(move || {
+        spawn(async move {
+            effects::initialize_theme(theme_initialized, current_theme).await;
+        });
+    });
+
+    let toggle_theme = use_callback(move |_| {
+        let next = next_theme(&current_theme());
+        current_theme.set(next.clone());
+        apply_theme_to_document(&next);
+        set_cached_theme_preference(&next);
+
+        spawn(async move {
+            effects::persist_theme(next).await;
+        });
+    });
+
+    use_effect(move || {
+        let desktop_id = desktop_id_signal.read().clone();
+        spawn(async move {
+            effects::load_initial_desktop_state(desktop_id, loading, error, desktop_state).await;
+        });
+    });
+
+    use_effect(move || {
+        let desktop_id = desktop_id_signal.read().clone();
+        spawn(async move {
+            effects::bootstrap_websocket(desktop_id, desktop_state, ws_connected).await;
+        });
+    });
+
+    let open_app_window = use_callback(move |app| {
+        let desktop_id = desktop_id_signal.read().clone();
+        spawn(async move {
+            actions::open_app_window(desktop_id, app, desktop_state).await;
+        });
+    });
+
+    let close_window_cb = use_callback(move |window_id: String| {
+        let desktop_id = desktop_id_signal.read().clone();
+        spawn(async move {
+            actions::close_window_action(desktop_id, window_id, desktop_state).await;
+        });
+    });
+
+    let focus_window_cb = use_callback(move |window_id: String| {
+        let desktop_id = desktop_id_signal.read().clone();
+        spawn(async move {
+            actions::focus_window_action(desktop_id, window_id, desktop_state).await;
+        });
+    });
+
+    let move_window_cb = use_callback(move |(window_id, x, y): (String, i32, i32)| {
+        let desktop_id = desktop_id_signal.read().clone();
+        spawn(async move {
+            actions::move_window_action(desktop_id, window_id, x, y).await;
+        });
+    });
+
+    let resize_window_cb = use_callback(move |(window_id, width, height): (String, i32, i32)| {
+        let desktop_id = desktop_id_signal.read().clone();
+        spawn(async move {
+            actions::resize_window_action(desktop_id, window_id, width, height).await;
+        });
+    });
+
+    let handle_prompt_submit = use_callback(move |text: String| {
+        let desktop_id = desktop_id_signal.read().clone();
+        spawn(async move {
+            actions::handle_prompt_submit(desktop_id, text, desktop_state).await;
+        });
+    });
+
+    let core_apps = core_apps();
+
+    {
+        let desktop_id = desktop_id_signal.read().clone();
+        let apps = core_apps.clone();
+        use_effect(move || {
+            let desktop_id = desktop_id.clone();
+            let apps = apps.clone();
+            spawn(async move {
+                effects::register_core_apps_once(desktop_id, apps, apps_registered).await;
+            });
+        });
+    }
+
+    let state_snapshot = desktop_state.read().clone();
+    let is_desktop = viewport.read().0 > 1024;
+    let windows = state_snapshot
+        .as_ref()
+        .map(|state| state.windows.clone())
+        .unwrap_or_default();
+    let active_window = state_snapshot
+        .as_ref()
+        .and_then(|state| state.active_window.clone());
+
+    rsx! {
+        style { {DEFAULT_TOKENS} }
+
+        link {
+            rel: "stylesheet",
+            href: "/xterm.css",
+        }
+        script { src: "/xterm.js" }
+        script { src: "/xterm-addon-fit.js" }
+        script { src: "/terminal.js" }
+
+        div {
+            class: "desktop-shell",
+            style: "min-height: 100vh; display: flex; flex-direction: column; overflow: hidden;",
+
+            WorkspaceCanvas {
+                apps: core_apps,
+                on_open_app: open_app_window,
+                is_mobile: !is_desktop,
+                loading,
+                error,
+                state: desktop_state,
+                viewport,
+                on_close: close_window_cb,
+                on_focus: focus_window_cb,
+                on_move: move_window_cb,
+                on_resize: resize_window_cb,
+            }
+
+            PromptBar {
+                connected: ws_connected(),
+                windows,
+                active_window,
+                on_submit: handle_prompt_submit,
+                on_focus_window: focus_window_cb,
+                current_theme: current_theme(),
+                on_toggle_theme: toggle_theme,
+            }
+        }
+    }
+}
+
+const DEFAULT_TOKENS: &str = r#"
+:root {
+    /* Colors */
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --accent-bg: #3b82f6;
+    --accent-bg-hover: #2563eb;
+    --accent-text: #ffffff;
+    --border-color: #334155;
+
+    /* Semantic colors */
+    --window-bg: var(--bg-secondary);
+    --titlebar-bg: var(--bg-primary);
+    --dock-bg: rgba(30, 41, 59, 0.8);
+    --promptbar-bg: var(--bg-primary);
+    --input-bg: var(--bg-secondary);
+    --hover-bg: rgba(255, 255, 255, 0.1);
+    --danger-bg: #ef4444;
+    --danger-text: #ef4444;
+    --success-bg: #10b981;
+    --warning-bg: #f59e0b;
+
+    /* Chat-specific colors */
+    --chat-bg: var(--bg-primary);
+    --chat-header-bg: var(--bg-secondary);
+    --user-bubble-bg: var(--accent-bg);
+    --assistant-bubble-bg: var(--bg-secondary);
+
+    /* Spacing & Radius */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+:root[data-theme="dark"] {
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --accent-bg: #3b82f6;
+    --accent-bg-hover: #2563eb;
+    --accent-text: #ffffff;
+    --border-color: #334155;
+    --window-bg: var(--bg-secondary);
+    --titlebar-bg: var(--bg-primary);
+    --dock-bg: rgba(30, 41, 59, 0.8);
+    --promptbar-bg: var(--bg-primary);
+    --input-bg: var(--bg-secondary);
+    --hover-bg: rgba(255, 255, 255, 0.1);
+    --danger-bg: #ef4444;
+    --danger-text: #ef4444;
+    --success-bg: #10b981;
+    --warning-bg: #f59e0b;
+    --chat-bg: var(--bg-primary);
+    --chat-header-bg: var(--bg-secondary);
+    --user-bubble-bg: var(--accent-bg);
+    --assistant-bubble-bg: var(--bg-secondary);
+}
+
+:root[data-theme="light"] {
+    --bg-primary: #f8fafc;
+    --bg-secondary: #ffffff;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+    --accent-bg: #2563eb;
+    --accent-bg-hover: #1d4ed8;
+    --accent-text: #ffffff;
+    --border-color: #cbd5e1;
+    --window-bg: var(--bg-secondary);
+    --titlebar-bg: #e2e8f0;
+    --dock-bg: rgba(255, 255, 255, 0.9);
+    --promptbar-bg: #e2e8f0;
+    --input-bg: #ffffff;
+    --hover-bg: rgba(15, 23, 42, 0.08);
+    --danger-bg: #dc2626;
+    --danger-text: #b91c1c;
+    --success-bg: #059669;
+    --warning-bg: #d97706;
+    --chat-bg: #f1f5f9;
+    --chat-header-bg: #e2e8f0;
+    --user-bubble-bg: var(--accent-bg);
+    --assistant-bubble-bg: #ffffff;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.desktop-icon:hover {
+    background: var(--hover-bg, rgba(255, 255, 255, 0.1));
+}
+
+.desktop-icon:hover div {
+    background: var(--window-bg, #1f2937);
+    transform: scale(1.05);
+}
+
+.running-app:hover {
+    background: var(--hover-bg, rgba(255, 255, 255, 0.1)) !important;
+}
+
+@media (max-width: 1024px) {
+    .desktop-icons {
+        gap: 1rem !important;
+    }
+
+    .prompt-bar {
+        padding: 0.5rem !important;
+    }
+
+    .running-apps {
+        display: none !important;
+    }
+}
+
+@media (max-width: 640px) {
+    .desktop-icons {
+        grid-template-columns: repeat(2, 4rem) !important;
+    }
+}
+"#;
