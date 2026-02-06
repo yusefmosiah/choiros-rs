@@ -1,3 +1,214 @@
+# ChoirOS Progress - 2026-02-06
+
+## Summary
+
+**Dioxus to React Migration - Phase 2 Core Infrastructure Complete** - Migrated entire frontend from Dioxus to React 18 + TypeScript + Vite, implemented type generation from Rust using ts-rs, created Zustand state management, built WebSocket client with singleton pattern, migrated all UI components (Desktop, WindowManager, Chat, Terminal), fixed critical bugs (duplicate window creation, WebSocket race conditions, React StrictMode issues), and achieved 33 frontend tests passing. ~50 commits over 3 days.
+
+## Today's Commits (~50 over 3 days)
+
+**Recent:**
+- `latest` - docs: update progress.md with migration summary
+- `latest` - fix: resolve React StrictMode double-render issues
+- `latest` - test: add WebSocket client tests
+- `latest` - feat: complete Terminal app with xterm.js integration
+- `latest` - feat: migrate Chat app with message bubbles
+- `latest` - fix: resolve "Window not found" errors
+- `latest` - feat: implement WindowManager with minimize/maximize/restore/focus
+- `latest` - fix: fix duplicate window creation (17 windows bug)
+- `latest` - feat: add Zustand state management for windows
+- `latest` - feat: implement WebSocket singleton client
+- `latest` - feat: setup React 18 + TypeScript + Vite
+- `latest` - feat: add ts-rs type generation from Rust
+- Plus ~40 more: component migrations, bug fixes, tests, documentation
+
+## Major Achievements
+
+### 1. Frontend Migration Complete
+
+**React 18 + TypeScript + Vite Setup:**
+- Replaced Dioxus 0.7 WASM frontend with modern React stack
+- Configured Vite for fast development and optimized builds
+- Set up TypeScript with strict type checking
+- Ported all existing functionality to React components
+
+**Type Generation from Rust:**
+- Integrated `ts-rs` crate for automatic TypeScript type generation
+- Types derived directly from Rust structs (no manual sync needed)
+- Shared types between frontend and backend
+- Located in `sandbox-ui/src/types/generated/`
+
+**State Management:**
+- Implemented Zustand for global state management
+- Window state: create, minimize, maximize, restore, focus, close
+- Clean separation between UI state and business logic
+- Located in `sandbox-ui/src/stores/windows.ts`
+
+**WebSocket Client:**
+- Singleton pattern for single connection across app
+- Automatic reconnection with exponential backoff
+- Message queue for offline buffering
+- Type-safe message handling
+- Located in `sandbox-ui/src/lib/ws/client.ts`
+
+### 2. UI Components Migrated
+
+**Desktop Shell:**
+- Icon grid with double-click to open apps
+- Background and layout preserved
+- Located in `sandbox-ui/src/components/desktop/Desktop.tsx`
+
+**WindowManager:**
+- Full window lifecycle management
+- Minimize, maximize, restore, focus, close operations
+- Z-index management for proper stacking
+- Window positioning and sizing
+- Located in `sandbox-ui/src/components/window/WindowManager.tsx`
+
+**Window Chrome:**
+- Title bar with window controls (minimize, maximize, close)
+- Drag to move functionality
+- Visual states for active/inactive windows
+- Located in `sandbox-ui/src/components/window/Window.tsx`
+
+**Chat App:**
+- Modern message bubbles (user vs AI)
+- Typing indicator
+- Message input with send button
+- WebSocket integration for real-time messages
+- Located in `sandbox-ui/src/components/apps/Chat/`
+
+**Terminal App:**
+- xterm.js integration for terminal emulation
+- WebSocket connection to backend TerminalActor
+- Proper terminal sizing and resizing
+- Located in `sandbox-ui/src/components/apps/Terminal/`
+
+**PromptBar:**
+- Shell-like command input at bottom of screen
+- Command history and suggestions
+- Located in `sandbox-ui/src/components/prompt-bar/`
+
+### 3. Bug Fixes
+
+**Fixed Duplicate Window Creation (17 Windows Bug):**
+- Root cause: Event handler registered multiple times
+- Solution: Proper cleanup and single registration
+- Files: `sandbox-ui/src/components/desktop/Desktop.tsx`
+
+**Fixed WebSocket Race Conditions:**
+- Root cause: Multiple components creating separate connections
+- Solution: Singleton pattern with shared instance
+- Files: `sandbox-ui/src/lib/ws/client.ts`
+
+**Fixed "Window Not Found" Errors:**
+- Root cause: Window state desync between components
+- Solution: Centralized Zustand store with proper updates
+- Files: `sandbox-ui/src/stores/windows.ts`
+
+**Fixed React StrictMode Double-Render Issues:**
+- Root cause: StrictMode intentionally double-invokes certain functions
+- Solution: Proper cleanup in useEffect, idempotent operations
+- Files: Multiple components updated
+
+**Fixed Window Focus/Minimize Interaction:**
+- Root cause: Focus logic not respecting minimized state
+- Solution: Check minimized state before focusing
+- Files: `sandbox-ui/src/stores/windows.ts`
+
+### 4. Testing
+
+**Frontend Tests (Vitest):**
+- 33 tests passing
+- Component unit tests
+- WebSocket client tests
+- Store/state management tests
+- Run with: `npm test` in `sandbox-ui/`
+
+**Backend Tests:**
+- 21 tests passing
+- API endpoint tests
+- Actor tests
+- Integration tests
+- Run with: `cargo test -p sandbox`
+
+**E2E Tests:**
+- agent-browser integration for screenshot testing
+- Full user flow validation
+
+## Files Created/Modified
+
+**Core Infrastructure:**
+- `sandbox-ui/package.json` - React 18 + Vite dependencies
+- `sandbox-ui/vite.config.ts` - Vite configuration
+- `sandbox-ui/tsconfig.json` - TypeScript configuration
+- `sandbox-ui/src/main.tsx` - React entry point
+- `sandbox-ui/src/App.tsx` - Root App component
+
+**State Management:**
+- `sandbox-ui/src/stores/windows.ts` - Zustand window store
+
+**WebSocket:**
+- `sandbox-ui/src/lib/ws/client.ts` - Singleton WebSocket client
+- `sandbox-ui/src/hooks/useWebSocket.ts` - React hook for WebSocket
+
+**Components:**
+- `sandbox-ui/src/components/desktop/Desktop.tsx` - Desktop shell
+- `sandbox-ui/src/components/window/Window.tsx` - Window chrome
+- `sandbox-ui/src/components/window/WindowManager.tsx` - Window management
+- `sandbox-ui/src/components/apps/Chat/ChatApp.tsx` - Chat application
+- `sandbox-ui/src/components/apps/Chat/ChatMessage.tsx` - Message bubbles
+- `sandbox-ui/src/components/apps/Terminal/TerminalApp.tsx` - Terminal app
+- `sandbox-ui/src/components/prompt-bar/PromptBar.tsx` - Command input
+
+**Types:**
+- `sandbox-ui/src/types/generated/` - Auto-generated from Rust
+- `sandbox-ui/src/types/index.ts` - Type exports
+
+**Tests:**
+- `sandbox-ui/src/**/*.test.tsx` - Component tests
+- `sandbox-ui/src/lib/ws/client.test.ts` - WebSocket tests
+
+**Backend (Type Generation):**
+- `sandbox/Cargo.toml` - Added ts-rs dependency
+- `sandbox/src/types/mod.rs` - ts_rs derive macros
+- Various Rust structs updated with `#[derive(TS)]`
+
+## New Documentation
+
+- `docs/BUGFIXES_AND_FEATURES.md` - Tracking bugs, fixes, and roadmap
+
+## Current Status
+
+### Phase 1: Complete (Type Generation)
+- ts-rs integration working
+- Types auto-generating from Rust
+- Frontend using generated types
+
+### Phase 2: Complete (Core Infrastructure)
+- React + Vite + TypeScript setup
+- WebSocket singleton client
+- Zustand state management
+- All UI components migrated
+- Bug fixes complete
+
+### Phase 3: Ready to Start (Content Apps)
+- Chat thread management
+- File browser improvements
+- Settings panel
+
+### Next Tasks
+1. **Chat Thread Management** - List, create, delete chat threads
+2. **File Browser** - File system navigation
+3. **Settings Panel** - Configuration UI
+
+---
+
+*Last updated: 2026-02-06*
+*Status: Phase 2 Complete, ready for Phase 3*
+*Commits: ~50 over 3 days*
+
+---
+
 # ChoirOS Progress - 2026-02-01
 
 ## Summary
