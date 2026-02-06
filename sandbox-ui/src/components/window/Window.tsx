@@ -70,8 +70,12 @@ export function Window({
     event.preventDefault();
     onFocus(windowState.id);
 
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragPointerIdRef.current = event.pointerId;
+    // Store reference to the header element for consistent capture/release
+    const headerElement = event.currentTarget;
+    const pointerId = event.pointerId;
+
+    headerElement.setPointerCapture(pointerId);
+    dragPointerIdRef.current = pointerId;
     dragThresholdMetRef.current = false;
     dragStartRef.current = {
       pointerX: event.clientX,
@@ -115,13 +119,22 @@ export function Window({
         return;
       }
 
-      event.currentTarget.releasePointerCapture(upEvent.pointerId);
-      dragPointerIdRef.current = null;
-      dragStartRef.current = null;
-      dragThresholdMetRef.current = false;
+      // Remove listeners first to prevent any further events
       globalThis.window.removeEventListener('pointermove', handlePointerMove);
       globalThis.window.removeEventListener('pointerup', handlePointerUp);
       globalThis.window.removeEventListener('pointercancel', handlePointerUp);
+
+      // Release pointer capture - use try/catch as capture may already be lost
+      try {
+        headerElement.releasePointerCapture(upEvent.pointerId);
+      } catch {
+        // Capture may have already been released or lost, that's ok
+      }
+
+      // Reset all drag state refs after cleanup
+      dragPointerIdRef.current = null;
+      dragStartRef.current = null;
+      dragThresholdMetRef.current = false;
     };
 
     globalThis.window.addEventListener('pointermove', handlePointerMove);
@@ -168,11 +181,14 @@ export function Window({
         return;
       }
 
-      resizePointerIdRef.current = null;
-      resizeStartRef.current = null;
+      // Remove listeners first to prevent any further events
       globalThis.window.removeEventListener('pointermove', handlePointerMove);
       globalThis.window.removeEventListener('pointerup', handlePointerUp);
       globalThis.window.removeEventListener('pointercancel', handlePointerUp);
+
+      // Reset all resize state refs after cleanup
+      resizePointerIdRef.current = null;
+      resizeStartRef.current = null;
     };
 
     globalThis.window.addEventListener('pointermove', handlePointerMove);

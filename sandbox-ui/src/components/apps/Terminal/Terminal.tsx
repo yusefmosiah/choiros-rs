@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
-import { createTerminal, getTerminalWebSocketUrl, stopTerminal } from '@/lib/api/terminal';
+import { createTerminal, getTerminalInfo, getTerminalWebSocketUrl, stopTerminal } from '@/lib/api/terminal';
 import { parseTerminalWsMessage, reconnectDelayMs } from './ws';
 import 'xterm/css/xterm.css';
 import './Terminal.css';
@@ -84,9 +84,46 @@ export function Terminal({ terminalId, userId = 'user-1' }: TerminalProps) {
       }, delay);
     };
 
-    const connect = async () => {
+    const ensureTerminalSession = async (): Promise<boolean> => {
+      try {
+        // First, try to get terminal info to check if session exists and is valid
+        const info = await getTerminalInfo(terminalId);
+
+        // If terminal exists but is not running, stop it to clean up and create fresh
+        if (info && typeof info === 'object' && 'is_running' in info && !info.is_running) {
+          console.log(`Terminal ${terminalId} exists but is not running, restarting...`);
+          try {
+            await stopTerminal(terminalId);
+          } catch {
+            // Ignore stop errors - terminal might already be stopped
+          }
+        }
+      } catch {
+        // Terminal doesn't exist or error getting info - that's fine, we'll create it
+        console.log(`Terminal ${terminalId} not found or error getting info, creating new session...`);
+      }
+
+      // Now create/get the terminal session
       try {
         await createTerminal(terminalId);
+        return true;
+      } catch (err) {
+        console.error('Failed to create terminal:', err);
+        return false;
+      }
+    };
+
+    const connect = async () => {
+      try {
+        setStatus('Connecting...');
+        setError(null);
+
+        // Ensure we have a valid terminal session
+        const sessionReady = await ensureTerminalSession();
+        if (!sessionReady) {
+          throw new Error('Failed to initialize terminal session');
+        }
+
         if (cancelled) {
           return;
         }
@@ -127,6 +164,10 @@ export function Terminal({ terminalId, userId = 'user-1' }: TerminalProps) {
 
           if (message.type === 'error') {
             setError(message.message);
+            // If we get a terminal error, schedule a reconnect with a fresh session
+            if (message.message.includes('not found') || message.message.includes('not running')) {
+              ws.close();
+            }
           }
         };
 

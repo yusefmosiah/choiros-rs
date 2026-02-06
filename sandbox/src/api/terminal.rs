@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc};
 
 use crate::actor_manager::AppState;
-use crate::actors::terminal::{TerminalArguments, TerminalMsg};
+use crate::actors::terminal::{TerminalArguments, TerminalError, TerminalMsg};
 use crate::api::ApiState;
 
 /// WebSocket message types for terminal communication
@@ -119,6 +119,10 @@ async fn handle_terminal_socket(
 
     match ractor::call!(terminal_actor, |reply| TerminalMsg::Start { reply }) {
         Ok(Ok(())) => {}
+        Ok(Err(TerminalError::AlreadyRunning)) => {
+            // Terminal is already running, which is fine - we can connect to it
+            tracing::info!("Terminal {} is already running, connecting to existing session", terminal_id);
+        }
         Ok(Err(e)) => {
             let _ = send_terminal_message(
                 &tx,
