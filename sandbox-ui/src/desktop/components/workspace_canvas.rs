@@ -18,6 +18,9 @@ pub fn WorkspaceCanvas(
     on_focus: Callback<String>,
     on_move: Callback<(String, i32, i32)>,
     on_resize: Callback<(String, i32, i32)>,
+    on_minimize: Callback<String>,
+    on_maximize: Callback<String>,
+    on_restore: Callback<String>,
 ) -> Element {
     let state_value = state.read().clone();
     let viewport_value = *viewport.read();
@@ -44,7 +47,7 @@ pub fn WorkspaceCanvas(
                 } else if let Some(err) = error.read().clone() {
                     ErrorState { error: err }
                 } else if let Some(desktop_state) = state_value {
-                    for window in desktop_state.windows.iter() {
+                    for window in desktop_state.windows.iter().filter(|w| !w.minimized) {
                         FloatingWindow {
                             window: window.clone(),
                             is_active: desktop_state.active_window.as_ref() == Some(&window.id),
@@ -53,6 +56,9 @@ pub fn WorkspaceCanvas(
                             on_focus,
                             on_move,
                             on_resize,
+                            on_minimize,
+                            on_maximize,
+                            on_restore,
                         }
                     }
                 }

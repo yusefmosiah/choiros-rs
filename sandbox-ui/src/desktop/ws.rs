@@ -20,10 +20,26 @@ pub enum WsEvent {
     },
     WindowResized {
         window_id: String,
-        width: u32,
-        height: u32,
+        width: i32,
+        height: i32,
     },
     WindowFocused(String),
+    WindowMinimized(String),
+    WindowMaximized {
+        window_id: String,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    },
+    WindowRestored {
+        window_id: String,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        from: String,
+    },
     Pong,
     Error(String),
 }
@@ -89,13 +105,13 @@ pub fn parse_ws_message(payload: &str) -> Option<WsEvent> {
         "window_resized" => {
             if let (Some(window_id), Some(width), Some(height)) = (
                 json.get("window_id").and_then(|v| v.as_str()),
-                json.get("width").and_then(|v| v.as_u64()),
-                json.get("height").and_then(|v| v.as_u64()),
+                json.get("width").and_then(|v| v.as_i64()),
+                json.get("height").and_then(|v| v.as_i64()),
             ) {
                 Some(WsEvent::WindowResized {
                     window_id: window_id.to_string(),
-                    width: width as u32,
-                    height: height as u32,
+                    width: width as i32,
+                    height: height as i32,
                 })
             } else {
                 None
@@ -105,6 +121,50 @@ pub fn parse_ws_message(payload: &str) -> Option<WsEvent> {
             .get("window_id")
             .and_then(|v| v.as_str())
             .map(|window_id| WsEvent::WindowFocused(window_id.to_string())),
+        "window_minimized" => json
+            .get("window_id")
+            .and_then(|v| v.as_str())
+            .map(|window_id| WsEvent::WindowMinimized(window_id.to_string())),
+        "window_maximized" => {
+            if let (Some(window_id), Some(x), Some(y), Some(width), Some(height)) = (
+                json.get("window_id").and_then(|v| v.as_str()),
+                json.get("x").and_then(|v| v.as_i64()),
+                json.get("y").and_then(|v| v.as_i64()),
+                json.get("width").and_then(|v| v.as_i64()),
+                json.get("height").and_then(|v| v.as_i64()),
+            ) {
+                Some(WsEvent::WindowMaximized {
+                    window_id: window_id.to_string(),
+                    x: x as i32,
+                    y: y as i32,
+                    width: width as i32,
+                    height: height as i32,
+                })
+            } else {
+                None
+            }
+        }
+        "window_restored" => {
+            if let (Some(window_id), Some(x), Some(y), Some(width), Some(height), Some(from)) = (
+                json.get("window_id").and_then(|v| v.as_str()),
+                json.get("x").and_then(|v| v.as_i64()),
+                json.get("y").and_then(|v| v.as_i64()),
+                json.get("width").and_then(|v| v.as_i64()),
+                json.get("height").and_then(|v| v.as_i64()),
+                json.get("from").and_then(|v| v.as_str()),
+            ) {
+                Some(WsEvent::WindowRestored {
+                    window_id: window_id.to_string(),
+                    x: x as i32,
+                    y: y as i32,
+                    width: width as i32,
+                    height: height as i32,
+                    from: from.to_string(),
+                })
+            } else {
+                None
+            }
+        }
         "error" => json
             .get("message")
             .and_then(|v| v.as_str())

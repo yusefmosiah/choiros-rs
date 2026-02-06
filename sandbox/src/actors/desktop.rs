@@ -44,6 +44,19 @@ pub struct DesktopState {
     event_store: ActorRef<EventStoreMsg>,
 }
 
+#[derive(Debug, Clone)]
+pub struct RestoreResult {
+    pub window: shared_types::WindowState,
+    pub from: String,
+}
+
+const MIN_WINDOW_WIDTH: i32 = 200;
+const MIN_WINDOW_HEIGHT: i32 = 160;
+const MAXIMIZED_X: i32 = 0;
+const MAXIMIZED_Y: i32 = 0;
+const MAXIMIZED_WIDTH: i32 = 1920;
+const MAXIMIZED_HEIGHT: i32 = 1080;
+
 // ============================================================================
 // Messages
 // ============================================================================
@@ -82,6 +95,21 @@ pub enum DesktopActorMsg {
         window_id: String,
         reply: RpcReplyPort<Result<(), DesktopError>>,
     },
+    /// Minimize a window
+    MinimizeWindow {
+        window_id: String,
+        reply: RpcReplyPort<Result<(), DesktopError>>,
+    },
+    /// Maximize a window
+    MaximizeWindow {
+        window_id: String,
+        reply: RpcReplyPort<Result<shared_types::WindowState, DesktopError>>,
+    },
+    /// Restore a window from minimized or maximized state
+    RestoreWindow {
+        window_id: String,
+        reply: RpcReplyPort<Result<RestoreResult, DesktopError>>,
+    },
     /// Get all windows
     GetWindows {
         reply: RpcReplyPort<Vec<shared_types::WindowState>>,
@@ -116,10 +144,9 @@ const EVENT_WINDOW_CLOSED: &str = "desktop.window_closed";
 const EVENT_WINDOW_MOVED: &str = "desktop.window_moved";
 const EVENT_WINDOW_RESIZED: &str = "desktop.window_resized";
 const EVENT_WINDOW_FOCUSED: &str = "desktop.window_focused";
-#[allow(dead_code)]
 const EVENT_WINDOW_MINIMIZED: &str = "desktop.window_minimized";
-#[allow(dead_code)]
 const EVENT_WINDOW_MAXIMIZED: &str = "desktop.window_maximized";
+const EVENT_WINDOW_RESTORED: &str = "desktop.window_restored";
 const EVENT_APP_REGISTERED: &str = "desktop.app_registered";
 
 // ============================================================================
@@ -263,6 +290,18 @@ impl Actor for DesktopActor {
                 let result = self.handle_focus_window(window_id, state).await;
                 let _ = reply.send(result);
             }
+            DesktopActorMsg::MinimizeWindow { window_id, reply } => {
+                let result = self.handle_minimize_window(window_id, state).await;
+                let _ = reply.send(result);
+            }
+            DesktopActorMsg::MaximizeWindow { window_id, reply } => {
+                let result = self.handle_maximize_window(window_id, state).await;
+                let _ = reply.send(result);
+            }
+            DesktopActorMsg::RestoreWindow { window_id, reply } => {
+                let result = self.handle_restore_window(window_id, state).await;
+                let _ = reply.send(result);
+            }
             DesktopActorMsg::GetWindows { reply } => {
                 let result = self.handle_get_windows(state);
                 let _ = reply.send(result);
@@ -322,6 +361,48 @@ impl DesktopActor {
         (100 + offset, 100 + offset)
     }
 
+    fn normal_bounds_from_props(props: &serde_json::Value) -> Option<(i32, i32, i32, i32)> {
+        let bounds = props.get("window_normal_bounds")?;
+        let x = bounds.get("x")?.as_i64()? as i32;
+        let y = bounds.get("y")?.as_i64()? as i32;
+        let width = bounds.get("width")?.as_i64()? as i32;
+        let height = bounds.get("height")?.as_i64()? as i32;
+        Some((x, y, width, height))
+    }
+
+    fn set_normal_bounds_props(
+        window: &mut shared_types::WindowState,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    ) {
+        if !window.props.is_object() {
+            window.props = serde_json::json!({});
+        }
+
+        if let Some(props) = window.props.as_object_mut() {
+            props.insert(
+                "window_normal_bounds".to_string(),
+                serde_json::json!({
+                    "x": x,
+                    "y": y,
+                    "width": width,
+                    "height": height,
+                }),
+            );
+        }
+    }
+
+    fn next_top_non_minimized_window_id(&self, state: &DesktopState) -> Option<String> {
+        state
+            .windows
+            .values()
+            .filter(|w| !w.minimized)
+            .max_by_key(|w| w.z_index)
+            .map(|w| w.id.clone())
+    }
+
     /// Project events to update window/app state
     fn project_events(&self, events: Vec<shared_types::Event>, state: &mut DesktopState) {
         for event in events {
@@ -332,6 +413,7 @@ impl DesktopActor {
                     if let Ok(window) =
                         serde_json::from_value::<shared_types::WindowState>(event.payload.clone())
                     {
+                        state.active_window = Some(window.id.clone());
                         state.windows.insert(window.id.clone(), window);
                     }
                 }
@@ -390,6 +472,84 @@ impl DesktopActor {
                             if let Some(window) = state.windows.get_mut(window_id) {
                                 window.z_index = new_z;
                             }
+                        }
+                    }
+                }
+                EVENT_WINDOW_MINIMIZED => {
+                    if let Ok(payload) =
+                        serde_json::from_value::<serde_json::Value>(event.payload.clone())
+                    {
+                        if let Some(window_id) = payload.get("window_id").and_then(|v| v.as_str()) {
+                            if let Some(window) = state.windows.get_mut(window_id) {
+                                window.minimized = true;
+                                window.maximized = false;
+                            }
+                            if state.active_window.as_deref() == Some(window_id) {
+                                state.active_window = self.next_top_non_minimized_window_id(state);
+                            }
+                        }
+                    }
+                }
+                EVENT_WINDOW_MAXIMIZED => {
+                    if let Ok(payload) =
+                        serde_json::from_value::<serde_json::Value>(event.payload.clone())
+                    {
+                        if let Some(window_id) = payload.get("window_id").and_then(|v| v.as_str()) {
+                            let new_z = self.next_z(state);
+                            if let Some(window) = state.windows.get_mut(window_id) {
+                                window.minimized = false;
+                                window.maximized = true;
+                                window.x = payload
+                                    .get("x")
+                                    .and_then(|v| v.as_i64())
+                                    .map(|v| v as i32)
+                                    .unwrap_or(MAXIMIZED_X);
+                                window.y = payload
+                                    .get("y")
+                                    .and_then(|v| v.as_i64())
+                                    .map(|v| v as i32)
+                                    .unwrap_or(MAXIMIZED_Y);
+                                window.width = payload
+                                    .get("width")
+                                    .and_then(|v| v.as_i64())
+                                    .map(|v| v as i32)
+                                    .unwrap_or(MAXIMIZED_WIDTH);
+                                window.height = payload
+                                    .get("height")
+                                    .and_then(|v| v.as_i64())
+                                    .map(|v| v as i32)
+                                    .unwrap_or(MAXIMIZED_HEIGHT);
+                                window.z_index = new_z;
+                            }
+                            state.active_window = Some(window_id.to_string());
+                        }
+                    }
+                }
+                EVENT_WINDOW_RESTORED => {
+                    if let Ok(payload) =
+                        serde_json::from_value::<serde_json::Value>(event.payload.clone())
+                    {
+                        if let Some(window_id) = payload.get("window_id").and_then(|v| v.as_str()) {
+                            let new_z = self.next_z(state);
+                            if let Some(window) = state.windows.get_mut(window_id) {
+                                if let Some(x) = payload.get("x").and_then(|v| v.as_i64()) {
+                                    window.x = x as i32;
+                                }
+                                if let Some(y) = payload.get("y").and_then(|v| v.as_i64()) {
+                                    window.y = y as i32;
+                                }
+                                if let Some(width) = payload.get("width").and_then(|v| v.as_i64()) {
+                                    window.width = width as i32;
+                                }
+                                if let Some(height) = payload.get("height").and_then(|v| v.as_i64())
+                                {
+                                    window.height = height as i32;
+                                }
+                                window.minimized = false;
+                                window.maximized = false;
+                                window.z_index = new_z;
+                            }
+                            state.active_window = Some(window_id.to_string());
                         }
                     }
                 }
@@ -539,7 +699,7 @@ impl DesktopActor {
 
         // Update active window
         if state.active_window.as_deref() == Some(&window_id) {
-            state.active_window = state.windows.keys().next().cloned();
+            state.active_window = self.next_top_non_minimized_window_id(state);
         }
 
         // Append event
@@ -557,6 +717,11 @@ impl DesktopActor {
     ) -> Result<(), DesktopError> {
         // Update memory
         if let Some(window) = state.windows.get_mut(&window_id) {
+            if window.maximized {
+                return Err(DesktopError::InvalidOperation(
+                    "Cannot move a maximized window".to_string(),
+                ));
+            }
             window.x = x;
             window.y = y;
         } else {
@@ -581,7 +746,19 @@ impl DesktopActor {
         state: &mut DesktopState,
     ) -> Result<(), DesktopError> {
         // Update memory
+        if width < MIN_WINDOW_WIDTH || height < MIN_WINDOW_HEIGHT {
+            return Err(DesktopError::InvalidOperation(format!(
+                "Window size below minimum: {}x{} (min {}x{})",
+                width, height, MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT
+            )));
+        }
+
         if let Some(window) = state.windows.get_mut(&window_id) {
+            if window.maximized {
+                return Err(DesktopError::InvalidOperation(
+                    "Cannot resize a maximized window".to_string(),
+                ));
+            }
             window.width = width;
             window.height = height;
         } else {
@@ -608,6 +785,17 @@ impl DesktopActor {
             return Err(DesktopError::WindowNotFound(window_id));
         }
 
+        if state
+            .windows
+            .get(&window_id)
+            .map(|window| window.minimized)
+            .unwrap_or(false)
+        {
+            return Err(DesktopError::InvalidOperation(
+                "Cannot focus minimized window; restore first".to_string(),
+            ));
+        }
+
         // Update state
         state.active_window = Some(window_id.clone());
         // Get z-index first to avoid borrow issues
@@ -620,6 +808,155 @@ impl DesktopActor {
         let payload = serde_json::json!({"window_id": window_id});
         self.append_event_unit(EVENT_WINDOW_FOCUSED, payload, state)
             .await
+    }
+
+    async fn handle_minimize_window(
+        &self,
+        window_id: String,
+        state: &mut DesktopState,
+    ) -> Result<(), DesktopError> {
+        if let Some(window) = state.windows.get_mut(&window_id) {
+            window.minimized = true;
+            window.maximized = false;
+        } else {
+            return Err(DesktopError::WindowNotFound(window_id));
+        }
+
+        if state.active_window.as_deref() == Some(&window_id) {
+            state.active_window = self.next_top_non_minimized_window_id(state);
+        }
+
+        let payload = serde_json::json!({"window_id": window_id});
+        self.append_event_unit(EVENT_WINDOW_MINIMIZED, payload, state)
+            .await
+    }
+
+    async fn handle_maximize_window(
+        &self,
+        window_id: String,
+        state: &mut DesktopState,
+    ) -> Result<shared_types::WindowState, DesktopError> {
+        let new_z = self.next_z(state);
+
+        let (prev_x, prev_y, prev_width, prev_height) = {
+            let window = state
+                .windows
+                .get_mut(&window_id)
+                .ok_or_else(|| DesktopError::WindowNotFound(window_id.clone()))?;
+
+            if window.minimized {
+                return Err(DesktopError::InvalidOperation(
+                    "Cannot maximize a minimized window; restore first".to_string(),
+                ));
+            }
+
+            let previous = (window.x, window.y, window.width, window.height);
+            Self::set_normal_bounds_props(window, previous.0, previous.1, previous.2, previous.3);
+
+            window.minimized = false;
+            window.maximized = true;
+            window.x = MAXIMIZED_X;
+            window.y = MAXIMIZED_Y;
+            window.width = MAXIMIZED_WIDTH;
+            window.height = MAXIMIZED_HEIGHT;
+            window.z_index = new_z;
+
+            previous
+        };
+
+        state.active_window = Some(window_id.clone());
+
+        let payload = serde_json::json!({
+            "window_id": window_id,
+            "prev_x": prev_x,
+            "prev_y": prev_y,
+            "prev_width": prev_width,
+            "prev_height": prev_height,
+            "x": MAXIMIZED_X,
+            "y": MAXIMIZED_Y,
+            "width": MAXIMIZED_WIDTH,
+            "height": MAXIMIZED_HEIGHT,
+        });
+        self.append_event_unit(EVENT_WINDOW_MAXIMIZED, payload, state)
+            .await?;
+
+        state
+            .windows
+            .get(&window_id)
+            .cloned()
+            .ok_or(DesktopError::WindowNotFound(window_id))
+    }
+
+    async fn handle_restore_window(
+        &self,
+        window_id: String,
+        state: &mut DesktopState,
+    ) -> Result<RestoreResult, DesktopError> {
+        let new_z = self.next_z(state);
+
+        let (from, x, y, width, height) = {
+            let window = state
+                .windows
+                .get_mut(&window_id)
+                .ok_or_else(|| DesktopError::WindowNotFound(window_id.clone()))?;
+
+            if !window.minimized && !window.maximized {
+                return Err(DesktopError::InvalidOperation(
+                    "Window is neither minimized nor maximized".to_string(),
+                ));
+            }
+
+            let from = if window.maximized {
+                "maximized"
+            } else {
+                "minimized"
+            };
+
+            let (restore_x, restore_y, restore_w, restore_h) =
+                Self::normal_bounds_from_props(&window.props).unwrap_or((
+                    window.x,
+                    window.y,
+                    window.width.max(MIN_WINDOW_WIDTH),
+                    window.height.max(MIN_WINDOW_HEIGHT),
+                ));
+
+            window.minimized = false;
+            window.maximized = false;
+            window.x = restore_x;
+            window.y = restore_y;
+            window.width = restore_w.max(MIN_WINDOW_WIDTH);
+            window.height = restore_h.max(MIN_WINDOW_HEIGHT);
+            window.z_index = new_z;
+
+            (
+                from.to_string(),
+                window.x,
+                window.y,
+                window.width,
+                window.height,
+            )
+        };
+
+        state.active_window = Some(window_id.clone());
+
+        let payload = serde_json::json!({
+            "window_id": window_id,
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+            "from": from,
+        });
+        self.append_event_unit(EVENT_WINDOW_RESTORED, payload, state)
+            .await?;
+
+        let window = state
+            .windows
+            .get(&window_id)
+            .cloned()
+            .ok_or(DesktopError::WindowNotFound(window_id))?;
+
+        Ok(RestoreResult { window, from })
     }
 
     fn handle_get_windows(&self, state: &DesktopState) -> Vec<shared_types::WindowState> {
@@ -752,6 +1089,39 @@ pub async fn focus_window(
     window_id: impl Into<String>,
 ) -> Result<Result<(), DesktopError>, ractor::RactorErr<DesktopActorMsg>> {
     ractor::call!(desktop, |reply| DesktopActorMsg::FocusWindow {
+        window_id: window_id.into(),
+        reply,
+    })
+}
+
+/// Convenience function to minimize a window
+pub async fn minimize_window(
+    desktop: &ActorRef<DesktopActorMsg>,
+    window_id: impl Into<String>,
+) -> Result<Result<(), DesktopError>, ractor::RactorErr<DesktopActorMsg>> {
+    ractor::call!(desktop, |reply| DesktopActorMsg::MinimizeWindow {
+        window_id: window_id.into(),
+        reply,
+    })
+}
+
+/// Convenience function to maximize a window
+pub async fn maximize_window(
+    desktop: &ActorRef<DesktopActorMsg>,
+    window_id: impl Into<String>,
+) -> Result<Result<shared_types::WindowState, DesktopError>, ractor::RactorErr<DesktopActorMsg>> {
+    ractor::call!(desktop, |reply| DesktopActorMsg::MaximizeWindow {
+        window_id: window_id.into(),
+        reply,
+    })
+}
+
+/// Convenience function to restore a window
+pub async fn restore_window(
+    desktop: &ActorRef<DesktopActorMsg>,
+    window_id: impl Into<String>,
+) -> Result<Result<RestoreResult, DesktopError>, ractor::RactorErr<DesktopActorMsg>> {
+    ractor::call!(desktop, |reply| DesktopActorMsg::RestoreWindow {
         window_id: window_id.into(),
         reply,
     })
@@ -1186,6 +1556,283 @@ mod tests {
         assert!(apps.iter().any(|a| a.id == "calc"));
 
         // Cleanup
+        desktop.stop(None);
+    }
+
+    #[tokio::test]
+    async fn test_minimize_active_window_reassigns_active() {
+        let (event_store, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
+
+        let (desktop, _handle) = Actor::spawn(
+            None,
+            DesktopActor,
+            DesktopArguments {
+                desktop_id: "desktop-1".to_string(),
+                user_id: "user-1".to_string(),
+                event_store: event_store.clone(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let _ = register_app(
+            &desktop,
+            shared_types::AppDefinition {
+                id: "chat".to_string(),
+                name: "Chat".to_string(),
+                icon: "💬".to_string(),
+                component_code: "ChatApp".to_string(),
+                default_width: 800,
+                default_height: 600,
+            },
+        )
+        .await
+        .unwrap();
+
+        let window_1 = open_window(&desktop, "chat", "Window 1", None)
+            .await
+            .unwrap()
+            .unwrap();
+        let window_2 = open_window(&desktop, "chat", "Window 2", None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let _ = minimize_window(&desktop, &window_2.id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let state = get_desktop_state(&desktop).await.unwrap();
+        assert_eq!(state.active_window, Some(window_1.id.clone()));
+        let minimized = state.windows.iter().find(|w| w.id == window_2.id).unwrap();
+        assert!(minimized.minimized);
+        assert!(!minimized.maximized);
+
+        desktop.stop(None);
+    }
+
+    #[tokio::test]
+    async fn test_maximize_and_restore_window_round_trip() {
+        let (event_store, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
+
+        let (desktop, _handle) = Actor::spawn(
+            None,
+            DesktopActor,
+            DesktopArguments {
+                desktop_id: "desktop-1".to_string(),
+                user_id: "user-1".to_string(),
+                event_store: event_store.clone(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let _ = register_app(
+            &desktop,
+            shared_types::AppDefinition {
+                id: "chat".to_string(),
+                name: "Chat".to_string(),
+                icon: "💬".to_string(),
+                component_code: "ChatApp".to_string(),
+                default_width: 800,
+                default_height: 600,
+            },
+        )
+        .await
+        .unwrap();
+
+        let window = open_window(&desktop, "chat", "Chat", None)
+            .await
+            .unwrap()
+            .unwrap();
+        let _ = move_window(&desktop, &window.id, 222, 111)
+            .await
+            .unwrap()
+            .unwrap();
+        let _ = resize_window(&desktop, &window.id, 777, 555)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let maximized = maximize_window(&desktop, &window.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(maximized.maximized);
+        assert!(!maximized.minimized);
+        assert_eq!(maximized.x, MAXIMIZED_X);
+        assert_eq!(maximized.y, MAXIMIZED_Y);
+        assert_eq!(maximized.width, MAXIMIZED_WIDTH);
+        assert_eq!(maximized.height, MAXIMIZED_HEIGHT);
+
+        let restored = restore_window(&desktop, &window.id).await.unwrap().unwrap();
+        assert_eq!(restored.from, "maximized");
+        assert!(!restored.window.maximized);
+        assert!(!restored.window.minimized);
+        assert_eq!(restored.window.x, 222);
+        assert_eq!(restored.window.y, 111);
+        assert_eq!(restored.window.width, 777);
+        assert_eq!(restored.window.height, 555);
+
+        desktop.stop(None);
+    }
+
+    #[tokio::test]
+    async fn test_restore_from_minimized_clears_minimized_and_focuses() {
+        let (event_store, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
+
+        let (desktop, _handle) = Actor::spawn(
+            None,
+            DesktopActor,
+            DesktopArguments {
+                desktop_id: "desktop-1".to_string(),
+                user_id: "user-1".to_string(),
+                event_store: event_store.clone(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let _ = register_app(
+            &desktop,
+            shared_types::AppDefinition {
+                id: "chat".to_string(),
+                name: "Chat".to_string(),
+                icon: "💬".to_string(),
+                component_code: "ChatApp".to_string(),
+                default_width: 800,
+                default_height: 600,
+            },
+        )
+        .await
+        .unwrap();
+
+        let window = open_window(&desktop, "chat", "Chat", None)
+            .await
+            .unwrap()
+            .unwrap();
+        let _ = minimize_window(&desktop, &window.id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let restored = restore_window(&desktop, &window.id).await.unwrap().unwrap();
+        assert_eq!(restored.from, "minimized");
+        assert!(!restored.window.minimized);
+        assert!(!restored.window.maximized);
+
+        let state = get_desktop_state(&desktop).await.unwrap();
+        assert_eq!(state.active_window, Some(window.id.clone()));
+
+        desktop.stop(None);
+    }
+
+    #[tokio::test]
+    async fn test_maximize_minimized_window_is_rejected() {
+        let (event_store, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
+
+        let (desktop, _handle) = Actor::spawn(
+            None,
+            DesktopActor,
+            DesktopArguments {
+                desktop_id: "desktop-1".to_string(),
+                user_id: "user-1".to_string(),
+                event_store: event_store.clone(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let _ = register_app(
+            &desktop,
+            shared_types::AppDefinition {
+                id: "chat".to_string(),
+                name: "Chat".to_string(),
+                icon: "💬".to_string(),
+                component_code: "ChatApp".to_string(),
+                default_width: 800,
+                default_height: 600,
+            },
+        )
+        .await
+        .unwrap();
+
+        let window = open_window(&desktop, "chat", "Chat", None)
+            .await
+            .unwrap()
+            .unwrap();
+        let _ = minimize_window(&desktop, &window.id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let result = maximize_window(&desktop, &window.id).await.unwrap();
+        assert!(result.is_err());
+
+        desktop.stop(None);
+    }
+
+    #[tokio::test]
+    async fn test_resize_enforces_minimum_size() {
+        let (event_store, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
+
+        let (desktop, _handle) = Actor::spawn(
+            None,
+            DesktopActor,
+            DesktopArguments {
+                desktop_id: "desktop-1".to_string(),
+                user_id: "user-1".to_string(),
+                event_store: event_store.clone(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let _ = register_app(
+            &desktop,
+            shared_types::AppDefinition {
+                id: "chat".to_string(),
+                name: "Chat".to_string(),
+                icon: "💬".to_string(),
+                component_code: "ChatApp".to_string(),
+                default_width: 800,
+                default_height: 600,
+            },
+        )
+        .await
+        .unwrap();
+
+        let window = open_window(&desktop, "chat", "Chat", None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let result = resize_window(
+            &desktop,
+            &window.id,
+            MIN_WINDOW_WIDTH - 1,
+            MIN_WINDOW_HEIGHT - 1,
+        )
+        .await
+        .unwrap();
+        assert!(result.is_err());
+
         desktop.stop(None);
     }
 }

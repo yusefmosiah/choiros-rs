@@ -43,13 +43,74 @@ pub fn apply_ws_event(
         } => {
             if let Some(state) = desktop_state.write().as_mut() {
                 if let Some(window) = state.windows.iter_mut().find(|w| w.id == window_id) {
-                    window.width = width as i32;
-                    window.height = height as i32;
+                    window.width = width;
+                    window.height = height;
                 }
             }
         }
         WsEvent::WindowFocused(window_id) => {
             if let Some(state) = desktop_state.write().as_mut() {
+                state.active_window = Some(window_id.clone());
+                if let Some(window) = state.windows.iter_mut().find(|w| w.id == window_id) {
+                    window.minimized = false;
+                }
+            }
+        }
+        WsEvent::WindowMinimized(window_id) => {
+            if let Some(state) = desktop_state.write().as_mut() {
+                if let Some(window) = state.windows.iter_mut().find(|w| w.id == window_id) {
+                    window.minimized = true;
+                    window.maximized = false;
+                }
+
+                if state.active_window.as_deref() == Some(&window_id) {
+                    state.active_window = state
+                        .windows
+                        .iter()
+                        .filter(|w| !w.minimized)
+                        .max_by_key(|w| w.z_index)
+                        .map(|w| w.id.clone());
+                }
+            }
+        }
+        WsEvent::WindowMaximized {
+            window_id,
+            x,
+            y,
+            width,
+            height,
+        } => {
+            if let Some(state) = desktop_state.write().as_mut() {
+                let next_z = state.windows.iter().map(|w| w.z_index).max().unwrap_or(0) + 1;
+                if let Some(window) = state.windows.iter_mut().find(|w| w.id == window_id) {
+                    window.minimized = false;
+                    window.maximized = true;
+                    window.x = x;
+                    window.y = y;
+                    window.width = width;
+                    window.height = height;
+                    window.z_index = next_z;
+                }
+                state.active_window = Some(window_id);
+            }
+        }
+        WsEvent::WindowRestored {
+            window_id,
+            x,
+            y,
+            width,
+            height,
+            from: _,
+        } => {
+            if let Some(state) = desktop_state.write().as_mut() {
+                if let Some(window) = state.windows.iter_mut().find(|w| w.id == window_id) {
+                    window.minimized = false;
+                    window.maximized = false;
+                    window.x = x;
+                    window.y = y;
+                    window.width = width;
+                    window.height = height;
+                }
                 state.active_window = Some(window_id);
             }
         }

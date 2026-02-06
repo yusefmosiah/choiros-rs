@@ -2,7 +2,8 @@ use dioxus::prelude::{ReadableExt, Signal, WritableExt};
 use shared_types::{AppDefinition, DesktopState};
 
 use crate::api::{
-    close_window, focus_window, move_window, open_window, resize_window, send_chat_message,
+    close_window, focus_window, maximize_window, minimize_window, move_window, open_window,
+    resize_window, restore_window, send_chat_message,
 };
 use crate::desktop::state::{
     find_chat_window_id, focus_window_and_raise_z, push_window_and_activate,
@@ -69,6 +70,24 @@ pub async fn move_window_action(desktop_id: String, window_id: String, x: i32, y
 pub async fn resize_window_action(desktop_id: String, window_id: String, width: i32, height: i32) {
     if let Err(e) = resize_window(&desktop_id, &window_id, width, height).await {
         dioxus_logger::tracing::error!("Failed to resize window: {}", e);
+    }
+}
+
+pub async fn minimize_window_action(desktop_id: String, window_id: String) {
+    if let Err(e) = minimize_window(&desktop_id, &window_id).await {
+        dioxus_logger::tracing::error!("Failed to minimize window: {}", e);
+    }
+}
+
+pub async fn maximize_window_action(desktop_id: String, window_id: String) {
+    if let Err(e) = maximize_window(&desktop_id, &window_id).await {
+        dioxus_logger::tracing::error!("Failed to maximize window: {}", e);
+    }
+}
+
+pub async fn restore_window_action(desktop_id: String, window_id: String) {
+    if let Err(e) = restore_window(&desktop_id, &window_id).await {
+        dioxus_logger::tracing::error!("Failed to restore window: {}", e);
     }
 }
 

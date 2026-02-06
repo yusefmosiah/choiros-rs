@@ -48,12 +48,34 @@ pub enum WsMessage {
     #[serde(rename = "window_resized")]
     WindowResized {
         window_id: String,
-        width: u32,
-        height: u32,
+        width: i32,
+        height: i32,
     },
 
     #[serde(rename = "window_focused")]
     WindowFocused { window_id: String, z_index: u32 },
+
+    #[serde(rename = "window_minimized")]
+    WindowMinimized { window_id: String },
+
+    #[serde(rename = "window_maximized")]
+    WindowMaximized {
+        window_id: String,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    },
+
+    #[serde(rename = "window_restored")]
+    WindowRestored {
+        window_id: String,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        from: String,
+    },
 
     #[serde(rename = "app_registered")]
     AppRegistered { app: shared_types::AppDefinition },

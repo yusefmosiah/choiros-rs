@@ -389,6 +389,111 @@ pub async fn focus_window(desktop_id: &str, window_id: &str) -> Result<(), Strin
     Ok(())
 }
 
+pub async fn minimize_window(desktop_id: &str, window_id: &str) -> Result<(), String> {
+    let url = format!(
+        "{}/desktop/{}/windows/{}/minimize",
+        api_base(),
+        desktop_id,
+        window_id
+    );
+
+    let response = Request::post(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    if !response.ok() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct Response {
+        success: bool,
+        error: Option<String>,
+    }
+
+    let data: Response = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
+
+    if !data.success {
+        return Err(data.error.unwrap_or_else(|| "Unknown error".to_string()));
+    }
+
+    Ok(())
+}
+
+pub async fn maximize_window(desktop_id: &str, window_id: &str) -> Result<(), String> {
+    let url = format!(
+        "{}/desktop/{}/windows/{}/maximize",
+        api_base(),
+        desktop_id,
+        window_id
+    );
+
+    let response = Request::post(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    if !response.ok() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct Response {
+        success: bool,
+        error: Option<String>,
+    }
+
+    let data: Response = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
+
+    if !data.success {
+        return Err(data.error.unwrap_or_else(|| "Unknown error".to_string()));
+    }
+
+    Ok(())
+}
+
+pub async fn restore_window(desktop_id: &str, window_id: &str) -> Result<(), String> {
+    let url = format!(
+        "{}/desktop/{}/windows/{}/restore",
+        api_base(),
+        desktop_id,
+        window_id
+    );
+
+    let response = Request::post(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    if !response.ok() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct Response {
+        success: bool,
+        error: Option<String>,
+    }
+
+    let data: Response = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
+
+    if !data.success {
+        return Err(data.error.unwrap_or_else(|| "Unknown error".to_string()));
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, Serialize)]
 pub struct MoveWindowRequest {
     pub x: i32,

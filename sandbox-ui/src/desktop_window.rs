@@ -1,8 +1,74 @@
 use dioxus::prelude::*;
+use dioxus_web::WebEventExt;
+use gloo_timers::future::TimeoutFuture;
 use shared_types::WindowState;
+use wasm_bindgen::JsCast;
 
 use crate::components::ChatView;
 use crate::terminal::TerminalView;
+
+const DRAG_THRESHOLD_PX: i32 = 4;
+const KEYBOARD_STEP_PX: i32 = 10;
+const MIN_WINDOW_WIDTH: i32 = 200;
+const MIN_WINDOW_HEIGHT: i32 = 160;
+const PATCH_INTERVAL_MS: i64 = 50;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct WindowBounds {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum InteractionMode {
+    Drag,
+    Resize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct InteractionState {
+    mode: InteractionMode,
+    pointer_id: i32,
+    start_x: i32,
+    start_y: i32,
+    start_bounds: WindowBounds,
+    committed_bounds: WindowBounds,
+}
+
+fn now_ms() -> i64 {
+    js_sys::Date::now() as i64
+}
+
+fn clamp_bounds(bounds: WindowBounds, viewport: (u32, u32), is_mobile: bool) -> WindowBounds {
+    let (vw, vh) = viewport;
+    if is_mobile {
+        return WindowBounds {
+            x: 10,
+            y: 10,
+            width: vw as i32 - 20,
+            height: vh as i32 - 100,
+        };
+    }
+
+    let width = bounds.width.max(MIN_WINDOW_WIDTH).min(vw as i32 - 40);
+    let height = bounds.height.max(MIN_WINDOW_HEIGHT).min(vh as i32 - 120);
+    let x = bounds.x.max(10).min(vw as i32 - width - 10);
+    let y = bounds.y.max(10).min(vh as i32 - height - 60);
+
+    WindowBounds {
+        x,
+        y,
+        width,
+        height,
+    }
+}
+
+fn pointer_point(e: &PointerEvent) -> (i32, i32) {
+    let point = e.data().client_coordinates();
+    (point.x as i32, point.y as i32)
+}
 
 #[component]
 pub fn FloatingWindow(
@@ -13,41 +79,305 @@ pub fn FloatingWindow(
     on_focus: Callback<String>,
     on_move: Callback<(String, i32, i32)>,
     on_resize: Callback<(String, i32, i32)>,
+    on_minimize: Callback<String>,
+    on_maximize: Callback<String>,
+    on_restore: Callback<String>,
 ) -> Element {
     let window_id = window.id.clone();
-    let (vw, vh) = viewport;
+    let (vw, _vh) = viewport;
     let is_mobile = vw <= 1024;
 
-    let (width, height, x, y) = if is_mobile {
-        (vw as i32 - 20, vh as i32 - 100, 10i32, 10i32)
-    } else {
-        let w = window.width.min(vw as i32 - 40);
-        let h = window.height.min(vh as i32 - 120);
-        let x = window.x.max(10).min(vw as i32 - w - 10);
-        let y = window.y.max(10).min(vh as i32 - h - 60);
-        (w, h, x, y)
-    };
+    let committed = clamp_bounds(
+        WindowBounds {
+            x: window.x,
+            y: window.y,
+            width: window.width,
+            height: window.height,
+        },
+        viewport,
+        is_mobile,
+    );
+
+    let mut interaction = use_signal(|| None::<InteractionState>);
+    let mut live_bounds = use_signal(|| None::<WindowBounds>);
+    let mut queued_move = use_signal(|| None::<(i32, i32)>);
+    let mut queued_resize = use_signal(|| None::<(i32, i32)>);
+    let mut move_flush_scheduled = use_signal(|| false);
+    let mut resize_flush_scheduled = use_signal(|| false);
+    let mut last_move_sent_ms = use_signal(|| 0i64);
+    let mut last_resize_sent_ms = use_signal(|| 0i64);
+
+    let bounds = live_bounds().unwrap_or(committed);
+
+    let window_id_for_focus = window_id.clone();
+    let window_id_for_close = window_id.clone();
+    let window_id_for_minimize = window_id.clone();
+    let window_id_for_max_restore = window_id.clone();
+    let window_id_for_keyboard = window_id.clone();
+    let window_id_for_pointer_move = window_id.clone();
+    let window_id_for_pointer_up = window_id.clone();
+    let window_id_for_title_key = window_id.clone();
 
     let z_index = window.z_index;
-    let window_id_for_focus = window_id.clone();
-    let window_id_for_drag = window_id.clone();
-    let window_id_for_close = window_id.clone();
-    let window_id_for_resize = window_id.clone();
-    let on_move_drag = on_move;
+    let active_outline = if is_active {
+        "2px solid var(--accent-bg, #3b82f6)"
+    } else {
+        "none"
+    };
+
+    let on_window_keydown = move |e: KeyboardEvent| {
+        let key = e.key();
+        let modifiers = e.modifiers();
+
+        if key == Key::F4 && modifiers.alt() {
+            e.prevent_default();
+            on_close.call(window_id_for_keyboard.clone());
+            return;
+        }
+
+        if key == Key::Escape {
+            if let Some(active) = interaction() {
+                e.prevent_default();
+                live_bounds.set(Some(active.committed_bounds));
+                interaction.set(None);
+            }
+            return;
+        }
+
+        if key == Key::Character("m".to_string()) && modifiers.ctrl() && !modifiers.shift() {
+            e.prevent_default();
+            on_minimize.call(window_id_for_keyboard.clone());
+            return;
+        }
+
+        if key == Key::Character("m".to_string()) && modifiers.ctrl() && modifiers.shift() {
+            e.prevent_default();
+            if window.maximized {
+                on_restore.call(window_id_for_keyboard.clone());
+            } else {
+                on_maximize.call(window_id_for_keyboard.clone());
+            }
+            return;
+        }
+
+        if modifiers.alt() {
+            if modifiers.shift() {
+                let mut next = bounds;
+                match key {
+                    Key::ArrowLeft => next.width -= KEYBOARD_STEP_PX,
+                    Key::ArrowRight => next.width += KEYBOARD_STEP_PX,
+                    Key::ArrowUp => next.height -= KEYBOARD_STEP_PX,
+                    Key::ArrowDown => next.height += KEYBOARD_STEP_PX,
+                    _ => return,
+                }
+                e.prevent_default();
+                let next = clamp_bounds(next, viewport, is_mobile);
+                live_bounds.set(Some(next));
+                on_resize.call((window_id_for_keyboard.clone(), next.width, next.height));
+                return;
+            }
+
+            let mut next = bounds;
+            match key {
+                Key::ArrowLeft => next.x -= KEYBOARD_STEP_PX,
+                Key::ArrowRight => next.x += KEYBOARD_STEP_PX,
+                Key::ArrowUp => next.y -= KEYBOARD_STEP_PX,
+                Key::ArrowDown => next.y += KEYBOARD_STEP_PX,
+                _ => return,
+            }
+            e.prevent_default();
+            let next = clamp_bounds(next, viewport, is_mobile);
+            live_bounds.set(Some(next));
+            on_move.call((window_id_for_keyboard.clone(), next.x, next.y));
+        }
+    };
 
     rsx! {
         div {
             class: if is_active { "floating-window active" } else { "floating-window" },
-            style: "position: absolute; left: {x}px; top: {y}px; width: {width}px; height: {height}px; z-index: {z_index}; display: flex; flex-direction: column; background: var(--window-bg, #1f2937); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-lg, 12px); overflow: hidden; box-shadow: var(--shadow-lg, 0 10px 40px rgba(0,0,0,0.5));",
+            role: "dialog",
+            "aria-label": window.title.clone(),
+            "aria-modal": if is_active { "false" } else { "true" },
+            tabindex: "0",
+            style: "position: absolute; left: {bounds.x}px; top: {bounds.y}px; width: {bounds.width}px; height: {bounds.height}px; z-index: {z_index}; display: flex; flex-direction: column; background: var(--window-bg, #1f2937); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-lg, 12px); overflow: hidden; box-shadow: var(--shadow-lg, 0 10px 40px rgba(0,0,0,0.5)); outline: {active_outline};",
             onclick: move |_| on_focus.call(window_id_for_focus.clone()),
+            onkeydown: on_window_keydown,
+            onpointermove: move |e| {
+                let Some(active) = interaction() else {
+                    return;
+                };
+
+                if e.data().pointer_id() != active.pointer_id {
+                    return;
+                }
+
+                let (client_x, client_y) = pointer_point(&e);
+                let dx = client_x - active.start_x;
+                let dy = client_y - active.start_y;
+
+                if dx.abs() < DRAG_THRESHOLD_PX && dy.abs() < DRAG_THRESHOLD_PX {
+                    return;
+                }
+
+                let next = match active.mode {
+                    InteractionMode::Drag => WindowBounds {
+                        x: active.start_bounds.x + dx,
+                        y: active.start_bounds.y + dy,
+                        width: active.start_bounds.width,
+                        height: active.start_bounds.height,
+                    },
+                    InteractionMode::Resize => WindowBounds {
+                        x: active.start_bounds.x,
+                        y: active.start_bounds.y,
+                        width: active.start_bounds.width + dx,
+                        height: active.start_bounds.height + dy,
+                    },
+                };
+                let next = clamp_bounds(next, viewport, is_mobile);
+
+                live_bounds.set(Some(next));
+                match active.mode {
+                    InteractionMode::Drag => {
+                        queued_move.set(Some((next.x, next.y)));
+                        let elapsed = now_ms() - last_move_sent_ms();
+                        if elapsed >= PATCH_INTERVAL_MS {
+                            if let Some((next_x, next_y)) = queued_move.write().take() {
+                                on_move.call((window_id_for_pointer_move.clone(), next_x, next_y));
+                                last_move_sent_ms.set(now_ms());
+                            }
+                        } else if !move_flush_scheduled() {
+                            move_flush_scheduled.set(true);
+                            let wait_ms = (PATCH_INTERVAL_MS - elapsed).max(1) as u32;
+                            let mut move_flush_scheduled_clone = move_flush_scheduled;
+                            let mut queued_move_clone = queued_move;
+                            let mut last_move_sent_ms_clone = last_move_sent_ms;
+                            let on_move_clone = on_move;
+                            let window_id_clone = window_id_for_pointer_move.clone();
+                            spawn(async move {
+                                TimeoutFuture::new(wait_ms).await;
+                                if let Some((next_x, next_y)) = queued_move_clone.write().take() {
+                                    on_move_clone.call((window_id_clone, next_x, next_y));
+                                    last_move_sent_ms_clone.set(now_ms());
+                                }
+                                move_flush_scheduled_clone.set(false);
+                            });
+                        }
+                    }
+                    InteractionMode::Resize => {
+                        queued_resize.set(Some((next.width, next.height)));
+                        let elapsed = now_ms() - last_resize_sent_ms();
+                        if elapsed >= PATCH_INTERVAL_MS {
+                            if let Some((next_w, next_h)) = queued_resize.write().take() {
+                                on_resize.call((window_id_for_pointer_move.clone(), next_w, next_h));
+                                last_resize_sent_ms.set(now_ms());
+                            }
+                        } else if !resize_flush_scheduled() {
+                            resize_flush_scheduled.set(true);
+                            let wait_ms = (PATCH_INTERVAL_MS - elapsed).max(1) as u32;
+                            let mut resize_flush_scheduled_clone = resize_flush_scheduled;
+                            let mut queued_resize_clone = queued_resize;
+                            let mut last_resize_sent_ms_clone = last_resize_sent_ms;
+                            let on_resize_clone = on_resize;
+                            let window_id_clone = window_id_for_pointer_move.clone();
+                            spawn(async move {
+                                TimeoutFuture::new(wait_ms).await;
+                                if let Some((next_w, next_h)) = queued_resize_clone.write().take() {
+                                    on_resize_clone.call((window_id_clone, next_w, next_h));
+                                    last_resize_sent_ms_clone.set(now_ms());
+                                }
+                                resize_flush_scheduled_clone.set(false);
+                            });
+                        }
+                    }
+                }
+            },
+            onpointerup: move |e| {
+                let Some(active) = interaction() else {
+                    return;
+                };
+                if e.data().pointer_id() != active.pointer_id {
+                    return;
+                }
+
+                if let Some(web_event) = e.data().try_as_web_event() {
+                    if let Some(target) = web_event.current_target() {
+                        if let Ok(element) = target.dyn_into::<web_sys::Element>() {
+                            let _ = element.release_pointer_capture(active.pointer_id);
+                        }
+                    }
+                }
+
+                let final_bounds = live_bounds().unwrap_or(active.start_bounds);
+                match active.mode {
+                    InteractionMode::Drag => {
+                        queued_move.set(Some((final_bounds.x, final_bounds.y)));
+                        if let Some((next_x, next_y)) = queued_move.write().take() {
+                            on_move.call((window_id_for_pointer_up.clone(), next_x, next_y));
+                            last_move_sent_ms.set(now_ms());
+                        }
+                    }
+                    InteractionMode::Resize => {
+                        queued_resize.set(Some((final_bounds.width, final_bounds.height)));
+                        if let Some((next_w, next_h)) = queued_resize.write().take() {
+                            on_resize.call((window_id_for_pointer_up.clone(), next_w, next_h));
+                            last_resize_sent_ms.set(now_ms());
+                        }
+                    }
+                }
+
+                interaction.set(None);
+            },
+            onpointercancel: move |e| {
+                let Some(active) = interaction() else {
+                    return;
+                };
+                if e.data().pointer_id() != active.pointer_id {
+                    return;
+                }
+
+                if let Some(web_event) = e.data().try_as_web_event() {
+                    if let Some(target) = web_event.current_target() {
+                        if let Ok(element) = target.dyn_into::<web_sys::Element>() {
+                            let _ = element.release_pointer_capture(active.pointer_id);
+                        }
+                    }
+                }
+
+                live_bounds.set(Some(active.committed_bounds));
+                interaction.set(None);
+            },
 
             div {
                 class: "window-titlebar",
+                tabindex: "0",
                 style: "display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: var(--titlebar-bg, #111827); border-bottom: 1px solid var(--border-color, #374151); cursor: grab; user-select: none;",
-                onmousedown: move |e| {
-                    if !is_mobile {
-                        start_drag(e, window_id_for_drag.clone(), on_move_drag);
+                onkeydown: move |e| {
+                    if e.key() == Key::Enter || e.key() == Key::Character(" ".to_string()) {
+                        on_focus.call(window_id_for_title_key.clone());
                     }
+                },
+                onpointerdown: move |e| {
+                    if is_mobile || window.maximized {
+                        return;
+                    }
+
+                    if let Some(web_event) = e.data().try_as_web_event() {
+                        if let Some(target) = web_event.current_target() {
+                            if let Ok(element) = target.dyn_into::<web_sys::Element>() {
+                                let _ = element.set_pointer_capture(e.data().pointer_id());
+                            }
+                        }
+                    }
+
+                    let (start_x, start_y) = pointer_point(&e);
+                    interaction.set(Some(InteractionState {
+                        mode: InteractionMode::Drag,
+                        pointer_id: e.data().pointer_id(),
+                        start_x,
+                        start_y,
+                        start_bounds: bounds,
+                        committed_bounds: committed,
+                    }));
                 },
 
                 div {
@@ -56,14 +386,40 @@ pub fn FloatingWindow(
                     span { style: "font-weight: 500; color: var(--text-primary, white);", "{window.title}" }
                 }
 
-                button {
-                    class: "window-close",
-                    style: "width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--text-secondary, #9ca3af); border: none; border-radius: var(--radius-sm, 4px); cursor: pointer; font-size: 1.25rem; line-height: 1;",
-                    onclick: move |e| {
-                        e.stop_propagation();
-                        on_close.call(window_id_for_close.clone());
-                    },
-                    "×"
+                div {
+                    style: "display: flex; align-items: center; gap: 0.25rem;",
+                    button {
+                        style: "width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--text-secondary, #9ca3af); border: none; border-radius: var(--radius-sm, 4px); cursor: pointer;",
+                        "aria-label": "Minimize",
+                        onclick: move |e| {
+                            e.stop_propagation();
+                            on_minimize.call(window_id_for_minimize.clone());
+                        },
+                        "−"
+                    }
+                    button {
+                        style: "width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--text-secondary, #9ca3af); border: none; border-radius: var(--radius-sm, 4px); cursor: pointer;",
+                        "aria-label": if window.maximized { "Restore" } else { "Maximize" },
+                        onclick: move |e| {
+                            e.stop_propagation();
+                            if window.maximized {
+                                on_restore.call(window_id_for_max_restore.clone());
+                            } else {
+                                on_maximize.call(window_id_for_max_restore.clone());
+                            }
+                        },
+                        if window.maximized { "❐" } else { "□" }
+                    }
+                    button {
+                        class: "window-close",
+                        style: "width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--text-secondary, #9ca3af); border: none; border-radius: var(--radius-sm, 4px); cursor: pointer; font-size: 1.25rem; line-height: 1;",
+                        "aria-label": "Close",
+                        onclick: move |e| {
+                            e.stop_propagation();
+                            on_close.call(window_id_for_close.clone());
+                        },
+                        "×"
+                    }
                 }
             }
 
@@ -78,8 +434,8 @@ pub fn FloatingWindow(
                     "terminal" => rsx! {
                         TerminalView {
                             terminal_id: window.id.clone(),
-                            width: width,
-                            height: height,
+                            width: bounds.width,
+                            height: bounds.height,
                         }
                     },
                     _ => rsx! {
@@ -91,12 +447,28 @@ pub fn FloatingWindow(
                 }
             }
 
-            if !is_mobile {
+            if !is_mobile && !window.maximized {
                 div {
                     class: "resize-handle",
                     style: "position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: se-resize;",
-                    onmousedown: move |e| {
-                        start_resize(e, window_id_for_resize.clone(), on_resize);
+                    onpointerdown: move |e| {
+                        if let Some(web_event) = e.data().try_as_web_event() {
+                            if let Some(target) = web_event.current_target() {
+                                if let Ok(element) = target.dyn_into::<web_sys::Element>() {
+                                    let _ = element.set_pointer_capture(e.data().pointer_id());
+                                }
+                            }
+                        }
+
+                        let (start_x, start_y) = pointer_point(&e);
+                        interaction.set(Some(InteractionState {
+                            mode: InteractionMode::Resize,
+                            pointer_id: e.data().pointer_id(),
+                            start_x,
+                            start_y,
+                            start_bounds: bounds,
+                            committed_bounds: committed,
+                        }));
                     },
                 }
             }
@@ -114,10 +486,26 @@ fn get_app_icon(app_id: &str) -> &'static str {
     }
 }
 
-fn start_drag(e: Event<MouseData>, window_id: String, on_move: Callback<(String, i32, i32)>) {
-    let _ = (e, window_id, on_move);
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn start_resize(e: Event<MouseData>, window_id: String, on_resize: Callback<(String, i32, i32)>) {
-    let _ = (e, window_id, on_resize);
+    #[test]
+    fn clamp_respects_minimums() {
+        let clamped = clamp_bounds(
+            WindowBounds {
+                x: -100,
+                y: -100,
+                width: 50,
+                height: 20,
+            },
+            (1280, 720),
+            false,
+        );
+
+        assert_eq!(clamped.x, 10);
+        assert_eq!(clamped.y, 10);
+        assert_eq!(clamped.width, MIN_WINDOW_WIDTH);
+        assert_eq!(clamped.height, MIN_WINDOW_HEIGHT);
+    }
 }

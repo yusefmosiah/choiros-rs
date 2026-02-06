@@ -94,6 +94,27 @@ pub fn DesktopShell(desktop_id: String) -> Element {
         });
     });
 
+    let minimize_window_cb = use_callback(move |window_id: String| {
+        let desktop_id = desktop_id_signal.read().clone();
+        spawn(async move {
+            actions::minimize_window_action(desktop_id, window_id).await;
+        });
+    });
+
+    let maximize_window_cb = use_callback(move |window_id: String| {
+        let desktop_id = desktop_id_signal.read().clone();
+        spawn(async move {
+            actions::maximize_window_action(desktop_id, window_id).await;
+        });
+    });
+
+    let restore_window_cb = use_callback(move |window_id: String| {
+        let desktop_id = desktop_id_signal.read().clone();
+        spawn(async move {
+            actions::restore_window_action(desktop_id, window_id).await;
+        });
+    });
+
     let handle_prompt_submit = use_callback(move |text: String| {
         let desktop_id = desktop_id_signal.read().clone();
         spawn(async move {
@@ -152,6 +173,9 @@ pub fn DesktopShell(desktop_id: String) -> Element {
                 on_focus: focus_window_cb,
                 on_move: move_window_cb,
                 on_resize: resize_window_cb,
+                on_minimize: minimize_window_cb,
+                on_maximize: maximize_window_cb,
+                on_restore: restore_window_cb,
             }
 
             PromptBar {
