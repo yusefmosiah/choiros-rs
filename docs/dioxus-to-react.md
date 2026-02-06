@@ -4,6 +4,17 @@
 
 This document provides a comprehensive DAG (Directed Acyclic Graph) for migrating the ChoirOS sandbox UI from Dioxus to React while preserving the Rust backend. The migration is structured into phases with tasks designed for parallel execution by multiple subagents.
 
+### Regression Tracking
+
+- 2026-02-06: Terminal browser CPU regression (reload/multi-window) and desktop loading deadlock were addressed in React.
+- Incident doc: `/Users/wiz/choiros-rs/docs/handoffs/2026-02-06-react-terminal-browser-cpu-regression.md`
+- 2026-02-06: Rollback experiment path created to validate reversibility:
+  - `dioxus-desktop/` = Dioxus frontend (active rollback target)
+  - `sandbox-ui/` = React frontend (kept as backup)
+  - Backend API/websocket contracts intentionally unchanged for A/B validation.
+- 2026-02-06: Dioxus terminal multi-browser/reload stability fix landed.
+  - Handoff doc: `/Users/wiz/choiros-rs/docs/handoffs/2026-02-06-dioxus-terminal-multibrowser-fix.md`
+
 **Key Principles:**
 1. **Feature parity with Dioxus first** - Match existing Dioxus features before adding new ones
 2. **WebSocket-first** - WebSocket testing is a critical priority
@@ -16,14 +27,16 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 
 ### Current State
 
-- **sandbox-ui/**: Dioxus frontend (4,963 lines to be replaced)
+- **dioxus-desktop/**: Dioxus frontend (restored for rollback validation)
 - **sandbox/**: Rust backend with **Ractor** actors and **Axum** web framework (13,154 lines - PRESERVED)
-- **shared-types/**: Rust structs - now needs TypeScript generation for React frontend
+- **sandbox-ui/**: React frontend kept as backup during rollback testing
+- **shared-types/**: Rust structs shared with backend and Dioxus/React experiments
 - **choiros/**: Reference React implementation (patterns only - NOT cloning)
 
 ### Target State
 
-- **sandbox-ui/**: New React + TypeScript frontend (replacing Dioxus)
+- **sandbox-ui/**: New React + TypeScript frontend (long-term target, currently backup)
+- **dioxus-desktop/**: Active rollback frontend for regression isolation
 - **sandbox/**: Unchanged Rust backend (Ractor + Axum)
 - **shared-types/**: Rust types with TypeScript generation pipeline
 - **Feature parity with existing Dioxus UI first**, then gradual enhancements
@@ -484,4 +497,3 @@ This migration can be executed by **2-3 parallel agents** working on independent
 2. **Shared types** (T1.2) is the bottleneck - all other agents wait for this
 3. **File-based coordination** - agents work on different files to avoid conflicts
 4. **Integration points** - agents hand off via git commits or shared working directory
-

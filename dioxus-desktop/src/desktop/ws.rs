@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -5,6 +6,15 @@ use shared_types::{DesktopState, WindowState};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{MessageEvent, WebSocket};
+
+pub struct DesktopWsRuntime {
+    ws: WebSocket,
+    closing: Rc<Cell<bool>>,
+    _on_open: Closure<dyn FnMut(wasm_bindgen::JsValue)>,
+    _on_message: Closure<dyn FnMut(MessageEvent)>,
+    _on_close: Closure<dyn FnMut(wasm_bindgen::JsValue)>,
+    _on_error: Closure<dyn FnMut(wasm_bindgen::JsValue)>,
+}
 
 #[derive(Debug, Clone)]
 pub enum WsEvent {
@@ -38,7 +48,6 @@ pub enum WsEvent {
         y: i32,
         width: i32,
         height: i32,
-        from: String,
     },
     Pong,
     Error(String),
@@ -145,7 +154,7 @@ pub fn parse_ws_message(payload: &str) -> Option<WsEvent> {
             }
         }
         "window_restored" => {
-            if let (Some(window_id), Some(x), Some(y), Some(width), Some(height), Some(from)) = (
+            if let (Some(window_id), Some(x), Some(y), Some(width), Some(height), Some(_from)) = (
                 json.get("window_id").and_then(|v| v.as_str()),
                 json.get("x").and_then(|v| v.as_i64()),
                 json.get("y").and_then(|v| v.as_i64()),
@@ -159,7 +168,6 @@ pub fn parse_ws_message(payload: &str) -> Option<WsEvent> {
                     y: y as i32,
                     width: width as i32,
                     height: height as i32,
-                    from: from.to_string(),
                 })
             } else {
                 None
@@ -173,7 +181,7 @@ pub fn parse_ws_message(payload: &str) -> Option<WsEvent> {
     }
 }
 
-pub async fn connect_websocket<F>(desktop_id: &str, mut on_event: F)
+pub fn connect_websocket<F>(desktop_id: &str, on_event: F) -> Result<DesktopWsRuntime, String>
 where
     F: FnMut(WsEvent) + 'static,
 {
@@ -187,14 +195,15 @@ where
         Ok(ws) => ws,
         Err(e) => {
             dioxus_logger::tracing::error!("Failed to create WebSocket: {:?}", e);
-            on_event(WsEvent::Disconnected);
-            return;
+            return Err(format!("Failed to create websocket: {e:?}"));
         }
     };
 
+    let closing = Rc::new(Cell::new(false));
     let on_event_rc = Rc::new(RefCell::new(on_event));
     let on_event_open = on_event_rc.clone();
     let on_event_close = on_event_rc.clone();
+    let closing_for_close = closing.clone();
     let desktop_id_clone = desktop_id.to_string();
     let ws_clone = ws.clone();
 
@@ -207,7 +216,6 @@ where
         let _ = ws_clone.send_with_str(&subscribe_msg);
     }) as Box<dyn FnMut(wasm_bindgen::JsValue)>);
     ws.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
-    onopen_callback.forget();
 
     let onmessage_callback = Closure::wrap(Box::new(move |e: MessageEvent| {
         if let Ok(text) = e.data().dyn_into::<js_sys::JsString>() {
@@ -229,18 +237,38 @@ where
         }
     }) as Box<dyn FnMut(MessageEvent)>);
     ws.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
-    onmessage_callback.forget();
 
     let onclose_callback = Closure::wrap(Box::new(move |_e: wasm_bindgen::JsValue| {
+        if closing_for_close.get() {
+            return;
+        }
         dioxus_logger::tracing::info!("WebSocket disconnected");
         on_event_close.borrow_mut()(WsEvent::Disconnected);
     }) as Box<dyn FnMut(wasm_bindgen::JsValue)>);
     ws.set_onclose(Some(onclose_callback.as_ref().unchecked_ref()));
-    onclose_callback.forget();
 
     let onerror_callback = Closure::wrap(Box::new(move |e: wasm_bindgen::JsValue| {
         dioxus_logger::tracing::error!("WebSocket error: {:?}", e);
     }) as Box<dyn FnMut(wasm_bindgen::JsValue)>);
     ws.set_onerror(Some(onerror_callback.as_ref().unchecked_ref()));
-    onerror_callback.forget();
+
+    Ok(DesktopWsRuntime {
+        ws,
+        closing,
+        _on_open: onopen_callback,
+        _on_message: onmessage_callback,
+        _on_close: onclose_callback,
+        _on_error: onerror_callback,
+    })
+}
+
+impl Drop for DesktopWsRuntime {
+    fn drop(&mut self) {
+        self.closing.set(true);
+        self.ws.set_onopen(None);
+        self.ws.set_onmessage(None);
+        self.ws.set_onerror(None);
+        self.ws.set_onclose(None);
+        let _ = self.ws.close();
+    }
 }

@@ -4,6 +4,7 @@ members = [
     "hypervisor", 
     "sandbox",
 ]
+exclude = ["dioxus-desktop"]
 resolver = "2"
 
 [workspace.package]

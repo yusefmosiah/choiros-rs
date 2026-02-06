@@ -15,7 +15,11 @@ export function Terminal({ terminalId, userId = 'user-1' }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resizeRafRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
+  const resizeInFlightRef = useRef(false);
+  const lastResizeRef = useRef<{ rows: number; cols: number } | null>(null);
+  const lastContainerSizeRef = useRef<{ width: number; height: number } | null>(null);
   const [status, setStatus] = useState('Connecting...');
   const [error, setError] = useState<string | null>(null);
 
@@ -29,7 +33,8 @@ export function Terminal({ terminalId, userId = 'user-1' }: TerminalProps) {
     let shouldReconnect = true;
 
     const term = new XTerm({
-      cursorBlink: true,
+      // Keep cursor static to avoid continuous repaint churn with many terminals/tabs.
+      cursorBlink: false,
       convertEol: true,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
       fontSize: 13,
@@ -43,20 +48,50 @@ export function Terminal({ terminalId, userId = 'user-1' }: TerminalProps) {
     term.open(container);
     fitAddon.fit();
 
-    const sendResize = () => {
+    const clearPendingResize = () => {
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
+      }
+    };
+
+    const sendResizeIfChanged = () => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         return;
       }
 
-      fitAddon.fit();
+      const next = { rows: term.rows, cols: term.cols };
+      const prev = lastResizeRef.current;
+      if (prev && prev.rows === next.rows && prev.cols === next.cols) {
+        return;
+      }
+
+      lastResizeRef.current = next;
       ws.send(
         JSON.stringify({
           type: 'resize',
-          rows: term.rows,
-          cols: term.cols,
+          rows: next.rows,
+          cols: next.cols,
         }),
       );
+    };
+
+    const scheduleResize = () => {
+      if (resizeRafRef.current !== null || resizeInFlightRef.current) {
+        return;
+      }
+
+      resizeRafRef.current = requestAnimationFrame(() => {
+        resizeRafRef.current = null;
+        resizeInFlightRef.current = true;
+        try {
+          fitAddon.fit();
+          sendResizeIfChanged();
+        } finally {
+          resizeInFlightRef.current = false;
+        }
+      });
     };
 
     const clearReconnectTimer = () => {
@@ -139,7 +174,7 @@ export function Terminal({ terminalId, userId = 'user-1' }: TerminalProps) {
           reconnectAttemptsRef.current = 0;
           setStatus('Connected');
           setError(null);
-          sendResize();
+          scheduleResize();
         };
 
         ws.onmessage = (event) => {
@@ -192,8 +227,25 @@ export function Terminal({ terminalId, userId = 'user-1' }: TerminalProps) {
       }
     };
 
-    const resizeObserver = new ResizeObserver(() => {
-      sendResize();
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) {
+        return;
+      }
+
+      const width = Math.round(entry.contentRect.width);
+      const height = Math.round(entry.contentRect.height);
+      const previous = lastContainerSizeRef.current;
+      if (previous && previous.width === width && previous.height === height) {
+        return;
+      }
+
+      lastContainerSizeRef.current = { width, height };
+
+      if (resizeInFlightRef.current) {
+        return;
+      }
+      scheduleResize();
     });
     resizeObserver.observe(container);
 
@@ -210,6 +262,7 @@ export function Terminal({ terminalId, userId = 'user-1' }: TerminalProps) {
       cancelled = true;
       shouldReconnect = false;
       clearReconnectTimer();
+      clearPendingResize();
       resizeObserver.disconnect();
       onDataDisposable.dispose();
 
@@ -219,9 +272,6 @@ export function Terminal({ terminalId, userId = 'user-1' }: TerminalProps) {
       }
 
       term.dispose();
-      void stopTerminal(terminalId).catch(() => {
-        // Best-effort cleanup for backend process.
-      });
     };
   }, [terminalId, userId]);
 

@@ -2,7 +2,9 @@ use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use gloo_timers::future::TimeoutFuture;
 use shared_types::{ChatMessage, Sender};
+use std::cell::Cell;
 use std::collections::VecDeque;
+use std::rc::Rc;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::prelude::*;
 use web_sys::{CloseEvent, ErrorEvent, Event, MessageEvent, WebSocket};
@@ -26,8 +28,16 @@ struct AssistantBundle {
     tools: Vec<ToolEntry>,
 }
 
+enum ChatWsEvent {
+    Connected,
+    Message(String),
+    Error(String),
+    Closed,
+}
+
 struct ChatRuntime {
     ws: WebSocket,
+    closing: Rc<Cell<bool>>,
     _on_open: Closure<dyn FnMut(Event)>,
     _on_message: Closure<dyn FnMut(MessageEvent)>,
     _on_error: Closure<dyn FnMut(ErrorEvent)>,
@@ -41,7 +51,9 @@ pub fn ChatView(actor_id: String) -> Element {
     let user_id = use_signal(|| "user-1".to_string());
     let mut loading = use_signal(|| false);
     let mut ws_runtime = use_signal(|| None::<ChatRuntime>);
-    let ws_connected = use_signal(|| false);
+    let mut ws_connected = use_signal(|| false);
+    let ws_event_queue = use_hook(|| Rc::new(std::cell::RefCell::new(VecDeque::<ChatWsEvent>::new())));
+    let mut ws_event_pump_started = use_signal(|| false);
     let actor_id_signal = use_signal(|| actor_id.clone());
     let _messages_end_ref = use_signal(|| None::<dioxus::prelude::Element>);
 
@@ -61,14 +73,177 @@ pub fn ChatView(actor_id: String) -> Element {
     });
 
     // Connect WebSocket for streaming responses
-    use_effect(move || {
-        if ws_runtime.read().is_some() {
-            return;
-        }
+    {
+        let ws_event_queue = ws_event_queue.clone();
+        use_effect(move || {
+            if ws_event_pump_started() {
+                return;
+            }
+            ws_event_pump_started.set(true);
 
-        let actor_id = actor_id_signal.to_string();
-        let user_id = user_id.to_string();
-        let ws_url = build_chat_ws_url(&actor_id, &user_id);
+            let ws_event_queue = ws_event_queue.clone();
+            spawn(async move {
+                loop {
+                    let mut drained = Vec::new();
+                    {
+                        let mut queue = ws_event_queue.borrow_mut();
+                        while let Some(event) = queue.pop_front() {
+                            drained.push(event);
+                        }
+                    }
+
+                    for event in drained {
+                        match event {
+                            ChatWsEvent::Connected => {
+                                ws_connected.set(true);
+                            }
+                            ChatWsEvent::Message(text_str) => {
+                                let Ok(json) = serde_json::from_str::<serde_json::Value>(&text_str)
+                                else {
+                                    continue;
+                                };
+
+                                let msg_type =
+                                    json.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                                match msg_type {
+                                    "connected" => {
+                                        ws_connected.set(true);
+                                    }
+                                    "thinking" => {
+                                        let content = json
+                                            .get("content")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("");
+                                        let mut list = messages.write();
+                                        update_or_create_pending_assistant_bundle(
+                                            &mut list,
+                                            |bundle| {
+                                                if !content.trim().is_empty() {
+                                                    bundle.thinking.push(content.to_string());
+                                                }
+                                            },
+                                        );
+                                    }
+                                    "tool_call" => {
+                                        let content = json
+                                            .get("content")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("");
+                                        if let Ok(payload) =
+                                            serde_json::from_str::<serde_json::Value>(content)
+                                        {
+                                            let mut list = messages.write();
+                                            update_or_create_pending_assistant_bundle(
+                                                &mut list,
+                                                |bundle| {
+                                                    bundle.tools.push(ToolEntry {
+                                                        kind: "call".to_string(),
+                                                        payload,
+                                                    });
+                                                },
+                                            );
+                                        }
+                                    }
+                                    "tool_result" => {
+                                        let content = json
+                                            .get("content")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("");
+                                        if let Ok(payload) =
+                                            serde_json::from_str::<serde_json::Value>(content)
+                                        {
+                                            let mut list = messages.write();
+                                            update_or_create_pending_assistant_bundle(
+                                                &mut list,
+                                                |bundle| {
+                                                    bundle.tools.push(ToolEntry {
+                                                        kind: "result".to_string(),
+                                                        payload,
+                                                    });
+                                                },
+                                            );
+                                        }
+                                    }
+                                    "response" => {
+                                        let content = json
+                                            .get("content")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("");
+                                        let response_text = parse_chat_response_text(content);
+
+                                        let mut list = messages.write();
+                                        clear_pending_user_message(&mut list);
+                                        update_or_create_pending_assistant_bundle(
+                                            &mut list,
+                                            |bundle| {
+                                                bundle.text = response_text;
+                                            },
+                                        );
+                                        mark_last_pending_assistant_complete(&mut list);
+                                        loading.set(false);
+                                    }
+                                    "error" => {
+                                        let message = json
+                                            .get("content")
+                                            .and_then(|v| v.as_str())
+                                            .or_else(|| {
+                                                json.get("message").and_then(|v| v.as_str())
+                                            })
+                                            .unwrap_or("Chat error");
+
+                                        let mut list = messages.write();
+                                        clear_pending_user_message(&mut list);
+                                        if has_pending_assistant_bundle(&list) {
+                                            update_or_create_pending_assistant_bundle(
+                                                &mut list,
+                                                |bundle| {
+                                                    bundle.text = message.to_string();
+                                                },
+                                            );
+                                            mark_last_pending_assistant_complete(&mut list);
+                                        } else {
+                                            list.push(ChatMessage {
+                                                id: format!(
+                                                    "error-{}",
+                                                    chrono::Utc::now().timestamp_millis()
+                                                ),
+                                                text: message.to_string(),
+                                                sender: Sender::Assistant,
+                                                timestamp: chrono::Utc::now(),
+                                                pending: false,
+                                            });
+                                        }
+                                        loading.set(false);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            ChatWsEvent::Error(message) => {
+                                ws_connected.set(false);
+                                dioxus_logger::tracing::error!("Chat WS error: {}", message);
+                            }
+                            ChatWsEvent::Closed => {
+                                ws_connected.set(false);
+                            }
+                        }
+                    }
+
+                    TimeoutFuture::new(16).await;
+                }
+            });
+        });
+    }
+
+    {
+        let ws_event_queue = ws_event_queue.clone();
+        use_effect(move || {
+            if ws_runtime.read().is_some() {
+                return;
+            }
+
+            let actor_id = actor_id_signal.to_string();
+            let user_id = user_id.to_string();
+            let ws_url = build_chat_ws_url(&actor_id, &user_id);
 
         let ws = match WebSocket::new(&ws_url) {
             Ok(ws) => ws,
@@ -77,127 +252,56 @@ pub fn ChatView(actor_id: String) -> Element {
                 return;
             }
         };
+        let closing = Rc::new(Cell::new(false));
 
-        let mut ws_connected_open = ws_connected.clone();
+        let ws_event_queue_open = ws_event_queue.clone();
         let on_open = Closure::wrap(Box::new(move |_e: Event| {
-            ws_connected_open.set(true);
+            ws_event_queue_open.borrow_mut().push_back(ChatWsEvent::Connected);
         }) as Box<dyn FnMut(Event)>);
         ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
 
-        let mut ws_connected_message = ws_connected.clone();
-        let mut messages_message = messages;
-        let mut loading_message = loading;
+        let ws_event_queue_message = ws_event_queue.clone();
         let on_message = Closure::wrap(Box::new(move |e: MessageEvent| {
             let Ok(text) = e.data().dyn_into::<js_sys::JsString>() else {
                 return;
             };
             let text_str = text.as_string().unwrap_or_default();
-
-            let Ok(json) = serde_json::from_str::<serde_json::Value>(&text_str) else {
-                return;
-            };
-
-            let msg_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("");
-            match msg_type {
-                "connected" => {
-                    ws_connected_message.set(true);
-                }
-                "thinking" => {
-                    let content = json.get("content").and_then(|v| v.as_str()).unwrap_or("");
-                    let mut list = messages_message.write();
-                    update_or_create_pending_assistant_bundle(&mut list, |bundle| {
-                        if !content.trim().is_empty() {
-                            bundle.thinking.push(content.to_string());
-                        }
-                    });
-                }
-                "tool_call" => {
-                    let content = json.get("content").and_then(|v| v.as_str()).unwrap_or("");
-                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(content) {
-                        let mut list = messages_message.write();
-                        update_or_create_pending_assistant_bundle(&mut list, |bundle| {
-                            bundle.tools.push(ToolEntry {
-                                kind: "call".to_string(),
-                                payload,
-                            });
-                        });
-                    }
-                }
-                "tool_result" => {
-                    let content = json.get("content").and_then(|v| v.as_str()).unwrap_or("");
-                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(content) {
-                        let mut list = messages_message.write();
-                        update_or_create_pending_assistant_bundle(&mut list, |bundle| {
-                            bundle.tools.push(ToolEntry {
-                                kind: "result".to_string(),
-                                payload,
-                            });
-                        });
-                    }
-                }
-                "response" => {
-                    let content = json.get("content").and_then(|v| v.as_str()).unwrap_or("");
-                    let response_text = parse_chat_response_text(content);
-
-                    let mut list = messages_message.write();
-                    clear_pending_user_message(&mut list);
-                    update_or_create_pending_assistant_bundle(&mut list, |bundle| {
-                        bundle.text = response_text;
-                    });
-                    mark_last_pending_assistant_complete(&mut list);
-                    loading_message.set(false);
-                }
-                "error" => {
-                    let message = json
-                        .get("content")
-                        .and_then(|v| v.as_str())
-                        .or_else(|| json.get("message").and_then(|v| v.as_str()))
-                        .unwrap_or("Chat error");
-
-                    let mut list = messages_message.write();
-                    clear_pending_user_message(&mut list);
-                    if has_pending_assistant_bundle(&list) {
-                        update_or_create_pending_assistant_bundle(&mut list, |bundle| {
-                            bundle.text = message.to_string();
-                        });
-                        mark_last_pending_assistant_complete(&mut list);
-                    } else {
-                        list.push(ChatMessage {
-                            id: format!("error-{}", chrono::Utc::now().timestamp_millis()),
-                            text: message.to_string(),
-                            sender: Sender::Assistant,
-                            timestamp: chrono::Utc::now(),
-                            pending: false,
-                        });
-                    }
-                    loading_message.set(false);
-                }
-                _ => {}
-            }
+            ws_event_queue_message
+                .borrow_mut()
+                .push_back(ChatWsEvent::Message(text_str));
         }) as Box<dyn FnMut(MessageEvent)>);
         ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
 
-        let mut ws_connected_error = ws_connected.clone();
+        let ws_event_queue_error = ws_event_queue.clone();
         let on_error = Closure::wrap(Box::new(move |e: ErrorEvent| {
-            ws_connected_error.set(false);
-            dioxus_logger::tracing::error!("Chat WS error: {}", e.message());
+            ws_event_queue_error
+                .borrow_mut()
+                .push_back(ChatWsEvent::Error(e.message()));
         }) as Box<dyn FnMut(ErrorEvent)>);
         ws.set_onerror(Some(on_error.as_ref().unchecked_ref()));
 
-        let mut ws_connected_close = ws_connected.clone();
+        let ws_event_queue_close = ws_event_queue.clone();
+        let closing_for_close = closing.clone();
         let on_close = Closure::wrap(Box::new(move |_e: CloseEvent| {
-            ws_connected_close.set(false);
+            if closing_for_close.get() {
+                return;
+            }
+            ws_event_queue_close
+                .borrow_mut()
+                .push_back(ChatWsEvent::Closed);
         }) as Box<dyn FnMut(CloseEvent)>);
         ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
 
         ws_runtime.set(Some(ChatRuntime {
             ws,
+            closing,
             _on_open: on_open,
             _on_message: on_message,
             _on_error: on_error,
             _on_close: on_close,
         }));
-    });
+        });
+    }
 
     // Scroll to bottom when messages change
     use_effect(move || {
@@ -815,6 +919,17 @@ fn clear_pending_user_message(messages: &mut Vec<ChatMessage>) {
 fn build_chat_ws_url(actor_id: &str, user_id: &str) -> String {
     let ws_base = http_to_ws_url(crate::api::api_base());
     format!("{}/ws/chat/{}/{}", ws_base, actor_id, user_id)
+}
+
+impl Drop for ChatRuntime {
+    fn drop(&mut self) {
+        self.closing.set(true);
+        self.ws.set_onopen(None);
+        self.ws.set_onmessage(None);
+        self.ws.set_onerror(None);
+        self.ws.set_onclose(None);
+        let _ = self.ws.close();
+    }
 }
 
 fn http_to_ws_url(http_url: &str) -> String {

@@ -1,4 +1,9 @@
+use std::cell::RefCell;
+use std::collections::VecDeque;
+use std::rc::Rc;
+
 use dioxus::prelude::*;
+use gloo_timers::future::TimeoutFuture;
 use shared_types::DesktopState;
 
 use crate::desktop::actions;
@@ -6,16 +11,21 @@ use crate::desktop::apps::core_apps;
 use crate::desktop::components::prompt_bar::PromptBar;
 use crate::desktop::components::workspace_canvas::WorkspaceCanvas;
 use crate::desktop::effects;
+use crate::desktop::state::apply_ws_event;
 use crate::desktop::theme::{
     apply_theme_to_document, next_theme, set_cached_theme_preference, DEFAULT_THEME,
 };
+use crate::desktop::ws::{DesktopWsRuntime, WsEvent};
 
 #[component]
 pub fn DesktopShell(desktop_id: String) -> Element {
-    let desktop_state = use_signal(|| None::<DesktopState>);
+    let mut desktop_state = use_signal(|| None::<DesktopState>);
     let loading = use_signal(|| true);
-    let error = use_signal(|| None::<String>);
-    let ws_connected = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    let mut ws_connected = use_signal(|| false);
+    let mut desktop_ws_runtime = use_signal(|| None::<DesktopWsRuntime>);
+    let ws_event_queue = use_hook(|| Rc::new(RefCell::new(VecDeque::<WsEvent>::new())));
+    let mut ws_event_pump_started = use_signal(|| false);
     let desktop_id_signal = use_signal(|| desktop_id.clone());
     let viewport = use_signal(|| (1920u32, 1080u32));
     let apps_registered = use_signal(|| false);
@@ -52,12 +62,57 @@ pub fn DesktopShell(desktop_id: String) -> Element {
         });
     });
 
-    use_effect(move || {
-        let desktop_id = desktop_id_signal.read().clone();
-        spawn(async move {
-            effects::bootstrap_websocket(desktop_id, desktop_state, ws_connected).await;
+    {
+        let ws_event_queue = ws_event_queue.clone();
+        use_effect(move || {
+            if ws_event_pump_started() {
+                return;
+            }
+            ws_event_pump_started.set(true);
+
+            let ws_event_queue = ws_event_queue.clone();
+            spawn(async move {
+                loop {
+                    let mut drained = Vec::new();
+                    {
+                        let mut queue = ws_event_queue.borrow_mut();
+                        while let Some(event) = queue.pop_front() {
+                            drained.push(event);
+                        }
+                    }
+
+                    for event in drained {
+                        apply_ws_event(event, &mut desktop_state, &mut ws_connected);
+                    }
+
+                    TimeoutFuture::new(16).await;
+                }
+            });
         });
-    });
+    }
+
+    {
+        let ws_event_queue = ws_event_queue.clone();
+        use_effect(move || {
+            let desktop_id = desktop_id_signal.read().clone();
+            if desktop_ws_runtime.read().is_some() {
+                return;
+            }
+
+            let ws_event_queue_for_cb = ws_event_queue.clone();
+            match effects::bootstrap_websocket(desktop_id, move |event| {
+                ws_event_queue_for_cb.borrow_mut().push_back(event);
+            }) {
+                Ok(runtime) => {
+                    desktop_ws_runtime.set(Some(runtime));
+                }
+                Err(e) => {
+                    ws_connected.set(false);
+                    error.set(Some(format!("Failed to connect desktop websocket: {e}")));
+                }
+            }
+        });
+    }
 
     let open_app_window = use_callback(move |app| {
         let desktop_id = desktop_id_signal.read().clone();

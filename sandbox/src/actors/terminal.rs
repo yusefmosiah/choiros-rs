@@ -17,9 +17,8 @@
 //! - Integration with opencode CLI
 
 use async_trait::async_trait;
-use portable_pty::{CommandBuilder, PtySize};
+use portable_pty::{ChildKiller, CommandBuilder, PtySize};
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
-use std::collections::HashMap;
 use std::io::{Read, Write};
 use tokio::sync::{broadcast, mpsc};
 
@@ -48,6 +47,8 @@ pub struct TerminalState {
     /// PTY master handle (for I/O and resize)
     #[allow(dead_code)]
     pty_master: Option<Box<dyn portable_pty::MasterPty + Send>>,
+    /// Handle used to terminate spawned child process on stop
+    child_killer: Option<Box<dyn ChildKiller + Send + Sync>>,
     /// Channel for sending input to PTY
     input_tx: Option<mpsc::Sender<String>>,
     /// Broadcast channel for output from PTY
@@ -58,12 +59,11 @@ pub struct TerminalState {
     is_running: bool,
     /// Exit code when process ends
     exit_code: Option<i32>,
-    /// Environment variables
-    env_vars: HashMap<String, String>,
+    /// PID of the spawned shell process (if available)
+    process_id: Option<u32>,
     /// Terminal dimensions
     rows: u16,
     cols: u16,
-    event_store: ActorRef<EventStoreMsg>,
 }
 
 // ============================================================================
@@ -115,6 +115,7 @@ pub struct TerminalInfo {
     pub working_dir: String,
     pub is_running: bool,
     pub exit_code: Option<i32>,
+    pub process_id: Option<u32>,
     pub rows: u16,
     pub cols: u16,
 }
@@ -171,15 +172,15 @@ impl Actor for TerminalActor {
             shell: args.shell,
             working_dir: args.working_dir,
             pty_master: None,
+            child_killer: None,
             input_tx: None,
             output_tx: None,
             output_buffer: Vec::with_capacity(1000), // Keep last 1000 lines
             is_running: false,
             exit_code: None,
-            env_vars: HashMap::new(),
+            process_id: None,
             rows: 24,
             cols: 80,
-            event_store: args.event_store,
         })
     }
 
@@ -205,12 +206,14 @@ impl Actor for TerminalActor {
                 )
                 .await
                 {
-                    Ok((pty_master, input_tx, output_tx)) => {
+                    Ok((pty_master, child_killer, input_tx, output_tx, process_id)) => {
                         state.pty_master = Some(pty_master);
+                        state.child_killer = Some(child_killer);
                         state.input_tx = Some(input_tx);
                         state.output_tx = Some(output_tx);
                         state.is_running = true;
                         state.exit_code = None;
+                        state.process_id = process_id;
                         let _ = reply.send(Ok(()));
                     }
                     Err(e) => {
@@ -257,6 +260,11 @@ impl Actor for TerminalActor {
             }
 
             TerminalMsg::Resize { rows, cols, reply } => {
+                // Ignore pathological 0x0 resizes from transient client layout states.
+                // Shared terminal sessions can be viewed by multiple browsers, so one
+                // bad resize should not poison the PTY size for everyone.
+                let rows = rows.max(2);
+                let cols = cols.max(2);
                 state.rows = rows;
                 state.cols = cols;
 
@@ -287,6 +295,7 @@ impl Actor for TerminalActor {
                     working_dir: state.working_dir.clone(),
                     is_running: state.is_running,
                     exit_code: state.exit_code,
+                    process_id: state.process_id,
                     rows: state.rows,
                     cols: state.cols,
                 };
@@ -294,10 +303,20 @@ impl Actor for TerminalActor {
             }
 
             TerminalMsg::Stop { reply } => {
+                if let Some(mut child_killer) = state.child_killer.take() {
+                    if let Err(e) = child_killer.kill() {
+                        tracing::warn!(
+                            terminal_id = %state.terminal_id,
+                            error = %e,
+                            "Failed to kill terminal child process"
+                        );
+                    }
+                }
                 state.pty_master = None;
                 state.is_running = false;
                 state.input_tx = None;
                 state.output_tx = None;
+                state.process_id = None;
                 let _ = reply.send(Ok(()));
             }
 
@@ -316,8 +335,10 @@ impl Actor for TerminalActor {
                 state.is_running = false;
                 state.exit_code = exit_code;
                 state.pty_master = None;
+                state.child_killer = None;
                 state.input_tx = None;
                 state.output_tx = None;
+                state.process_id = None;
                 // TODO: Emit event to EventStore
             }
         }
@@ -331,7 +352,13 @@ impl Actor for TerminalActor {
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         // Clean up PTY if still running
+        if let Some(mut child_killer) = state.child_killer.take() {
+            let _ = child_killer.kill();
+        }
         state.pty_master = None;
+        state.input_tx = None;
+        state.output_tx = None;
+        state.process_id = None;
         Ok(())
     }
 }
@@ -350,8 +377,10 @@ async fn spawn_pty(
 ) -> Result<
     (
         Box<dyn portable_pty::MasterPty + Send>,
+        Box<dyn ChildKiller + Send + Sync>,
         mpsc::Sender<String>,
         broadcast::Sender<String>,
+        Option<u32>,
     ),
     TerminalError,
 > {
@@ -377,6 +406,8 @@ async fn spawn_pty(
         .slave
         .spawn_command(cmd_builder)
         .map_err(|e| TerminalError::SpawnFailed(e.to_string()))?;
+    let child_killer = child.clone_killer();
+    let process_id = child.process_id();
 
     // Create channels for communication
     let (input_tx, mut input_rx) = mpsc::channel::<String>(100);
@@ -450,5 +481,313 @@ async fn spawn_pty(
         }
     });
 
-    Ok((pair.master, input_tx, output_tx))
+    Ok((pair.master, child_killer, input_tx, output_tx, process_id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::actors::event_store::{EventStoreActor, EventStoreArguments};
+    use ractor::Actor;
+    use tokio::time::{sleep, timeout, Duration, Instant};
+
+    fn test_shell() -> String {
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+    }
+
+    fn test_working_dir() -> String {
+        std::env::current_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "/".to_string())
+    }
+
+    #[cfg(unix)]
+    fn process_exists(pid: u32) -> bool {
+        let output = std::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "pid="])
+            .output();
+
+        match output {
+            Ok(output) => {
+                output.status.success()
+                    && !String::from_utf8_lossy(&output.stdout).trim().is_empty()
+            }
+            Err(_) => false,
+        }
+    }
+
+    #[cfg(unix)]
+    async fn wait_for_process_exit(pid: u32, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
+            if !process_exists(pid) {
+                return true;
+            }
+            sleep(Duration::from_millis(50)).await;
+        }
+        !process_exists(pid)
+    }
+
+    async fn wait_for_output(
+        rx: &mut broadcast::Receiver<String>,
+        needle: &str,
+        timeout_duration: Duration,
+    ) -> bool {
+        let deadline = Instant::now() + timeout_duration;
+        while Instant::now() < deadline {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match timeout(remaining, rx.recv()).await {
+                Ok(Ok(chunk)) => {
+                    if chunk.contains(needle) {
+                        return true;
+                    }
+                }
+                Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
+                Ok(Err(broadcast::error::RecvError::Closed)) => return false,
+                Err(_) => return false,
+            }
+        }
+        false
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_stop_terminates_terminal_process() {
+        let (event_store, _event_store_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .expect("failed to start event store");
+
+        let (terminal, _terminal_handle) = Actor::spawn(
+            None,
+            TerminalActor,
+            TerminalArguments {
+                terminal_id: "test-terminal-stop".to_string(),
+                user_id: "test-user".to_string(),
+                shell: test_shell(),
+                working_dir: test_working_dir(),
+                event_store: event_store.clone(),
+            },
+        )
+        .await
+        .expect("failed to start terminal actor");
+
+        let start_result = ractor::call!(terminal, |reply| TerminalMsg::Start { reply })
+            .expect("start call failed");
+        assert!(
+            start_result.is_ok(),
+            "terminal failed to start: {start_result:?}"
+        );
+
+        let info_before_stop = ractor::call!(terminal, |reply| TerminalMsg::GetInfo { reply })
+            .expect("get info call failed");
+        assert!(info_before_stop.is_running);
+        let pid = info_before_stop
+            .process_id
+            .expect("terminal start should provide a process id");
+        assert!(
+            process_exists(pid),
+            "expected process {pid} to exist after start"
+        );
+
+        let stop_result =
+            ractor::call!(terminal, |reply| TerminalMsg::Stop { reply }).expect("stop call failed");
+        assert!(
+            stop_result.is_ok(),
+            "terminal failed to stop: {stop_result:?}"
+        );
+
+        let exited = wait_for_process_exit(pid, Duration::from_secs(3)).await;
+        assert!(exited, "terminal process {pid} still alive after stop");
+
+        let info_after_stop = ractor::call!(terminal, |reply| TerminalMsg::GetInfo { reply })
+            .expect("get info call failed");
+        assert!(!info_after_stop.is_running);
+        assert!(info_after_stop.process_id.is_none());
+
+        terminal.stop(None);
+        event_store.stop(None);
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_repeated_start_stop_cleans_up_each_process() {
+        let (event_store, _event_store_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .expect("failed to start event store");
+
+        let (terminal, _terminal_handle) = Actor::spawn(
+            None,
+            TerminalActor,
+            TerminalArguments {
+                terminal_id: "test-terminal-restart".to_string(),
+                user_id: "test-user".to_string(),
+                shell: test_shell(),
+                working_dir: test_working_dir(),
+                event_store: event_store.clone(),
+            },
+        )
+        .await
+        .expect("failed to start terminal actor");
+
+        for _ in 0..5 {
+            let start_result = ractor::call!(terminal, |reply| TerminalMsg::Start { reply })
+                .expect("start call failed");
+            assert!(
+                start_result.is_ok(),
+                "terminal failed to start: {start_result:?}"
+            );
+
+            let info = ractor::call!(terminal, |reply| TerminalMsg::GetInfo { reply })
+                .expect("get info call failed");
+            let pid = info
+                .process_id
+                .expect("terminal start should provide a process id");
+            assert!(
+                process_exists(pid),
+                "expected process {pid} to exist after start"
+            );
+
+            let stop_result = ractor::call!(terminal, |reply| TerminalMsg::Stop { reply })
+                .expect("stop call failed");
+            assert!(
+                stop_result.is_ok(),
+                "terminal failed to stop: {stop_result:?}"
+            );
+
+            let exited = wait_for_process_exit(pid, Duration::from_secs(3)).await;
+            assert!(exited, "terminal process {pid} still alive after stop");
+        }
+
+        terminal.stop(None);
+        event_store.stop(None);
+    }
+
+    #[tokio::test]
+    async fn test_multiple_subscribers_receive_terminal_output() {
+        let (event_store, _event_store_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .expect("failed to start event store");
+
+        let (terminal, _terminal_handle) = Actor::spawn(
+            None,
+            TerminalActor,
+            TerminalArguments {
+                terminal_id: "test-terminal-multisub".to_string(),
+                user_id: "test-user".to_string(),
+                shell: test_shell(),
+                working_dir: test_working_dir(),
+                event_store: event_store.clone(),
+            },
+        )
+        .await
+        .expect("failed to start terminal actor");
+
+        let start_result = ractor::call!(terminal, |reply| TerminalMsg::Start { reply })
+            .expect("start call failed");
+        assert!(
+            start_result.is_ok(),
+            "terminal failed to start: {start_result:?}"
+        );
+
+        let mut rx_1 = ractor::call!(terminal, |reply| TerminalMsg::SubscribeOutput { reply })
+            .expect("subscribe output #1 failed");
+        let mut rx_2 = ractor::call!(terminal, |reply| TerminalMsg::SubscribeOutput { reply })
+            .expect("subscribe output #2 failed");
+
+        let marker = format!(
+            "CHOIR_TERM_MULTI_SUB_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time error")
+                .as_millis()
+        );
+        let command = format!("echo {marker}\n");
+
+        let send_result = ractor::call!(terminal, |reply| TerminalMsg::SendInput {
+            input: command,
+            reply
+        })
+        .expect("send input call failed");
+        assert!(
+            send_result.is_ok(),
+            "send input failed: {send_result:?}"
+        );
+
+        let got_1 = wait_for_output(&mut rx_1, &marker, Duration::from_secs(3)).await;
+        let got_2 = wait_for_output(&mut rx_2, &marker, Duration::from_secs(3)).await;
+        assert!(got_1, "first subscriber did not receive marker output");
+        assert!(got_2, "second subscriber did not receive marker output");
+
+        let stop_result =
+            ractor::call!(terminal, |reply| TerminalMsg::Stop { reply }).expect("stop call failed");
+        assert!(
+            stop_result.is_ok(),
+            "terminal failed to stop: {stop_result:?}"
+        );
+
+        terminal.stop(None);
+        event_store.stop(None);
+    }
+
+    #[tokio::test]
+    async fn test_resize_clamps_zero_dimensions() {
+        let (event_store, _event_store_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .expect("failed to start event store");
+
+        let (terminal, _terminal_handle) = Actor::spawn(
+            None,
+            TerminalActor,
+            TerminalArguments {
+                terminal_id: "test-terminal-resize-clamp".to_string(),
+                user_id: "test-user".to_string(),
+                shell: test_shell(),
+                working_dir: test_working_dir(),
+                event_store: event_store.clone(),
+            },
+        )
+        .await
+        .expect("failed to start terminal actor");
+
+        let start_result = ractor::call!(terminal, |reply| TerminalMsg::Start { reply })
+            .expect("start call failed");
+        assert!(
+            start_result.is_ok(),
+            "terminal failed to start: {start_result:?}"
+        );
+
+        let resize_result = ractor::call!(terminal, |reply| TerminalMsg::Resize {
+            rows: 0,
+            cols: 0,
+            reply
+        })
+        .expect("resize call failed");
+        assert!(
+            resize_result.is_ok(),
+            "resize failed: {resize_result:?}"
+        );
+
+        let info = ractor::call!(terminal, |reply| TerminalMsg::GetInfo { reply })
+            .expect("get info failed");
+        assert!(
+            info.rows >= 2 && info.cols >= 2,
+            "expected clamped terminal size >= 2x2, got {}x{}",
+            info.rows,
+            info.cols
+        );
+
+        let stop_result =
+            ractor::call!(terminal, |reply| TerminalMsg::Stop { reply }).expect("stop call failed");
+        assert!(
+            stop_result.is_ok(),
+            "terminal failed to stop: {stop_result:?}"
+        );
+
+        terminal.stop(None);
+        event_store.stop(None);
+    }
 }

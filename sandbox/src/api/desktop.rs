@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::actor_manager::DesktopActorMsg;
+use crate::actors::terminal::TerminalMsg;
 use crate::api::websocket::{broadcast_event, WsMessage};
 use crate::api::ApiState;
 
@@ -160,6 +161,15 @@ pub async fn close_window(
         reply,
     }) {
         Ok(Ok(())) => {
+            // Window IDs are used as terminal IDs for terminal app windows.
+            // If a terminal actor exists with this ID, stop and evict it when
+            // the window is explicitly closed.
+            if let Some(terminal_actor) = app_state.actor_manager.get_terminal(&window_id) {
+                let _ = ractor::call!(terminal_actor, |reply| TerminalMsg::Stop { reply });
+                terminal_actor.stop(None);
+                app_state.actor_manager.remove_terminal(&window_id);
+            }
+
             broadcast_event(
                 &state.ws_sessions,
                 &desktop_id,

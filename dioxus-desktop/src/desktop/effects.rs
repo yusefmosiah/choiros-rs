@@ -4,12 +4,11 @@ use shared_types::{AppDefinition, DesktopState};
 use crate::api::{
     fetch_desktop_state, fetch_user_theme_preference, register_app, update_user_theme_preference,
 };
-use crate::desktop::state::apply_ws_event;
 use crate::desktop::theme::{
     apply_theme_to_document, get_cached_theme_preference, set_cached_theme_preference,
     DEFAULT_THEME,
 };
-use crate::desktop::ws::connect_websocket;
+use crate::desktop::ws::{connect_websocket, DesktopWsRuntime};
 
 pub async fn track_viewport(mut viewport: Signal<(u32, u32)>) {
     if let Ok((w, h)) = get_viewport_size().await {
@@ -79,15 +78,11 @@ pub async fn load_initial_desktop_state(
     loading.set(false);
 }
 
-pub async fn bootstrap_websocket(
-    desktop_id: String,
-    mut desktop_state: Signal<Option<DesktopState>>,
-    mut ws_connected: Signal<bool>,
-) {
-    connect_websocket(&desktop_id, move |event| {
-        apply_ws_event(event, &mut desktop_state, &mut ws_connected);
-    })
-    .await;
+pub fn bootstrap_websocket<F>(desktop_id: String, on_event: F) -> Result<DesktopWsRuntime, String>
+where
+    F: FnMut(crate::desktop::ws::WsEvent) + 'static,
+{
+    connect_websocket(&desktop_id, on_event)
 }
 
 pub async fn register_core_apps_once(

@@ -14,16 +14,20 @@ dev-sandbox:
 dev-hypervisor:
     cd hypervisor && cargo run
 
-# Run frontend development server (Dioxus:3000)
+# Run Dioxus frontend development server (port 3000)
 dev-ui:
-    cd sandbox-ui && dx serve --port 3000
+    cd dioxus-desktop && dx serve --port 3000
+
+# Run React frontend backup (port 3000)
+dev-ui-react:
+    cd sandbox-ui && npm run dev -- --port 3000
 
 # Stop/kill running development processes
 stop:
     @echo "Stopping ChoirOS development processes..."
-    @pkill -9 -f "cargo run -p sandbox" 2>/dev/null || true
-    @pkill -9 -f "dx serve" 2>/dev/null || true
-    @pkill -9 -f "sandbox" 2>/dev/null || true
+    @pkill -9 -f "target/debug/sandbox" 2>/dev/null || true
+    @pkill -9 -f "dx serve --port 3000" 2>/dev/null || true
+    @pkill -9 -f "vite --port 3000" 2>/dev/null || true
     @echo "✓ All processes stopped"
 
 # Build commands
@@ -35,8 +39,8 @@ build:
 # Frontend builds to dist/, then copied to sandbox/static/
 # Backend builds in sandbox/
 build-sandbox:
-    cd sandbox-ui && dx build --release
-    cp -r sandbox-ui/dist/* sandbox/static/
+    cd dioxus-desktop && dx build --release
+    cp -r dioxus-desktop/dist/* sandbox/static/
     cd sandbox && cargo build --release
 
 # Testing

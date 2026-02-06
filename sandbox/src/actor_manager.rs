@@ -195,6 +195,13 @@ impl ActorManager {
     pub fn get_terminal(&self, terminal_id: &str) -> Option<ActorRef<TerminalMsg>> {
         self.terminal_actors.get(terminal_id).map(|e| e.clone())
     }
+
+    /// Remove a terminal actor from the registry
+    pub fn remove_terminal(&self, terminal_id: &str) -> Option<ActorRef<TerminalMsg>> {
+        self.terminal_actors
+            .remove(terminal_id)
+            .map(|entry| entry.1)
+    }
 }
 
 /// Shared application state for HTTP handlers

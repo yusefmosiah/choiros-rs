@@ -100,7 +100,6 @@ pub fn apply_ws_event(
             y,
             width,
             height,
-            from: _,
         } => {
             if let Some(state) = desktop_state.write().as_mut() {
                 if let Some(window) = state.windows.iter_mut().find(|w| w.id == window_id) {

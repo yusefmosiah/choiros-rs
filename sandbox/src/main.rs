@@ -1,13 +1,8 @@
-mod actor_manager;
-mod actors;
-mod api;
-mod baml_client;
-mod tools;
-
-use actor_manager::AppState;
-use actors::event_store::{AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg};
 use axum::http::{header, HeaderValue, Method};
 use ractor::Actor;
+use sandbox::actor_manager::AppState;
+use sandbox::actors::event_store::{AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg};
+use sandbox::api;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::TcpListener;

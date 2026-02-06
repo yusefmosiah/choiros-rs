@@ -121,7 +121,10 @@ async fn handle_terminal_socket(
         Ok(Ok(())) => {}
         Ok(Err(TerminalError::AlreadyRunning)) => {
             // Terminal is already running, which is fine - we can connect to it
-            tracing::info!("Terminal {} is already running, connecting to existing session", terminal_id);
+            tracing::info!(
+                "Terminal {} is already running, connecting to existing session",
+                terminal_id
+            );
         }
         Ok(Err(e)) => {
             let _ = send_terminal_message(
@@ -358,14 +361,19 @@ pub async fn stop_terminal(
     };
 
     match ractor::call!(terminal_actor, |reply| TerminalMsg::Stop { reply }) {
-        Ok(Ok(())) => (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "terminal_id": terminal_id,
-                "status": "stopped"
-            })),
-        )
-            .into_response(),
+        Ok(Ok(())) => {
+            terminal_actor.stop(None);
+            actor_manager.remove_terminal(&terminal_id);
+
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "terminal_id": terminal_id,
+                    "status": "stopped"
+                })),
+            )
+                .into_response()
+        }
         Ok(Err(e)) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({

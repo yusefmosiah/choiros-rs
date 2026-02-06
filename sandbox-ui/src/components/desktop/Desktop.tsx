@@ -35,6 +35,7 @@ export function Desktop({ desktopId = 'desktop-1' }: DesktopProps) {
   const windows = useWindowsStore((state) => state.windows);
 
   const activeWindowId = useDesktopStore((state) => state.activeWindowId);
+  const wsError = useDesktopStore((state) => state.lastError);
   const setDesktopError = useDesktopStore((state) => state.setError);
 
   const [loading, setLoading] = useState(true);
@@ -43,6 +44,27 @@ export function Desktop({ desktopId = 'desktop-1' }: DesktopProps) {
   // Bootstrap: Wait for WebSocket connection before fetching state
   const maxRetries = 3;
   const retryCountRef = { current: 0 };
+
+  useEffect(() => {
+    if (!loading) {
+      return;
+    }
+
+    if (status === 'connected') {
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      const message = wsError ?? 'Desktop connection timed out';
+      setError(message);
+      setDesktopError(message);
+      setLoading(false);
+    }, 8000);
+
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [loading, setDesktopError, status, wsError]);
 
   useEffect(() => {
     let cancelled = false;
