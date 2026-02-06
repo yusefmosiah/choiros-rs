@@ -64,6 +64,18 @@ pub fn router() -> Router<ApiState> {
             post(desktop::focus_window),
         )
         .route(
+            "/desktop/{desktop_id}/windows/{window_id}/minimize",
+            post(desktop::minimize_window),
+        )
+        .route(
+            "/desktop/{desktop_id}/windows/{window_id}/maximize",
+            post(desktop::maximize_window),
+        )
+        .route(
+            "/desktop/{desktop_id}/windows/{window_id}/restore",
+            post(desktop::restore_window),
+        )
+        .route(
             "/desktop/{desktop_id}/apps",
             get(desktop::get_apps).post(desktop::register_app),
         )

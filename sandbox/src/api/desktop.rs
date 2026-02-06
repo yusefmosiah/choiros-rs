@@ -11,7 +11,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::actor_manager::DesktopActorMsg;
+use crate::api::websocket::{broadcast_event, WsMessage};
 use crate::api::ApiState;
+
+const MIN_WINDOW_WIDTH: i32 = 200;
+const MIN_WINDOW_HEIGHT: i32 = 160;
 
 /// Request to open a window
 #[derive(Debug, Deserialize)]
@@ -54,7 +58,7 @@ pub async fn open_window(
     // Get or create DesktopActor
     let desktop = app_state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string())
+        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
         .await;
 
     // Use ractor call pattern
@@ -64,15 +68,26 @@ pub async fn open_window(
         props: req.props.clone(),
         reply,
     }) {
-        Ok(Ok(window)) => (
-            StatusCode::OK,
-            Json(OpenWindowResponse {
-                success: true,
-                window: Some(window),
-                error: None,
-            }),
-        )
-            .into_response(),
+        Ok(Ok(window)) => {
+            broadcast_event(
+                &state.ws_sessions,
+                &desktop_id,
+                WsMessage::WindowOpened {
+                    window: window.clone(),
+                },
+            )
+            .await;
+
+            (
+                StatusCode::OK,
+                Json(OpenWindowResponse {
+                    success: true,
+                    window: Some(window),
+                    error: None,
+                }),
+            )
+                .into_response()
+        }
         Ok(Err(e)) => (
             StatusCode::BAD_REQUEST,
             Json(OpenWindowResponse {
@@ -103,7 +118,7 @@ pub async fn get_windows(
 
     let desktop = app_state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string())
+        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
         .await;
 
     // Use ractor call pattern
@@ -136,7 +151,7 @@ pub async fn close_window(
 
     let desktop = app_state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string())
+        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
         .await;
 
     // Use ractor call pattern
@@ -144,14 +159,25 @@ pub async fn close_window(
         window_id: window_id.clone(),
         reply,
     }) {
-        Ok(Ok(())) => (
-            StatusCode::OK,
-            Json(json!({
-                "success": true,
-                "message": "Window closed"
-            })),
-        )
-            .into_response(),
+        Ok(Ok(())) => {
+            broadcast_event(
+                &state.ws_sessions,
+                &desktop_id,
+                WsMessage::WindowClosed {
+                    window_id: window_id.clone(),
+                },
+            )
+            .await;
+
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "message": "Window closed"
+                })),
+            )
+                .into_response()
+        }
         Ok(Err(e)) => (
             StatusCode::BAD_REQUEST,
             Json(json!({
@@ -181,7 +207,7 @@ pub async fn move_window(
 
     let desktop = app_state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string())
+        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
         .await;
 
     // Use ractor call pattern
@@ -191,14 +217,27 @@ pub async fn move_window(
         y: req.y,
         reply,
     }) {
-        Ok(Ok(())) => (
-            StatusCode::OK,
-            Json(json!({
-                "success": true,
-                "message": "Window moved"
-            })),
-        )
-            .into_response(),
+        Ok(Ok(())) => {
+            broadcast_event(
+                &state.ws_sessions,
+                &desktop_id,
+                WsMessage::WindowMoved {
+                    window_id: window_id.clone(),
+                    x: req.x,
+                    y: req.y,
+                },
+            )
+            .await;
+
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "message": "Window moved"
+                })),
+            )
+                .into_response()
+        }
         Ok(Err(e)) => (
             StatusCode::BAD_REQUEST,
             Json(json!({
@@ -224,11 +263,28 @@ pub async fn resize_window(
     axum::extract::State(state): axum::extract::State<ApiState>,
     Json(req): Json<ResizeWindowRequest>,
 ) -> impl IntoResponse {
+    if req.width < MIN_WINDOW_WIDTH || req.height < MIN_WINDOW_HEIGHT {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "success": false,
+                "error": format!(
+                    "Invalid size {}x{} (minimum is {}x{})",
+                    req.width,
+                    req.height,
+                    MIN_WINDOW_WIDTH,
+                    MIN_WINDOW_HEIGHT
+                )
+            })),
+        )
+            .into_response();
+    }
+
     let app_state = state.app_state.clone();
 
     let desktop = app_state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string())
+        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
         .await;
 
     // Use ractor call pattern
@@ -238,14 +294,27 @@ pub async fn resize_window(
         height: req.height,
         reply,
     }) {
-        Ok(Ok(())) => (
-            StatusCode::OK,
-            Json(json!({
-                "success": true,
-                "message": "Window resized"
-            })),
-        )
-            .into_response(),
+        Ok(Ok(())) => {
+            broadcast_event(
+                &state.ws_sessions,
+                &desktop_id,
+                WsMessage::WindowResized {
+                    window_id: window_id.clone(),
+                    width: req.width,
+                    height: req.height,
+                },
+            )
+            .await;
+
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "message": "Window resized"
+                })),
+            )
+                .into_response()
+        }
         Ok(Err(e)) => (
             StatusCode::BAD_REQUEST,
             Json(json!({
@@ -274,7 +343,7 @@ pub async fn focus_window(
 
     let desktop = app_state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string())
+        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
         .await;
 
     // Use ractor call pattern
@@ -282,14 +351,210 @@ pub async fn focus_window(
         window_id: window_id.clone(),
         reply,
     }) {
-        Ok(Ok(())) => (
-            StatusCode::OK,
+        Ok(Ok(())) => {
+            let z_index =
+                match ractor::call!(desktop, |reply| DesktopActorMsg::GetWindows { reply }) {
+                    Ok(windows) => windows
+                        .into_iter()
+                        .find(|w| w.id == window_id)
+                        .map(|w| w.z_index)
+                        .unwrap_or(0),
+                    Err(_) => 0,
+                };
+
+            broadcast_event(
+                &state.ws_sessions,
+                &desktop_id,
+                WsMessage::WindowFocused {
+                    window_id: window_id.clone(),
+                    z_index,
+                },
+            )
+            .await;
+
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "message": "Window focused"
+                })),
+            )
+                .into_response()
+        }
+        Ok(Err(e)) => (
+            StatusCode::BAD_REQUEST,
             Json(json!({
-                "success": true,
-                "message": "Window focused"
+                "success": false,
+                "error": e.to_string()
             })),
         )
             .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "success": false,
+                "error": format!("Actor error: {}", e)
+            })),
+        )
+            .into_response(),
+    }
+}
+
+/// Minimize a window
+pub async fn minimize_window(
+    Path((desktop_id, window_id)): Path<(String, String)>,
+    axum::extract::State(state): axum::extract::State<ApiState>,
+) -> impl IntoResponse {
+    let app_state = state.app_state.clone();
+
+    let desktop = app_state
+        .actor_manager
+        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
+        .await;
+
+    match ractor::call!(desktop, |reply| DesktopActorMsg::MinimizeWindow {
+        window_id: window_id.clone(),
+        reply,
+    }) {
+        Ok(Ok(())) => {
+            broadcast_event(
+                &state.ws_sessions,
+                &desktop_id,
+                WsMessage::WindowMinimized {
+                    window_id: window_id.clone(),
+                },
+            )
+            .await;
+
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "message": "Window minimized"
+                })),
+            )
+                .into_response()
+        }
+        Ok(Err(e)) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "success": false,
+                "error": e.to_string()
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "success": false,
+                "error": format!("Actor error: {}", e)
+            })),
+        )
+            .into_response(),
+    }
+}
+
+/// Maximize a window
+pub async fn maximize_window(
+    Path((desktop_id, window_id)): Path<(String, String)>,
+    axum::extract::State(state): axum::extract::State<ApiState>,
+) -> impl IntoResponse {
+    let app_state = state.app_state.clone();
+
+    let desktop = app_state
+        .actor_manager
+        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
+        .await;
+
+    match ractor::call!(desktop, |reply| DesktopActorMsg::MaximizeWindow {
+        window_id: window_id.clone(),
+        reply,
+    }) {
+        Ok(Ok(window)) => {
+            broadcast_event(
+                &state.ws_sessions,
+                &desktop_id,
+                WsMessage::WindowMaximized {
+                    window_id: window.id.clone(),
+                    x: window.x,
+                    y: window.y,
+                    width: window.width,
+                    height: window.height,
+                },
+            )
+            .await;
+
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "window": window,
+                    "message": "Window maximized"
+                })),
+            )
+                .into_response()
+        }
+        Ok(Err(e)) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "success": false,
+                "error": e.to_string()
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "success": false,
+                "error": format!("Actor error: {}", e)
+            })),
+        )
+            .into_response(),
+    }
+}
+
+/// Restore a window from minimized/maximized
+pub async fn restore_window(
+    Path((desktop_id, window_id)): Path<(String, String)>,
+    axum::extract::State(state): axum::extract::State<ApiState>,
+) -> impl IntoResponse {
+    let app_state = state.app_state.clone();
+
+    let desktop = app_state
+        .actor_manager
+        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
+        .await;
+
+    match ractor::call!(desktop, |reply| DesktopActorMsg::RestoreWindow {
+        window_id: window_id.clone(),
+        reply,
+    }) {
+        Ok(Ok(restored)) => {
+            broadcast_event(
+                &state.ws_sessions,
+                &desktop_id,
+                WsMessage::WindowRestored {
+                    window_id: restored.window.id.clone(),
+                    x: restored.window.x,
+                    y: restored.window.y,
+                    width: restored.window.width,
+                    height: restored.window.height,
+                    from: restored.from.clone(),
+                },
+            )
+            .await;
+
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "window": restored.window,
+                    "from": restored.from,
+                    "message": "Window restored"
+                })),
+            )
+                .into_response()
+        }
         Ok(Err(e)) => (
             StatusCode::BAD_REQUEST,
             Json(json!({
@@ -318,7 +583,7 @@ pub async fn get_desktop_state(
 
     let desktop = app_state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string())
+        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
         .await;
 
     // Use ractor call pattern
@@ -352,7 +617,7 @@ pub async fn register_app(
 
     let desktop = app_state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string())
+        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
         .await;
 
     // Use ractor call pattern
@@ -396,7 +661,7 @@ pub async fn get_apps(
 
     let desktop = app_state
         .actor_manager
-        .get_or_create_desktop(desktop_id, "system".to_string())
+        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
         .await;
 
     // Use ractor call pattern
