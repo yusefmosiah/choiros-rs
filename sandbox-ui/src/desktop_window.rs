@@ -3,10 +3,12 @@ use shared_types::WindowState;
 
 use crate::components::ChatView;
 use crate::terminal::TerminalView;
+use crate::viewers::{parse_viewer_window_props, ViewerShell};
 
 #[component]
 pub fn FloatingWindow(
     window: WindowState,
+    desktop_id: String,
     is_active: bool,
     viewport: (u32, u32),
     on_close: Callback<String>,
@@ -34,6 +36,7 @@ pub fn FloatingWindow(
     let window_id_for_close = window_id.clone();
     let window_id_for_resize = window_id.clone();
     let on_move_drag = on_move;
+    let viewer_props = parse_viewer_window_props(&window.props).ok();
 
     rsx! {
         div {
@@ -71,7 +74,14 @@ pub fn FloatingWindow(
                 class: "window-content",
                 style: "flex: 1; overflow: hidden;",
 
-                match window.app_id.as_str() {
+                if let Some(viewer_props) = viewer_props.clone() {
+                    ViewerShell {
+                        window_id: window.id.clone(),
+                        desktop_id: desktop_id.clone(),
+                        descriptor: viewer_props.descriptor,
+                    }
+                } else {
+                    match window.app_id.as_str() {
                     "chat" => rsx! {
                         ChatView { actor_id: window.id.clone() }
                     },
@@ -88,6 +98,7 @@ pub fn FloatingWindow(
                             "App not yet implemented"
                         }
                     }
+                }
                 }
             }
 

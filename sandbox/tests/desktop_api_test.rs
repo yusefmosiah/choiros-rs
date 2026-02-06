@@ -164,6 +164,62 @@ async fn test_open_window_success() {
 }
 
 #[tokio::test]
+async fn test_open_window_preserves_viewer_props() {
+    let (app, _temp_dir) = setup_test_app().await;
+    let desktop_id = test_desktop_id();
+
+    let app_def = json!({
+        "id": "writer",
+        "name": "Writer",
+        "icon": "📝",
+        "component_code": "WriterApp",
+        "default_width": 800,
+        "default_height": 600
+    });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .header("content-type", "application/json")
+        .body(Body::from(app_def.to_string()))
+        .unwrap();
+    let (_status, _body) = json_response(&app, req).await;
+
+    let open_req = json!({
+        "app_id": "writer",
+        "title": "README.md",
+        "props": {
+            "viewer": {
+                "kind": "text",
+                "resource": {
+                    "uri": "file:///workspace/README.md",
+                    "mime": "text/markdown"
+                },
+                "capabilities": {
+                    "readonly": false
+                }
+            }
+        }
+    });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .header("content-type", "application/json")
+        .body(Body::from(open_req.to_string()))
+        .unwrap();
+    let (status, body) = json_response(&app, req).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["success"], true);
+    assert_eq!(body["window"]["props"]["viewer"]["kind"], "text");
+    assert_eq!(
+        body["window"]["props"]["viewer"]["resource"]["uri"],
+        "file:///workspace/README.md"
+    );
+}
+
+#[tokio::test]
 async fn test_open_window_unknown_app_fails() {
     let (app, _temp_dir) = setup_test_app().await;
     let desktop_id = test_desktop_id();
