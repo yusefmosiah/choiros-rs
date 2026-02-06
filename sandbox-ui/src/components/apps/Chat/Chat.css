@@ -1,8 +1,146 @@
 .chat-app {
   height: 100%;
   display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+/* Sidebar Styles */
+.chat-sidebar {
+  width: 0;
+  background: rgba(15, 23, 42, 0.95);
+  border-right: 1px solid rgba(100, 116, 139, 0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 0.2s ease;
+}
+
+.chat-sidebar--open {
+  width: 200px;
+}
+
+.chat-sidebar__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(100, 116, 139, 0.35);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.chat-sidebar__close {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.chat-sidebar__close:hover {
+  background: rgba(100, 116, 139, 0.3);
+  color: #e2e8f0;
+}
+
+.chat-sidebar__list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-sidebar__empty {
+  padding: 16px 8px;
+  text-align: center;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.chat-sidebar__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #cbd5e1;
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.chat-sidebar__item:hover {
+  background: rgba(51, 65, 85, 0.8);
+  border-color: rgba(100, 116, 139, 0.5);
+}
+
+.chat-sidebar__item--active {
+  background: rgba(37, 99, 235, 0.25);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #dbeafe;
+}
+
+.chat-sidebar__item--active:hover {
+  background: rgba(37, 99, 235, 0.35);
+}
+
+.chat-sidebar__item--other {
+  opacity: 0.8;
+}
+
+.chat-sidebar__item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.chat-sidebar__item-indicator {
+  font-size: 0.7rem;
+  color: #60a5fa;
+  margin-left: 6px;
+}
+
+.chat-sidebar__toggle {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(30, 41, 59, 0.9);
+  border: 1px solid rgba(100, 116, 139, 0.5);
+  border-radius: 4px;
+  color: #94a3b8;
+  font-size: 0.7rem;
+  padding: 6px 4px;
+  cursor: pointer;
+  z-index: 10;
+  transition: all 0.15s ease;
+}
+
+.chat-sidebar__toggle:hover {
+  background: rgba(51, 65, 85, 0.95);
+  color: #e2e8f0;
+}
+
+/* Main Chat Area */
+.chat-main {
+  flex: 1;
+  display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 12px;
+  position: relative;
+  overflow: hidden;
 }
 
 .chat-app__header {
@@ -11,6 +149,27 @@
   align-items: center;
   border-bottom: 1px solid rgba(100, 116, 139, 0.35);
   padding-bottom: 8px;
+}
+
+.chat-app__header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.chat-app__header h3 {
+  font-size: 0.95rem;
+  color: #f8fafc;
+  margin: 0;
+}
+
+.chat-app__window-title {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-app__header-right {
@@ -32,11 +191,6 @@
   background: rgba(5, 150, 105, 0.6);
 }
 
-.chat-app__header h3 {
-  font-size: 0.95rem;
-  color: #f8fafc;
-}
-
 .chat-app__header button {
   border: 1px solid rgba(100, 116, 139, 0.6);
   background: rgba(30, 41, 59, 0.8);
@@ -44,6 +198,16 @@
   border-radius: 6px;
   padding: 4px 8px;
   cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.chat-app__header button:hover:not(:disabled) {
+  background: rgba(51, 65, 85, 0.9);
+}
+
+.chat-app__header button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .chat-app__messages {
@@ -55,6 +219,95 @@
   padding-right: 4px;
 }
 
+/* Message Group */
+.chat-message-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Collapsible Sections */
+.chat-collapsible {
+  margin-bottom: 8px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.chat-collapsible--reasoning {
+  border: 1px solid rgba(14, 165, 233, 0.3);
+  background: rgba(14, 165, 233, 0.08);
+}
+
+.chat-collapsible--tool_call {
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.chat-collapsible--tool_result {
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.chat-collapsible__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.chat-collapsible__header:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.chat-collapsible__icon {
+  font-size: 0.65rem;
+  color: #64748b;
+}
+
+.chat-collapsible__title {
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.chat-collapsible__content {
+  padding: 0 10px 10px;
+}
+
+.chat-collapsible__item {
+  margin-bottom: 6px;
+  padding: 6px 8px;
+  background: rgba(2, 6, 23, 0.4);
+  border-radius: 6px;
+}
+
+.chat-collapsible__item:last-child {
+  margin-bottom: 0;
+}
+
+.chat-collapsible__meta {
+  font-size: 0.65rem;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.chat-collapsible__item pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.72rem;
+  color: #dbeafe;
+}
+
+/* Live Stream (when no assistant message yet) */
 .chat-stream {
   border: 1px solid rgba(71, 85, 105, 0.45);
   border-radius: 10px;
@@ -115,6 +368,7 @@
   color: #dbeafe;
 }
 
+/* Message Styles */
 .chat-app__status {
   font-size: 0.85rem;
   color: #94a3b8;
@@ -149,11 +403,13 @@
   word-break: break-word;
   font-size: 0.84rem;
   color: #e2e8f0;
+  margin: 0;
 }
 
 .chat-app__error {
   font-size: 0.8rem;
   color: #fca5a5;
+  margin: 0;
 }
 
 .chat-app__composer {
@@ -174,6 +430,11 @@
   font-size: 0.84rem;
 }
 
+.chat-app__composer textarea:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.8);
+}
+
 .chat-app__composer button {
   border: 0;
   border-radius: 8px;
@@ -181,6 +442,12 @@
   background: #2563eb;
   color: #dbeafe;
   cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 500;
+}
+
+.chat-app__composer button:hover:not(:disabled) {
+  background: #3b82f6;
 }
 
 .chat-app__composer button:disabled {

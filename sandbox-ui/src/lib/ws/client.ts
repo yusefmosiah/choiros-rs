@@ -3,6 +3,7 @@ import { parseWsServerMessage } from './types';
 
 const DEFAULT_BACKOFF_MS = 500;
 const MAX_BACKOFF_MS = 30_000;
+const MAX_RECONNECT_ATTEMPTS = 10;
 
 export interface WebSocketClientOptions {
   url?: string;
@@ -21,6 +22,7 @@ export class DesktopWebSocketClient {
   private intentionalClose = false;
   private status: WsConnectionStatus = 'disconnected';
   private desktopId: string | null = null;
+  private connecting = false;
 
   private readonly wsUrl: string;
   private readonly maxBackoffMs: number;
@@ -49,15 +51,24 @@ export class DesktopWebSocketClient {
       return;
     }
 
-    if (this.socket && this.socket.readyState === WebSocket.CONNECTING) {
+    // Prevent concurrent connection attempts
+    if (this.connecting) {
       return;
     }
 
+    // Close any existing stale socket before creating a new one
+    if (this.socket) {
+      this.socket.close();
+      this.socket = null;
+    }
+
+    this.connecting = true;
     this.openSocket(this.reconnectAttempt > 0 ? 'reconnecting' : 'connecting');
   }
 
   disconnect(): void {
     this.intentionalClose = true;
+    this.connecting = false;
     this.clearReconnectTimer();
 
     if (this.socket) {
@@ -109,11 +120,13 @@ export class DesktopWebSocketClient {
     try {
       this.socket = new WebSocket(this.wsUrl);
     } catch {
+      this.connecting = false;
       this.scheduleReconnect();
       return;
     }
 
     this.socket.onopen = () => {
+      this.connecting = false;
       this.reconnectAttempt = 0;
       this.setStatus('connected');
 
@@ -139,12 +152,14 @@ export class DesktopWebSocketClient {
     };
 
     this.socket.onerror = () => {
+      this.connecting = false;
       this.errorListeners.forEach((listener) => {
         listener(new Error('WebSocket error'));
       });
     };
 
     this.socket.onclose = () => {
+      this.connecting = false;
       this.socket = null;
 
       if (this.intentionalClose) {
@@ -159,6 +174,15 @@ export class DesktopWebSocketClient {
   private scheduleReconnect(): void {
     if (!this.desktopId) {
       this.setStatus('disconnected');
+      return;
+    }
+
+    // Stop retrying after max attempts reached
+    if (this.reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
+      this.setStatus('disconnected');
+      this.errorListeners.forEach((listener) => {
+        listener(new Error('Failed to connect after maximum retry attempts'));
+      });
       return;
     }
 

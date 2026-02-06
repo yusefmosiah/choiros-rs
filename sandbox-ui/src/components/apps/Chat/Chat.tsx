@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getMessages, sendMessage } from '@/lib/api/chat';
 import type { ChatMessage } from '@/types/generated';
-import { useChatStore } from '@/stores/chat';
+import { useChatStoreForActor } from '@/stores/chat';
+import { useWindowsStore } from '@/stores/windows';
 import { buildChatWebSocketUrl, parseChatStreamMessage, parseResponsePayload } from './ws';
 import './Chat.css';
 
@@ -17,6 +18,15 @@ interface StreamEvent {
   type: StreamEventType;
   text: string;
   timestamp: string;
+}
+
+interface MessageGroup {
+  id: string;
+  userMessage?: ChatMessage;
+  reasoning: StreamEvent[];
+  toolCalls: StreamEvent[];
+  toolResults: StreamEvent[];
+  assistantMessage?: ChatMessage;
 }
 
 function sortMessages(messages: ChatMessage[]): ChatMessage[] {
@@ -35,24 +45,78 @@ function parseStreamContent(content: string): string {
   }
 }
 
+function groupMessages(messages: ChatMessage[]): MessageGroup[] {
+  const groups: MessageGroup[] = [];
+  let currentGroup: MessageGroup | null = null;
+
+  for (const message of messages) {
+    if (message.sender === 'User') {
+      // Start a new group for user messages
+      currentGroup = {
+        id: `group-${message.id}`,
+        userMessage: message,
+        reasoning: [],
+        toolCalls: [],
+        toolResults: [],
+        assistantMessage: undefined,
+      };
+      groups.push(currentGroup);
+    } else if (message.sender === 'Assistant') {
+      // Associate assistant message with current group
+      if (currentGroup) {
+        currentGroup.assistantMessage = message;
+      } else {
+        // Orphaned assistant message - create new group
+        currentGroup = {
+          id: `group-${message.id}`,
+          reasoning: [],
+          toolCalls: [],
+          toolResults: [],
+          assistantMessage: message,
+        };
+        groups.push(currentGroup);
+      }
+    }
+  }
+
+  return groups;
+}
+
 export function Chat({ actorId, userId = 'user-1' }: ChatProps) {
-  const messages = useChatStore((state) => state.messages);
-  const setMessages = useChatStore((state) => state.setMessages);
-  const addMessage = useChatStore((state) => state.addMessage);
-  const updatePendingMessage = useChatStore((state) => state.updatePendingMessage);
-  const isLoading = useChatStore((state) => state.isLoading);
-  const setLoading = useChatStore((state) => state.setLoading);
-  const error = useChatStore((state) => state.error);
-  const setError = useChatStore((state) => state.setError);
+  const {
+    messages,
+    setMessages,
+    addMessage,
+    updatePendingMessage,
+    isLoading,
+    setLoading,
+    error,
+    setError,
+  } = useChatStoreForActor(actorId);
+
+  const windows = useWindowsStore((state) => state.windows);
+  const focusWindow = useWindowsStore((state) => state.focusWindow);
 
   const [draft, setDraft] = useState('');
   const [connected, setConnected] = useState(false);
   const [streamEvents, setStreamEvents] = useState<StreamEvent[]>([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const pendingQueueRef = useRef<string[]>([]);
   const pendingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // Get all chat windows for the sidebar
+  const chatWindows = useMemo(() => {
+    return windows.filter((w) => w.app_id === 'chat');
+  }, [windows]);
+
+  // Get current window title for display
+  const currentWindow = useMemo(() => {
+    return windows.find((w) => w.id === actorId);
+  }, [windows, actorId]);
 
   const clearPendingTimeout = useCallback((messageId: string) => {
     const timeout = pendingTimeoutsRef.current.get(messageId);
@@ -280,79 +344,336 @@ export function Chat({ actorId, userId = 'user-1' }: ChatProps) {
     userId,
   ]);
 
-  const renderedMessages = useMemo(() => sortMessages(messages), [messages]);
+  const handleThreadClick = useCallback(
+    (threadActorId: string) => {
+      // Check if this thread is already open in another window
+      const existingWindow = chatWindows.find((w) => w.id === threadActorId);
+
+      if (existingWindow && threadActorId !== actorId) {
+        // Focus the existing window instead of opening in current
+        focusWindow(threadActorId);
+      }
+      // If it's the current window, do nothing
+    },
+    [chatWindows, actorId, focusWindow],
+  );
+
+  const toggleGroupExpanded = useCallback((groupId: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      return next;
+    });
+  }, []);
+
+  // Build message groups
+  const messageGroups = useMemo(() => {
+    const sorted = sortMessages(messages);
+    return groupMessages(sorted);
+  }, [messages]);
+
+  // Distribute stream events to groups
+  const groupsWithStreamEvents = useMemo(() => {
+    if (streamEvents.length === 0) {
+      return messageGroups.map((group) => ({ ...group, hasStreamEvents: false }));
+    }
+
+    // Find the last group without an assistant message
+    const lastIncompleteIndex = messageGroups.findIndex(
+      (g, i) => !g.assistantMessage && i === messageGroups.length - 1,
+    );
+
+    return messageGroups.map((group, index) => {
+      if (index === lastIncompleteIndex) {
+        return {
+          ...group,
+          reasoning: streamEvents.filter((e) => e.type === 'thinking'),
+          toolCalls: streamEvents.filter((e) => e.type === 'tool_call'),
+          toolResults: streamEvents.filter((e) => e.type === 'tool_result'),
+          hasStreamEvents: true,
+        };
+      }
+      return { ...group, hasStreamEvents: false };
+    });
+  }, [messageGroups, streamEvents]);
+
+  // Truncate title for display
+  const truncateTitle = (title: string, maxLen = 20) => {
+    if (title.length <= maxLen) return title;
+    return title.slice(0, maxLen) + '...';
+  };
 
   return (
     <div className="chat-app">
-      <header className="chat-app__header">
-        <h3>Chat</h3>
-        <div className="chat-app__header-right">
-          <span className={`chat-app__socket ${connected ? 'chat-app__socket--ok' : ''}`}>
-            {connected ? 'Live' : 'Retrying'}
-          </span>
-          <button type="button" onClick={() => void loadMessages()} disabled={isLoading}>
-            Refresh
+      {/* Collapsible Sidebar */}
+      <aside className={`chat-sidebar ${sidebarOpen ? 'chat-sidebar--open' : ''}`}>
+        <div className="chat-sidebar__header">
+          <span>Threads</span>
+          <button
+            type="button"
+            className="chat-sidebar__close"
+            onClick={() => setSidebarOpen(false)}
+            aria-label="Close sidebar"
+          >
+            ◀
           </button>
         </div>
-      </header>
+        <div className="chat-sidebar__list">
+          {chatWindows.length === 0 && (
+            <div className="chat-sidebar__empty">No chat threads</div>
+          )}
+          {chatWindows.map((window) => (
+            <button
+              key={window.id}
+              type="button"
+              className={`chat-sidebar__item ${window.id === actorId ? 'chat-sidebar__item--active' : ''} ${window.id !== actorId ? 'chat-sidebar__item--other' : ''}`}
+              onClick={() => handleThreadClick(window.id)}
+              title={window.title}
+            >
+              <span className="chat-sidebar__item-title">{truncateTitle(window.title)}</span>
+              {window.id !== actorId && (
+                <span className="chat-sidebar__item-indicator">↗</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </aside>
 
-      <div className="chat-app__messages">
-        {streamEvents.length > 0 && (
-          <section className="chat-stream" aria-live="polite">
-            <h4 className="chat-stream__title">Live activity</h4>
-            <div className="chat-stream__list">
-              {streamEvents.map((event) => (
-                <article key={event.id} className={`chat-stream__event chat-stream__event--${event.type}`}>
-                  <div className="chat-stream__meta">
-                    <span>{event.type.replace('_', ' ')}</span>
-                    <span>{new Date(event.timestamp).toLocaleTimeString()}</span>
-                  </div>
-                  <pre>{event.text}</pre>
-                </article>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {isLoading && renderedMessages.length === 0 && <p className="chat-app__status">Loading messages...</p>}
-
-        {!isLoading && renderedMessages.length === 0 && (
-          <p className="chat-app__status">No messages yet. Send something to start.</p>
-        )}
-
-        {renderedMessages.map((message) => (
-          <article
-            key={message.id}
-            className={`chat-msg ${message.sender === 'User' ? 'chat-msg--user' : ''} ${message.pending ? 'chat-msg--pending' : ''}`}
+      {/* Main Chat Area */}
+      <div className="chat-main">
+        {!sidebarOpen && (
+          <button
+            type="button"
+            className="chat-sidebar__toggle"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open sidebar"
           >
-            <div className="chat-msg__meta">
-              <span>{message.sender}</span>
-              <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
+            ▶
+          </button>
+        )}
+
+        <header className="chat-app__header">
+          <div className="chat-app__header-left">
+            <h3>Chat</h3>
+            {currentWindow && (
+              <span className="chat-app__window-title" title={currentWindow.title}>
+                {truncateTitle(currentWindow.title, 30)}
+              </span>
+            )}
+          </div>
+          <div className="chat-app__header-right">
+            <span className={`chat-app__socket ${connected ? 'chat-app__socket--ok' : ''}`}>
+              {connected ? 'Live' : 'Retrying'}
+            </span>
+            <button type="button" onClick={() => void loadMessages()} disabled={isLoading}>
+              Refresh
+            </button>
+          </div>
+        </header>
+
+        <div className="chat-app__messages">
+          {isLoading && messageGroups.length === 0 && (
+            <p className="chat-app__status">Loading messages...</p>
+          )}
+
+          {!isLoading && messageGroups.length === 0 && (
+            <p className="chat-app__status">No messages yet. Send something to start.</p>
+          )}
+
+          {groupsWithStreamEvents.map((group) => (
+            <div key={group.id} className="chat-message-group">
+              {/* User Message */}
+              {group.userMessage && (
+                <article
+                  className={`chat-msg chat-msg--user ${group.userMessage.pending ? 'chat-msg--pending' : ''}`}
+                >
+                  <div className="chat-msg__meta">
+                    <span>{group.userMessage.sender}</span>
+                    <span>{new Date(group.userMessage.timestamp).toLocaleTimeString()}</span>
+                  </div>
+                  <p>{group.userMessage.text}</p>
+                </article>
+              )}
+
+              {/* Assistant Message with Collapsible Sections */}
+              {group.assistantMessage && (
+                <article className="chat-msg">
+                  <div className="chat-msg__meta">
+                    <span>{group.assistantMessage.sender}</span>
+                    <span>{new Date(group.assistantMessage.timestamp).toLocaleTimeString()}</span>
+                  </div>
+
+                  {/* Collapsible Reasoning Section */}
+                  {group.reasoning.length > 0 && (
+                    <CollapsibleSection
+                      title={`Reasoning (${group.reasoning.length})`}
+                      type="reasoning"
+                      defaultExpanded={expandedGroups.has(group.id)}
+                      onToggle={() => toggleGroupExpanded(group.id)}
+                    >
+                      {group.reasoning.map((event) => (
+                        <div key={event.id} className="chat-collapsible__item">
+                          <pre>{event.text}</pre>
+                        </div>
+                      ))}
+                    </CollapsibleSection>
+                  )}
+
+                  {/* Collapsible Tool Calls Section */}
+                  {group.toolCalls.length > 0 && (
+                    <CollapsibleSection
+                      title={`Tool Calls (${group.toolCalls.length})`}
+                      type="tool_call"
+                      defaultExpanded={expandedGroups.has(`${group.id}-tools`)}
+                      onToggle={() => toggleGroupExpanded(`${group.id}-tools`)}
+                    >
+                      {group.toolCalls.map((event) => (
+                        <div key={event.id} className="chat-collapsible__item">
+                          <div className="chat-collapsible__meta">
+                            {new Date(event.timestamp).toLocaleTimeString()}
+                          </div>
+                          <pre>{event.text}</pre>
+                        </div>
+                      ))}
+                    </CollapsibleSection>
+                  )}
+
+                  {/* Collapsible Tool Results Section */}
+                  {group.toolResults.length > 0 && (
+                    <CollapsibleSection
+                      title={`Tool Results (${group.toolResults.length})`}
+                      type="tool_result"
+                      defaultExpanded={expandedGroups.has(`${group.id}-results`)}
+                      onToggle={() => toggleGroupExpanded(`${group.id}-results`)}
+                    >
+                      {group.toolResults.map((event) => (
+                        <div key={event.id} className="chat-collapsible__item">
+                          <div className="chat-collapsible__meta">
+                            {new Date(event.timestamp).toLocaleTimeString()}
+                          </div>
+                          <pre>{event.text}</pre>
+                        </div>
+                      ))}
+                    </CollapsibleSection>
+                  )}
+
+                  {/* Assistant Text */}
+                  <p>{group.assistantMessage.text}</p>
+                </article>
+              )}
+
+              {/* Live stream events when no assistant message yet */}
+              {group.hasStreamEvents && !group.assistantMessage && (
+                <section className="chat-stream" aria-live="polite">
+                  <h4 className="chat-stream__title">Live activity</h4>
+                  <div className="chat-stream__list">
+                    {group.reasoning.map((event) => (
+                      <article
+                        key={event.id}
+                        className="chat-stream__event chat-stream__event--thinking"
+                      >
+                        <div className="chat-stream__meta">
+                          <span>reasoning</span>
+                          <span>{new Date(event.timestamp).toLocaleTimeString()}</span>
+                        </div>
+                        <pre>{event.text}</pre>
+                      </article>
+                    ))}
+                    {group.toolCalls.map((event) => (
+                      <article
+                        key={event.id}
+                        className="chat-stream__event chat-stream__event--tool_call"
+                      >
+                        <div className="chat-stream__meta">
+                          <span>tool call</span>
+                          <span>{new Date(event.timestamp).toLocaleTimeString()}</span>
+                        </div>
+                        <pre>{event.text}</pre>
+                      </article>
+                    ))}
+                    {group.toolResults.map((event) => (
+                      <article
+                        key={event.id}
+                        className="chat-stream__event chat-stream__event--tool_result"
+                      >
+                        <div className="chat-stream__meta">
+                          <span>tool result</span>
+                          <span>{new Date(event.timestamp).toLocaleTimeString()}</span>
+                        </div>
+                        <pre>{event.text}</pre>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              )}
             </div>
-            <p>{message.text}</p>
-          </article>
-        ))}
+          ))}
+        </div>
+
+        {error && <p className="chat-app__error">{error}</p>}
+
+        <footer className="chat-app__composer">
+          <textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                void handleSend();
+              }
+            }}
+            placeholder="Type a message..."
+            rows={2}
+          />
+          <button type="button" onClick={() => void handleSend()} disabled={draft.trim().length === 0}>
+            Send
+          </button>
+        </footer>
       </div>
+    </div>
+  );
+}
 
-      {error && <p className="chat-app__error">{error}</p>}
+// Collapsible Section Component
+interface CollapsibleSectionProps {
+  title: string;
+  type: 'reasoning' | 'tool_call' | 'tool_result';
+  defaultExpanded?: boolean;
+  onToggle?: () => void;
+  children: React.ReactNode;
+}
 
-      <footer className="chat-app__composer">
-        <textarea
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              void handleSend();
-            }
-          }}
-          placeholder="Type a message..."
-          rows={2}
-        />
-        <button type="button" onClick={() => void handleSend()} disabled={draft.trim().length === 0}>
-          Send
-        </button>
-      </footer>
+function CollapsibleSection({
+  title,
+  type,
+  defaultExpanded = false,
+  onToggle,
+  children,
+}: CollapsibleSectionProps) {
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+
+  const handleToggle = () => {
+    const newState = !isExpanded;
+    setIsExpanded(newState);
+    onToggle?.();
+  };
+
+  return (
+    <div className={`chat-collapsible chat-collapsible--${type}`}>
+      <button
+        type="button"
+        className="chat-collapsible__header"
+        onClick={handleToggle}
+        aria-expanded={isExpanded}
+      >
+        <span className="chat-collapsible__icon">{isExpanded ? '▼' : '▶'}</span>
+        <span className="chat-collapsible__title">{title}</span>
+      </button>
+      {isExpanded && <div className="chat-collapsible__content">{children}</div>}
     </div>
   );
 }
