@@ -1,33 +1,44 @@
 import apiClient from './client';
+import type { ChatMessage } from '@/types/generated';
 
-// Types matching backend structures
-export interface ChatMessage {
-  id: string;
-  actor_id: string;
-  user_id?: string;
-  content: string;
-  role: 'user' | 'assistant' | 'system';
-  timestamp: string;
+interface ApiEnvelope {
+  success: boolean;
+  error?: string;
+  message?: string;
+}
+
+interface SendMessageResponse extends ApiEnvelope {
+  temp_id: string;
+}
+
+interface GetMessagesResponse extends ApiEnvelope {
+  messages: ChatMessage[];
 }
 
 export interface SendMessageRequest {
-  content: string;
-  user_id?: string;
+  text: string;
+  user_id: string;
 }
 
-export interface SendMessageResponse {
-  message_id: string;
-  status: string;
+function assertSuccess<T extends ApiEnvelope>(response: T): T {
+  if (!response.success) {
+    throw new Error(response.error ?? response.message ?? 'Chat API request failed');
+  }
+
+  return response;
 }
 
-// Chat API functions
-export async function sendMessage(actorId: string, request: SendMessageRequest): Promise<SendMessageResponse> {
-  return apiClient.post<SendMessageResponse>('/chat/send', { actor_id: actorId, ...request });
+export async function sendMessage(actorId: string, request: SendMessageRequest): Promise<string> {
+  const response = await apiClient.post<SendMessageResponse>('/chat/send', {
+    actor_id: actorId,
+    user_id: request.user_id,
+    text: request.text,
+  });
+
+  return assertSuccess(response).temp_id;
 }
 
-export async function getMessages(actorId: string, limit?: number, offset?: number): Promise<ChatMessage[]> {
-  const params: Record<string, string> = {};
-  if (limit !== undefined) params.limit = String(limit);
-  if (offset !== undefined) params.offset = String(offset);
-  return apiClient.get<ChatMessage[]>(`/chat/${actorId}/messages`, { params });
+export async function getMessages(actorId: string): Promise<ChatMessage[]> {
+  const response = await apiClient.get<GetMessagesResponse>(`/chat/${actorId}/messages`);
+  return assertSuccess(response).messages;
 }

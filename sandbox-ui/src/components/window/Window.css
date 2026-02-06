@@ -1,0 +1,88 @@
+.window-canvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.window {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(71, 85, 105, 0.8);
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 18px 45px rgba(2, 6, 23, 0.45);
+  min-width: 200px;
+  min-height: 160px;
+}
+
+.window--active {
+  border-color: rgba(96, 165, 250, 0.85);
+}
+
+.window__header {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 0 12px;
+  cursor: grab;
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
+  user-select: none;
+}
+
+.window__title {
+  font-size: 0.8rem;
+  color: #cbd5e1;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  padding-right: 8px;
+}
+
+.window__controls {
+  display: flex;
+  gap: 6px;
+}
+
+.window__controls button {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid rgba(71, 85, 105, 0.7);
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.9);
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.window__controls button:hover {
+  background: rgba(51, 65, 85, 0.95);
+}
+
+.window__body {
+  flex: 1;
+  overflow: auto;
+  padding: 14px;
+  color: #e2e8f0;
+}
+
+.window__placeholder {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: #94a3b8;
+  border: 1px dashed rgba(100, 116, 139, 0.6);
+  border-radius: 8px;
+}
+
+.window__resize-handle {
+  width: 16px;
+  height: 16px;
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 45%, rgba(148, 163, 184, 0.8) 46%, rgba(148, 163, 184, 0.8) 54%, transparent 55%);
+}

@@ -1,12 +1,10 @@
-:root {
-  --color-bg: #1a1a2e;
-  --color-fg: #eee;
-  --color-primary: #0f3460;
-  --color-secondary: #e94560;
-}
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background-color: var(--color-bg);
-  color: var(--color-fg);
+  min-height: 100vh;
+  font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #e2e8f0;
+}
+
+#root {
+  min-height: 100vh;
 }
