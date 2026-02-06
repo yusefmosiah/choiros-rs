@@ -162,6 +162,7 @@ pub fn DesktopShell(desktop_id: String) -> Element {
             style: "min-height: 100vh; display: flex; flex-direction: column; overflow: hidden;",
 
             WorkspaceCanvas {
+                desktop_id: desktop_id_signal.read().clone(),
                 apps: core_apps,
                 on_open_app: open_app_window,
                 is_mobile: !is_desktop,

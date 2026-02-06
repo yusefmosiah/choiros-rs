@@ -178,6 +178,41 @@ pub enum Sender {
 }
 
 // ============================================================================
+// Viewer Types
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ViewerKind {
+    Text,
+    Image,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ViewerResource {
+    pub uri: String,
+    pub mime: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ViewerCapabilities {
+    pub readonly: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ViewerDescriptor {
+    pub kind: ViewerKind,
+    pub resource: ViewerResource,
+    pub capabilities: ViewerCapabilities,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ViewerRevision {
+    pub rev: i64,
+    pub updated_at: String,
+}
+
+// ============================================================================
 // API Types
 // ============================================================================
 
@@ -248,6 +283,8 @@ pub const EVENT_USER_THEME_PREFERENCE: &str = "user.theme_preference";
 pub const EVENT_FILE_WRITE: &str = "file.write";
 pub const EVENT_FILE_EDIT: &str = "file.edit";
 pub const EVENT_ACTOR_SPAWNED: &str = "actor.spawned";
+pub const EVENT_VIEWER_CONTENT_SAVED: &str = "viewer.content_saved";
+pub const EVENT_VIEWER_CONTENT_CONFLICT: &str = "viewer.content_conflict";
 
 // ============================================================================
 // Tests
@@ -292,5 +329,12 @@ mod tests {
 
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("Subscribe"));
+    }
+
+    #[test]
+    fn test_viewer_kind_serialization() {
+        let kind = ViewerKind::Text;
+        let json = serde_json::to_string(&kind).unwrap();
+        assert_eq!(json, "\"text\"");
     }
 }

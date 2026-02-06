@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
-use shared_types::{AppDefinition, ChatMessage, DesktopState, Sender, WindowState};
+use shared_types::{AppDefinition, ChatMessage, DesktopState, Sender, ViewerRevision, WindowState};
 use std::sync::OnceLock;
 
 /// Get the API base URL based on current environment
@@ -643,4 +643,117 @@ pub async fn register_app(desktop_id: &str, app: &AppDefinition) -> Result<(), S
     }
 
     Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ViewerContentResponse {
+    pub success: bool,
+    pub uri: String,
+    pub mime: String,
+    pub content: String,
+    pub revision: ViewerRevision,
+    pub readonly: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PatchViewerContentRequest {
+    pub uri: String,
+    pub base_rev: i64,
+    pub content: String,
+    pub window_id: String,
+    pub user_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatchViewerContentResponse {
+    pub success: bool,
+    pub revision: Option<ViewerRevision>,
+    pub error: Option<String>,
+    pub latest: Option<PatchViewerContentLatest>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatchViewerContentLatest {
+    pub content: String,
+    pub revision: ViewerRevision,
+}
+
+#[derive(Debug)]
+pub enum PatchViewerContentError {
+    Conflict {
+        latest_content: String,
+        latest_revision: ViewerRevision,
+    },
+    Message(String),
+}
+
+pub async fn fetch_viewer_content(uri: &str) -> Result<ViewerContentResponse, String> {
+    let url = format!("{}/viewer/content?uri={}", api_base(), uri);
+    let response = Request::get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("request failed: {e}"))?;
+    if !response.ok() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+    let data: ViewerContentResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("failed to parse JSON: {e}"))?;
+    if !data.success {
+        return Err("viewer API returned success=false".to_string());
+    }
+    Ok(data)
+}
+
+pub async fn patch_viewer_content(
+    uri: &str,
+    base_rev: i64,
+    content: &str,
+    window_id: &str,
+) -> Result<ViewerRevision, PatchViewerContentError> {
+    let url = format!("{}/viewer/content", api_base());
+    let req = PatchViewerContentRequest {
+        uri: uri.to_string(),
+        base_rev,
+        content: content.to_string(),
+        window_id: window_id.to_string(),
+        user_id: "user-1".to_string(),
+    };
+
+    let response = Request::patch(&url)
+        .json(&req)
+        .map_err(|e| PatchViewerContentError::Message(format!("request encode failed: {e}")))?
+        .send()
+        .await
+        .map_err(|e| PatchViewerContentError::Message(format!("request failed: {e}")))?;
+
+    let status = response.status();
+    let data: PatchViewerContentResponse = response
+        .json()
+        .await
+        .map_err(|e| PatchViewerContentError::Message(format!("failed to parse JSON: {e}")))?;
+
+    if status == 409 || data.error.as_deref() == Some("revision_conflict") {
+        if let Some(latest) = data.latest {
+            return Err(PatchViewerContentError::Conflict {
+                latest_content: latest.content,
+                latest_revision: latest.revision,
+            });
+        }
+        return Err(PatchViewerContentError::Message(
+            "revision_conflict without latest payload".to_string(),
+        ));
+    }
+
+    if !data.success {
+        return Err(PatchViewerContentError::Message(
+            data.error
+                .unwrap_or_else(|| "unknown viewer save error".to_string()),
+        ));
+    }
+
+    data.revision.ok_or_else(|| {
+        PatchViewerContentError::Message("missing revision in save response".to_string())
+    })
 }

@@ -6,6 +6,7 @@ use wasm_bindgen::JsCast;
 
 use crate::components::ChatView;
 use crate::terminal::TerminalView;
+use crate::viewers::{parse_viewer_window_props, ViewerShell};
 
 const DRAG_THRESHOLD_PX: i32 = 4;
 const KEYBOARD_STEP_PX: i32 = 10;
@@ -73,6 +74,7 @@ fn pointer_point(e: &PointerEvent) -> (i32, i32) {
 #[component]
 pub fn FloatingWindow(
     window: WindowState,
+    desktop_id: String,
     is_active: bool,
     viewport: (u32, u32),
     on_close: Callback<String>,
@@ -119,6 +121,7 @@ pub fn FloatingWindow(
     let window_id_for_title_key = window_id.clone();
 
     let z_index = window.z_index;
+    let viewer_props = parse_viewer_window_props(&window.props).ok();
     let active_outline = if is_active {
         "2px solid var(--accent-bg, #3b82f6)"
     } else {
@@ -427,7 +430,14 @@ pub fn FloatingWindow(
                 class: "window-content",
                 style: "flex: 1; overflow: hidden;",
 
-                match window.app_id.as_str() {
+                if let Some(viewer_props) = viewer_props.clone() {
+                    ViewerShell {
+                        window_id: window.id.clone(),
+                        desktop_id: desktop_id.clone(),
+                        descriptor: viewer_props.descriptor,
+                    }
+                } else {
+                    match window.app_id.as_str() {
                     "chat" => rsx! {
                         ChatView { actor_id: window.id.clone() }
                     },
@@ -444,6 +454,7 @@ pub fn FloatingWindow(
                             "App not yet implemented"
                         }
                     }
+                }
                 }
             }
 

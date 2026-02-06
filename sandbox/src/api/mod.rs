@@ -15,6 +15,7 @@ pub mod chat;
 pub mod desktop;
 pub mod terminal;
 pub mod user;
+pub mod viewer;
 pub mod websocket;
 pub mod websocket_chat;
 
@@ -77,6 +78,11 @@ pub fn router() -> Router<ApiState> {
         .route(
             "/desktop/{desktop_id}/apps",
             get(desktop::get_apps).post(desktop::register_app),
+        )
+        // Viewer routes
+        .route(
+            "/viewer/content",
+            get(viewer::get_viewer_content).patch(viewer::patch_viewer_content),
         )
         // Terminal routes
         .route(

@@ -40,6 +40,7 @@ strum = { version = "0.26", features = ["derive"] }
 portable-pty = "0.9"
 tokio-util = { version = "0.7", features = ["codec"] }
 bytes = "1.5"
+base64 = "0.22"
 
 [dev-dependencies]
 http-body-util = "0.1"

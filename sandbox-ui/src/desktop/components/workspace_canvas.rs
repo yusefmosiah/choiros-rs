@@ -7,6 +7,7 @@ use crate::desktop_window::FloatingWindow;
 
 #[component]
 pub fn WorkspaceCanvas(
+    desktop_id: String,
     apps: Vec<AppDefinition>,
     on_open_app: Callback<AppDefinition>,
     is_mobile: bool,
@@ -50,6 +51,7 @@ pub fn WorkspaceCanvas(
                     for window in desktop_state.windows.iter().filter(|w| !w.minimized) {
                         FloatingWindow {
                             window: window.clone(),
+                            desktop_id: desktop_id.clone(),
                             is_active: desktop_state.active_window.as_ref() == Some(&window.id),
                             viewport: viewport_value,
                             on_close,
