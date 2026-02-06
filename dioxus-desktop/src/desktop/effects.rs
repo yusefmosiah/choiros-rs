@@ -1,5 +1,7 @@
 use dioxus::prelude::{Signal, WritableExt};
 use shared_types::{AppDefinition, DesktopState};
+use wasm_bindgen::closure::Closure;
+use wasm_bindgen::JsCast;
 
 use crate::api::{
     fetch_desktop_state, fetch_user_theme_preference, register_app, update_user_theme_preference,
@@ -11,9 +13,42 @@ use crate::desktop::theme::{
 use crate::desktop::ws::{connect_websocket, DesktopWsRuntime};
 
 pub async fn track_viewport(mut viewport: Signal<(u32, u32)>) {
-    if let Ok((w, h)) = get_viewport_size().await {
+    if let Some((w, h)) = current_viewport_size() {
         viewport.set((w, h));
     }
+
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+
+    let callback = Closure::wrap(Box::new(move |_event: web_sys::Event| {
+        if let Some((w, h)) = current_viewport_size() {
+            viewport.set((w, h));
+        }
+    }) as Box<dyn FnMut(web_sys::Event)>);
+
+    let _ = window.add_event_listener_with_callback("resize", callback.as_ref().unchecked_ref());
+    let _ = window
+        .add_event_listener_with_callback("orientationchange", callback.as_ref().unchecked_ref());
+
+    // Keep listener alive for app lifetime.
+    callback.forget();
+}
+
+fn current_viewport_size() -> Option<(u32, u32)> {
+    let window = web_sys::window()?;
+    let width = window.inner_width().ok()?.as_f64()?;
+    let height = window.inner_height().ok()?.as_f64()?;
+
+    if width > 0.0 && height > 0.0 {
+        return Some((width.round() as u32, height.round() as u32));
+    }
+
+    let document = window.document()?;
+    let root = document.document_element()?;
+    let width = root.client_width().max(0) as u32;
+    let height = root.client_height().max(0) as u32;
+    Some((width, height))
 }
 
 pub async fn initialize_theme(
@@ -99,8 +134,4 @@ pub async fn register_core_apps_once(
     for app in apps {
         let _ = register_app(&desktop_id, &app).await;
     }
-}
-
-async fn get_viewport_size() -> Result<(u32, u32), String> {
-    Ok((1920, 1080))
 }

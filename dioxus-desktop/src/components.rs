@@ -52,7 +52,8 @@ pub fn ChatView(actor_id: String) -> Element {
     let mut loading = use_signal(|| false);
     let mut ws_runtime = use_signal(|| None::<ChatRuntime>);
     let mut ws_connected = use_signal(|| false);
-    let ws_event_queue = use_hook(|| Rc::new(std::cell::RefCell::new(VecDeque::<ChatWsEvent>::new())));
+    let ws_event_queue =
+        use_hook(|| Rc::new(std::cell::RefCell::new(VecDeque::<ChatWsEvent>::new())));
     let mut ws_event_pump_started = use_signal(|| false);
     let ws_event_pump_alive = use_hook(|| Rc::new(Cell::new(true)));
     let actor_id_signal = use_signal(|| actor_id.clone());
@@ -255,61 +256,63 @@ pub fn ChatView(actor_id: String) -> Element {
             let user_id = user_id.to_string();
             let ws_url = build_chat_ws_url(&actor_id, &user_id);
 
-        let ws = match WebSocket::new(&ws_url) {
-            Ok(ws) => ws,
-            Err(e) => {
-                dioxus_logger::tracing::error!("Chat WS error: {:?}", e);
-                return;
-            }
-        };
-        let closing = Rc::new(Cell::new(false));
-
-        let ws_event_queue_open = ws_event_queue.clone();
-        let on_open = Closure::wrap(Box::new(move |_e: Event| {
-            ws_event_queue_open.borrow_mut().push_back(ChatWsEvent::Connected);
-        }) as Box<dyn FnMut(Event)>);
-        ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
-
-        let ws_event_queue_message = ws_event_queue.clone();
-        let on_message = Closure::wrap(Box::new(move |e: MessageEvent| {
-            let Ok(text) = e.data().dyn_into::<js_sys::JsString>() else {
-                return;
+            let ws = match WebSocket::new(&ws_url) {
+                Ok(ws) => ws,
+                Err(e) => {
+                    dioxus_logger::tracing::error!("Chat WS error: {:?}", e);
+                    return;
+                }
             };
-            let text_str = text.as_string().unwrap_or_default();
-            ws_event_queue_message
-                .borrow_mut()
-                .push_back(ChatWsEvent::Message(text_str));
-        }) as Box<dyn FnMut(MessageEvent)>);
-        ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
+            let closing = Rc::new(Cell::new(false));
 
-        let ws_event_queue_error = ws_event_queue.clone();
-        let on_error = Closure::wrap(Box::new(move |e: ErrorEvent| {
-            ws_event_queue_error
-                .borrow_mut()
-                .push_back(ChatWsEvent::Error(e.message()));
-        }) as Box<dyn FnMut(ErrorEvent)>);
-        ws.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+            let ws_event_queue_open = ws_event_queue.clone();
+            let on_open = Closure::wrap(Box::new(move |_e: Event| {
+                ws_event_queue_open
+                    .borrow_mut()
+                    .push_back(ChatWsEvent::Connected);
+            }) as Box<dyn FnMut(Event)>);
+            ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
 
-        let ws_event_queue_close = ws_event_queue.clone();
-        let closing_for_close = closing.clone();
-        let on_close = Closure::wrap(Box::new(move |_e: CloseEvent| {
-            if closing_for_close.get() {
-                return;
-            }
-            ws_event_queue_close
-                .borrow_mut()
-                .push_back(ChatWsEvent::Closed);
-        }) as Box<dyn FnMut(CloseEvent)>);
-        ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
+            let ws_event_queue_message = ws_event_queue.clone();
+            let on_message = Closure::wrap(Box::new(move |e: MessageEvent| {
+                let Ok(text) = e.data().dyn_into::<js_sys::JsString>() else {
+                    return;
+                };
+                let text_str = text.as_string().unwrap_or_default();
+                ws_event_queue_message
+                    .borrow_mut()
+                    .push_back(ChatWsEvent::Message(text_str));
+            }) as Box<dyn FnMut(MessageEvent)>);
+            ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
 
-        ws_runtime.set(Some(ChatRuntime {
-            ws,
-            closing,
-            _on_open: on_open,
-            _on_message: on_message,
-            _on_error: on_error,
-            _on_close: on_close,
-        }));
+            let ws_event_queue_error = ws_event_queue.clone();
+            let on_error = Closure::wrap(Box::new(move |e: ErrorEvent| {
+                ws_event_queue_error
+                    .borrow_mut()
+                    .push_back(ChatWsEvent::Error(e.message()));
+            }) as Box<dyn FnMut(ErrorEvent)>);
+            ws.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+
+            let ws_event_queue_close = ws_event_queue.clone();
+            let closing_for_close = closing.clone();
+            let on_close = Closure::wrap(Box::new(move |_e: CloseEvent| {
+                if closing_for_close.get() {
+                    return;
+                }
+                ws_event_queue_close
+                    .borrow_mut()
+                    .push_back(ChatWsEvent::Closed);
+            }) as Box<dyn FnMut(CloseEvent)>);
+            ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
+
+            ws_runtime.set(Some(ChatRuntime {
+                ws,
+                closing,
+                _on_open: on_open,
+                _on_message: on_message,
+                _on_error: on_error,
+                _on_close: on_close,
+            }));
         });
     }
 

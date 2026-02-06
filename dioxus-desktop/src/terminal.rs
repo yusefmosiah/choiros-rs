@@ -136,7 +136,8 @@ pub fn TerminalView(terminal_id: String, width: i32, height: i32) -> Element {
                                 }
                                 terminal_ready.set(true);
 
-                                if let Some(term_id) = runtime.read().as_ref().map(|rt| rt.term_id) {
+                                if let Some(term_id) = runtime.read().as_ref().map(|rt| rt.term_id)
+                                {
                                     let mut pending = pending_output_chunks.borrow_mut();
                                     while let Some(chunk) = pending.pop_front() {
                                         write_terminal(term_id, &chunk);
@@ -144,9 +145,11 @@ pub fn TerminalView(terminal_id: String, width: i32, height: i32) -> Element {
                                 }
                             }
                             TerminalWsEvent::Message(text_str) => {
-                                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text_str)
+                                if let Ok(json) =
+                                    serde_json::from_str::<serde_json::Value>(&text_str)
                                 {
-                                    if let Some(msg_type) = json.get("type").and_then(|t| t.as_str())
+                                    if let Some(msg_type) =
+                                        json.get("type").and_then(|t| t.as_str())
                                     {
                                         match msg_type {
                                             "output" => {
@@ -243,118 +246,119 @@ pub fn TerminalView(terminal_id: String, width: i32, height: i32) -> Element {
             let terminal_id_inner = terminal_id.clone();
             let ws_event_queue_outer = ws_event_queue.clone();
             spawn(async move {
-            if let Err(e) = ensure_terminal_scripts().await {
-                error.set(Some(format!("Failed to load terminal scripts: {:?}", e)));
-                return;
-            }
-
-            let container = match wait_for_terminal_container(&container_id_inner, 40, 50).await {
-                Some(container) => container,
-                None => {
-                    error.set(Some("Terminal container not ready".to_string()));
-                    schedule_reconnect(
-                        reconnect_attempts,
-                        reconnect_timeout_id,
-                        reconnect_nonce,
-                        runtime,
-                        status,
-                        error,
-                    );
+                if let Err(e) = ensure_terminal_scripts().await {
+                    error.set(Some(format!("Failed to load terminal scripts: {:?}", e)));
                     return;
                 }
-            };
 
-            let term_id = create_terminal(container);
-            if term_id == 0 {
-                error.set(Some("Terminal bridge init failed".to_string()));
-                schedule_reconnect(
-                    reconnect_attempts,
-                    reconnect_timeout_id,
-                    reconnect_nonce,
-                    runtime,
-                    status,
-                    error,
-                );
-                return;
-            }
-            let ws_url = build_ws_url(&terminal_id_inner);
-            let ws = match WebSocket::new(&ws_url) {
-                Ok(ws) => ws,
-                Err(e) => {
-                    error.set(Some(format!("WebSocket error: {:?}", e)));
-                    schedule_reconnect(
-                        reconnect_attempts,
-                        reconnect_timeout_id,
-                        reconnect_nonce,
-                        runtime,
-                        status,
-                        error,
-                    );
-                    return;
-                }
-            };
-            let closing = Rc::new(Cell::new(false));
-
-            let ws_for_data = ws.clone();
-            let on_data = Closure::wrap(Box::new(move |data: String| {
-                let msg = serde_json::json!({
-                    "type": "input",
-                    "data": data,
-                });
-                let _ = ws_for_data.send_with_str(&msg.to_string());
-            }) as Box<dyn FnMut(String)>);
-            on_terminal_data(term_id, &on_data);
-
-            let ws_event_queue_open = ws_event_queue_outer.clone();
-            let on_open = Closure::wrap(Box::new(move |_e: Event| {
-                ws_event_queue_open
-                    .borrow_mut()
-                    .push_back(TerminalWsEvent::Opened);
-            }) as Box<dyn FnMut(Event)>);
-            ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
-
-            let ws_event_queue_message = ws_event_queue_outer.clone();
-            let on_message = Closure::wrap(Box::new(move |e: MessageEvent| {
-                let Ok(text) = e.data().dyn_into::<js_sys::JsString>() else {
-                    return;
+                let container = match wait_for_terminal_container(&container_id_inner, 40, 50).await
+                {
+                    Some(container) => container,
+                    None => {
+                        error.set(Some("Terminal container not ready".to_string()));
+                        schedule_reconnect(
+                            reconnect_attempts,
+                            reconnect_timeout_id,
+                            reconnect_nonce,
+                            runtime,
+                            status,
+                            error,
+                        );
+                        return;
+                    }
                 };
-                let text_str = text.as_string().unwrap_or_default();
-                ws_event_queue_message
-                    .borrow_mut()
-                    .push_back(TerminalWsEvent::Message(text_str));
-            }) as Box<dyn FnMut(MessageEvent)>);
-            ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
 
-            let ws_event_queue_error = ws_event_queue_outer.clone();
-            let on_error = Closure::wrap(Box::new(move |e: ErrorEvent| {
-                ws_event_queue_error
-                    .borrow_mut()
-                    .push_back(TerminalWsEvent::Error(e.message()));
-            }) as Box<dyn FnMut(ErrorEvent)>);
-            ws.set_onerror(Some(on_error.as_ref().unchecked_ref()));
-
-            let ws_event_queue_close = ws_event_queue_outer.clone();
-            let closing_for_close = closing.clone();
-            let on_close = Closure::wrap(Box::new(move |_e: CloseEvent| {
-                if closing_for_close.get() {
+                let term_id = create_terminal(container);
+                if term_id == 0 {
+                    error.set(Some("Terminal bridge init failed".to_string()));
+                    schedule_reconnect(
+                        reconnect_attempts,
+                        reconnect_timeout_id,
+                        reconnect_nonce,
+                        runtime,
+                        status,
+                        error,
+                    );
                     return;
                 }
-                ws_event_queue_close
-                    .borrow_mut()
-                    .push_back(TerminalWsEvent::Closed);
-            }) as Box<dyn FnMut(CloseEvent)>);
-            ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
+                let ws_url = build_ws_url(&terminal_id_inner);
+                let ws = match WebSocket::new(&ws_url) {
+                    Ok(ws) => ws,
+                    Err(e) => {
+                        error.set(Some(format!("WebSocket error: {:?}", e)));
+                        schedule_reconnect(
+                            reconnect_attempts,
+                            reconnect_timeout_id,
+                            reconnect_nonce,
+                            runtime,
+                            status,
+                            error,
+                        );
+                        return;
+                    }
+                };
+                let closing = Rc::new(Cell::new(false));
 
-            runtime.set(Some(TerminalRuntime {
-                term_id,
-                ws,
-                closing,
-                _on_data: on_data,
-                _on_open: on_open,
-                _on_message: on_message,
-                _on_error: on_error,
-                _on_close: on_close,
-            }));
+                let ws_for_data = ws.clone();
+                let on_data = Closure::wrap(Box::new(move |data: String| {
+                    let msg = serde_json::json!({
+                        "type": "input",
+                        "data": data,
+                    });
+                    let _ = ws_for_data.send_with_str(&msg.to_string());
+                }) as Box<dyn FnMut(String)>);
+                on_terminal_data(term_id, &on_data);
+
+                let ws_event_queue_open = ws_event_queue_outer.clone();
+                let on_open = Closure::wrap(Box::new(move |_e: Event| {
+                    ws_event_queue_open
+                        .borrow_mut()
+                        .push_back(TerminalWsEvent::Opened);
+                }) as Box<dyn FnMut(Event)>);
+                ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
+
+                let ws_event_queue_message = ws_event_queue_outer.clone();
+                let on_message = Closure::wrap(Box::new(move |e: MessageEvent| {
+                    let Ok(text) = e.data().dyn_into::<js_sys::JsString>() else {
+                        return;
+                    };
+                    let text_str = text.as_string().unwrap_or_default();
+                    ws_event_queue_message
+                        .borrow_mut()
+                        .push_back(TerminalWsEvent::Message(text_str));
+                }) as Box<dyn FnMut(MessageEvent)>);
+                ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
+
+                let ws_event_queue_error = ws_event_queue_outer.clone();
+                let on_error = Closure::wrap(Box::new(move |e: ErrorEvent| {
+                    ws_event_queue_error
+                        .borrow_mut()
+                        .push_back(TerminalWsEvent::Error(e.message()));
+                }) as Box<dyn FnMut(ErrorEvent)>);
+                ws.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+
+                let ws_event_queue_close = ws_event_queue_outer.clone();
+                let closing_for_close = closing.clone();
+                let on_close = Closure::wrap(Box::new(move |_e: CloseEvent| {
+                    if closing_for_close.get() {
+                        return;
+                    }
+                    ws_event_queue_close
+                        .borrow_mut()
+                        .push_back(TerminalWsEvent::Closed);
+                }) as Box<dyn FnMut(CloseEvent)>);
+                ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
+
+                runtime.set(Some(TerminalRuntime {
+                    term_id,
+                    ws,
+                    closing,
+                    _on_data: on_data,
+                    _on_open: on_open,
+                    _on_message: on_message,
+                    _on_error: on_error,
+                    _on_close: on_close,
+                }));
             });
         });
     }

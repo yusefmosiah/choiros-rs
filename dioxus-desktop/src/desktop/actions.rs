@@ -86,7 +86,8 @@ pub async fn close_window_action(
             }
         }
         Err(e) => {
-            if error_indicates_missing_window(&e) || e.to_ascii_lowercase().contains("http error: 400")
+            if error_indicates_missing_window(&e)
+                || e.to_ascii_lowercase().contains("http error: 400")
             {
                 if let Some(state) = desktop_state.write().as_mut() {
                     remove_window_and_reselect_active(state, &window_id);

@@ -45,11 +45,19 @@ fn now_ms() -> i64 {
 fn clamp_bounds(bounds: WindowBounds, viewport: (u32, u32), is_mobile: bool) -> WindowBounds {
     let (vw, vh) = viewport;
     if is_mobile {
+        let mobile_width = ((vw as i32) - 20).max(280).min(vw as i32 - 8);
+        let mobile_height = ((vh as i32) - 130).max(260).min(vh as i32 - 20);
+        let min_x = 4;
+        let max_x = (vw as i32 - mobile_width - 4).max(min_x);
+        let min_y = 8;
+        let max_y = (vh as i32 - mobile_height - 64).max(min_y);
+        let x = bounds.x.max(min_x).min(max_x);
+        let y = bounds.y.max(min_y).min(max_y);
         return WindowBounds {
-            x: 10,
-            y: 10,
-            width: vw as i32 - 20,
-            height: vh as i32 - 100,
+            x,
+            y,
+            width: mobile_width,
+            height: mobile_height,
         };
     }
 
@@ -67,6 +75,14 @@ fn clamp_bounds(bounds: WindowBounds, viewport: (u32, u32), is_mobile: bool) -> 
 }
 
 fn pointer_point(e: &PointerEvent) -> (i32, i32) {
+    if let Some((x, y)) = e.data().try_as_web_event().and_then(|event| {
+        event
+            .dyn_ref::<web_sys::PointerEvent>()
+            .map(|pointer| (pointer.client_x(), pointer.client_y()))
+    }) {
+        return (x, y);
+    }
+
     let point = e.data().client_coordinates();
     (point.x as i32, point.y as i32)
 }
@@ -89,13 +105,29 @@ fn pointer_target_is_window_control(e: &PointerEvent) -> bool {
         .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
         .map(|element| {
             element.closest("button").ok().flatten().is_some()
-                || element
-                    .closest(".window-controls")
-                    .ok()
-                    .flatten()
-                    .is_some()
+                || element.closest(".window-controls").ok().flatten().is_some()
         })
         .unwrap_or(false)
+}
+
+fn capture_window_pointer(e: &PointerEvent, pointer_id: i32) {
+    let _ = e
+        .data()
+        .try_as_web_event()
+        .and_then(|event| event.current_target())
+        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+        .and_then(|element| element.closest(".floating-window").ok().flatten())
+        .map(|window| window.set_pointer_capture(pointer_id));
+}
+
+fn release_window_pointer(e: &PointerEvent, pointer_id: i32) {
+    let _ = e
+        .data()
+        .try_as_web_event()
+        .and_then(|event| event.current_target())
+        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+        .and_then(|element| element.closest(".floating-window").ok().flatten())
+        .map(|window| window.release_pointer_capture(pointer_id));
 }
 
 #[component]
@@ -154,6 +186,29 @@ pub fn FloatingWindow(
     } else {
         "none"
     };
+
+    {
+        let window_id_for_sync = window_id.clone();
+        let on_move_sync = on_move;
+        let on_resize_sync = on_resize;
+        use_effect(move || {
+            if interaction().is_some() || window.maximized {
+                return;
+            }
+
+            if committed.x != window.x || committed.y != window.y {
+                on_move_sync.call((window_id_for_sync.clone(), committed.x, committed.y));
+            }
+
+            if committed.width != window.width || committed.height != window.height {
+                on_resize_sync.call((
+                    window_id_for_sync.clone(),
+                    committed.width,
+                    committed.height,
+                ));
+            }
+        });
+    }
 
     let on_window_keydown = move |e: KeyboardEvent| {
         let key = e.key();
@@ -352,14 +407,7 @@ pub fn FloatingWindow(
                 if e.data().pointer_id() != active.pointer_id {
                     return;
                 }
-
-                if let Some(web_event) = e.data().try_as_web_event() {
-                    if let Some(target) = web_event.target() {
-                        if let Ok(element) = target.dyn_into::<web_sys::Element>() {
-                            let _ = element.release_pointer_capture(active.pointer_id);
-                        }
-                    }
-                }
+                release_window_pointer(&e, active.pointer_id);
 
                 let final_bounds = live_bounds().unwrap_or(active.start_bounds);
                 match active.mode {
@@ -388,14 +436,7 @@ pub fn FloatingWindow(
                 if e.data().pointer_id() != active.pointer_id {
                     return;
                 }
-
-                if let Some(web_event) = e.data().try_as_web_event() {
-                    if let Some(target) = web_event.target() {
-                        if let Ok(element) = target.dyn_into::<web_sys::Element>() {
-                            let _ = element.release_pointer_capture(active.pointer_id);
-                        }
-                    }
-                }
+                release_window_pointer(&e, active.pointer_id);
 
                 live_bounds.set(Some(active.committed_bounds));
                 interaction.set(None);
@@ -404,27 +445,21 @@ pub fn FloatingWindow(
             div {
                 class: "window-titlebar",
                 tabindex: "0",
-                style: "display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: var(--titlebar-bg, #111827); border-bottom: 1px solid var(--border-color, #374151); cursor: grab; user-select: none;",
+                style: "display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: var(--titlebar-bg, #111827); border-bottom: 1px solid var(--border-color, #374151); cursor: grab; user-select: none; touch-action: none;",
                 onkeydown: move |e| {
                     if e.key() == Key::Enter || e.key() == Key::Character(" ".to_string()) {
                         on_focus.call(window_id_for_title_key.clone());
                     }
                 },
                 onpointerdown: move |e| {
-                    if is_mobile || window.maximized {
+                    if window.maximized {
                         return;
                     }
                     if pointer_target_is_window_control(&e) {
                         return;
                     }
-
-                    if let Some(web_event) = e.data().try_as_web_event() {
-                        if let Some(target) = web_event.current_target() {
-                            if let Ok(element) = target.dyn_into::<web_sys::Element>() {
-                                let _ = element.set_pointer_capture(e.data().pointer_id());
-                            }
-                        }
-                    }
+                    e.prevent_default();
+                    capture_window_pointer(&e, e.data().pointer_id());
 
                     let (start_x, start_y) = pointer_point(&e);
                     interaction.set(Some(InteractionState {
@@ -522,13 +557,8 @@ pub fn FloatingWindow(
                     class: "resize-handle",
                     style: "position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: se-resize;",
                     onpointerdown: move |e| {
-                        if let Some(web_event) = e.data().try_as_web_event() {
-                            if let Some(target) = web_event.current_target() {
-                                if let Ok(element) = target.dyn_into::<web_sys::Element>() {
-                                    let _ = element.set_pointer_capture(e.data().pointer_id());
-                                }
-                            }
-                        }
+                        e.prevent_default();
+                        capture_window_pointer(&e, e.data().pointer_id());
 
                         let (start_x, start_y) = pointer_point(&e);
                         interaction.set(Some(InteractionState {

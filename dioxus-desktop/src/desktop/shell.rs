@@ -243,6 +243,7 @@ pub fn DesktopShell(desktop_id: String) -> Element {
 
             PromptBar {
                 connected: ws_connected(),
+                is_mobile: !is_desktop,
                 windows,
                 active_window,
                 on_submit: handle_prompt_submit,
