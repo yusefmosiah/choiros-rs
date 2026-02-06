@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getMessages, sendMessage } from '@/lib/api/chat';
 import type { ChatMessage } from '@/types/generated';
 import { useChatStore } from '@/stores/chat';
+import { buildChatWebSocketUrl, parseChatStreamMessage, parseResponseText } from './ws';
 import './Chat.css';
 
 interface ChatProps {
@@ -24,6 +25,11 @@ export function Chat({ actorId, userId = 'user-1' }: ChatProps) {
   const setError = useChatStore((state) => state.setError);
 
   const [draft, setDraft] = useState('');
+  const [connected, setConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const pendingQueueRef = useRef<string[]>([]);
 
   const loadMessages = useCallback(async () => {
     try {
@@ -39,16 +45,99 @@ export function Chat({ actorId, userId = 'user-1' }: ChatProps) {
   }, [actorId, setError, setLoading, setMessages]);
 
   useEffect(() => {
-    void loadMessages();
+    let cancelled = false;
 
-    const interval = setInterval(() => {
-      void loadMessages();
-    }, 2500);
+    const clearReconnect = () => {
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+    };
+
+    const scheduleReconnect = () => {
+      clearReconnect();
+      const attempt = reconnectAttemptsRef.current;
+      const delay = Math.min(8000, 500 * 2 ** attempt);
+      reconnectAttemptsRef.current += 1;
+
+      reconnectTimerRef.current = setTimeout(() => {
+        if (!cancelled) {
+          connect();
+        }
+      }, delay);
+    };
+
+    const connect = () => {
+      const ws = new WebSocket(buildChatWebSocketUrl(actorId, userId));
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        if (cancelled) {
+          return;
+        }
+
+        reconnectAttemptsRef.current = 0;
+        setConnected(true);
+        setError(null);
+      };
+
+      ws.onmessage = (event) => {
+        if (typeof event.data !== 'string') {
+          return;
+        }
+
+        const message = parseChatStreamMessage(event.data);
+        if (!message) {
+          return;
+        }
+
+        if (message.type === 'response') {
+          const pendingId = pendingQueueRef.current.shift();
+          if (pendingId) {
+            updatePendingMessage(pendingId, false);
+          }
+
+          addMessage({
+            id: `assistant-${Date.now()}`,
+            text: parseResponseText(message.content),
+            sender: 'Assistant',
+            timestamp: new Date().toISOString(),
+            pending: false,
+          });
+          return;
+        }
+
+        if (message.type === 'error') {
+          setError(message.message);
+        }
+      };
+
+      ws.onerror = () => {
+        if (!cancelled) {
+          setConnected(false);
+        }
+      };
+
+      ws.onclose = () => {
+        if (!cancelled) {
+          setConnected(false);
+          scheduleReconnect();
+        }
+      };
+    };
+
+    void loadMessages();
+    connect();
 
     return () => {
-      clearInterval(interval);
+      cancelled = true;
+      clearReconnect();
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     };
-  }, [loadMessages]);
+  }, [actorId, addMessage, loadMessages, setError, updatePendingMessage, userId]);
 
   const handleSend = useCallback(async () => {
     const text = draft.trim();
@@ -65,7 +154,19 @@ export function Chat({ actorId, userId = 'user-1' }: ChatProps) {
       pending: true,
     });
 
+    pendingQueueRef.current.push(tempId);
     setDraft('');
+
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: 'message',
+          text,
+        }),
+      );
+      return;
+    }
 
     try {
       await sendMessage(actorId, {
@@ -75,11 +176,9 @@ export function Chat({ actorId, userId = 'user-1' }: ChatProps) {
 
       updatePendingMessage(tempId, false);
       setError(null);
-
-      // Refresh after backend processing trigger.
       setTimeout(() => {
         void loadMessages();
-      }, 400);
+      }, 500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message');
     }
@@ -91,9 +190,14 @@ export function Chat({ actorId, userId = 'user-1' }: ChatProps) {
     <div className="chat-app">
       <header className="chat-app__header">
         <h3>Chat</h3>
-        <button type="button" onClick={() => void loadMessages()} disabled={isLoading}>
-          Refresh
-        </button>
+        <div className="chat-app__header-right">
+          <span className={`chat-app__socket ${connected ? 'chat-app__socket--ok' : ''}`}>
+            {connected ? 'Live' : 'Retrying'}
+          </span>
+          <button type="button" onClick={() => void loadMessages()} disabled={isLoading}>
+            Refresh
+          </button>
+        </div>
       </header>
 
       <div className="chat-app__messages">

@@ -6,6 +6,9 @@ Cargo.lock
 # Dioxus
 dist/
 .serve/
+.vite/
+node_modules/
+**/node_modules/
 
 # IDE
 .vscode/

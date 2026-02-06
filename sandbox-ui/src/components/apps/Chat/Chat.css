@@ -13,6 +13,25 @@
   padding-bottom: 8px;
 }
 
+.chat-app__header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-app__socket {
+  font-size: 0.7rem;
+  color: #fef3c7;
+  background: rgba(180, 83, 9, 0.6);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.chat-app__socket--ok {
+  color: #d1fae5;
+  background: rgba(5, 150, 105, 0.6);
+}
+
 .chat-app__header h3 {
   font-size: 0.95rem;
   color: #f8fafc;

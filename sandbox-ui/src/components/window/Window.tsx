@@ -1,6 +1,7 @@
 import { useRef, type PointerEventHandler } from 'react';
 import type { WindowState } from '@/types/generated';
 import { Chat } from '@/components/apps/Chat/Chat';
+import { Terminal } from '@/components/apps/Terminal/Terminal';
 
 interface WindowProps {
   window: WindowState;
@@ -186,7 +187,7 @@ function AppPlaceholder({ appId, windowId }: { appId: string; windowId: string }
   }
 
   if (appId === 'terminal') {
-    return <div className="window__placeholder">Terminal app migration in progress</div>;
+    return <Terminal terminalId={windowId} />;
   }
 
   if (appId === 'writer') {
