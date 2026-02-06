@@ -2,12 +2,8 @@ import apiClient from './client';
 
 // Types matching backend structures
 export interface UserPreferences {
-  user_id: string;
+  success: boolean;
   theme: 'light' | 'dark' | 'system';
-  language: string;
-  notifications_enabled: boolean;
-  sidebar_collapsed: boolean;
-  custom_settings?: Record<string, unknown>;
 }
 
 export interface UpdatePreferencesRequest {

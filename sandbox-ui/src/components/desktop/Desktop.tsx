@@ -249,14 +249,14 @@ export function Desktop({ desktopId = 'desktop-1' }: DesktopProps) {
           console.warn(`Window ${windowId} not found, skipping maximize`);
           return;
         }
-        const updatedWindow = await maximizeWindow(desktopId, windowId);
+        const response = await maximizeWindow(desktopId, windowId);
         // Optimistically update local state in case WebSocket is lagging
         useWindowsStore.getState().maximizeWindow(
           windowId,
-          updatedWindow.x,
-          updatedWindow.y,
-          updatedWindow.width,
-          updatedWindow.height,
+          response.window.x,
+          response.window.y,
+          response.window.width,
+          response.window.height,
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to maximize window';
@@ -276,14 +276,14 @@ export function Desktop({ desktopId = 'desktop-1' }: DesktopProps) {
           console.warn(`Window ${windowId} not found, skipping restore`);
           return;
         }
-        const updatedWindow = await restoreWindow(desktopId, windowId);
+        const response = await restoreWindow(desktopId, windowId);
         // Optimistically update local state in case WebSocket is lagging
         useWindowsStore.getState().restoreWindow(
           windowId,
-          updatedWindow.x,
-          updatedWindow.y,
-          updatedWindow.width,
-          updatedWindow.height,
+          response.window.x,
+          response.window.y,
+          response.window.width,
+          response.window.height,
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to restore window';

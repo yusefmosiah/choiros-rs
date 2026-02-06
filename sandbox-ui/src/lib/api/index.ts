@@ -9,3 +9,4 @@ export * from './desktop';
 export * from './chat';
 export * from './terminal';
 export * from './user';
+export * from './viewer';

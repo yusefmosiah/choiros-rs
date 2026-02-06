@@ -23,8 +23,11 @@ function applyWsMessage(message: WsServerMessage): void {
       return;
     }
     case 'desktop_state': {
-      desktopStore.setDesktopState(message.desktop);
+      // WindowsStore is the single source of truth for windows array
       windowsStore.setWindows(message.desktop.windows);
+      // DesktopStore only tracks apps and active window (NOT windows array)
+      desktopStore.setApps(message.desktop.apps);
+      desktopStore.setActiveWindow(message.desktop.active_window);
       return;
     }
     case 'window_opened': {
@@ -34,7 +37,7 @@ function applyWsMessage(message: WsServerMessage): void {
     }
     case 'window_closed': {
       windowsStore.closeWindow(message.window_id);
-      desktopStore.closeWindow(message.window_id);
+      // Note: activeWindowId is updated by subsequent window_focused or desktop_state
       return;
     }
     case 'window_moved': {
@@ -46,13 +49,13 @@ function applyWsMessage(message: WsServerMessage): void {
       return;
     }
     case 'window_focused': {
-      windowsStore.focusWindow(message.window_id, message.z_index);
+      windowsStore.focusWindow(message.window_id);
       desktopStore.setActiveWindow(message.window_id);
       return;
     }
     case 'window_minimized': {
       windowsStore.minimizeWindow(message.window_id);
-      desktopStore.minimizeWindow(message.window_id);
+      // Note: activeWindowId is updated by subsequent window_focused or desktop_state
       return;
     }
     case 'window_maximized': {

@@ -1,45 +1,35 @@
 import { create } from 'zustand';
-import type { AppDefinition, DesktopState } from '@/types/generated';
+import type { AppDefinition } from '@/types/generated';
 
 interface DesktopStore {
-  desktop: DesktopState | null;
+  // Desktop metadata (not windows array - that's in WindowsStore)
+  apps: AppDefinition[];
   activeWindowId: string | null;
   wsConnected: boolean;
   lastError: string | null;
-  setDesktopState: (desktop: DesktopState) => void;
+  // Actions
+  setApps: (apps: AppDefinition[]) => void;
   setActiveWindow: (windowId: string | null) => void;
   setWsConnected: (connected: boolean) => void;
   setError: (message: string | null) => void;
   registerApp: (app: AppDefinition) => void;
-  closeWindow: (windowId: string) => void;
-  minimizeWindow: (windowId: string) => void;
   reset: () => void;
 }
 
 export const useDesktopStore = create<DesktopStore>((set) => ({
-  desktop: null,
+  apps: [],
   activeWindowId: null,
   wsConnected: false,
   lastError: null,
 
-  setDesktopState: (desktop) => {
-    set({ desktop, activeWindowId: desktop.active_window, lastError: null });
+  // Set apps array - NOT windows array (that's in WindowsStore)
+  setApps: (apps) => {
+    set({ apps, lastError: null });
   },
 
+  // Set active window ID only - windows array is managed by WindowsStore
   setActiveWindow: (windowId) => {
-    set((state) => {
-      if (!state.desktop) {
-        return { activeWindowId: windowId };
-      }
-
-      return {
-        activeWindowId: windowId,
-        desktop: {
-          ...state.desktop,
-          active_window: windowId,
-        },
-      };
-    });
+    set({ activeWindowId: windowId });
   },
 
   setWsConnected: (connected) => {
@@ -51,70 +41,14 @@ export const useDesktopStore = create<DesktopStore>((set) => ({
   },
 
   registerApp: (app) => {
-    set((state) => {
-      if (!state.desktop) {
-        return state;
-      }
-
-      return {
-        desktop: {
-          ...state.desktop,
-          apps: [...state.desktop.apps, app],
-        },
-      };
-    });
-  },
-
-  closeWindow: (windowId) => {
-    set((state) => {
-      if (!state.desktop) {
-        return state;
-      }
-
-      const nextActive =
-        state.activeWindowId === windowId
-          ? state.desktop.windows[state.desktop.windows.length - 1]?.id ?? null
-          : state.activeWindowId;
-
-      return {
-        activeWindowId: nextActive,
-        desktop: {
-          ...state.desktop,
-          active_window: nextActive,
-        },
-      };
-    });
-  },
-
-  minimizeWindow: (windowId) => {
-    set((state) => {
-      if (!state.desktop || state.activeWindowId !== windowId) {
-        return state;
-      }
-
-      const nextActive = state.desktop.windows
-        .filter((window) => !window.minimized && window.id !== windowId)
-        .reduce<{ id: string; z_index: number } | null>((current, window) => {
-          if (!current || window.z_index > current.z_index) {
-            return { id: window.id, z_index: window.z_index };
-          }
-
-          return current;
-        }, null)?.id ?? null;
-
-      return {
-        activeWindowId: nextActive,
-        desktop: {
-          ...state.desktop,
-          active_window: nextActive,
-        },
-      };
-    });
+    set((state) => ({
+      apps: [...state.apps, app],
+    }));
   },
 
   reset: () => {
     set({
-      desktop: null,
+      apps: [],
       activeWindowId: null,
       wsConnected: false,
       lastError: null,

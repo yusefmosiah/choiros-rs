@@ -23,8 +23,18 @@ interface AppsEnvelope extends ApiEnvelope {
   apps: AppDefinition[];
 }
 
-interface WindowEnvelope extends ApiEnvelope {
+interface MaximizeWindowResponse {
+  success: boolean;
   window: WindowState;
+  from: 'maximized' | 'restored';
+  message: string;
+}
+
+interface RestoreWindowResponse {
+  success: boolean;
+  window: WindowState;
+  from: 'maximized' | 'minimized' | 'normal';
+  message: string;
 }
 
 export interface OpenWindowRequest {
@@ -101,14 +111,12 @@ export async function minimizeWindow(desktopId: string, windowId: string): Promi
   assertSuccess(response);
 }
 
-export async function maximizeWindow(desktopId: string, windowId: string): Promise<WindowState> {
-  const response = await apiClient.post<WindowEnvelope>(`/desktop/${desktopId}/windows/${windowId}/maximize`, {});
-  return assertSuccess(response).window;
+export async function maximizeWindow(desktopId: string, windowId: string): Promise<MaximizeWindowResponse> {
+  return await apiClient.post<MaximizeWindowResponse>(`/desktop/${desktopId}/windows/${windowId}/maximize`, {});
 }
 
-export async function restoreWindow(desktopId: string, windowId: string): Promise<WindowState> {
-  const response = await apiClient.post<WindowEnvelope>(`/desktop/${desktopId}/windows/${windowId}/restore`, {});
-  return assertSuccess(response).window;
+export async function restoreWindow(desktopId: string, windowId: string): Promise<RestoreWindowResponse> {
+  return await apiClient.post<RestoreWindowResponse>(`/desktop/${desktopId}/windows/${windowId}/restore`, {});
 }
 
 export async function getApps(desktopId: string): Promise<AppDefinition[]> {

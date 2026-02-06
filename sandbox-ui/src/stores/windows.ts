@@ -8,7 +8,7 @@ interface WindowsStore {
   closeWindow: (windowId: string) => void;
   moveWindow: (windowId: string, x: number, y: number) => void;
   resizeWindow: (windowId: string, width: number, height: number) => void;
-  focusWindow: (windowId: string, zIndex: number) => void;
+  focusWindow: (windowId: string) => void;
   minimizeWindow: (windowId: string) => void;
   maximizeWindow: (windowId: string, x: number, y: number, width: number, height: number) => void;
   restoreWindow: (
@@ -62,14 +62,17 @@ export const useWindowsStore = create<WindowsStore>((set) => ({
       windows: updateWindow(state.windows, windowId, (window) => ({ ...window, width, height })),
     }));
   },
-  focusWindow: (windowId, zIndex) => {
-    set((state) => ({
-      windows: updateWindow(state.windows, windowId, (window) => ({
-        ...window,
-        z_index: zIndex,
-        minimized: false,
-      })),
-    }));
+  focusWindow: (windowId) => {
+    set((state) => {
+      const maxZ = Math.max(0, ...state.windows.map((w) => w.z_index));
+      return {
+        windows: updateWindow(state.windows, windowId, (window) => ({
+          ...window,
+          z_index: maxZ + 1,
+          minimized: false,
+        })),
+      };
+    });
   },
   minimizeWindow: (windowId) => {
     set((state) => ({

@@ -22,6 +22,20 @@ interface WindowProps {
 
 const MIN_WIDTH = 200;
 const MIN_HEIGHT = 160;
+const DRAG_THRESHOLD = 4;
+
+function clampBounds(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  viewport: { width: number; height: number },
+): { x: number; y: number } {
+  const MIN_VISIBLE = 10;
+  const clampedX = Math.max(MIN_VISIBLE, Math.min(viewport.width - width + MIN_VISIBLE, x));
+  const clampedY = Math.max(MIN_VISIBLE, Math.min(viewport.height - height + MIN_VISIBLE, y));
+  return { x: clampedX, y: clampedY };
+}
 
 export function Window({
   window: windowState,
@@ -38,6 +52,7 @@ export function Window({
   const dragStartRef = useRef<{ pointerX: number; pointerY: number; startX: number; startY: number } | null>(
     null,
   );
+  const dragThresholdMetRef = useRef<boolean>(false);
 
   const resizePointerIdRef = useRef<number | null>(null);
   const resizeStartRef = useRef<{
@@ -55,7 +70,9 @@ export function Window({
     event.preventDefault();
     onFocus(windowState.id);
 
+    event.currentTarget.setPointerCapture(event.pointerId);
     dragPointerIdRef.current = event.pointerId;
+    dragThresholdMetRef.current = false;
     dragStartRef.current = {
       pointerX: event.clientX,
       pointerY: event.clientY,
@@ -71,11 +88,26 @@ export function Window({
       const dx = moveEvent.clientX - dragStartRef.current.pointerX;
       const dy = moveEvent.clientY - dragStartRef.current.pointerY;
 
-      onMove(
-        windowState.id,
-        Math.round(dragStartRef.current.startX + dx),
-        Math.round(dragStartRef.current.startY + dy),
-      );
+      // Check if drag threshold has been met
+      if (!dragThresholdMetRef.current) {
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance < DRAG_THRESHOLD) {
+          return;
+        }
+        dragThresholdMetRef.current = true;
+      }
+
+      const newX = Math.round(dragStartRef.current.startX + dx);
+      const newY = Math.round(dragStartRef.current.startY + dy);
+
+      const viewport = {
+        width: globalThis.window.innerWidth,
+        height: globalThis.window.innerHeight,
+      };
+
+      const clamped = clampBounds(newX, newY, windowState.width, windowState.height, viewport);
+
+      onMove(windowState.id, clamped.x, clamped.y);
     };
 
     const handlePointerUp = (upEvent: PointerEvent) => {
@@ -83,8 +115,10 @@ export function Window({
         return;
       }
 
+      event.currentTarget.releasePointerCapture(upEvent.pointerId);
       dragPointerIdRef.current = null;
       dragStartRef.current = null;
+      dragThresholdMetRef.current = false;
       globalThis.window.removeEventListener('pointermove', handlePointerMove);
       globalThis.window.removeEventListener('pointerup', handlePointerUp);
       globalThis.window.removeEventListener('pointercancel', handlePointerUp);
