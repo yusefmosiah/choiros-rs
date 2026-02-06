@@ -3,7 +3,6 @@ members = [
     "shared-types",
     "hypervisor", 
     "sandbox",
-    "sandbox-ui",
 ]
 resolver = "2"
 

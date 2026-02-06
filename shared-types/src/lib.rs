@@ -8,13 +8,16 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 // ============================================================================
 // Core Types
 // ============================================================================
 
 /// Unique identifier for actors
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, TS)]
+#[serde(transparent)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct ActorId(pub String);
 
 impl ActorId {
@@ -39,7 +42,8 @@ impl Default for ActorId {
 
 /// Event - append-only log entry
 /// All state changes are logged as events
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct Event {
     /// Global sequence number (strictly increasing)
     pub seq: i64,
@@ -57,6 +61,7 @@ pub struct Event {
     pub event_type: String,
 
     /// Event-specific payload
+    #[ts(type = "unknown")]
     pub payload: serde_json::Value,
 
     /// Which user triggered this (for audit)
@@ -64,16 +69,19 @@ pub struct Event {
 }
 
 /// Request to append an event
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct AppendEvent {
     pub event_type: String,
+    #[ts(type = "unknown")]
     pub payload: serde_json::Value,
     pub actor_id: ActorId,
     pub user_id: String,
 }
 
 /// Query events for an actor
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct QueryEvents {
     pub actor_id: ActorId,
     pub since_seq: i64,
@@ -84,7 +92,8 @@ pub struct QueryEvents {
 // ============================================================================
 
 /// Messages that can be sent to ChatActor
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub enum ChatMsg {
     /// User typed a message
     UserTyped { text: String, window_id: String },
@@ -95,6 +104,7 @@ pub enum ChatMsg {
     /// Tool was called
     ToolCall {
         tool: String,
+        #[ts(type = "unknown")]
         args: serde_json::Value,
         call_id: String,
     },
@@ -103,11 +113,13 @@ pub enum ChatMsg {
     ToolResult {
         call_id: String,
         status: ToolStatus,
+        #[ts(type = "unknown")]
         output: serde_json::Value,
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub enum ToolStatus {
     Success,
     Error(String),
@@ -126,7 +138,8 @@ pub enum WriterMsg {
 // ============================================================================
 
 /// Desktop state - all windows and their positions
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct DesktopState {
     pub windows: Vec<WindowState>,
     pub active_window: Option<String>,
@@ -134,7 +147,8 @@ pub struct DesktopState {
 }
 
 /// Individual window state
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct WindowState {
     pub id: String,
     pub app_id: String, // "chat", "writer", "mail", etc.
@@ -146,11 +160,13 @@ pub struct WindowState {
     pub z_index: u32,
     pub minimized: bool,
     pub maximized: bool,
+    #[ts(type = "unknown")]
     pub props: serde_json::Value, // App-specific data
 }
 
 /// App definition for dynamic app registration
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct AppDefinition {
     pub id: String,
     pub name: String,
@@ -161,7 +177,8 @@ pub struct AppDefinition {
 }
 
 /// Chat message for UI display
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct ChatMessage {
     pub id: String,
     pub text: String,
@@ -170,7 +187,8 @@ pub struct ChatMessage {
     pub pending: bool, // True if optimistic (not confirmed by actor yet)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub enum Sender {
     User,
     Assistant,
@@ -181,32 +199,37 @@ pub enum Sender {
 // Viewer Types
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub enum ViewerKind {
     Text,
     Image,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct ViewerResource {
     pub uri: String,
     pub mime: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct ViewerCapabilities {
     pub readonly: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct ViewerDescriptor {
     pub kind: ViewerKind,
     pub resource: ViewerResource,
     pub capabilities: ViewerCapabilities,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct ViewerRevision {
     pub rev: i64,
     pub updated_at: String,
@@ -225,8 +248,9 @@ pub struct ApiResponse<T> {
 }
 
 /// WebSocket message protocol
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "type")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub enum WsMsg {
     /// Client → Server: Subscribe to actor events
     Subscribe { actor_id: ActorId },
@@ -234,6 +258,7 @@ pub enum WsMsg {
     /// Client → Server: Send message to actor
     Send {
         actor_id: ActorId,
+        #[ts(type = "unknown")]
         payload: serde_json::Value,
     },
 
@@ -243,6 +268,7 @@ pub enum WsMsg {
     /// Server → Client: Current state snapshot
     State {
         actor_id: ActorId,
+        #[ts(type = "unknown")]
         state: serde_json::Value,
     },
 
@@ -255,18 +281,22 @@ pub enum WsMsg {
 // ============================================================================
 
 /// Tool definition for LLM
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct ToolDef {
     pub name: String,
     pub description: String,
+    #[ts(type = "unknown")]
     pub parameters: serde_json::Value, // JSON Schema
 }
 
 /// Tool call from LLM
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct ToolCall {
     pub id: String,
     pub tool: String,
+    #[ts(type = "unknown")]
     pub args: serde_json::Value,
 }
 
@@ -293,6 +323,7 @@ pub const EVENT_VIEWER_CONTENT_CONFLICT: &str = "viewer.content_conflict";
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ts_rs::Config;
 
     #[test]
     fn test_actor_id_generation() {
@@ -336,5 +367,31 @@ mod tests {
         let kind = ViewerKind::Text;
         let json = serde_json::to_string(&kind).unwrap();
         assert_eq!(json, "\"text\"");
+    }
+
+    #[test]
+    fn export_types() {
+        // Export all types to TypeScript
+        // The export_to attribute in each type's #[ts] macro specifies the output file
+        let config = Config::default();
+        ActorId::export(&config).unwrap();
+        Event::export(&config).unwrap();
+        AppendEvent::export(&config).unwrap();
+        QueryEvents::export(&config).unwrap();
+        ChatMsg::export(&config).unwrap();
+        ToolStatus::export(&config).unwrap();
+        DesktopState::export(&config).unwrap();
+        WindowState::export(&config).unwrap();
+        AppDefinition::export(&config).unwrap();
+        ChatMessage::export(&config).unwrap();
+        Sender::export(&config).unwrap();
+        ViewerKind::export(&config).unwrap();
+        ViewerResource::export(&config).unwrap();
+        ViewerCapabilities::export(&config).unwrap();
+        ViewerDescriptor::export(&config).unwrap();
+        ViewerRevision::export(&config).unwrap();
+        WsMsg::export(&config).unwrap();
+        ToolDef::export(&config).unwrap();
+        ToolCall::export(&config).unwrap();
     }
 }
