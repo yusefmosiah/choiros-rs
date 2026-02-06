@@ -1,7 +1,9 @@
 use axum::http::{header, HeaderValue, Method};
 use ractor::Actor;
 use sandbox::actor_manager::AppState;
-use sandbox::actors::event_store::{AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg};
+use sandbox::actors::event_store::{
+    AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg,
+};
 use sandbox::api;
 use std::collections::HashMap;
 use std::sync::Arc;

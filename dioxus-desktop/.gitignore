@@ -1,0 +1,8 @@
+# Dioxus build outputs
+/target/
+/dist/
+/.serve/
+/.vite/
+
+# Local Node artifacts
+/node_modules/

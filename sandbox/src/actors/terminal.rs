@@ -327,8 +327,11 @@ impl Actor for TerminalActor {
                     state.output_buffer.remove(0);
                 }
 
-                // TODO: Emit event to EventStore
-                let _ = data;
+                // Broadcast through actor state so subscriber attachment and buffer updates
+                // share the same ordering, preventing startup prompt races.
+                if let Some(ref output_tx) = state.output_tx {
+                    let _ = output_tx.send(data);
+                }
             }
 
             TerminalMsg::ProcessExited { exit_code } => {
@@ -436,9 +439,9 @@ async fn spawn_pty(
         }
     });
 
-    // Spawn output task: read from PTY, send to actor and subscribers
+    // Spawn output task: read from PTY, forward into actor mailbox.
+    // Actor state then handles buffer + subscriber broadcast in-order.
     let actor = actor_ref.clone();
-    let output_tx_clone = output_tx.clone();
     tokio::task::spawn_blocking(move || {
         let mut buffer = [0u8; 1024];
         loop {
@@ -450,12 +453,7 @@ async fn spawn_pty(
                 }
                 Ok(n) => {
                     let data = String::from_utf8_lossy(&buffer[..n]).to_string();
-
-                    // Send to actor for buffering
-                    let _ = actor.send_message(TerminalMsg::OutputReceived { data: data.clone() });
-
-                    // Send to subscribers. Ignore errors if there are no listeners.
-                    let _ = output_tx_clone.send(data);
+                    let _ = actor.send_message(TerminalMsg::OutputReceived { data });
                 }
                 Err(_) => {
                     // Read error
@@ -711,10 +709,7 @@ mod tests {
             reply
         })
         .expect("send input call failed");
-        assert!(
-            send_result.is_ok(),
-            "send input failed: {send_result:?}"
-        );
+        assert!(send_result.is_ok(), "send input failed: {send_result:?}");
 
         let got_1 = wait_for_output(&mut rx_1, &marker, Duration::from_secs(3)).await;
         let got_2 = wait_for_output(&mut rx_2, &marker, Duration::from_secs(3)).await;
@@ -766,10 +761,7 @@ mod tests {
             reply
         })
         .expect("resize call failed");
-        assert!(
-            resize_result.is_ok(),
-            "resize failed: {resize_result:?}"
-        );
+        assert!(resize_result.is_ok(), "resize failed: {resize_result:?}");
 
         let info = ractor::call!(terminal, |reply| TerminalMsg::GetInfo { reply })
             .expect("get info failed");

@@ -50,6 +50,7 @@ pub fn WorkspaceCanvas(
                 } else if let Some(desktop_state) = state_value {
                     for window in desktop_state.windows.iter().filter(|w| !w.minimized) {
                         FloatingWindow {
+                            key: "{window.id}",
                             window: window.clone(),
                             desktop_id: desktop_id.clone(),
                             is_active: desktop_state.active_window.as_ref() == Some(&window.id),

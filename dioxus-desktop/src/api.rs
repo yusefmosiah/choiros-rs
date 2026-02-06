@@ -30,6 +30,25 @@ pub fn api_base() -> &'static str {
     API_BASE_CACHE.get_or_init(get_api_base).as_str()
 }
 
+async fn describe_http_error(response: gloo_net::http::Response) -> String {
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if body.trim().is_empty() {
+        return format!("HTTP error: {status}");
+    }
+
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+        if let Some(error) = json.get("error").and_then(|v| v.as_str()) {
+            return format!("HTTP error: {status} ({error})");
+        }
+        if let Some(message) = json.get("message").and_then(|v| v.as_str()) {
+            return format!("HTTP error: {status} ({message})");
+        }
+    }
+
+    format!("HTTP error: {status} ({body})")
+}
+
 #[derive(Debug, Serialize)]
 pub struct SendMessageRequest {
     pub actor_id: String,
@@ -333,7 +352,7 @@ pub async fn close_window(desktop_id: &str, window_id: &str) -> Result<(), Strin
         .map_err(|e| format!("Request failed: {e}"))?;
 
     if !response.ok() {
-        return Err(format!("HTTP error: {}", response.status()));
+        return Err(describe_http_error(response).await);
     }
 
     #[derive(Debug, Deserialize)]
@@ -368,7 +387,7 @@ pub async fn focus_window(desktop_id: &str, window_id: &str) -> Result<(), Strin
         .map_err(|e| format!("Request failed: {e}"))?;
 
     if !response.ok() {
-        return Err(format!("HTTP error: {}", response.status()));
+        return Err(describe_http_error(response).await);
     }
 
     #[derive(Debug, Deserialize)]

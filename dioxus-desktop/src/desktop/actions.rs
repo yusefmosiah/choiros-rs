@@ -10,6 +10,20 @@ use crate::desktop::state::{
     remove_window_and_reselect_active,
 };
 
+fn error_indicates_missing_window(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("not found")
+        || (message.contains("window") && message.contains("no"))
+        || (message.contains("window") && message.contains("missing"))
+        || (message.contains("http error: 400") && message.contains("window"))
+}
+
+fn error_indicates_minimized_window(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("cannot focus minimized window")
+        || (message.contains("minimized") && message.contains("focus"))
+}
+
 fn viewer_props_for_app(app_id: &str) -> Option<serde_json::Value> {
     match app_id {
         "writer" => Some(serde_json::json!({
@@ -72,6 +86,12 @@ pub async fn close_window_action(
             }
         }
         Err(e) => {
+            if error_indicates_missing_window(&e) || e.to_ascii_lowercase().contains("http error: 400")
+            {
+                if let Some(state) = desktop_state.write().as_mut() {
+                    remove_window_and_reselect_active(state, &window_id);
+                }
+            }
             dioxus_logger::tracing::error!("Failed to close window: {}", e);
         }
     }
@@ -89,6 +109,22 @@ pub async fn focus_window_action(
             }
         }
         Err(e) => {
+            if error_indicates_minimized_window(&e) {
+                if restore_window(&desktop_id, &window_id).await.is_ok() {
+                    if focus_window(&desktop_id, &window_id).await.is_ok() {
+                        if let Some(state) = desktop_state.write().as_mut() {
+                            focus_window_and_raise_z(state, &window_id);
+                        }
+                        return;
+                    }
+                }
+            }
+
+            if error_indicates_missing_window(&e) {
+                if let Some(state) = desktop_state.write().as_mut() {
+                    remove_window_and_reselect_active(state, &window_id);
+                }
+            }
             dioxus_logger::tracing::error!("Failed to focus window: {}", e);
         }
     }

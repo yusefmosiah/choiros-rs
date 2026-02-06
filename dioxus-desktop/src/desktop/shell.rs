@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
 
@@ -26,11 +26,19 @@ pub fn DesktopShell(desktop_id: String) -> Element {
     let mut desktop_ws_runtime = use_signal(|| None::<DesktopWsRuntime>);
     let ws_event_queue = use_hook(|| Rc::new(RefCell::new(VecDeque::<WsEvent>::new())));
     let mut ws_event_pump_started = use_signal(|| false);
+    let ws_event_pump_alive = use_hook(|| Rc::new(Cell::new(true)));
     let desktop_id_signal = use_signal(|| desktop_id.clone());
     let viewport = use_signal(|| (1920u32, 1080u32));
     let apps_registered = use_signal(|| false);
     let theme_initialized = use_signal(|| false);
     let mut current_theme = use_signal(|| DEFAULT_THEME.to_string());
+
+    {
+        let ws_event_pump_alive = ws_event_pump_alive.clone();
+        use_drop(move || {
+            ws_event_pump_alive.set(false);
+        });
+    }
 
     use_effect(move || {
         spawn(async move {
@@ -64,6 +72,7 @@ pub fn DesktopShell(desktop_id: String) -> Element {
 
     {
         let ws_event_queue = ws_event_queue.clone();
+        let ws_event_pump_alive = ws_event_pump_alive.clone();
         use_effect(move || {
             if ws_event_pump_started() {
                 return;
@@ -71,8 +80,9 @@ pub fn DesktopShell(desktop_id: String) -> Element {
             ws_event_pump_started.set(true);
 
             let ws_event_queue = ws_event_queue.clone();
+            let ws_event_pump_alive = ws_event_pump_alive.clone();
             spawn(async move {
-                loop {
+                while ws_event_pump_alive.get() {
                     let mut drained = Vec::new();
                     {
                         let mut queue = ws_event_queue.borrow_mut();
@@ -208,9 +218,6 @@ pub fn DesktopShell(desktop_id: String) -> Element {
             rel: "stylesheet",
             href: "/xterm.css",
         }
-        script { src: "/xterm.js" }
-        script { src: "/xterm-addon-fit.js" }
-        script { src: "/terminal.js" }
 
         div {
             class: "desktop-shell",

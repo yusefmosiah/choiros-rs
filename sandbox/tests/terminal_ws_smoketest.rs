@@ -118,6 +118,25 @@ async fn send_json(
     ws.send(Message::Text(text)).await.expect("Send error");
 }
 
+async fn wait_for_output_contains(
+    ws: &mut (impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin),
+    needle: &str,
+    total_timeout: Duration,
+) {
+    let start = Instant::now();
+    while start.elapsed() < total_timeout {
+        let msg = recv_json(ws, total_timeout).await;
+        if msg["type"] == "output" {
+            if let Some(data) = msg["data"].as_str() {
+                if data.contains(needle) {
+                    return;
+                }
+            }
+        }
+    }
+    panic!("timed out waiting for terminal output containing '{needle}'");
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn test_terminal_ws_smoke() {
@@ -153,4 +172,83 @@ async fn test_terminal_ws_smoke() {
     }
 
     assert!(saw_hi, "Expected output containing 'hi'");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_terminal_ws_two_clients_share_terminal_output() {
+    let server = start_test_server().await;
+    let terminal_id = test_terminal_id();
+    let user_1 = test_user_id();
+    let user_2 = test_user_id();
+
+    let connect_1 = connect_async(ws_url(
+        server.addr,
+        &format!("/ws/terminal/{terminal_id}?user_id={user_1}"),
+    ));
+    let connect_2 = connect_async(ws_url(
+        server.addr,
+        &format!("/ws/terminal/{terminal_id}?user_id={user_2}"),
+    ));
+    let (ws_1_result, ws_2_result) = tokio::join!(connect_1, connect_2);
+    let (mut ws_1, _) = ws_1_result.expect("ws1 connect failed");
+    let (mut ws_2, _) = ws_2_result.expect("ws2 connect failed");
+
+    let info_1 = recv_json(&mut ws_1, Duration::from_secs(5)).await;
+    let info_2 = recv_json(&mut ws_2, Duration::from_secs(5)).await;
+    assert_eq!(info_1["type"], "info");
+    assert_eq!(info_2["type"], "info");
+    assert_eq!(info_1["terminal_id"], terminal_id);
+    assert_eq!(info_2["terminal_id"], terminal_id);
+
+    let marker = format!("shared-{}", uuid::Uuid::new_v4());
+    send_json(
+        &mut ws_1,
+        json!({"type":"input","data":format!("echo {marker}\r")}),
+    )
+    .await;
+    wait_for_output_contains(&mut ws_2, &marker, Duration::from_secs(8)).await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_terminal_ws_reconnect_keeps_terminal_available() {
+    let server = start_test_server().await;
+    let terminal_id = test_terminal_id();
+    let user_1 = test_user_id();
+    let user_2 = test_user_id();
+
+    let (mut ws_1, _) = connect_async(ws_url(
+        server.addr,
+        &format!("/ws/terminal/{terminal_id}?user_id={user_1}"),
+    ))
+    .await
+    .expect("ws1 connect failed");
+
+    let info_1 = recv_json(&mut ws_1, Duration::from_secs(5)).await;
+    assert_eq!(info_1["type"], "info");
+    assert_eq!(info_1["terminal_id"], terminal_id);
+
+    ws_1.send(Message::Close(None))
+        .await
+        .expect("close ws1 failed");
+
+    let (mut ws_2, _) = connect_async(ws_url(
+        server.addr,
+        &format!("/ws/terminal/{terminal_id}?user_id={user_2}"),
+    ))
+    .await
+    .expect("ws2 reconnect failed");
+
+    let info_2 = recv_json(&mut ws_2, Duration::from_secs(5)).await;
+    assert_eq!(info_2["type"], "info");
+    assert_eq!(info_2["terminal_id"], terminal_id);
+
+    let marker = format!("reconnect-{}", uuid::Uuid::new_v4());
+    send_json(
+        &mut ws_2,
+        json!({"type":"input","data":format!("echo {marker}\r")}),
+    )
+    .await;
+    wait_for_output_contains(&mut ws_2, &marker, Duration::from_secs(8)).await;
 }

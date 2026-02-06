@@ -16,7 +16,6 @@ use ts_rs::TS;
 
 /// Unique identifier for actors
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, TS)]
-#[serde(transparent)]
 #[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct ActorId(pub String);
 

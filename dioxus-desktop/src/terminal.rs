@@ -54,15 +54,38 @@ enum TerminalWsEvent {
 pub fn TerminalView(terminal_id: String, width: i32, height: i32) -> Element {
     let container_id = format!("terminal-container-{}", terminal_id);
     let mut runtime = use_signal(|| None::<TerminalRuntime>);
+    let mut terminal_ready = use_signal(|| false);
     let mut status = use_signal(|| "Connecting...".to_string());
     let mut error = use_signal(|| None::<String>);
     let mut reconnect_attempts = use_signal(|| 0u32);
     let mut reconnect_timeout_id = use_signal(|| None::<i32>);
+    let reconnect_nonce = use_signal(|| 0u64);
     let ws_event_queue = use_hook(|| Rc::new(RefCell::new(VecDeque::<TerminalWsEvent>::new())));
+    let pending_output_chunks = use_hook(|| Rc::new(RefCell::new(VecDeque::<String>::new())));
     let mut ws_event_pump_started = use_signal(|| false);
+    let ws_event_pump_alive = use_hook(|| Rc::new(Cell::new(true)));
+
+    {
+        let ws_event_pump_alive = ws_event_pump_alive.clone();
+        use_drop(move || {
+            ws_event_pump_alive.set(false);
+        });
+    }
+
+    {
+        use_drop(move || {
+            if let Some(window) = web_sys::window() {
+                if let Some(timeout_id) = *reconnect_timeout_id.read() {
+                    window.clear_timeout_with_handle(timeout_id);
+                }
+            }
+        });
+    }
 
     {
         let ws_event_queue = ws_event_queue.clone();
+        let pending_output_chunks = pending_output_chunks.clone();
+        let ws_event_pump_alive = ws_event_pump_alive.clone();
         use_effect(move || {
             if ws_event_pump_started() {
                 return;
@@ -70,8 +93,10 @@ pub fn TerminalView(terminal_id: String, width: i32, height: i32) -> Element {
             ws_event_pump_started.set(true);
 
             let ws_event_queue = ws_event_queue.clone();
+            let pending_output_chunks = pending_output_chunks.clone();
+            let ws_event_pump_alive = ws_event_pump_alive.clone();
             spawn(async move {
-                loop {
+                while ws_event_pump_alive.get() {
                     let mut drained = Vec::new();
                     {
                         let mut queue = ws_event_queue.borrow_mut();
@@ -80,9 +105,19 @@ pub fn TerminalView(terminal_id: String, width: i32, height: i32) -> Element {
                         }
                     }
 
+                    if terminal_ready() {
+                        if let Some(term_id) = runtime.read().as_ref().map(|rt| rt.term_id) {
+                            let mut pending = pending_output_chunks.borrow_mut();
+                            while let Some(chunk) = pending.pop_front() {
+                                write_terminal(term_id, &chunk);
+                            }
+                        }
+                    }
+
                     for event in drained {
                         match event {
                             TerminalWsEvent::Opened => {
+                                terminal_ready.set(false);
                                 if let Some(window) = web_sys::window() {
                                     let existing_timeout = *reconnect_timeout_id.read();
                                     if let Some(timeout_id) = existing_timeout {
@@ -95,19 +130,17 @@ pub fn TerminalView(terminal_id: String, width: i32, height: i32) -> Element {
                                 error.set(None);
 
                                 if let Some(rt) = runtime.read().as_ref() {
-                                    let ws_for_resize = rt.ws.clone();
-                                    let term_id = rt.term_id;
-                                    spawn(async move {
-                                        for attempt in 0..6 {
-                                            if let Some((rows, cols)) = fit_and_get_size(term_id) {
-                                                let _ = send_resize(&ws_for_resize, rows, cols);
-                                                break;
-                                            }
+                                    if let Some((rows, cols)) = fit_and_get_size(rt.term_id) {
+                                        let _ = send_resize(&rt.ws, rows, cols);
+                                    }
+                                }
+                                terminal_ready.set(true);
 
-                                            let backoff_ms = 40 * (attempt + 1);
-                                            sleep_ms(backoff_ms).await;
-                                        }
-                                    });
+                                if let Some(term_id) = runtime.read().as_ref().map(|rt| rt.term_id) {
+                                    let mut pending = pending_output_chunks.borrow_mut();
+                                    while let Some(chunk) = pending.pop_front() {
+                                        write_terminal(term_id, &chunk);
+                                    }
                                 }
                             }
                             TerminalWsEvent::Message(text_str) => {
@@ -117,11 +150,27 @@ pub fn TerminalView(terminal_id: String, width: i32, height: i32) -> Element {
                                     {
                                         match msg_type {
                                             "output" => {
-                                                if let Some(rt) = runtime.read().as_ref() {
-                                                    if let Some(data) =
-                                                        json.get("data").and_then(|v| v.as_str())
-                                                    {
-                                                        write_terminal(rt.term_id, data);
+                                                if let Some(data) =
+                                                    json.get("data").and_then(|v| v.as_str())
+                                                {
+                                                    if terminal_ready() {
+                                                        if let Some(rt) = runtime.read().as_ref() {
+                                                            write_terminal(rt.term_id, data);
+                                                        } else {
+                                                            let mut pending =
+                                                                pending_output_chunks.borrow_mut();
+                                                            pending.push_back(data.to_string());
+                                                            while pending.len() > 4096 {
+                                                                pending.pop_front();
+                                                            }
+                                                        }
+                                                    } else {
+                                                        let mut pending =
+                                                            pending_output_chunks.borrow_mut();
+                                                        pending.push_back(data.to_string());
+                                                        while pending.len() > 4096 {
+                                                            pending.pop_front();
+                                                        }
                                                     }
                                                 }
                                             }
@@ -153,15 +202,18 @@ pub fn TerminalView(terminal_id: String, width: i32, height: i32) -> Element {
                                 }
                             }
                             TerminalWsEvent::Error(message) => {
+                                terminal_ready.set(false);
                                 status.set("Disconnected".to_string());
                                 error.set(Some(format!("WebSocket error: {}", message)));
                             }
                             TerminalWsEvent::Closed => {
+                                terminal_ready.set(false);
                                 status.set("Disconnected".to_string());
                                 let status_for_reconnect = status.clone();
                                 schedule_reconnect(
                                     reconnect_attempts,
                                     reconnect_timeout_id,
+                                    reconnect_nonce,
                                     runtime,
                                     status_for_reconnect,
                                     error,
@@ -181,9 +233,11 @@ pub fn TerminalView(terminal_id: String, width: i32, height: i32) -> Element {
     {
         let ws_event_queue = ws_event_queue.clone();
         use_effect(move || {
+            let _ = reconnect_nonce();
             if runtime.read().is_some() {
                 return;
             }
+            terminal_ready.set(false);
 
             let container_id_inner = container_id_for_effect.clone();
             let terminal_id_inner = terminal_id.clone();
@@ -193,20 +247,36 @@ pub fn TerminalView(terminal_id: String, width: i32, height: i32) -> Element {
                 error.set(Some(format!("Failed to load terminal scripts: {:?}", e)));
                 return;
             }
-            if !wait_for_terminal_bridge().await {
-                error.set(Some("Terminal bridge not available".to_string()));
-                return;
-            }
 
-            let container = match web_sys::window()
-                .and_then(|w| w.document())
-                .and_then(|d| d.get_element_by_id(&container_id_inner))
-            {
+            let container = match wait_for_terminal_container(&container_id_inner, 40, 50).await {
                 Some(container) => container,
-                None => return,
+                None => {
+                    error.set(Some("Terminal container not ready".to_string()));
+                    schedule_reconnect(
+                        reconnect_attempts,
+                        reconnect_timeout_id,
+                        reconnect_nonce,
+                        runtime,
+                        status,
+                        error,
+                    );
+                    return;
+                }
             };
 
             let term_id = create_terminal(container);
+            if term_id == 0 {
+                error.set(Some("Terminal bridge init failed".to_string()));
+                schedule_reconnect(
+                    reconnect_attempts,
+                    reconnect_timeout_id,
+                    reconnect_nonce,
+                    runtime,
+                    status,
+                    error,
+                );
+                return;
+            }
             let ws_url = build_ws_url(&terminal_id_inner);
             let ws = match WebSocket::new(&ws_url) {
                 Ok(ws) => ws,
@@ -215,6 +285,7 @@ pub fn TerminalView(terminal_id: String, width: i32, height: i32) -> Element {
                     schedule_reconnect(
                         reconnect_attempts,
                         reconnect_timeout_id,
+                        reconnect_nonce,
                         runtime,
                         status,
                         error,
@@ -298,9 +369,6 @@ pub fn TerminalView(terminal_id: String, width: i32, height: i32) -> Element {
         }
     });
 
-    // Clear reconnect timers on unmount
-    use_effect(move || {});
-
     rsx! {
         style { {TERMINAL_STYLES} }
         div {
@@ -350,19 +418,21 @@ fn http_to_ws_url(http_url: &str) -> String {
 
 fn fit_and_get_size(term_id: u32) -> Option<(u16, u16)> {
     let size = fit_terminal(term_id);
-    let rows = size
+    let mut rows = size
         .get(0)
         .as_f64()
         .unwrap_or(0.0)
         .clamp(0.0, u16::MAX as f64) as u16;
-    let cols = size
+    let mut cols = size
         .get(1)
         .as_f64()
         .unwrap_or(0.0)
         .clamp(0.0, u16::MAX as f64) as u16;
 
     if rows < 2 || cols < 2 {
-        return None;
+        rows = 24;
+        cols = 80;
+        resize_terminal(term_id, rows, cols);
     }
 
     Some((rows, cols))
@@ -383,8 +453,14 @@ fn send_resize(ws: &WebSocket, rows: u16, cols: u16) -> Result<(), JsValue> {
 
 async fn ensure_terminal_scripts() -> Result<(), JsValue> {
     ensure_script("xterm-js", "/xterm.js")?;
+    wait_for_js_global("Terminal", 30, 100).await?;
+
     ensure_script("xterm-addon-fit-js", "/xterm-addon-fit.js")?;
+    wait_for_js_global("FitAddon", 30, 100).await?;
+
     ensure_script("terminal-bridge-js", "/terminal.js")?;
+    wait_for_js_global("createTerminal", 30, 100).await?;
+
     Ok(())
 }
 
@@ -413,19 +489,22 @@ fn ensure_script(id: &str, src: &str) -> Result<(), JsValue> {
     Ok(())
 }
 
-async fn wait_for_terminal_bridge() -> bool {
-    for _ in 0..30 {
-        if has_terminal_bridge() {
-            return true;
-        }
-        sleep_ms(100).await;
-    }
-    false
+fn has_js_global(name: &str) -> bool {
+    let global = js_sys::global();
+    js_sys::Reflect::has(&global, &JsValue::from_str(name)).unwrap_or(false)
 }
 
-fn has_terminal_bridge() -> bool {
-    let global = js_sys::global();
-    js_sys::Reflect::has(&global, &JsValue::from_str("createTerminal")).unwrap_or(false)
+async fn wait_for_js_global(name: &str, attempts: usize, delay_ms: i32) -> Result<(), JsValue> {
+    for _ in 0..attempts {
+        if has_js_global(name) {
+            return Ok(());
+        }
+        sleep_ms(delay_ms).await;
+    }
+
+    Err(JsValue::from_str(&format!(
+        "Global '{name}' not available after waiting"
+    )))
 }
 
 async fn sleep_ms(ms: i32) {
@@ -476,6 +555,7 @@ impl Drop for TerminalRuntime {
 fn schedule_reconnect(
     mut reconnect_attempts: Signal<u32>,
     mut reconnect_timeout_id: Signal<Option<i32>>,
+    reconnect_nonce: Signal<u64>,
     mut runtime: Signal<Option<TerminalRuntime>>,
     mut status: Signal<String>,
     error: Signal<Option<String>>,
@@ -502,9 +582,12 @@ fn schedule_reconnect(
     let delay_ms = (base_delay as f64 * jitter).round() as i32;
 
     let mut reconnect_timeout_id_timeout = reconnect_timeout_id;
+    let mut reconnect_nonce_timeout = reconnect_nonce;
     let timeout_cb = Closure::wrap(Box::new(move || {
         reconnect_timeout_id_timeout.set(None);
         runtime.set(None);
+        let current = reconnect_nonce_timeout();
+        reconnect_nonce_timeout.set(current.saturating_add(1));
         let _ = &error;
     }) as Box<dyn FnMut()>);
 
@@ -516,4 +599,21 @@ fn schedule_reconnect(
     }
 
     timeout_cb.forget();
+}
+
+async fn wait_for_terminal_container(
+    container_id: &str,
+    max_attempts: usize,
+    delay_ms: i32,
+) -> Option<web_sys::Element> {
+    for _ in 0..max_attempts {
+        if let Some(element) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.get_element_by_id(container_id))
+        {
+            return Some(element);
+        }
+        sleep_ms(delay_ms).await;
+    }
+    None
 }

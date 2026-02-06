@@ -16,6 +16,7 @@
 use dashmap::DashMap;
 use ractor::{Actor, ActorRef};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 // Re-export message types from actors
 pub use crate::actors::chat::{ChatActor, ChatActorArguments, ChatActorMsg};
@@ -31,6 +32,7 @@ pub struct ActorManager {
     chat_agents: Arc<DashMap<String, ActorRef<ChatAgentMsg>>>,
     desktop_actors: Arc<DashMap<String, ActorRef<DesktopActorMsg>>>,
     terminal_actors: Arc<DashMap<String, ActorRef<TerminalMsg>>>,
+    terminal_create_lock: Arc<Mutex<()>>,
     event_store: ActorRef<EventStoreMsg>,
 }
 
@@ -41,6 +43,7 @@ impl ActorManager {
             chat_agents: Arc::new(DashMap::new()),
             desktop_actors: Arc::new(DashMap::new()),
             terminal_actors: Arc::new(DashMap::new()),
+            terminal_create_lock: Arc::new(Mutex::new(())),
             event_store: event_store.clone(),
         }
     }
@@ -178,9 +181,13 @@ impl ActorManager {
             return Ok(entry.clone());
         }
 
-        // Slow path: create new actor
-        let terminal_id_clone = terminal_id.to_string();
+        // Serialize slow-path creation to avoid duplicate actors for the same terminal_id.
+        let _create_guard = self.terminal_create_lock.lock().await;
+        if let Some(entry) = self.terminal_actors.get(terminal_id) {
+            return Ok(entry.clone());
+        }
 
+        let terminal_id_clone = terminal_id.to_string();
         let (terminal_ref, _handle) = Actor::spawn(None, TerminalActor, args).await?;
 
         // Store in registry

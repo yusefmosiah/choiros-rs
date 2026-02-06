@@ -71,6 +71,33 @@ fn pointer_point(e: &PointerEvent) -> (i32, i32) {
     (point.x as i32, point.y as i32)
 }
 
+fn pointer_buttons(e: &PointerEvent) -> u16 {
+    e.data()
+        .try_as_web_event()
+        .and_then(|event| {
+            event
+                .dyn_ref::<web_sys::PointerEvent>()
+                .map(|pointer| pointer.buttons())
+        })
+        .unwrap_or(1)
+}
+
+fn pointer_target_is_window_control(e: &PointerEvent) -> bool {
+    e.data()
+        .try_as_web_event()
+        .and_then(|event| event.target())
+        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+        .map(|element| {
+            element.closest("button").ok().flatten().is_some()
+                || element
+                    .closest(".window-controls")
+                    .ok()
+                    .flatten()
+                    .is_some()
+        })
+        .unwrap_or(false)
+}
+
 #[component]
 pub fn FloatingWindow(
     window: WindowState,
@@ -214,6 +241,30 @@ pub fn FloatingWindow(
                     return;
                 }
 
+                // Pointer capture can occasionally be lost across browser focus transitions.
+                // If no buttons are held, end interaction immediately to avoid sticky drag mode.
+                if pointer_buttons(&e) == 0 {
+                    let final_bounds = live_bounds().unwrap_or(active.start_bounds);
+                    match active.mode {
+                        InteractionMode::Drag => {
+                            queued_move.set(Some((final_bounds.x, final_bounds.y)));
+                            if let Some((next_x, next_y)) = queued_move.write().take() {
+                                on_move.call((window_id_for_pointer_move.clone(), next_x, next_y));
+                                last_move_sent_ms.set(now_ms());
+                            }
+                        }
+                        InteractionMode::Resize => {
+                            queued_resize.set(Some((final_bounds.width, final_bounds.height)));
+                            if let Some((next_w, next_h)) = queued_resize.write().take() {
+                                on_resize.call((window_id_for_pointer_move.clone(), next_w, next_h));
+                                last_resize_sent_ms.set(now_ms());
+                            }
+                        }
+                    }
+                    interaction.set(None);
+                    return;
+                }
+
                 let (client_x, client_y) = pointer_point(&e);
                 let dx = client_x - active.start_x;
                 let dy = client_y - active.start_y;
@@ -303,7 +354,7 @@ pub fn FloatingWindow(
                 }
 
                 if let Some(web_event) = e.data().try_as_web_event() {
-                    if let Some(target) = web_event.current_target() {
+                    if let Some(target) = web_event.target() {
                         if let Ok(element) = target.dyn_into::<web_sys::Element>() {
                             let _ = element.release_pointer_capture(active.pointer_id);
                         }
@@ -339,7 +390,7 @@ pub fn FloatingWindow(
                 }
 
                 if let Some(web_event) = e.data().try_as_web_event() {
-                    if let Some(target) = web_event.current_target() {
+                    if let Some(target) = web_event.target() {
                         if let Ok(element) = target.dyn_into::<web_sys::Element>() {
                             let _ = element.release_pointer_capture(active.pointer_id);
                         }
@@ -361,6 +412,9 @@ pub fn FloatingWindow(
                 },
                 onpointerdown: move |e| {
                     if is_mobile || window.maximized {
+                        return;
+                    }
+                    if pointer_target_is_window_control(&e) {
                         return;
                     }
 
@@ -390,9 +444,11 @@ pub fn FloatingWindow(
                 }
 
                 div {
+                    class: "window-controls",
                     style: "display: flex; align-items: center; gap: 0.25rem;",
                     button {
                         style: "width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--text-secondary, #9ca3af); border: none; border-radius: var(--radius-sm, 4px); cursor: pointer;",
+                        onpointerdown: move |e| e.stop_propagation(),
                         "aria-label": "Minimize",
                         onclick: move |e| {
                             e.stop_propagation();
@@ -402,6 +458,7 @@ pub fn FloatingWindow(
                     }
                     button {
                         style: "width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--text-secondary, #9ca3af); border: none; border-radius: var(--radius-sm, 4px); cursor: pointer;",
+                        onpointerdown: move |e| e.stop_propagation(),
                         "aria-label": if window.maximized { "Restore" } else { "Maximize" },
                         onclick: move |e| {
                             e.stop_propagation();
@@ -416,6 +473,7 @@ pub fn FloatingWindow(
                     button {
                         class: "window-close",
                         style: "width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--text-secondary, #9ca3af); border: none; border-radius: var(--radius-sm, 4px); cursor: pointer; font-size: 1.25rem; line-height: 1;",
+                        onpointerdown: move |e| e.stop_propagation(),
                         "aria-label": "Close",
                         onclick: move |e| {
                             e.stop_propagation();
@@ -439,10 +497,11 @@ pub fn FloatingWindow(
                 } else {
                     match window.app_id.as_str() {
                     "chat" => rsx! {
-                        ChatView { actor_id: window.id.clone() }
+                        ChatView { key: "{window.id}", actor_id: window.id.clone() }
                     },
                     "terminal" => rsx! {
                         TerminalView {
+                            key: "{window.id}",
                             terminal_id: window.id.clone(),
                             width: bounds.width,
                             height: bounds.height,

@@ -20,6 +20,7 @@ pub fn apply_ws_event(
         }
         WsEvent::WindowOpened(window) => {
             if let Some(state) = desktop_state.write().as_mut() {
+                state.windows.retain(|w| w.id != window.id);
                 state.windows.push(window);
             }
         }
@@ -120,6 +121,7 @@ pub fn apply_ws_event(
 
 pub fn push_window_and_activate(state: &mut DesktopState, window: WindowState) {
     let window_id = window.id.clone();
+    state.windows.retain(|w| w.id != window_id);
     state.windows.push(window);
     state.active_window = Some(window_id);
 }

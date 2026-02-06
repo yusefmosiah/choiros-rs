@@ -12,6 +12,7 @@ use axum::Json;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc};
+use uuid::Uuid;
 
 use crate::actor_manager::AppState;
 use crate::actors::terminal::{TerminalArguments, TerminalError, TerminalMsg};
@@ -78,6 +79,14 @@ async fn handle_terminal_socket(
     terminal_id: String,
     query: TerminalWsQuery,
 ) {
+    let session_id = Uuid::new_v4();
+    tracing::info!(
+        terminal_id = %terminal_id,
+        session_id = %session_id,
+        user_id = %query.user_id,
+        "terminal websocket connected"
+    );
+
     let (mut sender, mut receiver) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
     let writer = tokio::spawn(async move {
@@ -90,63 +99,29 @@ async fn handle_terminal_socket(
 
     let actor_manager = app_state.actor_manager.clone();
     let event_store = actor_manager.event_store();
+    let terminal_args = TerminalArguments {
+        terminal_id: terminal_id.clone(),
+        user_id: query.user_id.clone(),
+        shell: query.shell.clone(),
+        working_dir: query.working_dir.clone(),
+        event_store,
+    };
 
-    let terminal_actor = match actor_manager
-        .get_or_create_terminal(
-            &terminal_id,
-            TerminalArguments {
-                terminal_id: terminal_id.clone(),
-                user_id: query.user_id.clone(),
-                shell: query.shell.clone(),
-                working_dir: query.working_dir.clone(),
-                event_store,
-            },
-        )
-        .await
+    let terminal_actor = match ensure_started_terminal(
+        &actor_manager,
+        &terminal_id,
+        terminal_args,
+        session_id,
+    )
+    .await
     {
         Ok(actor) => actor,
-        Err(e) => {
-            let _ = send_terminal_message(
-                &tx,
-                TerminalWsMessage::Error {
-                    message: format!("Failed to create terminal: {e}"),
-                },
-            );
+        Err(message) => {
+            let _ = send_terminal_message(&tx, TerminalWsMessage::Error { message });
             writer.abort();
             return;
         }
     };
-
-    match ractor::call!(terminal_actor, |reply| TerminalMsg::Start { reply }) {
-        Ok(Ok(())) => {}
-        Ok(Err(TerminalError::AlreadyRunning)) => {
-            // Terminal is already running, which is fine - we can connect to it
-            tracing::info!(
-                "Terminal {} is already running, connecting to existing session",
-                terminal_id
-            );
-        }
-        Ok(Err(e)) => {
-            let _ = send_terminal_message(
-                &tx,
-                TerminalWsMessage::Error {
-                    message: format!("Failed to start terminal: {e}"),
-                },
-            );
-            writer.abort();
-            return;
-        }
-        Err(e) => {
-            let _ = send_terminal_message(
-                &tx,
-                TerminalWsMessage::Error {
-                    message: format!("Failed to start terminal: {e:?}"),
-                },
-            );
-            writer.abort();
-            return;
-        }
-    }
 
     let output_rx = match ractor::call!(terminal_actor, |reply| TerminalMsg::SubscribeOutput {
         reply
@@ -165,6 +140,12 @@ async fn handle_terminal_socket(
     };
 
     if let Ok(buffer) = ractor::call!(terminal_actor, |reply| TerminalMsg::GetOutput { reply }) {
+        tracing::debug!(
+            terminal_id = %terminal_id,
+            session_id = %session_id,
+            buffered_chunks = buffer.len(),
+            "replaying terminal output buffer to websocket client"
+        );
         for data in buffer {
             let _ = send_terminal_message(&tx, TerminalWsMessage::Output { data });
         }
@@ -234,6 +215,53 @@ async fn handle_terminal_socket(
 
     forward_task.abort();
     writer.abort();
+    tracing::info!(
+        terminal_id = %terminal_id,
+        session_id = %session_id,
+        "terminal websocket disconnected"
+    );
+}
+
+async fn ensure_started_terminal(
+    actor_manager: &crate::actor_manager::ActorManager,
+    terminal_id: &str,
+    args: TerminalArguments,
+    session_id: Uuid,
+) -> Result<ractor::ActorRef<TerminalMsg>, String> {
+    for attempt in 1..=2 {
+        let terminal_actor = actor_manager
+            .get_or_create_terminal(terminal_id, args.clone())
+            .await
+            .map_err(|e| format!("Failed to create terminal actor: {e}"))?;
+
+        match ractor::call!(terminal_actor, |reply| TerminalMsg::Start { reply }) {
+            Ok(Ok(())) => return Ok(terminal_actor),
+            Ok(Err(TerminalError::AlreadyRunning)) => {
+                tracing::debug!(
+                    terminal_id = %terminal_id,
+                    session_id = %session_id,
+                    "terminal already running; attaching websocket session"
+                );
+                return Ok(terminal_actor);
+            }
+            Ok(Err(e)) => return Err(format!("Failed to start terminal: {e}")),
+            Err(e) => {
+                tracing::warn!(
+                    terminal_id = %terminal_id,
+                    session_id = %session_id,
+                    attempt = attempt,
+                    error = ?e,
+                    "terminal actor call failed; removing stale registry entry"
+                );
+                actor_manager.remove_terminal(terminal_id);
+                if attempt == 2 {
+                    return Err(format!("Failed to start terminal after retry: {e:?}"));
+                }
+            }
+        }
+    }
+
+    Err("Failed to start terminal".to_string())
 }
 
 fn send_terminal_message(tx: &mpsc::UnboundedSender<Message>, msg: TerminalWsMessage) -> bool {

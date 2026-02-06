@@ -54,8 +54,16 @@ pub fn ChatView(actor_id: String) -> Element {
     let mut ws_connected = use_signal(|| false);
     let ws_event_queue = use_hook(|| Rc::new(std::cell::RefCell::new(VecDeque::<ChatWsEvent>::new())));
     let mut ws_event_pump_started = use_signal(|| false);
+    let ws_event_pump_alive = use_hook(|| Rc::new(Cell::new(true)));
     let actor_id_signal = use_signal(|| actor_id.clone());
     let _messages_end_ref = use_signal(|| None::<dioxus::prelude::Element>);
+
+    {
+        let ws_event_pump_alive = ws_event_pump_alive.clone();
+        use_drop(move || {
+            ws_event_pump_alive.set(false);
+        });
+    }
 
     // Load messages on mount
     use_effect(move || {
@@ -75,6 +83,7 @@ pub fn ChatView(actor_id: String) -> Element {
     // Connect WebSocket for streaming responses
     {
         let ws_event_queue = ws_event_queue.clone();
+        let ws_event_pump_alive = ws_event_pump_alive.clone();
         use_effect(move || {
             if ws_event_pump_started() {
                 return;
@@ -82,8 +91,9 @@ pub fn ChatView(actor_id: String) -> Element {
             ws_event_pump_started.set(true);
 
             let ws_event_queue = ws_event_queue.clone();
+            let ws_event_pump_alive = ws_event_pump_alive.clone();
             spawn(async move {
-                loop {
+                while ws_event_pump_alive.get() {
                     let mut drained = Vec::new();
                     {
                         let mut queue = ws_event_queue.borrow_mut();

@@ -63,6 +63,7 @@ pub fn PromptBar(
 
                     for window in windows.iter() {
                         RunningAppIndicator {
+                            key: "{window.id}",
                             window: window.clone(),
                             is_active: active_window.as_ref() == Some(&window.id),
                             on_focus: on_focus_window,
