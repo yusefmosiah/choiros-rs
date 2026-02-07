@@ -43,6 +43,8 @@ pub enum ChatAgentMsg {
     /// Process a user message and return agent response
     ProcessMessage {
         text: String,
+        session_id: Option<String>,
+        thread_id: Option<String>,
         reply: RpcReplyPort<Result<AgentResponse, ChatAgentError>>,
     },
     /// Switch between available LLM models
@@ -231,11 +233,13 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         state: &ChatAgentState,
         event_type: &str,
         payload: serde_json::Value,
+        session_id: Option<String>,
+        thread_id: Option<String>,
         user_id: String,
     ) -> Result<(), ChatAgentError> {
         let event = AppendEvent {
             event_type: event_type.to_string(),
-            payload,
+            payload: shared_types::with_scope(payload, session_id, thread_id),
             actor_id: state.args.actor_id.clone(),
             user_id,
         };
@@ -256,6 +260,8 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         &self,
         state: &mut ChatAgentState,
         text: String,
+        session_id: Option<String>,
+        thread_id: Option<String>,
     ) -> Result<AgentResponse, ChatAgentError> {
         let user_text = text.trim().to_string();
         if user_text.is_empty() {
@@ -301,6 +307,8 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                     "tool_args": tool_call.tool_args,
                     "reasoning": tool_call.reasoning,
                 }),
+                session_id.clone(),
+                thread_id.clone(),
                 state.args.user_id.clone(),
             )
             .await?;
@@ -329,6 +337,8 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                             "success": output.success,
                             "output": output.content,
                         }),
+                        session_id.clone(),
+                        thread_id.clone(),
                         state.args.user_id.clone(),
                     )
                     .await?;
@@ -349,6 +359,8 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                             "success": false,
                             "error": e.message,
                         }),
+                        session_id.clone(),
+                        thread_id.clone(),
                         state.args.user_id.clone(),
                     )
                     .await?;
@@ -396,6 +408,8 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                 "model": current_model,
                 "tools_used": executed_tools.len(),
             }),
+            session_id,
+            thread_id,
             "system".to_string(),
         )
         .await?;
@@ -524,8 +538,15 @@ impl Actor for ChatAgent {
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            ChatAgentMsg::ProcessMessage { text, reply } => {
-                let result = self.handle_process_message(state, text).await;
+            ChatAgentMsg::ProcessMessage {
+                text,
+                session_id,
+                thread_id,
+                reply,
+            } => {
+                let result = self
+                    .handle_process_message(state, text, session_id, thread_id)
+                    .await;
                 let _ = reply.send(result);
             }
             ChatAgentMsg::SwitchModel { model, reply } => {
@@ -591,6 +612,8 @@ pub async fn process_message(
 ) -> Result<Result<AgentResponse, ChatAgentError>, ractor::RactorErr<ChatAgentMsg>> {
     ractor::call!(agent, |reply| ChatAgentMsg::ProcessMessage {
         text: text.into(),
+        session_id: None,
+        thread_id: None,
         reply,
     })
 }

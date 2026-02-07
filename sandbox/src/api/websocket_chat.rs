@@ -16,7 +16,7 @@ use tokio::sync::oneshot;
 use tokio::time::{sleep, Duration};
 
 use crate::actors::chat_agent::ChatAgentMsg;
-use crate::actors::event_store::{get_events_for_actor, EventStoreMsg};
+use crate::actors::event_store::{get_events_for_actor_with_scope, EventStoreMsg};
 use crate::api::ApiState;
 use crate::app_state::AppState;
 
@@ -238,32 +238,45 @@ async fn handle_chat_socket(
                             }
                         }
 
-                        let last_seq =
-                            match get_events_for_actor(&event_store, actor_id.clone(), 0).await {
-                                Ok(Ok(events)) => events.last().map(|e| e.seq).unwrap_or(0),
-                                Ok(Err(e)) => {
-                                    tracing::warn!(
-                                        actor_id = %actor_id,
-                                        error = %e,
-                                        "Failed to get initial event cursor for tool streaming"
-                                    );
-                                    0
-                                }
-                                Err(e) => {
-                                    tracing::warn!(
-                                        actor_id = %actor_id,
-                                        error = %e,
-                                        "EventStore actor error while preparing tool streaming"
-                                    );
-                                    0
-                                }
-                            };
+                        let last_seq = match get_events_for_actor_with_scope(
+                            &event_store,
+                            actor_id.clone(),
+                            session_id.clone(),
+                            thread_id.clone(),
+                            0,
+                        )
+                        .await
+                        {
+                            Ok(Ok(events)) => events.last().map(|e| e.seq).unwrap_or(0),
+                            Ok(Err(e)) => {
+                                tracing::warn!(
+                                    actor_id = %actor_id,
+                                    session_id = %session_id,
+                                    thread_id = %thread_id,
+                                    error = %e,
+                                    "Failed to get scoped event cursor for tool streaming"
+                                );
+                                0
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    actor_id = %actor_id,
+                                    session_id = %session_id,
+                                    thread_id = %thread_id,
+                                    error = %e,
+                                    "EventStore actor error while preparing scoped tool streaming"
+                                );
+                                0
+                            }
+                        };
 
                         let (stream_done_tx, stream_done_rx) = oneshot::channel::<()>();
                         let stream_task = tokio::spawn(stream_tool_events(
                             tx_clone.clone(),
                             event_store.clone(),
                             actor_id.clone(),
+                            session_id.clone(),
+                            thread_id.clone(),
                             last_seq,
                             stream_done_rx,
                         ));
@@ -288,6 +301,8 @@ async fn handle_chat_socket(
 
                         match ractor::call!(agent, |reply| ChatAgentMsg::ProcessMessage {
                             text: user_text,
+                            session_id: Some(session_id),
+                            thread_id: Some(thread_id),
                             reply,
                         }) {
                             Ok(Ok(resp)) => {
@@ -460,18 +475,34 @@ async fn stream_tool_events(
     tx: mpsc::UnboundedSender<Message>,
     event_store: ractor::ActorRef<EventStoreMsg>,
     actor_id: String,
+    session_id: String,
+    thread_id: String,
     mut since_seq: i64,
     mut done: oneshot::Receiver<()>,
 ) {
     loop {
         tokio::select! {
             _ = sleep(Duration::from_millis(120)) => {
-                if !emit_tool_events_since(&tx, &event_store, &actor_id, &mut since_seq).await {
+                if !emit_tool_events_since(
+                    &tx,
+                    &event_store,
+                    &actor_id,
+                    &session_id,
+                    &thread_id,
+                    &mut since_seq,
+                ).await {
                     return;
                 }
             }
             _ = &mut done => {
-                let _ = emit_tool_events_since(&tx, &event_store, &actor_id, &mut since_seq).await;
+                let _ = emit_tool_events_since(
+                    &tx,
+                    &event_store,
+                    &actor_id,
+                    &session_id,
+                    &thread_id,
+                    &mut since_seq,
+                ).await;
                 return;
             }
         }
@@ -482,23 +513,37 @@ async fn emit_tool_events_since(
     tx: &mpsc::UnboundedSender<Message>,
     event_store: &ractor::ActorRef<EventStoreMsg>,
     actor_id: &str,
+    session_id: &str,
+    thread_id: &str,
     since_seq: &mut i64,
 ) -> bool {
-    let events = match get_events_for_actor(event_store, actor_id.to_string(), *since_seq).await {
+    let events = match get_events_for_actor_with_scope(
+        event_store,
+        actor_id.to_string(),
+        session_id.to_string(),
+        thread_id.to_string(),
+        *since_seq,
+    )
+    .await
+    {
         Ok(Ok(events)) => events,
         Ok(Err(e)) => {
             tracing::warn!(
                 actor_id = %actor_id,
+                session_id = %session_id,
+                thread_id = %thread_id,
                 error = %e,
-                "Failed to fetch incremental events for tool streaming"
+                "Failed to fetch scoped incremental events for tool streaming"
             );
             return true;
         }
         Err(e) => {
             tracing::warn!(
                 actor_id = %actor_id,
+                session_id = %session_id,
+                thread_id = %thread_id,
                 error = %e,
-                "EventStore actor error while fetching incremental tool events"
+                "EventStore actor error while fetching scoped incremental tool events"
             );
             return true;
         }

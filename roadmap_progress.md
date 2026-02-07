@@ -64,6 +64,27 @@ Files:
   - `GetEventsForActorWithScope { actor_id, session_id, thread_id, since_seq }`
   - API usage in chat messages endpoint when both scope keys are provided.
 - Added EventStore test coverage for scoped retrieval filtering.
+- Added generic scope wrapper helper:
+  - `shared_types::with_scope(...)`
+- Threaded scope through `ChatAgentMsg::ProcessMessage` and applied scope to:
+  - assistant events (`chat.assistant_msg`)
+  - tool call events (`chat.tool_call`)
+  - tool result events (`chat.tool_result`)
+- Added chat API integration coverage for mixed-thread filtering:
+  - `test_get_messages_scope_filter_returns_only_matching_thread`
+- Added explicit EventStore scope columns and indexing:
+  - columns: `session_id`, `thread_id`
+  - index: `idx_events_session_thread(session_id, thread_id)`
+  - migration-time backfill from `payload.scope.*`
+  - scoped query path prefers columns, with payload fallback for legacy rows
+- Added API boundary enforcement for partial scope keys:
+  - reject `session_id` without `thread_id` (400)
+  - reject `thread_id` without `session_id` (400)
+  - added integration tests for both GET and POST chat endpoints
+- Added scope-aware websocket tool-stream retrieval:
+  - initial event cursor now uses scoped query
+  - incremental tool event polling now uses scoped query
+  - prevents cross-thread tool event bleed on shared actor streams
 
 Files:
 - `shared-types/src/lib.rs`
@@ -75,7 +96,7 @@ Files:
 
 ## Immediate Next Actions
 
-1. Add isolation tests for chat API endpoint using mixed scope traffic.
-2. Thread scope fields through chat agent assistant/tool event payloads.
-3. Add explicit scope columns (`session_id`, `thread_id`) with indexed queries and migration.
-4. Enforce required scope keys at supervisor/API boundaries (reject missing keys on scoped routes).
+1. Add supervisor/API metrics for scope-missing and scope-mismatch rejections.
+2. Add migration/backfill notes for legacy events without scope metadata.
+3. Add scope-aware retrieval path for ChatAgent history preload (avoid cross-thread memory bleed).
+4. Add explicit thread/session IDs on non-chat event domains where relevant (desktop/terminal).

@@ -340,3 +340,123 @@ async fn test_get_messages_includes_tool_events_as_system_messages() {
         .unwrap_or_default()
         .starts_with("__tool_result__:"));
 }
+
+#[tokio::test]
+async fn test_get_messages_scope_filter_returns_only_matching_thread() {
+    let (app, _temp_dir, event_store) = setup_test_app().await;
+    let chat_id = test_chat_id();
+    let user_id = "test-user";
+
+    let scoped_user = shared_types::chat_user_payload(
+        "Scoped user message",
+        Some("session-a".to_string()),
+        Some("thread-a".to_string()),
+    );
+    let scoped_assistant = shared_types::with_scope(
+        json!({ "text": "Scoped assistant reply" }),
+        Some("session-a".to_string()),
+        Some("thread-a".to_string()),
+    );
+    let other_user = shared_types::chat_user_payload(
+        "Other thread user message",
+        Some("session-a".to_string()),
+        Some("thread-b".to_string()),
+    );
+
+    let _ = ractor::call!(event_store, |reply| EventStoreMsg::Append {
+        event: AppendEvent {
+            event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
+            payload: scoped_user,
+            actor_id: chat_id.clone(),
+            user_id: user_id.to_string(),
+        },
+        reply,
+    })
+    .unwrap()
+    .unwrap();
+
+    let _ = ractor::call!(event_store, |reply| EventStoreMsg::Append {
+        event: AppendEvent {
+            event_type: shared_types::EVENT_CHAT_ASSISTANT_MSG.to_string(),
+            payload: scoped_assistant,
+            actor_id: chat_id.clone(),
+            user_id: "system".to_string(),
+        },
+        reply,
+    })
+    .unwrap()
+    .unwrap();
+
+    let _ = ractor::call!(event_store, |reply| EventStoreMsg::Append {
+        event: AppendEvent {
+            event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
+            payload: other_user,
+            actor_id: chat_id.clone(),
+            user_id: user_id.to_string(),
+        },
+        reply,
+    })
+    .unwrap()
+    .unwrap();
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(&format!(
+            "/chat/{chat_id}/messages?session_id=session-a&thread_id=thread-a"
+        ))
+        .body(Body::empty())
+        .unwrap();
+
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let messages = body["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["text"], "Scoped user message");
+    assert_eq!(messages[1]["text"], "Scoped assistant reply");
+}
+
+#[tokio::test]
+async fn test_get_messages_rejects_partial_scope_query() {
+    let (app, _temp_dir, _event_store) = setup_test_app().await;
+    let chat_id = test_chat_id();
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(&format!("/chat/{chat_id}/messages?session_id=session-a"))
+        .body(Body::empty())
+        .unwrap();
+
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        body["error"].as_str(),
+        Some("thread_id is required when session_id is provided")
+    );
+}
+
+#[tokio::test]
+async fn test_send_message_rejects_partial_scope_payload() {
+    let (app, _temp_dir, _event_store) = setup_test_app().await;
+    let chat_id = test_chat_id();
+
+    let message_req = json!({
+        "actor_id": chat_id,
+        "user_id": "test-user",
+        "text": "Hello, world!",
+        "session_id": "session-a"
+    });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/chat/send")
+        .header("content-type", "application/json")
+        .body(Body::from(message_req.to_string()))
+        .unwrap();
+
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        body["error"].as_str(),
+        Some("thread_id is required when session_id is provided")
+    );
+}

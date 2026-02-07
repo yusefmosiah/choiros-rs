@@ -349,6 +349,45 @@ pub fn parse_chat_user_text(payload: &serde_json::Value) -> Option<String> {
             .map(ToString::to_string)
     })
 }
+
+/// Attach optional scope metadata to any payload.
+///
+/// If no scope is provided, returns payload unchanged.
+/// If payload is an object, inserts `scope`.
+/// Otherwise wraps as `{ "value": <payload>, "scope": {...} }`.
+pub fn with_scope(
+    payload: serde_json::Value,
+    session_id: Option<String>,
+    thread_id: Option<String>,
+) -> serde_json::Value {
+    let mut scope = serde_json::Map::new();
+    if let Some(session_id) = session_id {
+        scope.insert(
+            "session_id".to_string(),
+            serde_json::Value::String(session_id),
+        );
+    }
+    if let Some(thread_id) = thread_id {
+        scope.insert(
+            "thread_id".to_string(),
+            serde_json::Value::String(thread_id),
+        );
+    }
+    if scope.is_empty() {
+        return payload;
+    }
+
+    match payload {
+        serde_json::Value::Object(mut obj) => {
+            obj.insert("scope".to_string(), serde_json::Value::Object(scope));
+            serde_json::Value::Object(obj)
+        }
+        other => serde_json::json!({
+            "value": other,
+            "scope": scope,
+        }),
+    }
+}
 pub const EVENT_USER_THEME_PREFERENCE: &str = "user.theme_preference";
 pub const EVENT_FILE_WRITE: &str = "file.write";
 pub const EVENT_FILE_EDIT: &str = "file.edit";

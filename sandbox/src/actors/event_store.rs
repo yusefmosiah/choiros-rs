@@ -138,6 +138,48 @@ impl EventStoreActor {
         )
         .await?;
 
+        // Add scope columns for safe session/thread isolation.
+        let mut table_info = conn.query("PRAGMA table_info(events)", ()).await?;
+        let mut has_session_id = false;
+        let mut has_thread_id = false;
+        while let Some(row) = table_info.next().await? {
+            let col_name: String = row.get(1)?;
+            if col_name == "session_id" {
+                has_session_id = true;
+            }
+            if col_name == "thread_id" {
+                has_thread_id = true;
+            }
+        }
+
+        if !has_session_id {
+            conn.execute("ALTER TABLE events ADD COLUMN session_id TEXT", ())
+                .await?;
+        }
+        if !has_thread_id {
+            conn.execute("ALTER TABLE events ADD COLUMN thread_id TEXT", ())
+                .await?;
+        }
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_session_thread ON events(session_id, thread_id)",
+            (),
+        )
+        .await?;
+
+        // Backfill any existing scoped payload rows into explicit columns.
+        conn.execute(
+            r#"
+            UPDATE events
+            SET
+                session_id = COALESCE(session_id, json_extract(payload, '$.scope.session_id')),
+                thread_id = COALESCE(thread_id, json_extract(payload, '$.scope.thread_id'))
+            WHERE session_id IS NULL OR thread_id IS NULL
+            "#,
+            (),
+        )
+        .await?;
+
         Ok(())
     }
 }
@@ -319,6 +361,18 @@ impl EventStoreActor {
         let conn = &state.conn;
         let event_id = ulid::Ulid::new().to_string();
         let payload_json = serde_json::to_string(&msg.payload)?;
+        let scope_session_id = msg
+            .payload
+            .get("scope")
+            .and_then(|s| s.get("session_id"))
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string);
+        let scope_thread_id = msg
+            .payload
+            .get("scope")
+            .and_then(|s| s.get("thread_id"))
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string);
 
         // Insert the event (libsql doesn't support RETURNING clause)
         // Clone values for params macro (it takes ownership)
@@ -327,15 +381,17 @@ impl EventStoreActor {
         let event_id_for_query = event_id.clone();
         conn.execute(
             r#"
-            INSERT INTO events (event_id, event_type, payload, actor_id, user_id)
-            VALUES (?1, ?2, ?3, ?4, ?5)
+            INSERT INTO events (event_id, event_type, payload, actor_id, user_id, session_id, thread_id)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
             "#,
             libsql::params![
                 event_id,
                 msg.event_type,
                 payload_json,
                 actor_id_clone,
-                user_id_clone
+                user_id_clone,
+                scope_session_id,
+                scope_thread_id
             ],
         )
         .await?;
@@ -435,8 +491,15 @@ impl EventStoreActor {
                 FROM events
                 WHERE actor_id = ?1
                   AND seq > ?2
-                  AND json_extract(payload, '$.scope.session_id') = ?3
-                  AND json_extract(payload, '$.scope.thread_id') = ?4
+                  AND (
+                      (session_id = ?3 AND thread_id = ?4)
+                      OR (
+                          session_id IS NULL
+                          AND thread_id IS NULL
+                          AND json_extract(payload, '$.scope.session_id') = ?3
+                          AND json_extract(payload, '$.scope.thread_id') = ?4
+                      )
+                  )
                 ORDER BY seq ASC
                 "#,
                 libsql::params![actor_id, since_seq, session_id, thread_id],

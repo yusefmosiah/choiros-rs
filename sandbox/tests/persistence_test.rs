@@ -1256,6 +1256,8 @@ async fn test_agent_logs_user_message() {
     // by checking the events that would be logged
     let _result = ractor::call!(agent_ref, |reply| ChatAgentMsg::ProcessMessage {
         text: "Hello, agent!".to_string(),
+        session_id: None,
+        thread_id: None,
         reply,
     });
 
@@ -1301,6 +1303,8 @@ async fn test_agent_logs_assistant_response() {
     // Process a message
     let result = ractor::call!(agent_ref, |reply| ChatAgentMsg::ProcessMessage {
         text: "Tell me a joke".to_string(),
+        session_id: None,
+        thread_id: None,
         reply,
     });
 
@@ -1478,6 +1482,8 @@ async fn test_agent_conversation_recovery() {
     // Simulate conversation
     let _ = ractor::call!(agent1_ref, |reply| ChatAgentMsg::ProcessMessage {
         text: "First message".to_string(),
+        session_id: None,
+        thread_id: None,
         reply,
     });
 

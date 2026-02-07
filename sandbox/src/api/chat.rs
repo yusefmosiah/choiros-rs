@@ -54,6 +54,16 @@ pub async fn send_message(
     let text = req.text.clone();
     let session_id = req.session_id.clone();
     let thread_id = req.thread_id.clone();
+    if let Err(error) = validate_scope_pair(&session_id, &thread_id) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "success": false,
+                "error": error,
+            })),
+        )
+            .into_response();
+    }
 
     // Get or create persistent ChatActor via Manager
     let chat_actor = match app_state
@@ -158,6 +168,8 @@ pub async fn send_message(
             tokio::spawn(async move {
                 match ractor::call!(chat_agent, |reply| ChatAgentMsg::ProcessMessage {
                     text: text_for_agent,
+                    session_id,
+                    thread_id,
                     reply,
                 }) {
                     Ok(Ok(response)) => {
@@ -219,6 +231,17 @@ pub async fn get_messages(
     Query(query): Query<GetMessagesQuery>,
     axum::extract::State(state): axum::extract::State<ApiState>,
 ) -> impl IntoResponse {
+    if let Err(error) = validate_scope_pair(&query.session_id, &query.thread_id) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "success": false,
+                "error": error
+            })),
+        )
+            .into_response();
+    }
+
     let app_state = state.app_state.clone();
 
     // Query EventStore directly for chat events using ractor
@@ -270,6 +293,17 @@ pub async fn get_messages(
             })),
         )
             .into_response(),
+    }
+}
+
+fn validate_scope_pair(
+    session_id: &Option<String>,
+    thread_id: &Option<String>,
+) -> Result<(), &'static str> {
+    match (session_id, thread_id) {
+        (Some(_), None) => Err("thread_id is required when session_id is provided"),
+        (None, Some(_)) => Err("session_id is required when thread_id is provided"),
+        _ => Ok(()),
     }
 }
 
