@@ -504,9 +504,23 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         let parsed_args: serde_json::Value = serde_json::from_str(&tool_args)
             .map_err(|e| ChatAgentError::Serialization(e.to_string()))?;
         let command = parsed_args
-            .get("command")
+            .get("cmd")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ChatAgentError::Validation("Missing 'command' argument".to_string()))?
+            .or_else(|| parsed_args.get("command").and_then(|v| v.as_str()))
+            .ok_or_else(|| {
+                ChatAgentError::Validation(
+                    "Missing 'cmd' (or legacy 'command') argument".to_string(),
+                )
+            })?
+            .to_string();
+        let _reasoning = parsed_args
+            .get("reasoning")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string);
+        let working_dir = parsed_args
+            .get("cwd")
+            .and_then(|v| v.as_str())
+            .unwrap_or(".")
             .to_string();
         let timeout_ms = parsed_args.get("timeout_ms").and_then(|v| v.as_u64());
 
@@ -523,7 +537,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                 actor_id: state.args.actor_id.clone(),
                 user_id: state.args.user_id.clone(),
                 shell: "/bin/zsh".to_string(),
-                working_dir: ".".to_string(),
+                working_dir: working_dir.clone(),
                 command: command.clone(),
                 timeout_ms,
                 session_id: session_id.clone(),

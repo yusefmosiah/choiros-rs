@@ -139,31 +139,49 @@ impl Tool for BashTool {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "command": {
+                "reasoning": {
                     "type": "string",
-                    "description": "The shell command to execute"
+                    "description": "Optional rationale for why this command is being run."
                 },
                 "timeout_ms": {
                     "type": "integer",
                     "description": "Timeout in milliseconds (default: 30000)",
                     "default": 30000
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Optional working directory for command execution."
+                },
+                "command": {
+                    "type": "string",
+                    "description": "The shell command to execute (legacy key)."
+                },
+                "cmd": {
+                    "type": "string",
+                    "description": "The shell command to execute (preferred key)."
                 }
             },
-            "required": ["command"]
+            "anyOf": [
+                { "required": ["command"] },
+                { "required": ["cmd"] }
+            ]
         })
     }
 
     fn execute(&self, args: Value) -> Result<ToolOutput, ToolError> {
         let command = args
-            .get("command")
+            .get("cmd")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::new("Missing 'command' parameter"))?
+            .or_else(|| args.get("command").and_then(|v| v.as_str()))
+            .ok_or_else(|| ToolError::new("Missing 'cmd' (or legacy 'command') parameter"))?
             .to_string();
 
         let timeout_ms = args
             .get("timeout_ms")
             .and_then(|v| v.as_u64())
             .unwrap_or(30000);
+
+        let working_dir = args.get("cwd").and_then(|v| v.as_str()).unwrap_or(".");
 
         // Execute with timeout using tokio::process::Command
         let runtime = tokio::runtime::Handle::try_current()
@@ -175,6 +193,7 @@ impl Tool for BashTool {
                 tokio::process::Command::new("sh")
                     .arg("-c")
                     .arg(&command)
+                    .current_dir(working_dir)
                     .output(),
             )
             .await
@@ -546,5 +565,30 @@ mod tests {
 
         let result = tool.execute(args);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_bash_schema_includes_cmd_and_reasoning() {
+        let tool = BashTool;
+        let schema = tool.parameters_schema();
+        let props = schema
+            .get("properties")
+            .and_then(|v| v.as_object())
+            .expect("bash schema properties missing");
+        assert!(props.contains_key("reasoning"));
+        assert!(props.contains_key("cwd"));
+        assert!(props.contains_key("cmd"));
+        assert!(props.contains_key("command"));
+    }
+
+    #[test]
+    fn test_bash_schema_anyof_accepts_cmd_or_command() {
+        let tool = BashTool;
+        let schema = tool.parameters_schema();
+        let any_of = schema
+            .get("anyOf")
+            .and_then(|v| v.as_array())
+            .expect("bash schema anyOf missing");
+        assert_eq!(any_of.len(), 2);
     }
 }
