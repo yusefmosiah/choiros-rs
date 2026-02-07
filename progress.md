@@ -201,11 +201,106 @@
 2. **File Browser** - File system navigation
 3. **Settings Panel** - Configuration UI
 
+## Rollback to Dioxus
+
+### Issues Encountered
+
+**Terminal CPU Regression:**
+- Browser CPU spiked with terminal windows
+- Exacerbated by page reloads and multi-browser sessions
+- ResizeObserver feedback loop causing excessive render churn
+- Fixed in React but fundamental architecture issue remained
+
+**Desktop Loading Deadlock:**
+- UI stuck on "Loading desktop..." when WebSocket startup failed
+- No timeout or fallback mechanism
+- Added 8-second timeout but issue persisted
+
+### Rollback Decision
+
+**Decision:** Keep `dioxus-desktop/` as active frontend, archive `sandbox-ui/` (React)
+
+**Rationale:**
+- Dioxus has stable WebSocket implementation
+- Terminal multi-browser/reload stability issues were fixable in Dioxus
+- React implementation had architectural issues (state duplication, complex event handling)
+- Development velocity higher with proven Dioxus codebase
+
+### Fixes Since Rollback
+
+- WebSocket stabilization: Replaced direct signal mutation with queued event processing
+- Terminal connection reliability: Added watchdog timeout, improved event sequencing
+- Window drag behavior: Moved to pointer lifecycle events (pointerdown/move/up)
+
 ---
 
 *Last updated: 2026-02-06*
-*Status: Phase 2 Complete, ready for Phase 3*
+*Status: Rolled back to Dioxus, React archived*
 *Commits: ~50 over 3 days*
+
+---
+
+# ChoirOS Progress - 2026-02-06 (Supervision Cutover Complete)
+
+## Summary
+
+**Supervision Cutover COMPLETE** - Successfully migrated from ActorManager-based architecture to ractor supervision tree. Removed ActorManager anti-patterns (DashMap, Mutex), all validation gates passing. Ready for multiagent rollout (ResearcherActor, DocsUpdaterActor, VerifierAgent, WatcherActors). See `docs/architecture/supervision-cutover-handoff.md` for full details.
+
+## Major Achievements
+
+**Supervision Tree Foundation:**
+- Migrated to ractor supervision tree pattern
+- Removed ActorManager central coordinator (anti-pattern)
+- Direct actor-to-actor communication via ractor
+- Event-driven architecture with EventStore as source of truth
+
+**Validation Gates Passing:**
+- Actor startup and shutdown sequences
+- Message passing between actors
+- Event persistence to SQLite
+- WebSocket connectivity
+- Desktop and window management
+- Terminal operations
+- Chat functionality
+
+**Multiagent Ready:**
+- Foundation laid for service actors
+- VerifierAgent (pipelining, sandbox isolation)
+- FixerActor (hotfix strategy, E2E reconciliation)
+- ResearcherActor (web search, LLM inference)
+- DocsUpdaterActor (in-memory index, system queries)
+- WatcherActors (file system monitoring)
+
+### Next Priority: Multiagent Rollout
+
+**Phase 1: Service Actors**
+- ResearcherActor - Web search and LLM inference
+- DocsUpdaterActor - In-memory documentation index
+- WatcherActors - File system change monitoring
+
+**Phase 2: Verification & Pipelining**
+- VerifierAgent - Sandbox isolation for code execution
+- FixerActor - Hotfix strategy and E2E reconciliation
+
+**Phase 3: Advanced Features**
+- Multi-agent coordination patterns
+- Supervisor message protocol
+- Restart strategies (one_for_one, simple_one_for_one)
+
+## Architecture Status
+
+```
+✅ dioxus-desktop/    - Active frontend (Dioxus 0.7)
+✅ Supervision tree   - COMPLETE (ractor-based)
+✅ Multiagent rollout - NEXT PHASE (per design doc)
+```
+
+**Reference:** `docs/architecture/supervision-cutover-handoff.md`
+
+---
+
+*Last updated: 2026-02-06*
+*Status: Supervision cutover complete, ready for multiagent rollout*
 
 ---
 

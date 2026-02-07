@@ -107,7 +107,7 @@ choiros-rs/
 │   │   ├── api/            # HTTP handlers
 │   │   └── actor_manager.rs
 │   └── Cargo.toml
-├── sandbox-ui/             # Dioxus frontend (WIP)
+├── dioxus-desktop/         # Dioxus 0.7 frontend (WASM)
 ├── hypervisor/             # Edge router (WIP)
 ├── shared-types/           # Shared types between FE/BE
 └── docs/

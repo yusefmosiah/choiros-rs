@@ -127,8 +127,7 @@ choiros-rs/
 │   │   ├── tools/       # Agent tool system
 │   │   └── baml_client/ # LLM integration
 │   └── tests/           # Integration tests
-├── sandbox-ui/          # Dioxus frontend
-│   └── src/
+├── dioxus-desktop/      # Dioxus 0.7 frontend (WASM)
 ├── shared-types/        # Common types (ActorId, Event, etc.)
 ├── hypervisor/          # VM management component
 └── skills/              # In-repo AI agent skills
@@ -314,5 +313,5 @@ Worker (200 calls)
 
 - All PRs require: formatting check, clippy, tests
 - Backend tests run with `cargo test -p sandbox`
-- Frontend builds with `cargo build` in `sandbox-ui/`
+- Frontend builds with `dx build` in `dioxus-desktop/`
 - E2E tests run on main branch pushes only

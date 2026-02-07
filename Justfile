@@ -18,10 +18,6 @@ dev-hypervisor:
 dev-ui:
     cd dioxus-desktop && dx serve --port 3000
 
-# Run React frontend backup (port 3000)
-dev-ui-react:
-    cd sandbox-ui && npm run dev -- --port 3000
-
 # Stop/kill running development processes
 stop:
     @echo "Stopping ChoirOS development processes..."
