@@ -282,7 +282,17 @@ async fn handle_chat_socket(
                         ));
 
                         let agent = match app_state
-                            .get_or_create_chat_agent(actor_id.clone(), user_id.clone())
+                            .get_or_create_chat_agent(
+                                scoped_agent_id(
+                                    &actor_id,
+                                    &Some(session_id.clone()),
+                                    &Some(thread_id.clone()),
+                                ),
+                                actor_id.clone(),
+                                user_id.clone(),
+                                Some(session_id.clone()),
+                                Some(thread_id.clone()),
+                            )
                             .await
                         {
                             Ok(agent) => agent,
@@ -362,10 +372,22 @@ async fn handle_chat_socket(
                     let app_state = app_state.clone();
                     let actor_id = actor_id.clone();
                     let user_id = user_id.clone();
+                    let session_id = session_id.clone();
+                    let thread_id = thread_id.clone();
 
                     tokio::spawn(async move {
                         let agent = match app_state
-                            .get_or_create_chat_agent(actor_id.clone(), user_id.clone())
+                            .get_or_create_chat_agent(
+                                scoped_agent_id(
+                                    &actor_id,
+                                    &Some(session_id.clone()),
+                                    &Some(thread_id.clone()),
+                                ),
+                                actor_id.clone(),
+                                user_id.clone(),
+                                Some(session_id.clone()),
+                                Some(thread_id.clone()),
+                            )
                             .await
                         {
                             Ok(agent) => agent,
@@ -448,6 +470,19 @@ async fn handle_chat_socket(
     }
 
     writer.abort();
+}
+
+fn scoped_agent_id(
+    actor_id: &str,
+    session_id: &Option<String>,
+    thread_id: &Option<String>,
+) -> String {
+    match (session_id, thread_id) {
+        (Some(session_id), Some(thread_id)) => {
+            format!("{actor_id}::session={session_id}::thread={thread_id}")
+        }
+        _ => actor_id.to_string(),
+    }
 }
 
 fn send_chunk(tx: &mpsc::UnboundedSender<Message>, chunk: StreamChunk) -> bool {

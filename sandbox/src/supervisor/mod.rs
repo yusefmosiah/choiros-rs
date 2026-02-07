@@ -107,7 +107,10 @@ pub enum ApplicationSupervisorMsg {
     /// Get or create a chat agent
     GetOrCreateChatAgent {
         agent_id: String,
+        chat_actor_id: String,
         user_id: String,
+        preload_session_id: Option<String>,
+        preload_thread_id: Option<String>,
         reply: RpcReplyPort<ractor::ActorRef<crate::actors::chat_agent::ChatAgentMsg>>,
     },
     /// Get or create a terminal session
@@ -420,7 +423,10 @@ impl Actor for ApplicationSupervisor {
             }
             ApplicationSupervisorMsg::GetOrCreateChatAgent {
                 agent_id,
+                chat_actor_id,
                 user_id,
+                preload_session_id,
+                preload_thread_id,
                 reply,
             } => {
                 let correlation_id = ulid::Ulid::new().to_string();
@@ -430,7 +436,10 @@ impl Actor for ApplicationSupervisor {
                     EventType::Custom("supervisor.chat_agent.get_or_create.started".to_string()),
                     serde_json::json!({
                         "agent_id": agent_id,
+                        "chat_actor_id": chat_actor_id,
                         "user_id": user_id,
+                        "preload_session_id": preload_session_id,
+                        "preload_thread_id": preload_thread_id,
                         "supervisor_id": myself.get_id().to_string(),
                     }),
                     correlation_id.clone(),
@@ -440,7 +449,10 @@ impl Actor for ApplicationSupervisor {
                     match ractor::call!(session_supervisor, |ss_reply| {
                         SessionSupervisorMsg::GetOrCreateChatAgent {
                             agent_id: agent_id.clone(),
+                            chat_actor_id: chat_actor_id.clone(),
                             user_id: user_id.clone(),
+                            preload_session_id: preload_session_id.clone(),
+                            preload_thread_id: preload_thread_id.clone(),
                             reply: ss_reply,
                         }
                     }) {
@@ -453,6 +465,7 @@ impl Actor for ApplicationSupervisor {
                                 ),
                                 serde_json::json!({
                                     "agent_id": agent_id,
+                                    "chat_actor_id": chat_actor_id,
                                     "user_id": user_id,
                                     "chat_agent_ref": actor_ref.get_id().to_string(),
                                     "supervisor_id": myself.get_id().to_string(),
@@ -470,6 +483,7 @@ impl Actor for ApplicationSupervisor {
                                 ),
                                 serde_json::json!({
                                     "agent_id": agent_id,
+                                    "chat_actor_id": chat_actor_id,
                                     "user_id": user_id,
                                     "error": e.to_string(),
                                     "supervisor_id": myself.get_id().to_string(),

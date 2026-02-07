@@ -85,6 +85,10 @@ Files:
   - initial event cursor now uses scoped query
   - incremental tool event polling now uses scoped query
   - prevents cross-thread tool event bleed on shared actor streams
+- Added scope-aware ChatAgent identity + preload:
+  - Chat agent key now includes session/thread when available
+  - ChatAgent preload fetch uses scoped EventStore query when scope is present
+  - prevents in-memory conversation history bleed across chat app instances
 
 Files:
 - `shared-types/src/lib.rs`
@@ -98,5 +102,5 @@ Files:
 
 1. Add supervisor/API metrics for scope-missing and scope-mismatch rejections.
 2. Add migration/backfill notes for legacy events without scope metadata.
-3. Add scope-aware retrieval path for ChatAgent history preload (avoid cross-thread memory bleed).
-4. Add explicit thread/session IDs on non-chat event domains where relevant (desktop/terminal).
+3. Add explicit thread/session IDs on non-chat event domains where relevant (desktop/terminal).
+4. Add explicit scope assertions in websocket integration tests (multi-instance same actor_id).

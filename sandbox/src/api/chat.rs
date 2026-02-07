@@ -142,7 +142,13 @@ pub async fn send_message(
             // Trigger ChatAgent to process the message and generate response (fire and forget).
             // ChatAgent logs assistant + tool events to EventStore.
             let chat_agent = match app_state
-                .get_or_create_chat_agent(actor_id.clone(), user_id.clone())
+                .get_or_create_chat_agent(
+                    scoped_agent_id(&actor_id, &session_id, &thread_id),
+                    actor_id.clone(),
+                    user_id.clone(),
+                    session_id.clone(),
+                    thread_id.clone(),
+                )
                 .await
             {
                 Ok(agent) => agent,
@@ -304,6 +310,19 @@ fn validate_scope_pair(
         (Some(_), None) => Err("thread_id is required when session_id is provided"),
         (None, Some(_)) => Err("session_id is required when thread_id is provided"),
         _ => Ok(()),
+    }
+}
+
+fn scoped_agent_id(
+    actor_id: &str,
+    session_id: &Option<String>,
+    thread_id: &Option<String>,
+) -> String {
+    match (session_id, thread_id) {
+        (Some(session_id), Some(thread_id)) => {
+            format!("{actor_id}::session={session_id}::thread={thread_id}")
+        }
+        _ => actor_id.to_string(),
     }
 }
 

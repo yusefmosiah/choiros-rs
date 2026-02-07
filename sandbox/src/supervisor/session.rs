@@ -45,7 +45,10 @@ pub enum SessionSupervisorMsg {
     },
     GetOrCreateChatAgent {
         agent_id: String,
+        chat_actor_id: String,
         user_id: String,
+        preload_session_id: Option<String>,
+        preload_thread_id: Option<String>,
         reply: RpcReplyPort<ActorRef<ChatAgentMsg>>,
     },
     GetOrCreateTerminal {
@@ -183,14 +186,20 @@ impl Actor for SessionSupervisor {
             }
             SessionSupervisorMsg::GetOrCreateChatAgent {
                 agent_id,
+                chat_actor_id,
                 user_id,
+                preload_session_id,
+                preload_thread_id,
                 reply,
             } => {
                 if let Some(chat_supervisor) = &state.chat_supervisor {
                     match ractor::call!(chat_supervisor, |chat_reply| {
                         ChatSupervisorMsg::GetOrCreateChatAgent {
                             agent_id: agent_id.clone(),
+                            chat_actor_id: chat_actor_id.clone(),
                             user_id: user_id.clone(),
+                            preload_session_id: preload_session_id.clone(),
+                            preload_thread_id: preload_thread_id.clone(),
                             reply: chat_reply,
                         }
                     }) {

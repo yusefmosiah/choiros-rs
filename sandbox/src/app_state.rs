@@ -86,13 +86,19 @@ impl AppState {
     pub async fn get_or_create_chat_agent(
         &self,
         agent_id: String,
+        chat_actor_id: String,
         user_id: String,
+        preload_session_id: Option<String>,
+        preload_thread_id: Option<String>,
     ) -> Result<ActorRef<ChatAgentMsg>, String> {
         let supervisor = self.ensure_supervisor().await?;
         ractor::call!(supervisor, |reply| {
             ApplicationSupervisorMsg::GetOrCreateChatAgent {
                 agent_id,
+                chat_actor_id,
                 user_id,
+                preload_session_id,
+                preload_thread_id,
                 reply,
             }
         })

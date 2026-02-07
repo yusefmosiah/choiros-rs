@@ -38,7 +38,10 @@ pub enum ChatSupervisorMsg {
     },
     GetOrCreateChatAgent {
         agent_id: String,
+        chat_actor_id: String,
         user_id: String,
+        preload_session_id: Option<String>,
+        preload_thread_id: Option<String>,
         reply: RpcReplyPort<ActorRef<ChatAgentMsg>>,
     },
     GetChat {
@@ -162,7 +165,10 @@ impl Actor for ChatSupervisor {
             }
             ChatSupervisorMsg::GetOrCreateChatAgent {
                 agent_id,
+                chat_actor_id,
                 user_id,
+                preload_session_id,
+                preload_thread_id,
                 reply,
             } => {
                 if let Some(agent) = state.agents.get(&agent_id) {
@@ -179,9 +185,11 @@ impl Actor for ChatSupervisor {
                 }
 
                 let args = ChatAgentArguments {
-                    actor_id: agent_id.clone(),
+                    actor_id: chat_actor_id,
                     user_id,
                     event_store: state.event_store.clone(),
+                    preload_session_id,
+                    preload_thread_id,
                 };
                 match Actor::spawn_linked(
                     Some(actor_name),
@@ -240,12 +248,18 @@ pub async fn get_or_create_chat(
 pub async fn get_or_create_chat_agent(
     supervisor: &ActorRef<ChatSupervisorMsg>,
     agent_id: impl Into<String>,
+    chat_actor_id: impl Into<String>,
     user_id: impl Into<String>,
+    preload_session_id: Option<String>,
+    preload_thread_id: Option<String>,
 ) -> Result<ActorRef<ChatAgentMsg>, ractor::RactorErr<ChatSupervisorMsg>> {
     ractor::call!(supervisor, |reply| {
         ChatSupervisorMsg::GetOrCreateChatAgent {
             agent_id: agent_id.into(),
+            chat_actor_id: chat_actor_id.into(),
             user_id: user_id.into(),
+            preload_session_id,
+            preload_thread_id,
             reply,
         }
     })

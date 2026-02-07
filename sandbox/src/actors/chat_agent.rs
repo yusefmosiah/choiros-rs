@@ -23,6 +23,8 @@ pub struct ChatAgentArguments {
     pub actor_id: String,
     pub user_id: String,
     pub event_store: ActorRef<EventStoreMsg>,
+    pub preload_session_id: Option<String>,
+    pub preload_thread_id: Option<String>,
 }
 
 /// State for ChatAgent
@@ -486,10 +488,19 @@ impl Actor for ChatAgent {
         );
 
         let messages = match ractor::call!(args.event_store.clone(), |reply| {
-            EventStoreMsg::GetEventsForActor {
-                actor_id: args.actor_id.clone(),
-                since_seq: 0,
-                reply,
+            match (&args.preload_session_id, &args.preload_thread_id) {
+                (Some(session_id), Some(thread_id)) => EventStoreMsg::GetEventsForActorWithScope {
+                    actor_id: args.actor_id.clone(),
+                    session_id: session_id.clone(),
+                    thread_id: thread_id.clone(),
+                    since_seq: 0,
+                    reply,
+                },
+                _ => EventStoreMsg::GetEventsForActor {
+                    actor_id: args.actor_id.clone(),
+                    since_seq: 0,
+                    reply,
+                },
             }
         }) {
             Ok(Ok(events)) => Self::history_from_events(events),
@@ -682,6 +693,8 @@ mod tests {
                 actor_id: "agent-1".to_string(),
                 user_id: "user-1".to_string(),
                 event_store: event_store_ref.clone(),
+                preload_session_id: None,
+                preload_thread_id: None,
             },
         )
         .await
@@ -711,6 +724,8 @@ mod tests {
                 actor_id: "agent-1".to_string(),
                 user_id: "user-1".to_string(),
                 event_store: event_store_ref.clone(),
+                preload_session_id: None,
+                preload_thread_id: None,
             },
         )
         .await
@@ -768,6 +783,8 @@ mod tests {
                 actor_id,
                 user_id: "user-1".to_string(),
                 event_store: event_store_ref.clone(),
+                preload_session_id: None,
+                preload_thread_id: None,
             },
         )
         .await
