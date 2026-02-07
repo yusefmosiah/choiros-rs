@@ -1,45 +1,45 @@
 # ChoirOS Roadmap Dependency Tree
 
-Date: 2026-02-06
-Status: Working roadmap (execution-oriented)
+**Date:** 2026-02-08
+**Status:** Working roadmap (execution-oriented)
 
-## Execution Snapshot (2026-02-07)
+---
 
-- Phase B is now actively implemented:
+## Execution Snapshot (2026-02-08)
+
+- Phase B is actively implemented:
   - delegated terminal task contracts (`task_id`, `correlation_id`, scope keys, status) are live
   - asynchronous delegation API is live in `ApplicationSupervisor`
   - delegated tasks persist worker lifecycle events (`started/progress/completed/failed`)
-  - terminal delegation now routes through an internal agentic harness in `TerminalActor`
-- Phase F remains in progress:
-  - scope-aware chat/thread isolation is implemented for API + websocket/event retrieval
+  - terminal delegation routes through internal agentic harness in `TerminalActor`
+
+- Phase F (Identity/Scope) remains in progress:
+  - scope-aware chat/thread isolation implemented for API + websocket/event retrieval
   - full non-chat scope propagation remains open
-- Phase B gate state:
-  - delegated execution + correlation continuity tests are passing
-  - non-zero command exit now correctly maps to `worker_failed`
+
+- **New Architecture Direction** (2026-02-08):
+  - Capability Actor pattern: tool → agent → actor with standard contract
+  - StateIndexActor: compressed state plane (AHDB) for all actor context
+  - PromptBarActor: universal entrypoint above individual apps
+  - Safety as capability: Verifier, HITL (email), Policy, LLM guardrails
+  - Self-hosting introspection: Choir modifying Choir with headless test sandboxes
+
+---
 
 ## Purpose
 
-Define a safe execution order for multiagent rollout, context management, sandbox persistence, app expansion, hypervisor work, and Nix/NixOS migration.
+Define a safe execution order for:
+1. Multiagent control plane and capability architecture
+2. Safety and verification infrastructure
+3. Context management and state plane
+4. Auth and identity enforcement
+5. Sandbox persistence and hypervisor integration
+6. Self-hosting introspection (code modification)
+7. Nix/NixOS migration
 
-This roadmap is intentionally biased toward delivery safety and low rework.
+Biased toward delivery safety, low rework, and solid foundations before self-hosting features.
 
-## Critical Analysis of Current Plan
-
-What is strong:
-- Correct priority: finish supervision cutover before multiagent complexity.
-- Correct intuition: context architecture and sandbox persistence affect long-term design.
-- Correct ambition: move chat from direct tools to specialist agents.
-
-What is risky if executed naively:
-- Building advanced context layering before identity/scoping can cause data-leak rework.
-- Forcing chat to delegate all tool calls immediately can reduce reliability and increase latency.
-- Expanding app surface (mail/calendar/media) before core control-plane maturity creates maintenance drag.
-- Running a full Nix/NixOS rebase in parallel with platform refactor can stall feature velocity.
-
-Key simplification:
-- Keep one canonical state backend (SQLite/libsql) for events and memory.
-- Treat JSONL as export/debug artifact, not source of truth.
-- Build minimal interfaces now, full implementations later.
+---
 
 ## Dependency Tree
 
@@ -48,183 +48,350 @@ A. Supervision Cutover (complete)
    |
    +--> B. Multiagent Control Plane v1
    |      |
-   |      +--> C. Chat Delegation Refactor (planner/router + specialists)
+   |      +--> B1. Capability Contract Schema (docs + types)
    |      |      |
-   |      |      +--> D. Context Broker v1 (layered retrieval)
+   |      |      +--> B2. StateIndexActor (compressed state plane)
    |      |             |
-   |      |             +--> E. App Expansion Wave 1 (file explorer, settings, viewers, iframe)
-   |      |
-   |      +--> F. Identity and Scope Enforcement v1
+   |      |             +--> B3. PromptBarActor (universal entrypoint)
+   |      |                    |
+   |      |                    +--> B4. First Capability: GitActor
+   |      |                           |
+   |      |                           +--> B5. SafetyOrchestrator (verifiers, policy)
+   |      |                                  |
+   |      +--> F. Identity and Scope Enforcement v1 (parallel with B2-B5)
    |             |
-   |             +--> D. Context Broker v1 (hard dependency for safe memory isolation)
-   |             +--> G. SandboxFS Persistence (sqlite/libsql snapshots)
+   |             +--> C. Chat Delegation Refactor (depends on B3, F)
    |                    |
-   |                    +--> H. Hypervisor Integration
+   |                    +--> D. Context Broker v1 (depends on B2, F)
+   |                           |
+   |                           +--> E. App Expansion Wave 1
    |
-   +--> I. Nix/NixOS Migration (staged, cross-cutting)
+   +--> G. SandboxFS Persistence (parallel with D)
+          |
+          +--> H. Hypervisor Integration
+                 |
+                 +--> J. Self-Hosting Introspection v1
+                        |
+                        +--> J1. Prompt visibility + editing
+                        +--> J2. Code introspection (read-only)
+                        +--> J3. Headless test sandbox
+                        +--> J4. Safe self-modification loop
+   |
+   +--> I. Nix/NixOS Migration (cross-cutting)
           +--> I1. Dev shell + toolchain pinning
           +--> I2. CI parity and reproducible builds
-          +--> I3. Deploy packaging
+          +--> I3. Deployment packaging
           +--> I4. Host-level NixOS operations
 ```
 
-## Critical Path
+---
 
-1. B Multiagent Control Plane v1
-2. F Identity and Scope Enforcement v1
-3. C Chat Delegation Refactor
-4. D Context Broker v1
-5. G SandboxFS Persistence
-6. H Hypervisor Integration
+## Critical Path (Updated)
 
-Notes:
-- F must land before D is considered production-safe.
-- C can start in parallel with F, but production rollout depends on F.
+1. **B1** Capability Contract Schema — standard envelope for all actors
+2. **B2** StateIndexActor — compressed state plane (foundation for context)
+3. **F** Identity and Scope Enforcement — security boundary
+4. **B3** PromptBarActor — universal entrypoint
+5. **B4** GitActor — prove capability pattern
+6. **B5** SafetyOrchestrator — verifiers and policy
+7. **C** Chat Delegation Refactor — router to capabilities
+8. **D** Context Broker v1 — layered retrieval
+9. **G+H** Persistence + Hypervisor — foundation for J
+10. **J** Self-Hosting Introspection — Choir modifying Choir
 
-## Now vs Later
+---
 
-Now (must execute before multiagent rollout):
-- B Multiagent Control Plane v1
-- F Identity and Scope Enforcement v1 (minimal, not full auth platform)
-- C Chat Delegation Refactor v1 (selective delegation)
-- D Context Broker v1 (summary + raw handle expansion)
+## Execution Phases (Detailed)
 
-Next (after stable multiagent baseline):
-- G SandboxFS Persistence
-- H Hypervisor Integration
-- E App Expansion Wave 1
+### Phase B1 - Capability Contract Schema
+**Objective:** Define the standard interface all capability actors implement.
 
-Later (do not block product path):
-- E App Expansion Wave 2 (mail, calendar, richer multimedia)
-- I3/I4 deeper Nix/NixOS operations changes
+**Deliverables:**
+- `shared-types/src/capability.rs`: `CapabilityInput`, `CapabilityOutput`, `CapabilityEvent`
+- `shared-types/src/safety.rs`: `SafetyPolicy`, `VerificationLevel`, `EnforcementLevel`
+- `docs/design/capability-lifecycle.md`: State machine specification
+- `docs/design/safety-decision-flow.md`: Safety architecture
 
-## Execution Phases and Gates
+**Gate:**
+- Schema review complete, types compile, documentation approved.
 
-### Phase B - Multiagent Control Plane v1
-Objective:
-- Introduce supervisor orchestration and specialist agent contracts.
+---
 
-Deliverables:
-- Message protocols for Supervisor, TerminalAgent, ResearcherAgent, DocsUpdater.
-- Correlation IDs and event topic conventions.
-- One end-to-end delegated flow.
+### Phase B2 - StateIndexActor (Compressed State Plane)
+**Objective:** Build the AHDB state index that all actors query for context.
 
-Gate:
-- A delegated terminal or research task completes with persisted events and traceable correlation ID.
+**Deliverables:**
+- `StateIndexActor`: subscribes to EventBus, maintains compressed snapshots
+- `CompressedState` struct: active goals, task checklist, recent blocks, scope anchors
+- `TaskForest`: hierarchical task tree with live status
+- Query API: `GetLatestSnapshot`, `GetTaskTree`, `GetAlerts`
+
+**Gate:**
+- Snapshot generation < 100ms for 10K events.
+- Task tree renders in UI with live updates.
+
+---
 
 ### Phase F - Identity and Scope Enforcement v1
-Objective:
-- Prevent cross-user/session data leakage before compounding memory.
+**Objective:** Prevent cross-user/session data leakage.
 
-Deliverables:
-- Required scope keys on requests/events: user_id, session_id, app_id, thread_id, sandbox_id.
-- Enforcement checks at API and supervisor boundaries.
+**Deliverables:**
+- Required scope keys: `user_id`, `session_id`, `app_id`, `thread_id`, `sandbox_id`
+- Enforcement at API and supervisor boundaries
+- Auth integration: session validation, token lifecycle
 
-Gate:
+**Gate:**
 - Isolation tests prove no cross-user/session retrieval leakage.
 
+---
+
+### Phase B3 - PromptBarActor (Universal Entrypoint)
+**Objective:** Global intent router above individual apps.
+
+**Deliverables:**
+- `PromptBarActor`: receives all user input (typed, voice)
+- Intent classification: NL → structured capability calls
+- Routing to: ChatActor, TerminalActor, GitActor, etc.
+- UI: persistent input bar, hierarchical task checklist display
+
+**Gate:**
+- "Open chat with X" and "Run command Y" both route correctly.
+- Task tree visible and updates live.
+
+---
+
+### Phase B4 - GitActor (First Capability)
+**Objective:** Prove capability actor pattern with concrete implementation.
+
+**Deliverables:**
+- `GitActor`: typed git ops (status, diff, branch, commit, push, log, checkout)
+- Event-sourced: `EVENT_GIT_COMMIT`, `EVENT_GIT_BRANCH`, etc.
+- Safety policy integration
+- Observable via same `CapabilityEvent` schema as all capabilities
+
+**Gate:**
+- Git operations complete with full event trail.
+- Failed operations retry with supervision.
+
+---
+
+### Phase B5 - SafetyOrchestrator
+**Objective:** Safety as a capability layer, not an afterthought.
+
+**Deliverables:**
+- `PolicyEnforcementActor`: static rule checking
+- `VerifierActor`: automatic verification (code, claims)
+- `LLMGuardrailActor`: prompt-based safety checks
+- `HumanInTheLoopActor`: email-based confirmation (Resend + mymx)
+- Safety decision flow: Policy → Verifier → HITL
+
+**Gate:**
+- Policy blocks unauthorized capability calls.
+- Verifier catches bad code/claims.
+- HITL sends email and blocks until response.
+
+---
+
 ### Phase C - Chat Delegation Refactor v1
-Objective:
-- Chat is planner/router for specialist tasks; retain narrow direct-tool fallback.
+**Objective:** Chat is planner/router; capabilities do the work.
 
-Deliverables:
-- Routing policy: which intents delegate and which stay local.
-- Timeout/retry/error contracts for specialist calls.
+**Deliverables:**
+- Chat routes intents to capability actors via PromptBar
+- Retains narrow direct-tool fallback for latency-critical paths
+- Timeout/retry/error contracts for all capability calls
+- Observable delegation flow
 
-Gate:
-- Chat delegation success on terminal and research paths with graceful degradation on agent failure.
+**Gate:**
+- Chat delegates to Terminal via capability contract.
+- Graceful degradation on capability failure.
+
+---
 
 ### Phase D - Context Broker v1
-Objective:
-- Layered context retrieval with compounding intelligence and drill-down handles.
+**Objective:** Layered context retrieval with drill-down.
 
-Deliverables:
-- Canonical events in libsql.
-- Derived memory layers: global, workspace, session, thread.
-- API: brief_context + relevant_handles + expand(handle).
+**Deliverables:**
+- Canonical events in libsql
+- Memory layers: global, workspace, session, thread
+- API: `brief_context` + `relevant_handles` + `expand(handle)`
+- Integration with StateIndexActor snapshots
 
-Gate:
-- Relevance test shows prior session insights improve a later task without violating scope boundaries.
+**Gate:**
+- Relevance test: prior session insights improve later task.
+- No scope boundary violations.
+
+---
 
 ### Phase G - SandboxFS Persistence
-Objective:
-- Durable virtual filesystem with snapshot and rehydrate.
+**Objective:** Durable virtual filesystem.
 
-Deliverables:
-- SandboxFS interface: read/write/list/delete/snapshot/rehydrate.
-- SQLite/libsql-backed storage and versioned snapshots.
+**Deliverables:**
+- SandboxFS interface: read/write/list/delete/snapshot/rehydrate
+- SQLite-backed storage
+- Versioned snapshots
 
-Gate:
-- Restart/rehydrate test restores files and metadata deterministically.
+**Gate:**
+- Restart/rehydrate test restores files deterministically.
+
+---
 
 ### Phase H - Hypervisor Integration
-Objective:
-- Bind sandbox lifecycle to identity and persistent state.
+**Objective:** Bind sandbox lifecycle to identity and state.
 
-Deliverables:
-- Session-attached sandbox allocation.
-- Attach/detach/restore lifecycle.
+**Deliverables:**
+- Session-attached sandbox allocation
+- Attach/detach/restore lifecycle
+- Integration with SandboxFS snapshots
 
-Gate:
+**Gate:**
 - Multi-session integration tests pass with strict isolation.
+
+---
+
+### Phase J - Self-Hosting Introspection v1
+**Objective:** Choir can see and modify itself safely.
+
+**J1. Prompt Visibility + Editing**
+- `PromptRegistry`: all system prompts visible in UI
+- `PromptEditorApp`: view, edit, version prompts
+- Prompt safety guardrails (LLM-based checks)
+
+**J2. Code Introspection**
+- `CodeIntrospectionActor`: read source, AST index, find implementations
+- `SystemBrowserApp`: browse actors, see source, trace events
+
+**J3. Headless Test Sandbox**
+- `HeadlessSandboxActor`: spawn isolated Choir instance
+- Run tests against modified code
+- Nix reproducible builds (I2)
+
+**J4. Safe Self-Modification Loop**
+- Change proposal → safety checks → headless test → HITL approval
+- Browser state hydration for live cutover
+- Rollback capability
+
+**Gate:**
+- Choir modifies a prompt, tests pass, deploys safely.
+
+---
+
+### Phase I - Nix/NixOS Migration (Cross-Cutting)
+
+**I1. Dev Shell + Toolchain Pinning**
+- `flake.nix` with Rust, Node, dependencies
+- `direnv` integration
+
+**I2. CI Parity and Reproducible Builds**
+- GitHub Actions use Nix
+- Binary cache
+
+**I3. Deployment Packaging**
+- Docker image from Nix build
+- EC2/NixOS deployment
+
+**I4. Host-Level NixOS Operations**
+- Full NixOS host configuration
+- Declarative infrastructure
+
+---
 
 ## App Expansion Strategy
 
-Wave 1 (after D, optionally parallel with G):
+**Wave 1 (after D):**
 - File Explorer
 - Settings
+- System Browser (code introspection)
+- Prompt Editor
 - Multimedia and generic viewers
-- Safe iframe window + YouTube embed support
+- Safe iframe window
 
-Wave 2 (after G + H maturity):
-- Mail
+**Wave 2 (after J3):**
+- Mail App (HITL + email ingress)
 - Calendar
 - Advanced media workflows
 
-Rule:
-- No new app requiring persistent per-user data until F is complete.
+**Rule:** No new app requiring persistent per-user data until F is complete.
 
-## Nix/NixOS Strategy (Do Not Stall Product)
+---
 
-Stage 1 (early):
-- Nix dev shell with pinned toolchain.
+## Now vs Later (Updated)
 
-Stage 2 (early-mid):
-- CI reproducibility parity.
+**Now (must execute before capability rollout):**
+- B1 Capability Contract Schema
+- B2 StateIndexActor (compressed state plane)
+- F Identity and Scope Enforcement
+- B3 PromptBarActor
+- B4 GitActor (prove pattern)
+- B5 SafetyOrchestrator (policy, verifier, basic HITL)
 
-Stage 3 (mid):
-- Deployment packaging improvements.
+**Next (stable capability baseline):**
+- C Chat Delegation Refactor
+- D Context Broker v1
+- E App Expansion Wave 1
 
-Stage 4 (late):
-- NixOS host operations migration.
+**Later (after G+H foundation):**
+- G SandboxFS Persistence
+- H Hypervisor Integration
+- J Self-Hosting Introspection
+- E App Expansion Wave 2
+- I3/I4 deeper Nix/NixOS
 
-Rule:
-- Product-critical milestones cannot be blocked on Stage 4.
+---
 
-## Risk Register and Mitigations
+## Risk Register (Updated)
 
-Risk: Context leakage across users/sessions.
-- Mitigation: enforce scope keys and retrieval guards before memory compounding.
+**Risk:** Capability contract instability causes rework across actors.
+- **Mitigation:** B1 is docs-only gate; no code until schema locked.
 
-Risk: Delegation brittleness (agent unavailable or slow).
-- Mitigation: selective delegation with bounded local fallback and hard timeouts.
+**Risk:** StateIndexActor becomes bottleneck.
+- **Mitigation:** Compressed snapshots only; full state fetched on demand.
 
-Risk: Competing migrations (multiagent + Nix + hypervisor) cause thrash.
-- Mitigation: WIP limits, staged gates, no cross-cutting epic starts without gate green.
+**Risk:** Safety guardrails are bypassable.
+- **Mitigation:** SafetyOrchestrator is capability all others call; no direct tool access.
 
-Risk: Documentation drift during rapid implementation.
-- Mitigation: require handoff update after each phase gate pass.
+**Risk:** HITL email delivery unreliable.
+- **Mitigation:** Multiple channel support (deferred); fallback to in-app notifications.
 
-## Definition of Ready for Multiagent Rollout
+**Risk:** Self-modification loop is insecure.
+- **Mitigation:** Headless sandbox + HITL + rollback; no auto-deploy without human.
 
-- Supervision-first runtime is stable.
-- Control-plane contracts are implemented and tested for at least one delegated flow.
-- Scope enforcement v1 is active on all relevant request/event paths.
-- Context broker API shape is defined (implementation may be partial, but interface is locked).
+**Risk:** Context leakage across users/sessions.
+- **Mitigation:** F must land before D or J.
 
-## Definition of Done for Pre-Sandbox Foundation
+**Risk:** Documentation drift.
+- **Mitigation:** Handoff update after each phase gate.
 
-- Phases B, F, C, D are complete and green.
-- No known cross-scope data leak issues.
-- Delegated chat workflows are observable and recoverable.
-- Clear implementation plan for G and H is documented with test gates.
+---
+
+## Definition of Ready for Capability Rollout
+
+- B1 schema locked and documented
+- B2 StateIndexActor serving snapshots
+- F scope enforcement active
+- B3 PromptBarActor routing intents
+- One capability (B4 GitActor) proven end-to-end
+- SafetyOrchestrator blocking unauthorized calls
+
+## Definition of Done for Pre-Introspection Foundation
+
+- Phases B1-B5, F, C, D complete
+- No known cross-scope leaks
+- Capability workflows observable and recoverable
+- Clear plan for G, H, J with test gates
+
+## Definition of Ready for Self-Hosting
+
+- G SandboxFS Persistence complete
+- H Hypervisor Integration complete
+- J1, J2 complete (prompt + code visibility)
+- J3 headless sandbox proven
+- Nix I2 reproducible builds
+- Rollback capability tested
+
+---
+
+## References
+
+- `docs/design/2026-02-08-capability-actor-architecture.md`
+- `docs/design/2026-02-08-self-hosting-introspection.md`
+- `docs/dev-blog/from-slop-to-signal-verified.md` (Ralph Loop demo)
