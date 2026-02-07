@@ -12,6 +12,7 @@ use std::sync::Arc;
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::baml_client::types::{Message as BamlMessage, ToolResult};
 use crate::baml_client::ClientRegistry;
+use crate::supervisor::ApplicationSupervisorMsg;
 use crate::tools::{ToolError, ToolOutput, ToolRegistry};
 
 /// ChatAgent - AI assistant with planning and tool execution capabilities
@@ -25,6 +26,7 @@ pub struct ChatAgentArguments {
     pub event_store: ActorRef<EventStoreMsg>,
     pub preload_session_id: Option<String>,
     pub preload_thread_id: Option<String>,
+    pub application_supervisor: Option<ActorRef<ApplicationSupervisorMsg>>,
 }
 
 /// State for ChatAgent
@@ -315,12 +317,23 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
             )
             .await?;
 
-            let result = execute_tool_impl(
-                state.tool_registry.clone(),
-                tool_call.tool_name.clone(),
-                tool_call.tool_args.clone(),
-            )
-            .await;
+            let result = if tool_call.tool_name == "bash" {
+                self.delegate_terminal_tool(
+                    state,
+                    tool_call.tool_args.clone(),
+                    session_id.clone(),
+                    thread_id.clone(),
+                )
+                .await
+                .map_err(|e| ToolError::new(e.to_string()))
+            } else {
+                execute_tool_impl(
+                    state.tool_registry.clone(),
+                    tool_call.tool_name.clone(),
+                    tool_call.tool_args.clone(),
+                )
+                .await
+            };
 
             match result {
                 Ok(output) => {
@@ -465,7 +478,194 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         tool_name: String,
         tool_args: String,
     ) -> Result<ToolOutput, ToolError> {
+        if tool_name == "bash" {
+            return self
+                .delegate_terminal_tool(state, tool_args, None, None)
+                .await
+                .map_err(|e| ToolError::new(e.to_string()));
+        }
+
         execute_tool_impl(state.tool_registry.clone(), tool_name, tool_args).await
+    }
+
+    async fn delegate_terminal_tool(
+        &self,
+        state: &ChatAgentState,
+        tool_args: String,
+        session_id: Option<String>,
+        thread_id: Option<String>,
+    ) -> Result<ToolOutput, ChatAgentError> {
+        let Some(supervisor) = &state.args.application_supervisor else {
+            return Err(ChatAgentError::Tool(
+                "ApplicationSupervisor unavailable for delegation".to_string(),
+            ));
+        };
+
+        let parsed_args: serde_json::Value = serde_json::from_str(&tool_args)
+            .map_err(|e| ChatAgentError::Serialization(e.to_string()))?;
+        let command = parsed_args
+            .get("command")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ChatAgentError::Validation("Missing 'command' argument".to_string()))?
+            .to_string();
+        let timeout_ms = parsed_args.get("timeout_ms").and_then(|v| v.as_u64());
+
+        let terminal_id = match (&session_id, &thread_id) {
+            (Some(session_id), Some(thread_id)) => {
+                format!("term:{}:{}:{}", state.args.actor_id, session_id, thread_id)
+            }
+            _ => format!("term:{}", state.args.actor_id),
+        };
+
+        let task = ractor::call!(supervisor, |reply| {
+            ApplicationSupervisorMsg::DelegateTerminalTask {
+                terminal_id,
+                actor_id: state.args.actor_id.clone(),
+                user_id: state.args.user_id.clone(),
+                shell: "/bin/zsh".to_string(),
+                working_dir: ".".to_string(),
+                command: command.clone(),
+                timeout_ms,
+                session_id: session_id.clone(),
+                thread_id: thread_id.clone(),
+                reply,
+            }
+        })
+        .map_err(|e| ChatAgentError::Tool(e.to_string()))?
+        .map_err(ChatAgentError::Tool)?;
+
+        let wait_timeout_ms = timeout_ms.unwrap_or(30_000).clamp(1_000, 120_000) + 2_000;
+        let result = self
+            .wait_for_delegated_task_result(
+                &state.args.event_store,
+                &state.args.actor_id,
+                &task.task_id,
+                session_id,
+                thread_id,
+                wait_timeout_ms,
+            )
+            .await?;
+
+        match result.status {
+            shared_types::DelegatedTaskStatus::Completed => Ok(ToolOutput {
+                success: true,
+                content: result
+                    .output
+                    .unwrap_or_else(|| "Terminal task completed (no output)".to_string()),
+            }),
+            shared_types::DelegatedTaskStatus::Failed => {
+                Err(ChatAgentError::Tool(result.error.unwrap_or_else(|| {
+                    "Delegated terminal task failed".to_string()
+                })))
+            }
+            _ => Err(ChatAgentError::Tool(
+                "Delegated task ended in unexpected state".to_string(),
+            )),
+        }
+    }
+
+    async fn wait_for_delegated_task_result(
+        &self,
+        event_store: &ActorRef<EventStoreMsg>,
+        actor_id: &str,
+        task_id: &str,
+        session_id: Option<String>,
+        thread_id: Option<String>,
+        timeout_ms: u64,
+    ) -> Result<shared_types::DelegatedTaskResult, ChatAgentError> {
+        let deadline =
+            tokio::time::Instant::now() + std::time::Duration::from_millis(timeout_ms.max(1_000));
+        let mut since_seq = 0;
+        loop {
+            if tokio::time::Instant::now() >= deadline {
+                return Err(ChatAgentError::Tool(format!(
+                    "Delegated terminal task timed out after {timeout_ms}ms while awaiting result"
+                )));
+            }
+
+            let events = match (&session_id, &thread_id) {
+                (Some(session_id), Some(thread_id)) => ractor::call!(event_store, |reply| {
+                    EventStoreMsg::GetEventsForActorWithScope {
+                        actor_id: actor_id.to_string(),
+                        session_id: session_id.clone(),
+                        thread_id: thread_id.clone(),
+                        since_seq,
+                        reply,
+                    }
+                })
+                .map_err(|e| ChatAgentError::EventStore(e.to_string()))?
+                .map_err(|e| ChatAgentError::EventStore(e.to_string()))?,
+                _ => ractor::call!(event_store, |reply| EventStoreMsg::GetEventsForActor {
+                    actor_id: actor_id.to_string(),
+                    since_seq,
+                    reply,
+                })
+                .map_err(|e| ChatAgentError::EventStore(e.to_string()))?
+                .map_err(|e| ChatAgentError::EventStore(e.to_string()))?,
+            };
+
+            for event in events {
+                since_seq = since_seq.max(event.seq);
+                let matches_task = event
+                    .payload
+                    .get("task_id")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v == task_id)
+                    .unwrap_or(false);
+                if !matches_task {
+                    continue;
+                }
+
+                let event_status = event
+                    .payload
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                let status = match event_status {
+                    "completed" => shared_types::DelegatedTaskStatus::Completed,
+                    "failed" => shared_types::DelegatedTaskStatus::Failed,
+                    "running" => shared_types::DelegatedTaskStatus::Running,
+                    "accepted" => shared_types::DelegatedTaskStatus::Accepted,
+                    _ => continue,
+                };
+                if !matches!(
+                    status,
+                    shared_types::DelegatedTaskStatus::Completed
+                        | shared_types::DelegatedTaskStatus::Failed
+                ) {
+                    continue;
+                }
+
+                return Ok(shared_types::DelegatedTaskResult {
+                    task_id: task_id.to_string(),
+                    correlation_id: event
+                        .payload
+                        .get("correlation_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    status,
+                    output: event
+                        .payload
+                        .get("output")
+                        .and_then(|v| v.as_str())
+                        .map(ToString::to_string),
+                    error: event
+                        .payload
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .map(ToString::to_string),
+                    started_at: event.timestamp.to_rfc3339(),
+                    finished_at: event
+                        .payload
+                        .get("finished_at")
+                        .and_then(|v| v.as_str())
+                        .map(ToString::to_string),
+                });
+            }
+
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
     }
 }
 
@@ -695,6 +895,7 @@ mod tests {
                 event_store: event_store_ref.clone(),
                 preload_session_id: None,
                 preload_thread_id: None,
+                application_supervisor: None,
             },
         )
         .await
@@ -726,6 +927,7 @@ mod tests {
                 event_store: event_store_ref.clone(),
                 preload_session_id: None,
                 preload_thread_id: None,
+                application_supervisor: None,
             },
         )
         .await
@@ -785,6 +987,7 @@ mod tests {
                 event_store: event_store_ref.clone(),
                 preload_session_id: None,
                 preload_thread_id: None,
+                application_supervisor: None,
             },
         )
         .await

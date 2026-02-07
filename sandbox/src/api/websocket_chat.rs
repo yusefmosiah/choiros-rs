@@ -606,6 +606,15 @@ async fn emit_tool_events_since(
                     },
                 );
             }
+            "worker_spawned" | "worker_progress" | "worker_complete" | "worker_failed" => {
+                let _ = send_chunk(
+                    tx,
+                    StreamChunk {
+                        chunk_type: "actor_call".to_string(),
+                        content: event.payload.to_string(),
+                    },
+                );
+            }
             _ => {}
         }
     }

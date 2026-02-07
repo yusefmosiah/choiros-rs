@@ -58,6 +58,7 @@ use crate::actors::event_bus::{
     Event, EventBusActor, EventBusArguments, EventBusConfig, EventBusMsg, EventType,
 };
 use crate::actors::event_store::EventStoreMsg;
+use crate::actors::terminal::TerminalMsg;
 
 /// Application supervisor - root of the supervision tree
 #[derive(Debug, Default)]
@@ -120,6 +121,19 @@ pub enum ApplicationSupervisorMsg {
         shell: String,
         working_dir: String,
         reply: RpcReplyPort<ractor::ActorRef<crate::actors::terminal::TerminalMsg>>,
+    },
+    /// Delegate a terminal command asynchronously via TerminalActor.
+    DelegateTerminalTask {
+        terminal_id: String,
+        actor_id: String,
+        user_id: String,
+        shell: String,
+        working_dir: String,
+        command: String,
+        timeout_ms: Option<u64>,
+        session_id: Option<String>,
+        thread_id: Option<String>,
+        reply: RpcReplyPort<Result<shared_types::DelegatedTask, String>>,
     },
     /// Return health snapshot and supervision counters.
     GetHealth {
@@ -230,6 +244,7 @@ impl Actor for ApplicationSupervisor {
         // Spawn SessionSupervisor as a supervised child
         let session_supervisor_args = SessionSupervisorArgs {
             event_store: event_store.clone(),
+            application_supervisor: myself.clone(),
         };
 
         let (session_supervisor, _handle) = Actor::spawn_linked(
@@ -608,6 +623,375 @@ impl Actor for ApplicationSupervisor {
                     )));
                 }
             }
+            ApplicationSupervisorMsg::DelegateTerminalTask {
+                terminal_id,
+                actor_id,
+                user_id,
+                shell,
+                working_dir,
+                command,
+                timeout_ms,
+                session_id,
+                thread_id,
+                reply,
+            } => {
+                let correlation_id = ulid::Ulid::new().to_string();
+                let task_id = ulid::Ulid::new().to_string();
+                let task = shared_types::DelegatedTask {
+                    task_id: task_id.clone(),
+                    correlation_id: correlation_id.clone(),
+                    actor_id: actor_id.clone(),
+                    session_id: session_id.clone(),
+                    thread_id: thread_id.clone(),
+                    kind: shared_types::DelegatedTaskKind::TerminalCommand,
+                    payload: serde_json::json!({
+                        "command": command,
+                        "shell": shell,
+                        "working_dir": working_dir,
+                        "user_id": user_id,
+                        "timeout_ms": timeout_ms,
+                    }),
+                };
+
+                Self::publish_worker_event(
+                    state.event_bus.clone(),
+                    shared_types::EVENT_TOPIC_WORKER_TASK_STARTED,
+                    EventType::WorkerSpawned,
+                    serde_json::json!({
+                        "task": task,
+                        "status": shared_types::DelegatedTaskStatus::Accepted,
+                        "started_at": chrono::Utc::now().to_rfc3339(),
+                    }),
+                    correlation_id.clone(),
+                    actor_id.clone(),
+                    session_id.clone(),
+                    thread_id.clone(),
+                );
+
+                let session_supervisor = match &state.session_supervisor {
+                    Some(s) => s.clone(),
+                    None => {
+                        Self::publish_worker_event(
+                            state.event_bus.clone(),
+                            shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                            EventType::WorkerFailed,
+                            serde_json::json!({
+                                "task_id": task_id,
+                                "status": shared_types::DelegatedTaskStatus::Failed,
+                                "error": "SessionSupervisor not available",
+                                "finished_at": chrono::Utc::now().to_rfc3339(),
+                            }),
+                            correlation_id,
+                            actor_id.clone(),
+                            session_id.clone(),
+                            thread_id.clone(),
+                        );
+                        let _ = reply.send(Err("SessionSupervisor not available".to_string()));
+                        return Ok(());
+                    }
+                };
+
+                let event_bus = state.event_bus.clone();
+                let task_for_reply = task.clone();
+                let _ = reply.send(Ok(task_for_reply));
+
+                tokio::spawn(async move {
+                    let terminal_ref = match ractor::call!(session_supervisor, |ss_reply| {
+                        SessionSupervisorMsg::GetOrCreateTerminal {
+                            terminal_id: terminal_id.clone(),
+                            user_id: user_id.clone(),
+                            shell: shell.clone(),
+                            working_dir: working_dir.clone(),
+                            reply: ss_reply,
+                        }
+                    }) {
+                        Ok(Ok(terminal_ref)) => terminal_ref,
+                        Ok(Err(e)) => {
+                            Self::publish_worker_event(
+                                event_bus,
+                                shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                EventType::WorkerFailed,
+                                serde_json::json!({
+                                    "task_id": task_id,
+                                    "status": shared_types::DelegatedTaskStatus::Failed,
+                                    "error": e,
+                                    "finished_at": chrono::Utc::now().to_rfc3339(),
+                                }),
+                                correlation_id,
+                                actor_id.clone(),
+                                session_id.clone(),
+                                thread_id.clone(),
+                            );
+                            return;
+                        }
+                        Err(e) => {
+                            Self::publish_worker_event(
+                                event_bus,
+                                shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                EventType::WorkerFailed,
+                                serde_json::json!({
+                                    "task_id": task_id,
+                                    "status": shared_types::DelegatedTaskStatus::Failed,
+                                    "error": e.to_string(),
+                                    "finished_at": chrono::Utc::now().to_rfc3339(),
+                                }),
+                                correlation_id,
+                                actor_id.clone(),
+                                session_id.clone(),
+                                thread_id.clone(),
+                            );
+                            return;
+                        }
+                    };
+
+                    match ractor::call!(terminal_ref, |start_reply| TerminalMsg::Start {
+                        reply: start_reply
+                    }) {
+                        Ok(Ok(()))
+                        | Ok(Err(crate::actors::terminal::TerminalError::AlreadyRunning)) => {}
+                        Ok(Err(e)) => {
+                            Self::publish_worker_event(
+                                event_bus,
+                                shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                EventType::WorkerFailed,
+                                serde_json::json!({
+                                    "task_id": task_id,
+                                    "status": shared_types::DelegatedTaskStatus::Failed,
+                                    "error": e.to_string(),
+                                    "finished_at": chrono::Utc::now().to_rfc3339(),
+                                }),
+                                correlation_id,
+                                actor_id.clone(),
+                                session_id.clone(),
+                                thread_id.clone(),
+                            );
+                            return;
+                        }
+                        Err(e) => {
+                            Self::publish_worker_event(
+                                event_bus,
+                                shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                EventType::WorkerFailed,
+                                serde_json::json!({
+                                    "task_id": task_id,
+                                    "status": shared_types::DelegatedTaskStatus::Failed,
+                                    "error": e.to_string(),
+                                    "finished_at": chrono::Utc::now().to_rfc3339(),
+                                }),
+                                correlation_id,
+                                actor_id.clone(),
+                                session_id.clone(),
+                                thread_id.clone(),
+                            );
+                            return;
+                        }
+                    }
+
+                    Self::publish_worker_event(
+                        event_bus.clone(),
+                        shared_types::EVENT_TOPIC_WORKER_TASK_PROGRESS,
+                        EventType::WorkerProgress,
+                        serde_json::json!({
+                            "task_id": task_id,
+                            "status": shared_types::DelegatedTaskStatus::Running,
+                            "message": "terminal ready; dispatching command",
+                            "timestamp": chrono::Utc::now().to_rfc3339(),
+                        }),
+                        correlation_id.clone(),
+                        actor_id.clone(),
+                        session_id.clone(),
+                        thread_id.clone(),
+                    );
+
+                    let timeout_ms = timeout_ms.unwrap_or(30_000).clamp(1_000, 120_000);
+                    Self::publish_worker_event(
+                        event_bus.clone(),
+                        shared_types::EVENT_TOPIC_WORKER_TASK_PROGRESS,
+                        EventType::WorkerProgress,
+                        serde_json::json!({
+                            "task_id": task_id,
+                            "status": shared_types::DelegatedTaskStatus::Running,
+                            "phase": "terminal_agent_dispatch",
+                            "message": "terminal agent accepted request and is running",
+                            "timestamp": chrono::Utc::now().to_rfc3339(),
+                        }),
+                        correlation_id.clone(),
+                        actor_id.clone(),
+                        session_id.clone(),
+                        thread_id.clone(),
+                    );
+
+                    let (result_tx, mut result_rx) = tokio::sync::oneshot::channel();
+                    let terminal_ref_for_task = terminal_ref.clone();
+                    let command_for_task = command.clone();
+                    tokio::spawn(async move {
+                        let call_result = ractor::call!(terminal_ref_for_task, |agent_reply| {
+                            TerminalMsg::RunAgenticTask {
+                                objective: command_for_task,
+                                timeout_ms: Some(timeout_ms),
+                                max_steps: Some(4),
+                                reply: agent_reply,
+                            }
+                        });
+                        let _ = result_tx.send(call_result);
+                    });
+
+                    let start_time = tokio::time::Instant::now();
+                    let hard_deadline = start_time
+                        + std::time::Duration::from_millis(timeout_ms.saturating_add(20_000));
+                    let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(2));
+                    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+                    loop {
+                        tokio::select! {
+                            _ = heartbeat.tick() => {
+                                let elapsed_ms = tokio::time::Instant::now()
+                                    .duration_since(start_time)
+                                    .as_millis() as u64;
+                                Self::publish_worker_event(
+                                    event_bus.clone(),
+                                    shared_types::EVENT_TOPIC_WORKER_TASK_PROGRESS,
+                                    EventType::WorkerProgress,
+                                    serde_json::json!({
+                                        "task_id": task_id,
+                                        "status": shared_types::DelegatedTaskStatus::Running,
+                                        "phase": "terminal_agent_running",
+                                        "elapsed_ms": elapsed_ms,
+                                        "message": "terminal agent is still running",
+                                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                                    }),
+                                    correlation_id.clone(),
+                                    actor_id.clone(),
+                                    session_id.clone(),
+                                    thread_id.clone(),
+                                );
+                            }
+                            _ = tokio::time::sleep_until(hard_deadline) => {
+                                Self::publish_worker_event(
+                                    event_bus,
+                                    shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                    EventType::WorkerFailed,
+                                    serde_json::json!({
+                                        "task_id": task_id,
+                                        "status": shared_types::DelegatedTaskStatus::Failed,
+                                        "error": format!("terminal agent did not return within {}ms", timeout_ms.saturating_add(20_000)),
+                                        "finished_at": chrono::Utc::now().to_rfc3339(),
+                                    }),
+                                    correlation_id,
+                                    actor_id.clone(),
+                                    session_id.clone(),
+                                    thread_id.clone(),
+                                );
+                                return;
+                            }
+                            result = &mut result_rx => {
+                                match result {
+                                    Ok(Ok(Ok(result))) => {
+                                        if !result.success {
+                                            Self::publish_worker_event(
+                                                event_bus,
+                                                shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                                EventType::WorkerFailed,
+                                                serde_json::json!({
+                                                    "task_id": task_id,
+                                                    "status": shared_types::DelegatedTaskStatus::Failed,
+                                                    "error": match result.exit_code {
+                                                        Some(code) => format!("terminal command exited with status {code}"),
+                                                        None => "terminal agent task failed".to_string(),
+                                                    },
+                                                    "output": result.summary,
+                                                    "reasoning": result.reasoning,
+                                                    "executed_commands": result.executed_commands,
+                                                    "steps": result.steps,
+                                                    "finished_at": chrono::Utc::now().to_rfc3339(),
+                                                }),
+                                                correlation_id,
+                                                actor_id.clone(),
+                                                session_id.clone(),
+                                                thread_id.clone(),
+                                            );
+                                            return;
+                                        }
+                                        Self::publish_worker_event(
+                                            event_bus,
+                                            shared_types::EVENT_TOPIC_WORKER_TASK_COMPLETED,
+                                            EventType::WorkerComplete,
+                                            serde_json::json!({
+                                                "task_id": task_id,
+                                                "status": shared_types::DelegatedTaskStatus::Completed,
+                                                "output": result.summary,
+                                                "reasoning": result.reasoning,
+                                                "executed_commands": result.executed_commands,
+                                                "steps": result.steps,
+                                                "finished_at": chrono::Utc::now().to_rfc3339(),
+                                            }),
+                                            correlation_id,
+                                            actor_id.clone(),
+                                            session_id.clone(),
+                                            thread_id.clone(),
+                                        );
+                                        return;
+                                    }
+                                    Ok(Ok(Err(e))) => {
+                                        Self::publish_worker_event(
+                                            event_bus,
+                                            shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                            EventType::WorkerFailed,
+                                            serde_json::json!({
+                                                "task_id": task_id,
+                                                "status": shared_types::DelegatedTaskStatus::Failed,
+                                                "error": e.to_string(),
+                                                "finished_at": chrono::Utc::now().to_rfc3339(),
+                                            }),
+                                            correlation_id,
+                                            actor_id.clone(),
+                                            session_id.clone(),
+                                            thread_id.clone(),
+                                        );
+                                        return;
+                                    }
+                                    Ok(Err(e)) => {
+                                        Self::publish_worker_event(
+                                            event_bus,
+                                            shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                            EventType::WorkerFailed,
+                                            serde_json::json!({
+                                                "task_id": task_id,
+                                                "status": shared_types::DelegatedTaskStatus::Failed,
+                                                "error": e.to_string(),
+                                                "finished_at": chrono::Utc::now().to_rfc3339(),
+                                            }),
+                                            correlation_id,
+                                            actor_id.clone(),
+                                            session_id.clone(),
+                                            thread_id.clone(),
+                                        );
+                                        return;
+                                    }
+                                    Err(_) => {
+                                        Self::publish_worker_event(
+                                            event_bus,
+                                            shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                            EventType::WorkerFailed,
+                                            serde_json::json!({
+                                                "task_id": task_id,
+                                                "status": shared_types::DelegatedTaskStatus::Failed,
+                                                "error": "terminal agent result channel closed".to_string(),
+                                                "finished_at": chrono::Utc::now().to_rfc3339(),
+                                            }),
+                                            correlation_id,
+                                            actor_id.clone(),
+                                            session_id.clone(),
+                                            thread_id.clone(),
+                                        );
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
             ApplicationSupervisorMsg::GetHealth { reply } => {
                 let _ = reply.send(ApplicationSupervisorHealth {
                     event_bus_healthy: state.event_bus.is_some(),
@@ -662,6 +1046,56 @@ impl ApplicationSupervisor {
             }
         ) {
             tracing::warn!(error = %e, topic, "Failed to publish supervisor event");
+        }
+    }
+
+    fn publish_worker_event(
+        event_bus: Option<ActorRef<EventBusMsg>>,
+        topic: &str,
+        event_type: EventType,
+        payload: serde_json::Value,
+        correlation_id: String,
+        source_actor_id: String,
+        session_id: Option<String>,
+        thread_id: Option<String>,
+    ) {
+        let Some(event_bus) = event_bus else {
+            return;
+        };
+
+        let payload_with_correlation = match payload {
+            serde_json::Value::Object(mut obj) => {
+                obj.insert(
+                    "correlation_id".to_string(),
+                    serde_json::Value::String(correlation_id.clone()),
+                );
+                serde_json::Value::Object(obj)
+            }
+            other => serde_json::json!({
+                "value": other,
+                "correlation_id": correlation_id,
+            }),
+        };
+        let event_payload =
+            shared_types::with_scope(payload_with_correlation, session_id, thread_id);
+        let event = match Event::new(event_type, topic, event_payload, source_actor_id)
+            .map(|evt| evt.with_correlation_id(correlation_id))
+        {
+            Ok(event) => event,
+            Err(e) => {
+                tracing::warn!(error = %e, topic, "Failed to build worker event");
+                return;
+            }
+        };
+
+        if let Err(e) = ractor::cast!(
+            event_bus,
+            EventBusMsg::Publish {
+                event,
+                persist: true,
+            }
+        ) {
+            tracing::warn!(error = %e, topic, "Failed to publish worker event");
         }
     }
 }

@@ -23,6 +23,8 @@ use std::io::{Read, Write};
 use tokio::sync::{broadcast, mpsc};
 
 use crate::actors::event_store::EventStoreMsg;
+use crate::baml_client::types::{Message as BamlMessage, ToolResult as BamlToolResult};
+use crate::baml_client::{ClientRegistry, B};
 
 /// Actor that manages terminal sessions
 #[derive(Debug, Default)]
@@ -100,6 +102,13 @@ pub enum TerminalMsg {
     Stop {
         reply: RpcReplyPort<Result<(), TerminalError>>,
     },
+    /// Execute a high-level objective using an agentic loop over this terminal.
+    RunAgenticTask {
+        objective: String,
+        timeout_ms: Option<u64>,
+        max_steps: Option<u8>,
+        reply: RpcReplyPort<Result<TerminalAgentResult, TerminalError>>,
+    },
     /// Internal: output received from PTY
     OutputReceived { data: String },
     /// Internal: process exited
@@ -118,6 +127,31 @@ pub struct TerminalInfo {
     pub process_id: Option<u32>,
     pub rows: u16,
     pub cols: u16,
+}
+
+/// Result from agentic terminal execution.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TerminalAgentResult {
+    pub summary: String,
+    pub reasoning: Option<String>,
+    pub success: bool,
+    pub exit_code: Option<i32>,
+    pub executed_commands: Vec<String>,
+    pub steps: Vec<TerminalExecutionStep>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TerminalExecutionStep {
+    pub command: String,
+    pub exit_code: i32,
+    pub output_excerpt: String,
+}
+
+#[derive(Clone)]
+struct TerminalExecutionContext {
+    terminal_id: String,
+    working_dir: String,
+    shell: String,
 }
 
 // ============================================================================
@@ -320,17 +354,38 @@ impl Actor for TerminalActor {
                 let _ = reply.send(Ok(()));
             }
 
+            TerminalMsg::RunAgenticTask {
+                objective,
+                timeout_ms,
+                max_steps,
+                reply,
+            } => {
+                let result = match (
+                    state.is_running,
+                    state.input_tx.clone(),
+                    state.output_tx.clone(),
+                ) {
+                    (true, Some(input_tx), Some(output_tx)) => {
+                        let exec = TerminalExecutionContext {
+                            terminal_id: state.terminal_id.clone(),
+                            working_dir: state.working_dir.clone(),
+                            shell: state.shell.clone(),
+                        };
+                        drop(input_tx);
+                        drop(output_tx);
+                        self.run_agentic_task(exec, objective, timeout_ms, max_steps)
+                            .await
+                    }
+                    _ => Err(TerminalError::NotRunning),
+                };
+                let _ = reply.send(result);
+            }
+
             TerminalMsg::OutputReceived { data } => {
                 // Add to buffer, keeping only last 1000 lines
                 state.output_buffer.push(data.clone());
                 if state.output_buffer.len() > 1000 {
                     state.output_buffer.remove(0);
-                }
-
-                // Broadcast through actor state so subscriber attachment and buffer updates
-                // share the same ordering, preventing startup prompt races.
-                if let Some(ref output_tx) = state.output_tx {
-                    let _ = output_tx.send(data);
                 }
             }
 
@@ -363,6 +418,314 @@ impl Actor for TerminalActor {
         state.output_tx = None;
         state.process_id = None;
         Ok(())
+    }
+}
+
+impl TerminalActor {
+    fn create_client_registry() -> ClientRegistry {
+        let mut cr = ClientRegistry::new();
+        let mut bedrock_options = std::collections::HashMap::new();
+        bedrock_options.insert(
+            "model".to_string(),
+            serde_json::json!("us.anthropic.claude-opus-4-5-20251101-v1:0"),
+        );
+        bedrock_options.insert("region".to_string(), serde_json::json!("us-east-1"));
+        cr.add_llm_client("ClaudeBedrock", "aws-bedrock", bedrock_options);
+        cr
+    }
+
+    async fn run_agentic_task(
+        &self,
+        ctx: TerminalExecutionContext,
+        objective: String,
+        timeout_ms: Option<u64>,
+        max_steps: Option<u8>,
+    ) -> Result<TerminalAgentResult, TerminalError> {
+        let per_step_timeout = timeout_ms.unwrap_or(30_000).clamp(1_000, 120_000);
+        let max_steps = max_steps.unwrap_or(3).clamp(1, 6) as usize;
+        if Self::looks_like_shell_command(&objective) {
+            let (output, exit_code) = self
+                .execute_terminal_command(&ctx, &objective, per_step_timeout)
+                .await?;
+            let summary = if exit_code == 0 {
+                output.clone()
+            } else {
+                format!("Command failed with exit status {exit_code}: {output}")
+            };
+            let output_excerpt = Self::truncate_excerpt(&summary);
+            return Ok(TerminalAgentResult {
+                summary,
+                reasoning: Some("Direct command execution (explicit bash command).".to_string()),
+                success: exit_code == 0,
+                exit_code: Some(exit_code),
+                executed_commands: vec![objective.clone()],
+                steps: vec![TerminalExecutionStep {
+                    command: objective,
+                    exit_code,
+                    output_excerpt,
+                }],
+            });
+        }
+
+        let mut executed_commands = Vec::new();
+        let mut steps: Vec<TerminalExecutionStep> = Vec::new();
+        let mut tool_results: Vec<BamlToolResult> = Vec::new();
+        let mut messages = vec![BamlMessage {
+            role: "user".to_string(),
+            content: objective.clone(),
+        }];
+        let mut latest_reasoning: Option<String> = None;
+
+        let tools_description = r#"Tool: bash
+Description: Execute shell commands in the current terminal.
+Parameters Schema: {"type":"object","properties":{"command":{"type":"string","description":"The shell command to execute"},"timeout_ms":{"type":"integer","description":"Timeout in milliseconds"}},"required":["command"]}"#;
+
+        let system_context = format!(
+            "You are ChoirOS Terminal Agent. Use bash tool calls to complete terminal objectives.\nTerminal ID: {}\nWorking Directory: {}\nPrefer minimal safe command sequences.",
+            ctx.terminal_id, ctx.working_dir
+        );
+        let client_registry = Self::create_client_registry();
+
+        for _ in 0..max_steps {
+            let plan = match B
+                .PlanAction
+                .with_client_registry(&client_registry)
+                .call(&messages, &system_context, tools_description)
+                .await
+            {
+                Ok(plan) => plan,
+                Err(_) => {
+                    let (output, exit_code) = self
+                        .execute_terminal_command(&ctx, &objective, per_step_timeout)
+                        .await?;
+                    let summary = if exit_code == 0 {
+                        output.clone()
+                    } else {
+                        format!("Command failed with exit status {exit_code}: {output}")
+                    };
+                    let output_excerpt = Self::truncate_excerpt(&summary);
+                    return Ok(TerminalAgentResult {
+                        summary,
+                        reasoning: Some(
+                            "Planner unavailable; executed objective as direct command."
+                                .to_string(),
+                        ),
+                        success: exit_code == 0,
+                        exit_code: Some(exit_code),
+                        executed_commands: vec![objective.clone()],
+                        steps: vec![TerminalExecutionStep {
+                            command: objective,
+                            exit_code,
+                            output_excerpt,
+                        }],
+                    });
+                }
+            };
+            latest_reasoning = Some(plan.thinking.clone());
+
+            if plan.tool_calls.is_empty() {
+                if let Some(final_response) = plan.final_response {
+                    return Ok(TerminalAgentResult {
+                        summary: final_response,
+                        reasoning: latest_reasoning.clone(),
+                        success: tool_results.iter().all(|r| r.success),
+                        exit_code: steps.last().map(|s| s.exit_code),
+                        executed_commands,
+                        steps,
+                    });
+                }
+                break;
+            }
+
+            for tool_call in &plan.tool_calls {
+                if tool_call.tool_name != "bash" {
+                    continue;
+                }
+
+                let parsed_args: serde_json::Value =
+                    match serde_json::from_str(&tool_call.tool_args) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tool_results.push(BamlToolResult {
+                                tool_name: "bash".to_string(),
+                                success: false,
+                                output: String::new(),
+                                error: Some(format!("Invalid tool args: {e}")),
+                            });
+                            continue;
+                        }
+                    };
+
+                let command = match parsed_args.get("command").and_then(|v| v.as_str()) {
+                    Some(command) if !command.trim().is_empty() => command.to_string(),
+                    _ => {
+                        tool_results.push(BamlToolResult {
+                            tool_name: "bash".to_string(),
+                            success: false,
+                            output: String::new(),
+                            error: Some("Missing command".to_string()),
+                        });
+                        continue;
+                    }
+                };
+
+                let command_timeout = parsed_args
+                    .get("timeout_ms")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(per_step_timeout)
+                    .clamp(1_000, 120_000);
+
+                executed_commands.push(command.clone());
+                let (output, exit_code) = self
+                    .execute_terminal_command(&ctx, &command, command_timeout)
+                    .await?;
+                steps.push(TerminalExecutionStep {
+                    command: command.clone(),
+                    exit_code,
+                    output_excerpt: Self::truncate_excerpt(&output),
+                });
+                tool_results.push(BamlToolResult {
+                    tool_name: "bash".to_string(),
+                    success: exit_code == 0,
+                    output: output.clone(),
+                    error: if exit_code == 0 {
+                        None
+                    } else {
+                        Some(format!("Exit status {exit_code}"))
+                    },
+                });
+                messages.push(BamlMessage {
+                    role: "assistant".to_string(),
+                    content: format!("Executed bash command:\n{}\nOutput:\n{}", command, output),
+                });
+            }
+        }
+
+        let conversation_context = format!(
+            "Executed {} terminal commands in {}.",
+            executed_commands.len(),
+            ctx.working_dir
+        );
+        let summary = B
+            .SynthesizeResponse
+            .with_client_registry(&client_registry)
+            .call(&objective, &tool_results, &conversation_context)
+            .await
+            .unwrap_or_else(|_| {
+                tool_results
+                    .last()
+                    .map(|r| r.output.clone())
+                    .unwrap_or_else(|| "No terminal actions were executed.".to_string())
+            });
+
+        Ok(TerminalAgentResult {
+            summary,
+            reasoning: latest_reasoning,
+            success: tool_results.iter().all(|r| r.success),
+            exit_code: steps.last().map(|s| s.exit_code),
+            executed_commands,
+            steps,
+        })
+    }
+
+    async fn execute_terminal_command(
+        &self,
+        ctx: &TerminalExecutionContext,
+        command: &str,
+        timeout_ms: u64,
+    ) -> Result<(String, i32), TerminalError> {
+        let command = Self::normalize_command_for_runtime(command, timeout_ms);
+        let output = tokio::time::timeout(
+            std::time::Duration::from_millis(timeout_ms),
+            tokio::process::Command::new(&ctx.shell)
+                .arg("-lc")
+                .arg(&command)
+                .current_dir(&ctx.working_dir)
+                .output(),
+        )
+        .await
+        .map_err(|_| TerminalError::Io(format!("Terminal command timed out after {timeout_ms}ms")))?
+        .map_err(|e| TerminalError::Io(format!("Failed to execute terminal command: {e}")))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let mut combined = String::new();
+        if !stdout.trim().is_empty() {
+            combined.push_str(stdout.trim_end());
+        }
+        if !stderr.trim().is_empty() {
+            if !combined.is_empty() {
+                combined.push('\n');
+            }
+            combined.push_str(stderr.trim_end());
+        }
+
+        Ok((combined, output.status.code().unwrap_or(1)))
+    }
+
+    fn looks_like_shell_command(input: &str) -> bool {
+        let trimmed = input.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+        trimmed.contains('\n')
+            || trimmed.starts_with("./")
+            || trimmed.starts_with('/')
+            || trimmed.contains("&&")
+            || trimmed.contains("||")
+            || trimmed.contains('|')
+            || trimmed.contains('>')
+            || trimmed.contains('<')
+            || trimmed.starts_with("ls ")
+            || trimmed.starts_with("cat ")
+            || trimmed.starts_with("echo ")
+            || trimmed.starts_with("curl ")
+            || trimmed.starts_with("grep ")
+            || trimmed.starts_with("find ")
+            || trimmed.starts_with("git ")
+            || trimmed.starts_with("cargo ")
+            || trimmed.starts_with("just ")
+    }
+
+    fn normalize_command_for_runtime(command: &str, timeout_ms: u64) -> String {
+        let trimmed = command.trim();
+        let Some(rest) = trimmed.strip_prefix("curl") else {
+            return command.to_string();
+        };
+        let rest = rest.trim_start();
+        if rest.is_empty() {
+            return command.to_string();
+        }
+
+        let has_connect_timeout = trimmed.contains("--connect-timeout");
+        let has_max_time = trimmed.contains("--max-time");
+        let has_follow_redirects = trimmed.contains(" -L") || trimmed.starts_with("curl -L");
+
+        let max_time_secs = (timeout_ms / 1000).saturating_sub(2).max(5);
+        let mut injected_opts = Vec::new();
+        if !has_follow_redirects {
+            injected_opts.push("-L".to_string());
+        }
+        if !has_connect_timeout {
+            injected_opts.push("--connect-timeout 8".to_string());
+        }
+        if !has_max_time {
+            injected_opts.push(format!("--max-time {max_time_secs}"));
+        }
+        if injected_opts.is_empty() {
+            return command.to_string();
+        }
+
+        format!("curl {} {}", injected_opts.join(" "), rest)
+    }
+
+    fn truncate_excerpt(text: &str) -> String {
+        let max_len = 1200;
+        let mut excerpt: String = text.chars().take(max_len).collect();
+        if text.chars().count() > max_len {
+            excerpt.push_str("...");
+        }
+        excerpt
     }
 }
 
@@ -442,6 +805,7 @@ async fn spawn_pty(
     // Spawn output task: read from PTY, forward into actor mailbox.
     // Actor state then handles buffer + subscriber broadcast in-order.
     let actor = actor_ref.clone();
+    let output_tx_for_reader = output_tx.clone();
     tokio::task::spawn_blocking(move || {
         let mut buffer = [0u8; 1024];
         loop {
@@ -453,6 +817,7 @@ async fn spawn_pty(
                 }
                 Ok(n) => {
                     let data = String::from_utf8_lossy(&buffer[..n]).to_string();
+                    let _ = output_tx_for_reader.send(data.clone());
                     let _ = actor.send_message(TerminalMsg::OutputReceived { data });
                 }
                 Err(_) => {
@@ -487,6 +852,7 @@ mod tests {
     use super::*;
     use crate::actors::event_store::{EventStoreActor, EventStoreArguments};
     use ractor::Actor;
+    use std::net::TcpListener;
     use tokio::time::{sleep, timeout, Duration, Instant};
 
     fn test_shell() -> String {
@@ -497,6 +863,15 @@ mod tests {
         std::env::current_dir()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| "/".to_string())
+    }
+
+    fn has_curl() -> bool {
+        std::process::Command::new("sh")
+            .arg("-c")
+            .arg("command -v curl >/dev/null 2>&1")
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
     }
 
     #[cfg(unix)]
@@ -771,6 +1146,148 @@ mod tests {
             info.rows,
             info.cols
         );
+
+        let stop_result =
+            ractor::call!(terminal, |reply| TerminalMsg::Stop { reply }).expect("stop call failed");
+        assert!(
+            stop_result.is_ok(),
+            "terminal failed to stop: {stop_result:?}"
+        );
+
+        terminal.stop(None);
+        event_store.stop(None);
+    }
+
+    #[tokio::test]
+    async fn test_run_agentic_task_executes_curl_against_local_server() {
+        if !has_curl() {
+            return;
+        }
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind local test server");
+        let port = listener
+            .local_addr()
+            .expect("failed to read local addr")
+            .port();
+
+        let server = std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut request_buf = [0_u8; 1024];
+                let _ = std::io::Read::read(&mut stream, &mut request_buf);
+                let response =
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nweather-ok\n";
+                let _ = std::io::Write::write_all(&mut stream, response);
+            }
+        });
+
+        let (event_store, _event_store_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .expect("failed to start event store");
+
+        let (terminal, _terminal_handle) = Actor::spawn(
+            None,
+            TerminalActor,
+            TerminalArguments {
+                terminal_id: "test-terminal-agentic-curl".to_string(),
+                user_id: "test-user".to_string(),
+                shell: test_shell(),
+                working_dir: test_working_dir(),
+                event_store: event_store.clone(),
+            },
+        )
+        .await
+        .expect("failed to start terminal actor");
+
+        let start_result = ractor::call!(terminal, |reply| TerminalMsg::Start { reply })
+            .expect("start call failed");
+        assert!(
+            start_result.is_ok(),
+            "terminal failed to start: {start_result:?}"
+        );
+
+        let objective = format!("curl -s 'http://127.0.0.1:{port}/'");
+        let run_result = ractor::call!(terminal, |reply| TerminalMsg::RunAgenticTask {
+            objective,
+            timeout_ms: Some(5_000),
+            max_steps: Some(1),
+            reply,
+        })
+        .expect("run agentic task call failed")
+        .expect("run agentic task returned error");
+
+        assert!(
+            run_result.success,
+            "expected success from local curl task, got: {run_result:?}"
+        );
+        assert!(
+            run_result.summary.contains("weather-ok"),
+            "expected weather payload in summary, got: {}",
+            run_result.summary
+        );
+        assert!(
+            !run_result.steps.is_empty(),
+            "expected at least one execution step"
+        );
+
+        let stop_result =
+            ractor::call!(terminal, |reply| TerminalMsg::Stop { reply }).expect("stop call failed");
+        assert!(
+            stop_result.is_ok(),
+            "terminal failed to stop: {stop_result:?}"
+        );
+
+        let _ = server.join();
+        terminal.stop(None);
+        event_store.stop(None);
+    }
+
+    #[tokio::test]
+    async fn test_run_agentic_task_times_out_long_command() {
+        let (event_store, _event_store_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .expect("failed to start event store");
+
+        let (terminal, _terminal_handle) = Actor::spawn(
+            None,
+            TerminalActor,
+            TerminalArguments {
+                terminal_id: "test-terminal-agentic-timeout".to_string(),
+                user_id: "test-user".to_string(),
+                shell: test_shell(),
+                working_dir: test_working_dir(),
+                event_store: event_store.clone(),
+            },
+        )
+        .await
+        .expect("failed to start terminal actor");
+
+        let start_result = ractor::call!(terminal, |reply| TerminalMsg::Start { reply })
+            .expect("start call failed");
+        assert!(
+            start_result.is_ok(),
+            "terminal failed to start: {start_result:?}"
+        );
+
+        let run_result = ractor::call!(terminal, |reply| TerminalMsg::RunAgenticTask {
+            objective: "sleep 2 && echo done".to_string(),
+            timeout_ms: Some(1_000),
+            max_steps: Some(1),
+            reply,
+        })
+        .expect("run agentic task call failed");
+
+        match run_result {
+            Ok(result) => panic!("expected timeout error, got success: {result:?}"),
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(
+                    msg.contains("timed out"),
+                    "expected timeout message, got: {msg}"
+                );
+            }
+        }
 
         let stop_result =
             ractor::call!(terminal, |reply| TerminalMsg::Stop { reply }).expect("stop call failed");

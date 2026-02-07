@@ -300,6 +300,52 @@ pub struct ToolCall {
 }
 
 // ============================================================================
+// Control Plane Types
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum DelegatedTaskKind {
+    TerminalCommand,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct DelegatedTask {
+    pub task_id: String,
+    pub correlation_id: String,
+    pub actor_id: String,
+    pub session_id: Option<String>,
+    pub thread_id: Option<String>,
+    pub kind: DelegatedTaskKind,
+    #[ts(type = "unknown")]
+    pub payload: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum DelegatedTaskStatus {
+    Accepted,
+    Running,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct DelegatedTaskResult {
+    pub task_id: String,
+    pub correlation_id: String,
+    pub status: DelegatedTaskStatus,
+    pub output: Option<String>,
+    pub error: Option<String>,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+}
+
+// ============================================================================
 // Constants
 // ============================================================================
 
@@ -394,6 +440,10 @@ pub const EVENT_FILE_EDIT: &str = "file.edit";
 pub const EVENT_ACTOR_SPAWNED: &str = "actor.spawned";
 pub const EVENT_VIEWER_CONTENT_SAVED: &str = "viewer.content_saved";
 pub const EVENT_VIEWER_CONTENT_CONFLICT: &str = "viewer.content_conflict";
+pub const EVENT_TOPIC_WORKER_TASK_STARTED: &str = "worker.task.started";
+pub const EVENT_TOPIC_WORKER_TASK_PROGRESS: &str = "worker.task.progress";
+pub const EVENT_TOPIC_WORKER_TASK_COMPLETED: &str = "worker.task.completed";
+pub const EVENT_TOPIC_WORKER_TASK_FAILED: &str = "worker.task.failed";
 
 // ============================================================================
 // Tests

@@ -133,6 +133,36 @@ impl AppState {
             .await
     }
 
+    pub async fn delegate_terminal_task(
+        &self,
+        terminal_id: String,
+        actor_id: String,
+        user_id: String,
+        shell: String,
+        working_dir: String,
+        command: String,
+        timeout_ms: Option<u64>,
+        session_id: Option<String>,
+        thread_id: Option<String>,
+    ) -> Result<shared_types::DelegatedTask, String> {
+        let supervisor = self.ensure_supervisor().await?;
+        ractor::call!(supervisor, |reply| {
+            ApplicationSupervisorMsg::DelegateTerminalTask {
+                terminal_id,
+                actor_id,
+                user_id,
+                shell,
+                working_dir,
+                command,
+                timeout_ms,
+                session_id,
+                thread_id,
+                reply,
+            }
+        })
+        .map_err(|e| e.to_string())?
+    }
+
     pub fn desktop_args(&self, desktop_id: String, user_id: String) -> DesktopArguments {
         DesktopArguments {
             desktop_id,

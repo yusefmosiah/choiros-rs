@@ -9,7 +9,7 @@ Source roadmap:
 
 | Phase | Status | Notes |
 |---|---|---|
-| B. Multiagent Control Plane v1 | In progress | Phase A foundation unblocked; worker pattern still pending |
+| B. Multiagent Control Plane v1 | In progress | Control-plane contract + async terminal delegation API implemented; terminal worker streaming still pending |
 | F. Identity and Scope Enforcement v1 | In progress | Started scoped chat payloads (`session_id`, `thread_id`) |
 | C. Chat Delegation Refactor v1 | Pending | Depends on B baseline contracts |
 | D. Context Broker v1 | Pending | Blocked on F hardening |
@@ -49,6 +49,33 @@ Files:
 - `sandbox/tests/supervision_test.rs`
 
 ## New Progress (Current Pass)
+
+### 4) Phase B Kickoff: Control Plane Contract + Async Delegation API
+- Added delegated task/result contracts in shared types:
+  - `DelegatedTaskKind`
+  - `DelegatedTask`
+  - `DelegatedTaskStatus`
+  - `DelegatedTaskResult`
+- Added worker task topic constants:
+  - `worker.task.started`
+  - `worker.task.progress`
+  - `worker.task.completed`
+  - `worker.task.failed`
+- Added `ApplicationSupervisorMsg::DelegateTerminalTask`:
+  - returns immediate acceptance (`DelegatedTask`)
+  - creates `task_id` + `correlation_id`
+  - publishes lifecycle events via EventBus
+  - executes terminal dispatch in background (`tokio::spawn`)
+- Added app-state entrypoint for delegation:
+  - `AppState::delegate_terminal_task(...)`
+- Added integration test:
+  - `test_application_supervisor_accepts_async_terminal_delegation`
+
+Files:
+- `shared-types/src/lib.rs`
+- `sandbox/src/supervisor/mod.rs`
+- `sandbox/src/app_state.rs`
+- `sandbox/tests/supervision_test.rs`
 
 ### 3) Phase F Starter: Scoped Chat Payloads (Backward Compatible)
 - Added shared payload helpers:
@@ -104,3 +131,86 @@ Files:
 2. Add migration/backfill notes for legacy events without scope metadata.
 3. Add explicit thread/session IDs on non-chat event domains where relevant (desktop/terminal).
 4. Add explicit scope assertions in websocket integration tests (multi-instance same actor_id).
+
+## Phase B Implementation Checklist
+
+### Step 1: Control-Plane Contract
+- [x] Add delegated task envelope with:
+  - [x] `task_id`
+  - [x] `correlation_id`
+  - [x] `actor_id`
+  - [x] `session_id`
+  - [x] `thread_id`
+  - [x] `kind`
+  - [x] `payload`
+- [x] Add delegated task result envelope with:
+  - [x] `status` (`accepted|running|completed|failed`)
+  - [x] `output`
+  - [x] `error`
+  - [x] timestamps
+- [x] Define event topic conventions:
+  - [x] `worker.task.started`
+  - [x] `worker.task.progress`
+  - [x] `worker.task.completed`
+  - [x] `worker.task.failed`
+
+### Step 2: Supervisor Delegation API (`run_async` style)
+- [x] Add non-blocking supervisor API for terminal delegation.
+- [x] Supervisor generates `task_id` + `correlation_id`.
+- [x] API returns immediate acceptance response (does not block on execution completion).
+- [x] Background execution path publishes lifecycle events through EventBus.
+
+### Step 3: Terminal Worker Path (Next)
+- [x] Route delegated terminal command through TerminalActor session.
+- [x] Emit streamed progress/output events.
+- [x] Add timeout and cancellation behavior.
+
+### Step 4: ChatAgent Routing Integration (Next)
+- [x] Replace direct terminal tool execution path with delegation API.
+- [x] Keep fallback for non-terminal tools during transition.
+
+### Step 5: UI Actor-Call Timeline (Next)
+- [x] Subscribe to worker lifecycle topics in websocket/UI.
+- [ ] Render live actor-call state and output.
+
+### Step 6: Phase B Gate Test (Next)
+- [x] Add integration test: supervisor delegation -> terminal execution -> persisted trace.
+
+## Phase B Progress Update (Steps 3-5)
+
+- Step 3 completed:
+  - delegated terminal tasks now route via TerminalActor sessions
+  - supervisor publishes `worker.task.progress` updates with output chunks
+  - timeout path sends terminal interrupt and marks task failure on timeout
+  - TerminalActor now exposes an agentic execution harness (`RunAgenticTask`) that can plan multi-step command sequences and synthesize a summary
+- Step 4 completed:
+  - ChatAgent now routes `bash` tool calls to supervisor terminal delegation
+  - ChatAgent now awaits delegated task completion and returns terminal output/error as tool result
+  - direct `bash` execution is blocked; `bash` runs only via TerminalActor delegation
+- Step 5 completed partially:
+  - websocket stream emits `actor_call` chunks from `worker_*` events
+  - terminal delegation completion payload now carries transparency fields:
+    - `reasoning`
+    - `executed_commands`
+    - `steps` (command, exit_code, output_excerpt)
+  - frontend rendering of a dedicated actor-call timeline is still pending
+- Step 6 completed:
+  - added supervision integration gate test for delegated terminal trace persistence with correlation ID continuity
+
+## Code Review Outcome (2026-02-07)
+
+Findings addressed in this pass:
+- Fixed terminal-agent failure semantics:
+  - non-zero terminal command exits now emit `worker_failed` (not `worker_complete`)
+  - completion payload still includes transparency fields (`reasoning`, `executed_commands`, `steps`)
+- Added regression test coverage:
+  - `test_terminal_delegation_nonzero_exit_marks_failed`
+
+Residual risks:
+- Terminal agent client registry is currently Bedrock-only in `TerminalActor`; model-selection parity with `ChatAgent` is pending.
+- UI currently receives transparency payloads but does not yet render dedicated step/timeline views.
+
+Validation rerun:
+- `cargo check -p sandbox`
+- `cargo test -p sandbox --features supervision_refactor --test supervision_test -- --nocapture`
+- `cargo test -p sandbox --test chat_api_test`

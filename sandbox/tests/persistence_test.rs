@@ -1248,6 +1248,7 @@ async fn test_agent_logs_user_message() {
             event_store: store_ref.clone(),
             preload_session_id: None,
             preload_thread_id: None,
+            application_supervisor: None,
         },
     )
     .await
@@ -1299,6 +1300,7 @@ async fn test_agent_logs_assistant_response() {
             event_store: store_ref.clone(),
             preload_session_id: None,
             preload_thread_id: None,
+            application_supervisor: None,
         },
     )
     .await
@@ -1480,6 +1482,7 @@ async fn test_agent_conversation_recovery() {
             event_store: store1_ref.clone(),
             preload_session_id: None,
             preload_thread_id: None,
+            application_supervisor: None,
         },
     )
     .await
@@ -1517,6 +1520,7 @@ async fn test_agent_conversation_recovery() {
             event_store: store2_ref.clone(),
             preload_session_id: None,
             preload_thread_id: None,
+            application_supervisor: None,
         },
     )
     .await

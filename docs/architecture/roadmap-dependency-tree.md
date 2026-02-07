@@ -3,6 +3,20 @@
 Date: 2026-02-06
 Status: Working roadmap (execution-oriented)
 
+## Execution Snapshot (2026-02-07)
+
+- Phase B is now actively implemented:
+  - delegated terminal task contracts (`task_id`, `correlation_id`, scope keys, status) are live
+  - asynchronous delegation API is live in `ApplicationSupervisor`
+  - delegated tasks persist worker lifecycle events (`started/progress/completed/failed`)
+  - terminal delegation now routes through an internal agentic harness in `TerminalActor`
+- Phase F remains in progress:
+  - scope-aware chat/thread isolation is implemented for API + websocket/event retrieval
+  - full non-chat scope propagation remains open
+- Phase B gate state:
+  - delegated execution + correlation continuity tests are passing
+  - non-zero command exit now correctly maps to `worker_failed`
+
 ## Purpose
 
 Define a safe execution order for multiagent rollout, context management, sandbox persistence, app expansion, hypervisor work, and Nix/NixOS migration.

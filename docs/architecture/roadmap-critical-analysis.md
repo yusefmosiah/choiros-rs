@@ -3,6 +3,26 @@
 **Date:** 2026-02-06
 **Status:** Critical Assessment with Gaps Identified
 
+## Update Addendum (2026-02-07)
+
+Progress since this assessment:
+- Phase B moved from conceptual to implemented baseline:
+  - delegated task contracts added and persisted
+  - `ApplicationSupervisor` now supports async terminal delegation
+  - worker lifecycle events include correlation IDs and scope metadata
+  - chat `bash` tool path delegates through terminal control plane
+- Terminal path now includes an internal agentic harness with transparent execution metadata:
+  - `reasoning`
+  - `executed_commands`
+  - `steps` (command, exit_code, output_excerpt)
+- Regression coverage added for failure-path semantics:
+  - non-zero command exits emit `worker_failed`
+
+Remaining critical gaps vs. target state:
+- UI timeline rendering for step-level worker/actor transparency is incomplete.
+- Terminal agent model/client parity with ChatAgent selection is incomplete.
+- Full scope enforcement across all non-chat domains remains pending.
+
 ---
 
 ## Executive Summary

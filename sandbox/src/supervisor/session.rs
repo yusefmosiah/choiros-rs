@@ -13,6 +13,7 @@ use crate::supervisor::desktop::{DesktopSupervisor, DesktopSupervisorArgs, Deskt
 use crate::supervisor::terminal::{
     TerminalSupervisor, TerminalSupervisorArgs, TerminalSupervisorMsg,
 };
+use crate::supervisor::ApplicationSupervisorMsg;
 
 #[derive(Debug, Default)]
 pub struct SessionSupervisor;
@@ -20,6 +21,7 @@ pub struct SessionSupervisor;
 #[derive(Debug, Clone)]
 pub struct SessionSupervisorArgs {
     pub event_store: ActorRef<EventStoreMsg>,
+    pub application_supervisor: ActorRef<ApplicationSupervisorMsg>,
 }
 
 pub struct SessionSupervisorState {
@@ -89,6 +91,7 @@ impl Actor for SessionSupervisor {
             ChatSupervisor,
             ChatSupervisorArgs {
                 event_store: args.event_store.clone(),
+                application_supervisor: Some(args.application_supervisor.clone()),
             },
             myself.get_cell(),
         )

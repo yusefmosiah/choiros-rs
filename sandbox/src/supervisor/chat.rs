@@ -7,6 +7,7 @@ use tracing::{error, info};
 use crate::actors::chat::{ChatActor, ChatActorArguments, ChatActorMsg};
 use crate::actors::chat_agent::{ChatAgent, ChatAgentArguments, ChatAgentMsg};
 use crate::actors::event_store::EventStoreMsg;
+use crate::supervisor::ApplicationSupervisorMsg;
 
 #[derive(Debug, Default)]
 pub struct ChatSupervisor;
@@ -22,11 +23,13 @@ pub struct ChatSupervisorState {
     pub chats: HashMap<String, ChatInfo>,
     pub agents: HashMap<String, ActorRef<ChatAgentMsg>>,
     pub event_store: ActorRef<EventStoreMsg>,
+    pub application_supervisor: Option<ActorRef<ApplicationSupervisorMsg>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ChatSupervisorArgs {
     pub event_store: ActorRef<EventStoreMsg>,
+    pub application_supervisor: Option<ActorRef<ApplicationSupervisorMsg>>,
 }
 
 #[derive(Debug)]
@@ -77,6 +80,7 @@ impl Actor for ChatSupervisor {
             chats: HashMap::new(),
             agents: HashMap::new(),
             event_store: args.event_store,
+            application_supervisor: args.application_supervisor,
         })
     }
 
@@ -190,6 +194,7 @@ impl Actor for ChatSupervisor {
                     event_store: state.event_store.clone(),
                     preload_session_id,
                     preload_thread_id,
+                    application_supervisor: state.application_supervisor.clone(),
                 };
                 match Actor::spawn_linked(
                     Some(actor_name),

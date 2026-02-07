@@ -231,9 +231,9 @@ impl DesktopSupervisor {
                         state.desktops.remove(&desktop_id);
                     }
 
-                    return Err(ActorProcessingErr::from(std::io::Error::other(
-                        format!("Max restart intensity exceeded for actor {actor_id}")
-                    )));
+                    return Err(ActorProcessingErr::from(std::io::Error::other(format!(
+                        "Max restart intensity exceeded for actor {actor_id}"
+                    ))));
                 }
             }
             SupervisionEvent::ActorTerminated(actor_cell, _actor_state, exit_reason) => {
