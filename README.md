@@ -4,20 +4,21 @@
 
 > *Agency lives in computation. Agency exists in language. The Agent Choir sings in the automatic computer.*
 
-## Current Status (2026-02-01)
+## Current Status (2026-02-07)
 
 **✅ Working:**
-- **Agent Choir** - Multi-agent system with ractor actors
-- EventStoreActor with libsql/SQLite backend
-- ChatActor with message persistence
-- HTTP API for agent communication
-- All tests passing
+- Supervision-tree runtime (`ApplicationSupervisor -> SessionSupervisor -> chat/desktop/terminal`)
+- EventStoreActor + EventBus-backed worker lifecycle tracing
+- ChatAgent tool routing with delegated `bash` execution through TerminalActor
+- WebSocket chat streaming for `tool_call`, `tool_result`, and `actor_call` updates
+- Scope-aware chat isolation (`session_id` + `thread_id`) across shared actor IDs
+- Headless integration tests for `/chat/*` and `/ws/chat/*` paths
 - Server running on localhost:8080
 
 **🚧 In Progress:**
-- Agent tool calling system (bash, file ops, code execution)
-- LLM integration with BAML for agent reasoning
-- WebSocket support for real-time agent updates
+- Typed worker-event schema hardening for multi-agent observability
+- Watcher/supervisor escalation loops (timeouts, retries, failure signals)
+- Richer UI grouping for actor-call timelines (clean-by-default, deep-inspect on demand)
 - Hypervisor routing for multi-user sandboxes
 
 ## Quick Start
@@ -60,23 +61,25 @@ On the production server, the database path is hardcoded to `/opt/choiros/data/e
             ┌─────────────────────────┼─────────────────────────┐
             │                         │                         │
             ▼                         ▼                         ▼
-   ┌─────────────────┐    ┌──────────────────┐    ┌─────────────┐
-   │  Chat Actor     │    │  Tool Actor      │    │  Code Actor │
-   │  (Conversation) │    │  (Bash, Files)   │    │  (Execute)  │
-   └────────┬────────┘    └────────┬─────────┘    └──────┬──────┘
-            │                      │                      │
-            └──────────────────────┼──────────────────────┘
-                                   │
-                          ┌────────┴────────┐
-                          │  EventStore     │
-                          │  (Source of     │
-                          │   Truth)        │
-                          └────────┬────────┘
-                                   │
-                          ┌────────┴────────┐
-                          │     SQLite      │
-                          │   (libsql)      │
-                          └─────────────────┘
+   ┌───────────────────┐
+   │ApplicationSupervisor
+   └─────────┬─────────┘
+             │
+     ┌───────▼────────┐
+     │SessionSupervisor│
+     └───┬────────┬───┘
+         │        │
+   ┌─────▼───┐ ┌──▼──────────┐
+   │ChatAgent│ │TerminalActor │
+   └────┬────┘ └──────┬───────┘
+        │              │
+        └──────┬───────┘
+               │
+       ┌───────▼────────┐
+       │EventBus + Store │
+       │(worker/tool/chat│
+       │ stream + query) │
+       └─────────────────┘
 ```
 
 **Agent Choir Pattern:**
@@ -103,9 +106,10 @@ choiros-rs/
 ├── sandbox/                # Per-user ChoirOS instance
 │   ├── src/
 │   │   ├── main.rs         # Server entry point
-│   │   ├── actors/         # EventStore, Chat actors
+│   │   ├── actors/         # ChatAgent, TerminalActor, EventStore/EventBus, desktop/chat
 │   │   ├── api/            # HTTP handlers
-│   │   └── actor_manager.rs
+│   │   ├── supervisor/     # supervision tree orchestration
+│   │   └── tools/          # tool schemas and execution contracts
 │   └── Cargo.toml
 ├── dioxus-desktop/         # Dioxus 0.7 frontend (WASM)
 ├── hypervisor/             # Edge router (WIP)
@@ -128,6 +132,16 @@ choiros-rs/
 - `GET /health` - Health check
 - `POST /chat/send` - Send chat message
 - `GET /chat/{actor_id}/messages` - Get chat history
+- `GET /ws/chat/{actor_id}` - Chat websocket stream (thinking/tool/actor updates)
+- `GET /ws/chat/{actor_id}/{user_id}` - Chat websocket stream with path user
+- `GET /ws/terminal/{terminal_id}` - Terminal websocket stream
+
+## Testing Notes
+
+- Core integration:
+  - `cargo test -p sandbox --features supervision_refactor --test supervision_test -- --nocapture`
+  - `cargo test -p sandbox --test websocket_chat_test -- --nocapture`
+- Use provider-agnostic prompts/commands in tests; avoid coupling to one external API.
 
 ## The Vision
 

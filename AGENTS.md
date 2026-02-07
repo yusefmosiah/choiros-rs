@@ -1,5 +1,21 @@
 # AGENTS.md - ChoirOS Development Guide
 
+## Current Architecture Snapshot (2026-02-07)
+
+- Runtime is supervision-tree-first:
+  - `ApplicationSupervisor -> SessionSupervisor -> {ChatSupervisor, TerminalSupervisor, DesktopSupervisor}`
+- `bash` tool execution is delegated through TerminalActor paths (no direct ChatAgent shell execution).
+- Terminal work emits worker lifecycle + progress telemetry and streams as websocket `actor_call` chunks.
+- Scope isolation (`session_id`, `thread_id`) is required for chat/tool event retrieval to prevent cross-instance bleed.
+- EventBus/EventStore are the observability backbone for worker/task tracing.
+
+## Current High-Priority Development Targets
+
+1. Typed worker event schema for actor-call rendering (`spawned/progress/complete/failed`).
+2. Terminal loop event enrichment (`tool_call`, `tool_result`, durations, retry/error metadata).
+3. WatcherActor prototype for timeout/failure escalation signals to supervisors.
+4. Ordered websocket integration tests for scoped multi-instance streams.
+
 ## Quick Commands
 
 ```bash
@@ -191,6 +207,9 @@ agent-browser screenshot tests/screenshots/result.png
 - Use Axum router + `tower::ServiceExt::oneshot`
 - Use temp directories for isolated databases
 - Example pattern: `tests/desktop_api_test.rs`
+- For websocket chat flows, prefer `tokio_tungstenite` integration tests over manual curl loops.
+- Assert `actor_call` chunks for delegated terminal tasks when validating multi-agent observability.
+- Keep tests provider-agnostic: do not hardcode assumptions to a single external weather/API service.
 
 **Running Single Tests:**
 ```bash
@@ -202,6 +221,12 @@ cargo test -p sandbox test_create_desktop
 
 # Run with output visible
 cargo test -p sandbox test_name -- --nocapture
+
+# Run websocket chat integration suite
+cargo test -p sandbox --test websocket_chat_test -- --nocapture
+
+# Run supervision delegation suite
+cargo test -p sandbox --features supervision_refactor --test supervision_test -- --nocapture
 ```
 
 ## Key Dependencies
