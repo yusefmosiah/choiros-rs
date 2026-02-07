@@ -273,8 +273,9 @@ async fn test_actor_registry_auto_cleanup() {
 #[cfg(feature = "supervision_refactor")]
 mod integration_tests {
     use super::*;
-    use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};
-    use sandbox::supervisor::ApplicationSupervisor;
+    use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments, EventStoreMsg};
+    use sandbox::supervisor::{ApplicationSupervisor, ApplicationSupervisorMsg};
+    use std::time::Duration;
 
     #[tokio::test]
     async fn test_application_supervisor_spawns_successfully() {
@@ -287,7 +288,7 @@ mod integration_tests {
                 .expect("Failed to spawn EventStoreActor");
 
         // Spawn ApplicationSupervisor
-        let (app_supervisor, _app_handle) = Actor::spawn(
+        let (_app_supervisor, _app_handle) = Actor::spawn(
             Some("test_app_supervisor".to_string()),
             ApplicationSupervisor,
             event_store.clone(),
@@ -302,6 +303,79 @@ mod integration_tests {
             "ApplicationSupervisor should be in registry"
         );
 
+        let health = ractor::call!(_app_supervisor, |reply| {
+            ApplicationSupervisorMsg::GetHealth { reply }
+        })
+        .expect("GetHealth RPC failed");
+        assert!(
+            health.event_bus_healthy,
+            "EventBus should be healthy after startup"
+        );
+        assert!(
+            health.session_supervisor_healthy,
+            "SessionSupervisor should be healthy after startup"
+        );
+
         tracing::info!("ApplicationSupervisor test passed!");
+    }
+
+    #[tokio::test]
+    async fn test_application_supervisor_persists_request_lifecycle_events() {
+        let (event_store, _event_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .expect("Failed to spawn EventStoreActor");
+
+        let (app_supervisor, _app_handle) =
+            Actor::spawn(None, ApplicationSupervisor, event_store.clone())
+                .await
+                .expect("Failed to spawn ApplicationSupervisor");
+
+        let _chat_ref = ractor::call!(app_supervisor, |reply| {
+            ApplicationSupervisorMsg::GetOrCreateChat {
+                actor_id: "chat-corr-test".to_string(),
+                user_id: "user-corr-test".to_string(),
+                reply,
+            }
+        })
+        .expect("GetOrCreateChat RPC failed");
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        let mut observed = Vec::new();
+
+        while tokio::time::Instant::now() < deadline {
+            observed = ractor::call!(event_store, |reply| EventStoreMsg::GetEventsForActor {
+                actor_id: "application_supervisor".to_string(),
+                since_seq: 0,
+                reply,
+            })
+            .expect("GetEventsForActor RPC failed")
+            .expect("EventStore query failed");
+
+            if observed
+                .iter()
+                .any(|evt| evt.event_type == "custom.supervisor.chat.get_or_create.started")
+                && observed
+                    .iter()
+                    .any(|evt| evt.event_type == "custom.supervisor.chat.get_or_create.completed")
+            {
+                break;
+            }
+
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+
+        assert!(
+            observed
+                .iter()
+                .any(|evt| evt.event_type == "custom.supervisor.chat.get_or_create.started"),
+            "expected started lifecycle event from ApplicationSupervisor"
+        );
+        assert!(
+            observed
+                .iter()
+                .any(|evt| evt.event_type == "custom.supervisor.chat.get_or_create.completed"),
+            "expected completed lifecycle event from ApplicationSupervisor"
+        );
     }
 }

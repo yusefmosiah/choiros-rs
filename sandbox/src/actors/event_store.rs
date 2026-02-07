@@ -74,6 +74,14 @@ pub enum EventStoreMsg {
         since_seq: i64,
         reply: RpcReplyPort<Result<Vec<shared_types::Event>, EventStoreError>>,
     },
+    /// Get events for an actor scoped to a session/thread pair.
+    GetEventsForActorWithScope {
+        actor_id: String,
+        session_id: String,
+        thread_id: String,
+        since_seq: i64,
+        reply: RpcReplyPort<Result<Vec<shared_types::Event>, EventStoreError>>,
+    },
     /// Get a single event by its sequence number
     GetEventBySeq {
         seq: i64,
@@ -198,6 +206,20 @@ impl Actor for EventStoreActor {
             } => {
                 let result = self
                     .handle_get_events_for_actor(actor_id, since_seq, state)
+                    .await;
+                let _ = reply.send(result);
+            }
+            EventStoreMsg::GetEventsForActorWithScope {
+                actor_id,
+                session_id,
+                thread_id,
+                since_seq,
+                reply,
+            } => {
+                let result = self
+                    .handle_get_events_for_actor_with_scope(
+                        actor_id, session_id, thread_id, since_seq, state,
+                    )
                     .await;
                 let _ = reply.send(result);
             }
@@ -396,6 +418,53 @@ impl EventStoreActor {
         Ok(events)
     }
 
+    async fn handle_get_events_for_actor_with_scope(
+        &self,
+        actor_id: String,
+        session_id: String,
+        thread_id: String,
+        since_seq: i64,
+        state: &mut EventStoreState,
+    ) -> Result<Vec<shared_types::Event>, EventStoreError> {
+        let conn = &state.conn;
+
+        let mut rows = conn
+            .query(
+                r#"
+                SELECT seq, event_id, timestamp, event_type, payload, actor_id, user_id
+                FROM events
+                WHERE actor_id = ?1
+                  AND seq > ?2
+                  AND json_extract(payload, '$.scope.session_id') = ?3
+                  AND json_extract(payload, '$.scope.thread_id') = ?4
+                ORDER BY seq ASC
+                "#,
+                libsql::params![actor_id, since_seq, session_id, thread_id],
+            )
+            .await?;
+
+        let mut events = Vec::new();
+        while let Some(row) = rows.next().await? {
+            let timestamp_str: String = row.get(2)?;
+            let naive_dt =
+                chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
+                    .map_err(|e| EventStoreError::InvalidTimestamp(e.to_string()))?;
+
+            let event = shared_types::Event {
+                seq: row.get(0)?,
+                event_id: row.get(1)?,
+                timestamp: chrono::DateTime::from_naive_utc_and_offset(naive_dt, chrono::Utc),
+                event_type: row.get(3)?,
+                payload: serde_json::from_str(&row.get::<String>(4)?)?,
+                actor_id: shared_types::ActorId(row.get(5)?),
+                user_id: row.get(6)?,
+            };
+            events.push(event);
+        }
+
+        Ok(events)
+    }
+
     async fn handle_get_event_by_seq(
         &self,
         seq: i64,
@@ -458,6 +527,23 @@ pub async fn get_events_for_actor(
 ) -> Result<Result<Vec<shared_types::Event>, EventStoreError>, ractor::RactorErr<EventStoreMsg>> {
     ractor::call!(store, |reply| EventStoreMsg::GetEventsForActor {
         actor_id: actor_id.into(),
+        since_seq,
+        reply,
+    })
+}
+
+/// Convenience function to get events for an actor scoped by session/thread.
+pub async fn get_events_for_actor_with_scope(
+    store: &ActorRef<EventStoreMsg>,
+    actor_id: impl Into<String>,
+    session_id: impl Into<String>,
+    thread_id: impl Into<String>,
+    since_seq: i64,
+) -> Result<Result<Vec<shared_types::Event>, EventStoreError>, ractor::RactorErr<EventStoreMsg>> {
+    ractor::call!(store, |reply| EventStoreMsg::GetEventsForActorWithScope {
+        actor_id: actor_id.into(),
+        session_id: session_id.into(),
+        thread_id: thread_id.into(),
         since_seq,
         reply,
     })
@@ -602,6 +688,62 @@ mod tests {
         assert_eq!(chat_events[0].event_type, "chat.msg");
 
         // Cleanup
+        store_ref.stop(None);
+    }
+
+    #[tokio::test]
+    async fn test_get_events_for_actor_with_scope() {
+        let (store_ref, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
+
+        append_event(
+            &store_ref,
+            AppendEvent {
+                event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
+                payload: shared_types::chat_user_payload(
+                    "msg-in-scope",
+                    Some("session-1".to_string()),
+                    Some("thread-1".to_string()),
+                ),
+                actor_id: "chat-1".to_string(),
+                user_id: "user-1".to_string(),
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        append_event(
+            &store_ref,
+            AppendEvent {
+                event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
+                payload: shared_types::chat_user_payload(
+                    "msg-other-thread",
+                    Some("session-1".to_string()),
+                    Some("thread-2".to_string()),
+                ),
+                actor_id: "chat-1".to_string(),
+                user_id: "user-1".to_string(),
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        let scoped =
+            get_events_for_actor_with_scope(&store_ref, "chat-1", "session-1", "thread-1", 0)
+                .await
+                .unwrap()
+                .unwrap();
+
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(
+            shared_types::parse_chat_user_text(&scoped[0].payload).as_deref(),
+            Some("msg-in-scope")
+        );
+
         store_ref.stop(None);
     }
 }

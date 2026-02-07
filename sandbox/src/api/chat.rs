@@ -2,7 +2,7 @@
 //!
 //! HTTP endpoints route through supervision and event store.
 
-use axum::extract::Path;
+use axum::extract::{Path, Query};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
@@ -11,7 +11,7 @@ use serde_json::json;
 
 use crate::actors::chat::ChatActorMsg;
 use crate::actors::chat_agent::ChatAgentMsg;
-use crate::actors::event_store::get_events_for_actor;
+use crate::actors::event_store::{get_events_for_actor, get_events_for_actor_with_scope};
 use crate::api::ApiState;
 
 const TOOL_CALL_PREFIX: &str = "__tool_call__:";
@@ -23,6 +23,10 @@ pub struct SendMessageRequest {
     pub actor_id: String,
     pub user_id: String,
     pub text: String,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub thread_id: Option<String>,
 }
 
 /// Response after sending a message
@@ -31,6 +35,12 @@ pub struct SendMessageResponse {
     pub success: bool,
     pub temp_id: String,
     pub message: String,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct GetMessagesQuery {
+    pub session_id: Option<String>,
+    pub thread_id: Option<String>,
 }
 
 /// Send a message to a chat actor
@@ -42,6 +52,8 @@ pub async fn send_message(
     let actor_id = req.actor_id.clone();
     let user_id = req.user_id.clone();
     let text = req.text.clone();
+    let session_id = req.session_id.clone();
+    let thread_id = req.thread_id.clone();
 
     // Get or create persistent ChatActor via Manager
     let chat_actor = match app_state
@@ -73,12 +85,18 @@ pub async fn send_message(
             let actor_id_for_event = actor_id.clone();
             let user_id_for_event = user_id.clone();
             let text_for_event = text.clone();
+            let session_id_for_event = session_id.clone();
+            let thread_id_for_event = thread_id.clone();
             tokio::spawn(async move {
                 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 
                 let append_event = AppendEvent {
                     event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
-                    payload: serde_json::json!(text_for_event),
+                    payload: shared_types::chat_user_payload(
+                        text_for_event,
+                        session_id_for_event,
+                        thread_id_for_event,
+                    ),
                     actor_id: actor_id_for_event.clone(),
                     user_id: user_id_for_event.clone(),
                 };
@@ -198,6 +216,7 @@ pub async fn send_message(
 /// Get messages for a chat actor
 pub async fn get_messages(
     Path(actor_id): Path<String>,
+    Query(query): Query<GetMessagesQuery>,
     axum::extract::State(state): axum::extract::State<ApiState>,
 ) -> impl IntoResponse {
     let app_state = state.app_state.clone();
@@ -205,7 +224,21 @@ pub async fn get_messages(
     // Query EventStore directly for chat events using ractor
     let event_store = app_state.event_store();
 
-    match get_events_for_actor(&event_store, actor_id.clone(), 0).await {
+    let events_result = match (query.session_id, query.thread_id) {
+        (Some(session_id), Some(thread_id)) => {
+            get_events_for_actor_with_scope(
+                &event_store,
+                actor_id.clone(),
+                session_id,
+                thread_id,
+                0,
+            )
+            .await
+        }
+        _ => get_events_for_actor(&event_store, actor_id.clone(), 0).await,
+    };
+
+    match events_result {
         Ok(Ok(events)) => {
             let messages: Vec<shared_types::ChatMessage> = events
                 .into_iter()
@@ -243,7 +276,7 @@ pub async fn get_messages(
 fn event_to_chat_message(event: shared_types::Event) -> Option<shared_types::ChatMessage> {
     let (text, sender) = match event.event_type.as_str() {
         shared_types::EVENT_CHAT_USER_MSG => (
-            serde_json::from_value::<String>(event.payload.clone()).ok()?,
+            shared_types::parse_chat_user_text(&event.payload)?,
             shared_types::Sender::User,
         ),
         shared_types::EVENT_CHAT_ASSISTANT_MSG => {

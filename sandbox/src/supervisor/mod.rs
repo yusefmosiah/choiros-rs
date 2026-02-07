@@ -54,6 +54,9 @@ pub use terminal::{
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort, SupervisionEvent};
 use tracing::{error, info};
 
+use crate::actors::event_bus::{
+    Event, EventBusActor, EventBusArguments, EventBusConfig, EventBusMsg, EventType,
+};
 use crate::actors::event_store::EventStoreMsg;
 
 /// Application supervisor - root of the supervision tree
@@ -63,7 +66,25 @@ pub struct ApplicationSupervisor;
 /// Application supervisor state
 pub struct ApplicationState {
     pub event_store: ActorRef<EventStoreMsg>,
+    pub event_bus: Option<ActorRef<EventBusMsg>>,
     pub session_supervisor: Option<ActorRef<SessionSupervisorMsg>>,
+    pub supervision_event_counts: SupervisionEventCounts,
+    pub last_supervision_failure: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SupervisionEventCounts {
+    pub actor_started: u64,
+    pub actor_failed: u64,
+    pub actor_terminated: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplicationSupervisorHealth {
+    pub event_bus_healthy: bool,
+    pub session_supervisor_healthy: bool,
+    pub supervision_event_counts: SupervisionEventCounts,
+    pub last_supervision_failure: Option<String>,
 }
 
 /// Messages handled by ApplicationSupervisor
@@ -97,6 +118,10 @@ pub enum ApplicationSupervisorMsg {
         working_dir: String,
         reply: RpcReplyPort<ractor::ActorRef<crate::actors::terminal::TerminalMsg>>,
     },
+    /// Return health snapshot and supervision counters.
+    GetHealth {
+        reply: RpcReplyPort<ApplicationSupervisorHealth>,
+    },
 }
 
 #[ractor::async_trait]
@@ -116,11 +141,56 @@ impl Actor for ApplicationSupervisor {
             event = ?event,
             "ApplicationSupervisor received supervision event"
         );
-        if let SupervisionEvent::ActorTerminated(actor_cell, _, _) = event {
-            if let Some(session_supervisor) = &state.session_supervisor {
-                if session_supervisor.get_id() == actor_cell.get_id() {
-                    state.session_supervisor = None;
+        match &event {
+            SupervisionEvent::ActorStarted(_) => {
+                state.supervision_event_counts.actor_started += 1;
+            }
+            SupervisionEvent::ActorFailed(actor_cell, failure) => {
+                state.supervision_event_counts.actor_failed += 1;
+                state.last_supervision_failure =
+                    Some(format!("actor_id={} error={failure}", actor_cell.get_id()));
+            }
+            SupervisionEvent::ActorTerminated(actor_cell, _, _) => {
+                state.supervision_event_counts.actor_terminated += 1;
+                if let Some(session_supervisor) = &state.session_supervisor {
+                    if session_supervisor.get_id() == actor_cell.get_id() {
+                        state.session_supervisor = None;
+                    }
                 }
+                if let Some(event_bus) = &state.event_bus {
+                    if event_bus.get_id() == actor_cell.get_id() {
+                        state.event_bus = None;
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        if let Some(event_bus) = state.event_bus.clone() {
+            let supervision_event = match Event::new(
+                EventType::Custom("supervision.event".to_string()),
+                "supervisor.application.supervision",
+                serde_json::json!({
+                    "supervisor_id": myself.get_id().to_string(),
+                    "event_debug": format!("{event:?}"),
+                }),
+                "application_supervisor",
+            ) {
+                Ok(event) => event,
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to build supervision event payload");
+                    return Ok(());
+                }
+            };
+
+            if let Err(e) = ractor::cast!(
+                event_bus,
+                EventBusMsg::Publish {
+                    event: supervision_event,
+                    persist: false,
+                }
+            ) {
+                tracing::warn!(error = %e, "Failed to publish supervision event");
             }
         }
         Ok(())
@@ -135,6 +205,24 @@ impl Actor for ApplicationSupervisor {
             supervisor = %myself.get_id(),
             "ApplicationSupervisor starting"
         );
+
+        // Spawn EventBusActor as a supervised child for pub/sub and correlation-aware tracing.
+        let event_bus_args = EventBusArguments {
+            event_store: Some(event_store.clone()),
+            config: EventBusConfig::default(),
+        };
+
+        let (event_bus, _handle) = Actor::spawn_linked(
+            None, // No fixed name - allows multiple supervisors in tests
+            EventBusActor,
+            event_bus_args,
+            myself.get_cell(),
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to spawn EventBusActor: {}", e);
+            ActorProcessingErr::from(e)
+        })?;
 
         // Spawn SessionSupervisor as a supervised child
         let session_supervisor_args = SessionSupervisorArgs {
@@ -160,7 +248,10 @@ impl Actor for ApplicationSupervisor {
 
         Ok(ApplicationState {
             event_store,
+            event_bus: Some(event_bus),
             session_supervisor: Some(session_supervisor),
+            supervision_event_counts: SupervisionEventCounts::default(),
+            last_supervision_failure: None,
         })
     }
 
@@ -179,6 +270,19 @@ impl Actor for ApplicationSupervisor {
                 user_id,
                 reply,
             } => {
+                let correlation_id = ulid::Ulid::new().to_string();
+                self.emit_request_event(
+                    state,
+                    "supervisor.desktop.get_or_create.started",
+                    EventType::Custom("supervisor.desktop.get_or_create.started".to_string()),
+                    serde_json::json!({
+                        "desktop_id": desktop_id,
+                        "user_id": user_id,
+                        "supervisor_id": myself.get_id().to_string(),
+                    }),
+                    correlation_id.clone(),
+                );
+
                 if let Some(ref session_supervisor) = state.session_supervisor {
                     let desktop_args = crate::actors::desktop::DesktopArguments {
                         desktop_id: desktop_id.clone(),
@@ -195,9 +299,37 @@ impl Actor for ApplicationSupervisor {
                         }
                     }) {
                         Ok(actor_ref) => {
+                            self.emit_request_event(
+                                state,
+                                "supervisor.desktop.get_or_create.completed",
+                                EventType::Custom(
+                                    "supervisor.desktop.get_or_create.completed".to_string(),
+                                ),
+                                serde_json::json!({
+                                    "desktop_id": desktop_id,
+                                    "user_id": user_id,
+                                    "actor_id": actor_ref.get_id().to_string(),
+                                    "supervisor_id": myself.get_id().to_string(),
+                                }),
+                                correlation_id,
+                            );
                             let _ = reply.send(actor_ref);
                         }
                         Err(e) => {
+                            self.emit_request_event(
+                                state,
+                                "supervisor.desktop.get_or_create.failed",
+                                EventType::Custom(
+                                    "supervisor.desktop.get_or_create.failed".to_string(),
+                                ),
+                                serde_json::json!({
+                                    "desktop_id": desktop_id,
+                                    "user_id": user_id,
+                                    "error": e.to_string(),
+                                    "supervisor_id": myself.get_id().to_string(),
+                                }),
+                                correlation_id,
+                            );
                             error!(
                                 desktop_id = %desktop_id,
                                 error = %e,
@@ -209,7 +341,7 @@ impl Actor for ApplicationSupervisor {
                 } else {
                     error!("SessionSupervisor not available");
                     return Err(ActorProcessingErr::from(std::io::Error::other(
-                        "SessionSupervisor not available"
+                        "SessionSupervisor not available",
                     )));
                 }
             }
@@ -218,6 +350,19 @@ impl Actor for ApplicationSupervisor {
                 user_id,
                 reply,
             } => {
+                let correlation_id = ulid::Ulid::new().to_string();
+                self.emit_request_event(
+                    state,
+                    "supervisor.chat.get_or_create.started",
+                    EventType::Custom("supervisor.chat.get_or_create.started".to_string()),
+                    serde_json::json!({
+                        "actor_id": actor_id,
+                        "user_id": user_id,
+                        "supervisor_id": myself.get_id().to_string(),
+                    }),
+                    correlation_id.clone(),
+                );
+
                 if let Some(ref session_supervisor) = state.session_supervisor {
                     match ractor::call!(session_supervisor, |ss_reply| {
                         SessionSupervisorMsg::GetOrCreateChat {
@@ -227,9 +372,37 @@ impl Actor for ApplicationSupervisor {
                         }
                     }) {
                         Ok(actor_ref) => {
+                            self.emit_request_event(
+                                state,
+                                "supervisor.chat.get_or_create.completed",
+                                EventType::Custom(
+                                    "supervisor.chat.get_or_create.completed".to_string(),
+                                ),
+                                serde_json::json!({
+                                    "actor_id": actor_id,
+                                    "user_id": user_id,
+                                    "chat_actor_ref": actor_ref.get_id().to_string(),
+                                    "supervisor_id": myself.get_id().to_string(),
+                                }),
+                                correlation_id,
+                            );
                             let _ = reply.send(actor_ref);
                         }
                         Err(e) => {
+                            self.emit_request_event(
+                                state,
+                                "supervisor.chat.get_or_create.failed",
+                                EventType::Custom(
+                                    "supervisor.chat.get_or_create.failed".to_string(),
+                                ),
+                                serde_json::json!({
+                                    "actor_id": actor_id,
+                                    "user_id": user_id,
+                                    "error": e.to_string(),
+                                    "supervisor_id": myself.get_id().to_string(),
+                                }),
+                                correlation_id,
+                            );
                             error!(
                                 actor_id = %actor_id,
                                 error = %e,
@@ -241,7 +414,7 @@ impl Actor for ApplicationSupervisor {
                 } else {
                     error!("SessionSupervisor not available");
                     return Err(ActorProcessingErr::from(std::io::Error::other(
-                        "SessionSupervisor not available"
+                        "SessionSupervisor not available",
                     )));
                 }
             }
@@ -250,6 +423,19 @@ impl Actor for ApplicationSupervisor {
                 user_id,
                 reply,
             } => {
+                let correlation_id = ulid::Ulid::new().to_string();
+                self.emit_request_event(
+                    state,
+                    "supervisor.chat_agent.get_or_create.started",
+                    EventType::Custom("supervisor.chat_agent.get_or_create.started".to_string()),
+                    serde_json::json!({
+                        "agent_id": agent_id,
+                        "user_id": user_id,
+                        "supervisor_id": myself.get_id().to_string(),
+                    }),
+                    correlation_id.clone(),
+                );
+
                 if let Some(ref session_supervisor) = state.session_supervisor {
                     match ractor::call!(session_supervisor, |ss_reply| {
                         SessionSupervisorMsg::GetOrCreateChatAgent {
@@ -259,9 +445,37 @@ impl Actor for ApplicationSupervisor {
                         }
                     }) {
                         Ok(actor_ref) => {
+                            self.emit_request_event(
+                                state,
+                                "supervisor.chat_agent.get_or_create.completed",
+                                EventType::Custom(
+                                    "supervisor.chat_agent.get_or_create.completed".to_string(),
+                                ),
+                                serde_json::json!({
+                                    "agent_id": agent_id,
+                                    "user_id": user_id,
+                                    "chat_agent_ref": actor_ref.get_id().to_string(),
+                                    "supervisor_id": myself.get_id().to_string(),
+                                }),
+                                correlation_id,
+                            );
                             let _ = reply.send(actor_ref);
                         }
                         Err(e) => {
+                            self.emit_request_event(
+                                state,
+                                "supervisor.chat_agent.get_or_create.failed",
+                                EventType::Custom(
+                                    "supervisor.chat_agent.get_or_create.failed".to_string(),
+                                ),
+                                serde_json::json!({
+                                    "agent_id": agent_id,
+                                    "user_id": user_id,
+                                    "error": e.to_string(),
+                                    "supervisor_id": myself.get_id().to_string(),
+                                }),
+                                correlation_id,
+                            );
                             error!(
                                 agent_id = %agent_id,
                                 error = %e,
@@ -273,7 +487,7 @@ impl Actor for ApplicationSupervisor {
                 } else {
                     error!("SessionSupervisor not available");
                     return Err(ActorProcessingErr::from(std::io::Error::other(
-                        "SessionSupervisor not available"
+                        "SessionSupervisor not available",
                     )));
                 }
             }
@@ -284,6 +498,21 @@ impl Actor for ApplicationSupervisor {
                 working_dir,
                 reply,
             } => {
+                let correlation_id = ulid::Ulid::new().to_string();
+                self.emit_request_event(
+                    state,
+                    "supervisor.terminal.get_or_create.started",
+                    EventType::Custom("supervisor.terminal.get_or_create.started".to_string()),
+                    serde_json::json!({
+                        "terminal_id": terminal_id,
+                        "user_id": user_id,
+                        "shell": shell,
+                        "working_dir": working_dir,
+                        "supervisor_id": myself.get_id().to_string(),
+                    }),
+                    correlation_id.clone(),
+                );
+
                 if let Some(ref session_supervisor) = state.session_supervisor {
                     match ractor::call!(session_supervisor, |ss_reply| {
                         SessionSupervisorMsg::GetOrCreateTerminal {
@@ -296,9 +525,37 @@ impl Actor for ApplicationSupervisor {
                     }) {
                         Ok(result) => match result {
                             Ok(actor_ref) => {
+                                self.emit_request_event(
+                                    state,
+                                    "supervisor.terminal.get_or_create.completed",
+                                    EventType::Custom(
+                                        "supervisor.terminal.get_or_create.completed".to_string(),
+                                    ),
+                                    serde_json::json!({
+                                        "terminal_id": terminal_id,
+                                        "user_id": user_id,
+                                        "terminal_ref": actor_ref.get_id().to_string(),
+                                        "supervisor_id": myself.get_id().to_string(),
+                                    }),
+                                    correlation_id,
+                                );
                                 let _ = reply.send(actor_ref);
                             }
                             Err(e) => {
+                                self.emit_request_event(
+                                    state,
+                                    "supervisor.terminal.get_or_create.failed",
+                                    EventType::Custom(
+                                        "supervisor.terminal.get_or_create.failed".to_string(),
+                                    ),
+                                    serde_json::json!({
+                                        "terminal_id": terminal_id,
+                                        "user_id": user_id,
+                                        "error": e,
+                                        "supervisor_id": myself.get_id().to_string(),
+                                    }),
+                                    correlation_id,
+                                );
                                 error!(
                                     terminal_id = %terminal_id,
                                     error = %e,
@@ -308,6 +565,20 @@ impl Actor for ApplicationSupervisor {
                             }
                         },
                         Err(e) => {
+                            self.emit_request_event(
+                                state,
+                                "supervisor.terminal.get_or_create.failed",
+                                EventType::Custom(
+                                    "supervisor.terminal.get_or_create.failed".to_string(),
+                                ),
+                                serde_json::json!({
+                                    "terminal_id": terminal_id,
+                                    "user_id": user_id,
+                                    "error": e.to_string(),
+                                    "supervisor_id": myself.get_id().to_string(),
+                                }),
+                                correlation_id,
+                            );
                             error!(
                                 terminal_id = %terminal_id,
                                 error = %e,
@@ -319,9 +590,17 @@ impl Actor for ApplicationSupervisor {
                 } else {
                     error!("SessionSupervisor not available");
                     return Err(ActorProcessingErr::from(std::io::Error::other(
-                        "SessionSupervisor not available"
+                        "SessionSupervisor not available",
                     )));
                 }
+            }
+            ApplicationSupervisorMsg::GetHealth { reply } => {
+                let _ = reply.send(ApplicationSupervisorHealth {
+                    event_bus_healthy: state.event_bus.is_some(),
+                    session_supervisor_healthy: state.session_supervisor.is_some(),
+                    supervision_event_counts: state.supervision_event_counts.clone(),
+                    last_supervision_failure: state.last_supervision_failure.clone(),
+                });
             }
         }
         Ok(())
@@ -335,5 +614,40 @@ impl Actor for ApplicationSupervisor {
         info!(supervisor = %myself.get_id(), "ApplicationSupervisor stopping");
 
         Ok(())
+    }
+}
+
+impl ApplicationSupervisor {
+    fn emit_request_event(
+        &self,
+        state: &ApplicationState,
+        topic: &str,
+        event_type: EventType,
+        payload: serde_json::Value,
+        correlation_id: String,
+    ) {
+        let Some(event_bus) = &state.event_bus else {
+            return;
+        };
+
+        let event = match Event::new(event_type, topic, payload, "application_supervisor")
+            .map(|evt| evt.with_correlation_id(correlation_id))
+        {
+            Ok(event) => event,
+            Err(e) => {
+                tracing::warn!(error = %e, topic, "Failed to build supervisor event");
+                return;
+            }
+        };
+
+        if let Err(e) = ractor::cast!(
+            event_bus,
+            EventBusMsg::Publish {
+                event,
+                persist: true,
+            }
+        ) {
+            tracing::warn!(error = %e, topic, "Failed to publish supervisor event");
+        }
     }
 }

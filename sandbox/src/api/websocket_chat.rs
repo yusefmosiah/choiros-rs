@@ -81,7 +81,12 @@ pub enum ServerMessage {
     Pong,
 
     #[serde(rename = "connected")]
-    Connected { actor_id: String, user_id: String },
+    Connected {
+        actor_id: String,
+        user_id: String,
+        session_id: String,
+        thread_id: String,
+    },
 }
 
 /// WebSocket connection handler for /ws/chat/{actor_id}
@@ -95,15 +100,27 @@ pub async fn chat_websocket(
         .get("user_id")
         .cloned()
         .unwrap_or_else(|| "anonymous".to_string());
+    let session_id = query
+        .get("session_id")
+        .cloned()
+        .unwrap_or_else(|| format!("session:{actor_id}"));
+    let thread_id = query
+        .get("thread_id")
+        .cloned()
+        .unwrap_or_else(|| format!("thread:{actor_id}"));
 
     tracing::info!(
         actor_id = %actor_id,
         user_id = %user_id,
+        session_id = %session_id,
+        thread_id = %thread_id,
         "New chat WebSocket connection"
     );
 
     let app_state = state.app_state.clone();
-    ws.on_upgrade(move |socket| handle_chat_socket(socket, app_state, actor_id, user_id))
+    ws.on_upgrade(move |socket| {
+        handle_chat_socket(socket, app_state, actor_id, user_id, session_id, thread_id)
+    })
 }
 
 /// WebSocket connection handler for /ws/chat/{actor_id}/{user_id}
@@ -112,14 +129,20 @@ pub async fn chat_websocket_with_user(
     Path((actor_id, user_id)): Path<(String, String)>,
     State(state): State<ApiState>,
 ) -> impl IntoResponse {
+    let session_id = format!("session:{actor_id}");
+    let thread_id = format!("thread:{actor_id}");
     tracing::info!(
         actor_id = %actor_id,
         user_id = %user_id,
+        session_id = %session_id,
+        thread_id = %thread_id,
         "New chat WebSocket connection"
     );
 
     let app_state = state.app_state.clone();
-    ws.on_upgrade(move |socket| handle_chat_socket(socket, app_state, actor_id, user_id))
+    ws.on_upgrade(move |socket| {
+        handle_chat_socket(socket, app_state, actor_id, user_id, session_id, thread_id)
+    })
 }
 
 async fn handle_chat_socket(
@@ -127,6 +150,8 @@ async fn handle_chat_socket(
     app_state: Arc<AppState>,
     actor_id: String,
     user_id: String,
+    session_id: String,
+    thread_id: String,
 ) {
     let (mut sender, mut receiver) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
@@ -143,6 +168,8 @@ async fn handle_chat_socket(
             "type": "connected",
             "actor_id": actor_id,
             "user_id": user_id,
+            "session_id": session_id,
+            "thread_id": thread_id,
         })
         .to_string()
         .into(),
@@ -167,13 +194,19 @@ async fn handle_chat_socket(
                     let app_state = app_state.clone();
                     let actor_id = actor_id.clone();
                     let user_id = user_id.clone();
+                    let session_id = session_id.clone();
+                    let thread_id = thread_id.clone();
                     let client_message_id = client_message_id.clone();
 
                     tokio::spawn(async move {
                         let event_store = app_state.event_store();
                         let append_user_event = crate::actors::event_store::AppendEvent {
                             event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
-                            payload: serde_json::json!(user_text.clone()),
+                            payload: shared_types::chat_user_payload(
+                                user_text.clone(),
+                                Some(session_id.clone()),
+                                Some(thread_id.clone()),
+                            ),
                             actor_id: actor_id.clone(),
                             user_id: user_id.clone(),
                         };

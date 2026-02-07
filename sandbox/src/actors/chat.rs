@@ -222,7 +222,7 @@ impl ChatActor {
 
             match event.event_type.as_str() {
                 shared_types::EVENT_CHAT_USER_MSG => {
-                    if let Ok(text) = serde_json::from_value::<String>(event.payload.clone()) {
+                    if let Some(text) = shared_types::parse_chat_user_text(&event.payload) {
                         let msg = shared_types::ChatMessage {
                             id: event.event_id.clone(),
                             text,

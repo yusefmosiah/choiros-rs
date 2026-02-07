@@ -308,6 +308,47 @@ pub const EVENT_CHAT_USER_MSG: &str = "chat.user_msg";
 pub const EVENT_CHAT_ASSISTANT_MSG: &str = "chat.assistant_msg";
 pub const EVENT_CHAT_TOOL_CALL: &str = "chat.tool_call";
 pub const EVENT_CHAT_TOOL_RESULT: &str = "chat.tool_result";
+
+/// Build a chat user-message payload with optional session/thread scope metadata.
+pub fn chat_user_payload(
+    text: impl Into<String>,
+    session_id: Option<String>,
+    thread_id: Option<String>,
+) -> serde_json::Value {
+    let text = text.into();
+    let mut scope = serde_json::Map::new();
+    if let Some(session_id) = session_id {
+        scope.insert(
+            "session_id".to_string(),
+            serde_json::Value::String(session_id),
+        );
+    }
+    if let Some(thread_id) = thread_id {
+        scope.insert(
+            "thread_id".to_string(),
+            serde_json::Value::String(thread_id),
+        );
+    }
+
+    if scope.is_empty() {
+        return serde_json::Value::String(text);
+    }
+
+    serde_json::json!({
+        "text": text,
+        "scope": scope,
+    })
+}
+
+/// Parse chat user-message text from either legacy string payloads or scoped object payloads.
+pub fn parse_chat_user_text(payload: &serde_json::Value) -> Option<String> {
+    payload.as_str().map(ToString::to_string).or_else(|| {
+        payload
+            .get("text")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string)
+    })
+}
 pub const EVENT_USER_THEME_PREFERENCE: &str = "user.theme_preference";
 pub const EVENT_FILE_WRITE: &str = "file.write";
 pub const EVENT_FILE_EDIT: &str = "file.edit";

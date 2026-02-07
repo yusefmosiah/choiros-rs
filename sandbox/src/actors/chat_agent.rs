@@ -196,7 +196,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         for event in events {
             match event.event_type.as_str() {
                 shared_types::EVENT_CHAT_USER_MSG => {
-                    if let Ok(text) = serde_json::from_value::<String>(event.payload) {
+                    if let Some(text) = shared_types::parse_chat_user_text(&event.payload) {
                         history.push(BamlMessage {
                             role: "user".to_string(),
                             content: text,
