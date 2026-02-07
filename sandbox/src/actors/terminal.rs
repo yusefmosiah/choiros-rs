@@ -107,6 +107,7 @@ pub enum TerminalMsg {
         objective: String,
         timeout_ms: Option<u64>,
         max_steps: Option<u8>,
+        progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
         reply: RpcReplyPort<Result<TerminalAgentResult, TerminalError>>,
     },
     /// Internal: output received from PTY
@@ -145,6 +146,19 @@ pub struct TerminalExecutionStep {
     pub command: String,
     pub exit_code: i32,
     pub output_excerpt: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TerminalAgentProgress {
+    pub phase: String,
+    pub message: String,
+    pub reasoning: Option<String>,
+    pub command: Option<String>,
+    pub output_excerpt: Option<String>,
+    pub exit_code: Option<i32>,
+    pub step_index: Option<usize>,
+    pub step_total: Option<usize>,
+    pub timestamp: String,
 }
 
 #[derive(Clone)]
@@ -358,6 +372,7 @@ impl Actor for TerminalActor {
                 objective,
                 timeout_ms,
                 max_steps,
+                progress_tx,
                 reply,
             } => {
                 let result = match (
@@ -373,7 +388,7 @@ impl Actor for TerminalActor {
                         };
                         drop(input_tx);
                         drop(output_tx);
-                        self.run_agentic_task(exec, objective, timeout_ms, max_steps)
+                        self.run_agentic_task(exec, objective, timeout_ms, max_steps, progress_tx)
                             .await
                     }
                     _ => Err(TerminalError::NotRunning),
@@ -440,10 +455,33 @@ impl TerminalActor {
         objective: String,
         timeout_ms: Option<u64>,
         max_steps: Option<u8>,
+        progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
     ) -> Result<TerminalAgentResult, TerminalError> {
         let per_step_timeout = timeout_ms.unwrap_or(30_000).clamp(1_000, 120_000);
         let max_steps = max_steps.unwrap_or(3).clamp(1, 6) as usize;
+        Self::emit_progress(
+            &progress_tx,
+            "terminal_agent_starting",
+            "terminal agent started objective execution",
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(max_steps),
+        );
         if Self::looks_like_shell_command(&objective) {
+            Self::emit_progress(
+                &progress_tx,
+                "terminal_tool_call",
+                "executing direct bash command",
+                Some("Direct command execution (explicit bash command).".to_string()),
+                Some(objective.clone()),
+                None,
+                None,
+                Some(1),
+                Some(1),
+            );
             let (output, exit_code) = self
                 .execute_terminal_command(&ctx, &objective, per_step_timeout)
                 .await?;
@@ -453,6 +491,17 @@ impl TerminalActor {
                 format!("Command failed with exit status {exit_code}: {output}")
             };
             let output_excerpt = Self::truncate_excerpt(&summary);
+            Self::emit_progress(
+                &progress_tx,
+                "terminal_tool_result",
+                "direct bash command completed",
+                Some("Direct command execution (explicit bash command).".to_string()),
+                Some(objective.clone()),
+                Some(output_excerpt.clone()),
+                Some(exit_code),
+                Some(1),
+                Some(1),
+            );
             return Ok(TerminalAgentResult {
                 summary,
                 reasoning: Some("Direct command execution (explicit bash command).".to_string()),
@@ -487,6 +536,17 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
         let client_registry = Self::create_client_registry();
 
         for _ in 0..max_steps {
+            Self::emit_progress(
+                &progress_tx,
+                "terminal_agent_planning",
+                "terminal agent is planning next action",
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(max_steps),
+            );
             let plan = match B
                 .PlanAction
                 .with_client_registry(&client_registry)
@@ -504,6 +564,20 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                         format!("Command failed with exit status {exit_code}: {output}")
                     };
                     let output_excerpt = Self::truncate_excerpt(&summary);
+                    Self::emit_progress(
+                        &progress_tx,
+                        "terminal_agent_fallback",
+                        "planner unavailable; executed objective directly",
+                        Some(
+                            "Planner unavailable; executed objective as direct command."
+                                .to_string(),
+                        ),
+                        Some(objective.clone()),
+                        Some(output_excerpt.clone()),
+                        Some(exit_code),
+                        Some(1),
+                        Some(1),
+                    );
                     return Ok(TerminalAgentResult {
                         summary,
                         reasoning: Some(
@@ -522,9 +596,31 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                 }
             };
             latest_reasoning = Some(plan.thinking.clone());
+            Self::emit_progress(
+                &progress_tx,
+                "terminal_agent_reasoning",
+                "terminal agent produced reasoning",
+                Some(plan.thinking.clone()),
+                None,
+                None,
+                None,
+                None,
+                Some(max_steps),
+            );
 
             if plan.tool_calls.is_empty() {
                 if let Some(final_response) = plan.final_response {
+                    Self::emit_progress(
+                        &progress_tx,
+                        "terminal_agent_synthesizing",
+                        "terminal agent produced final response without tool calls",
+                        latest_reasoning.clone(),
+                        None,
+                        Some(Self::truncate_excerpt(&final_response)),
+                        None,
+                        Some(steps.len()),
+                        Some(max_steps),
+                    );
                     return Ok(TerminalAgentResult {
                         summary: final_response,
                         reasoning: latest_reasoning.clone(),
@@ -576,13 +672,26 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                     .clamp(1_000, 120_000);
 
                 executed_commands.push(command.clone());
+                let step_index = executed_commands.len();
+                Self::emit_progress(
+                    &progress_tx,
+                    "terminal_tool_call",
+                    "terminal agent requested bash tool execution",
+                    Some(tool_call.reasoning.clone()),
+                    Some(command.clone()),
+                    None,
+                    None,
+                    Some(step_index),
+                    Some(max_steps),
+                );
                 let (output, exit_code) = self
                     .execute_terminal_command(&ctx, &command, command_timeout)
                     .await?;
+                let output_excerpt = Self::truncate_excerpt(&output);
                 steps.push(TerminalExecutionStep {
                     command: command.clone(),
                     exit_code,
-                    output_excerpt: Self::truncate_excerpt(&output),
+                    output_excerpt: output_excerpt.clone(),
                 });
                 tool_results.push(BamlToolResult {
                     tool_name: "bash".to_string(),
@@ -594,6 +703,17 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                         Some(format!("Exit status {exit_code}"))
                     },
                 });
+                Self::emit_progress(
+                    &progress_tx,
+                    "terminal_tool_result",
+                    "terminal agent received bash tool result",
+                    Some(tool_call.reasoning.clone()),
+                    Some(command.clone()),
+                    Some(output_excerpt),
+                    Some(exit_code),
+                    Some(step_index),
+                    Some(max_steps),
+                );
                 messages.push(BamlMessage {
                     role: "assistant".to_string(),
                     content: format!("Executed bash command:\n{}\nOutput:\n{}", command, output),
@@ -617,6 +737,17 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                     .map(|r| r.output.clone())
                     .unwrap_or_else(|| "No terminal actions were executed.".to_string())
             });
+        Self::emit_progress(
+            &progress_tx,
+            "terminal_agent_synthesizing",
+            "terminal agent synthesized final response",
+            latest_reasoning.clone(),
+            None,
+            Some(Self::truncate_excerpt(&summary)),
+            None,
+            Some(steps.len()),
+            Some(max_steps),
+        );
 
         Ok(TerminalAgentResult {
             summary,
@@ -661,6 +792,33 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
         }
 
         Ok((combined, output.status.code().unwrap_or(1)))
+    }
+
+    fn emit_progress(
+        progress_tx: &Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
+        phase: &str,
+        message: &str,
+        reasoning: Option<String>,
+        command: Option<String>,
+        output_excerpt: Option<String>,
+        exit_code: Option<i32>,
+        step_index: Option<usize>,
+        step_total: Option<usize>,
+    ) {
+        let Some(tx) = progress_tx else {
+            return;
+        };
+        let _ = tx.send(TerminalAgentProgress {
+            phase: phase.to_string(),
+            message: message.to_string(),
+            reasoning,
+            command,
+            output_excerpt,
+            exit_code,
+            step_index,
+            step_total,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        });
     }
 
     fn looks_like_shell_command(input: &str) -> bool {
@@ -1175,7 +1333,7 @@ mod tests {
                 let mut request_buf = [0_u8; 1024];
                 let _ = std::io::Read::read(&mut stream, &mut request_buf);
                 let response =
-                    b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nweather-ok\n";
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 9\r\nConnection: close\r\n\r\nlocal-ok\n";
                 let _ = std::io::Write::write_all(&mut stream, response);
             }
         });
@@ -1211,6 +1369,7 @@ mod tests {
             objective,
             timeout_ms: Some(5_000),
             max_steps: Some(1),
+            progress_tx: None,
             reply,
         })
         .expect("run agentic task call failed")
@@ -1221,8 +1380,8 @@ mod tests {
             "expected success from local curl task, got: {run_result:?}"
         );
         assert!(
-            run_result.summary.contains("weather-ok"),
-            "expected weather payload in summary, got: {}",
+            run_result.summary.contains("local-ok"),
+            "expected local payload in summary, got: {}",
             run_result.summary
         );
         assert!(
@@ -1274,6 +1433,7 @@ mod tests {
             objective: "sleep 2 && echo done".to_string(),
             timeout_ms: Some(1_000),
             max_steps: Some(1),
+            progress_tx: None,
             reply,
         })
         .expect("run agentic task call failed");

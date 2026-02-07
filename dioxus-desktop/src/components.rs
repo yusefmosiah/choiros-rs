@@ -13,6 +13,7 @@ use crate::api::{fetch_messages, send_chat_message};
 
 const TOOL_CALL_PREFIX: &str = "__tool_call__:";
 const TOOL_RESULT_PREFIX: &str = "__tool_result__:";
+const ACTOR_CALL_PREFIX: &str = "__actor_call__:";
 const ASSISTANT_BUNDLE_PREFIX: &str = "__assistant_bundle__:";
 
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -169,6 +170,26 @@ pub fn ChatView(actor_id: String) -> Element {
                                                 |bundle| {
                                                     bundle.tools.push(ToolEntry {
                                                         kind: "result".to_string(),
+                                                        payload,
+                                                    });
+                                                },
+                                            );
+                                        }
+                                    }
+                                    "actor_call" => {
+                                        let content = json
+                                            .get("content")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("");
+                                        if let Ok(payload) =
+                                            serde_json::from_str::<serde_json::Value>(content)
+                                        {
+                                            let mut list = messages.write();
+                                            update_or_create_pending_assistant_bundle(
+                                                &mut list,
+                                                |bundle| {
+                                                    bundle.tools.push(ToolEntry {
+                                                        kind: "actor_call".to_string(),
                                                         payload,
                                                     });
                                                 },
@@ -563,6 +584,11 @@ pub fn MessageBubble(message: ChatMessage) -> Element {
                         payload: payload.clone(),
                         force_open: false
                     }
+                } else if let Some(payload) = parse_tool_payload(&message.text, ACTOR_CALL_PREFIX) {
+                    ActorCallSection {
+                        payload: payload.clone(),
+                        force_open: false
+                    }
                 } else {
                     div {
                         class: if is_user {
@@ -664,6 +690,13 @@ fn collapse_tool_messages(messages: Vec<ChatMessage>) -> Vec<ChatMessage> {
                 });
                 continue;
             }
+            if let Some(payload) = parse_tool_payload(&msg.text, ACTOR_CALL_PREFIX) {
+                pending_tools.push_back(ToolEntry {
+                    kind: "actor_call".to_string(),
+                    payload,
+                });
+                continue;
+            }
         }
 
         if matches!(msg.sender, Sender::Assistant) && !pending_tools.is_empty() {
@@ -677,10 +710,11 @@ fn collapse_tool_messages(messages: Vec<ChatMessage>) -> Vec<ChatMessage> {
         }
 
         while let Some(tool) = pending_tools.pop_front() {
-            let prefix = if tool.kind == "call" {
-                TOOL_CALL_PREFIX
-            } else {
-                TOOL_RESULT_PREFIX
+            let prefix = match tool.kind.as_str() {
+                "call" => TOOL_CALL_PREFIX,
+                "result" => TOOL_RESULT_PREFIX,
+                "actor_call" => ACTOR_CALL_PREFIX,
+                _ => TOOL_RESULT_PREFIX,
             };
             out.push(ChatMessage {
                 id: format!("legacy-tool-{}", chrono::Utc::now().timestamp_millis()),
@@ -752,6 +786,11 @@ fn AssistantMessageWithTools(bundle: AssistantBundle, pending: bool) -> Element 
                         for tool in bundle.tools {
                             if tool.kind == "call" {
                                 ToolCallSection {
+                                    payload: tool.payload.clone(),
+                                    force_open: expand_all()
+                                }
+                            } else if tool.kind == "actor_call" {
+                                ActorCallSection {
                                     payload: tool.payload.clone(),
                                     force_open: expand_all()
                                 }
@@ -913,6 +952,67 @@ fn ToolResultSection(payload: serde_json::Value, force_open: bool) -> Element {
                     pre { class: "tool-pre", "{details_text}" }
                 } else {
                     p { class: "tool-meta", "No output" }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn ActorCallSection(payload: serde_json::Value, force_open: bool) -> Element {
+    let phase = payload
+        .get("phase")
+        .and_then(|v| v.as_str())
+        .or_else(|| payload.get("event_type").and_then(|v| v.as_str()))
+        .or_else(|| payload.get("status").and_then(|v| v.as_str()))
+        .unwrap_or("worker_update");
+    let message = payload
+        .get("message")
+        .and_then(|v| v.as_str())
+        .or_else(|| payload.get("status").and_then(|v| v.as_str()))
+        .unwrap_or("Worker update");
+    let reasoning = payload
+        .get("reasoning")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let command = payload
+        .get("command")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let output_excerpt = payload
+        .get("output_excerpt")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let exit_code = payload
+        .get("exit_code")
+        .and_then(|v| v.as_i64())
+        .map(|v| v.to_string())
+        .unwrap_or_default();
+
+    rsx! {
+        details {
+            class: "tool-details",
+            open: force_open,
+            summary {
+                class: "tool-summary",
+                "Actor update: {phase}"
+            }
+            div {
+                class: "tool-body",
+                p { class: "tool-meta", "{message}" }
+                if !reasoning.is_empty() {
+                    p { class: "tool-meta", "Reasoning: {reasoning}" }
+                }
+                if !command.is_empty() {
+                    p { class: "tool-label", "Command" }
+                    pre { class: "tool-pre", "{command}" }
+                }
+                if !output_excerpt.is_empty() {
+                    p { class: "tool-label", "Output excerpt" }
+                    pre { class: "tool-pre", "{output_excerpt}" }
+                }
+                if !exit_code.is_empty() {
+                    p { class: "tool-meta", "Exit code: {exit_code}" }
                 }
             }
         }

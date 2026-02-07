@@ -546,4 +546,83 @@ mod integration_tests {
             .expect("missing correlation_id on failure event");
         assert_eq!(corr, task.correlation_id);
     }
+
+    #[tokio::test]
+    async fn test_terminal_delegation_emits_reasoning_progress_events() {
+        let (event_store, _event_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .expect("Failed to spawn EventStoreActor");
+
+        let (app_supervisor, _app_handle) =
+            Actor::spawn(None, ApplicationSupervisor, event_store.clone())
+                .await
+                .expect("Failed to spawn ApplicationSupervisor");
+
+        let task = ractor::call!(app_supervisor, |reply| {
+            ApplicationSupervisorMsg::DelegateTerminalTask {
+                terminal_id: "phaseb-term-progress-1".to_string(),
+                actor_id: "phaseb-actor-progress-1".to_string(),
+                user_id: "phaseb-user-progress-1".to_string(),
+                shell: "/bin/zsh".to_string(),
+                working_dir: ".".to_string(),
+                command: "echo progress_event".to_string(),
+                timeout_ms: Some(5_000),
+                session_id: Some("phaseb-session-progress-1".to_string()),
+                thread_id: Some("phaseb-thread-progress-1".to_string()),
+                reply,
+            }
+        })
+        .expect("DelegateTerminalTask RPC failed")
+        .expect("DelegateTerminalTask returned error");
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+        let mut observed = Vec::new();
+        while tokio::time::Instant::now() < deadline {
+            observed = ractor::call!(event_store, |reply| EventStoreMsg::GetEventsForActor {
+                actor_id: "phaseb-actor-progress-1".to_string(),
+                since_seq: 0,
+                reply,
+            })
+            .expect("GetEventsForActor RPC failed")
+            .expect("EventStore query failed");
+
+            let has_reasoning_progress = observed.iter().any(|evt| {
+                evt.event_type == "worker_progress"
+                    && evt
+                        .payload
+                        .get("reasoning")
+                        .and_then(|v| v.as_str())
+                        .is_some()
+                    && evt.payload.get("phase").and_then(|v| v.as_str()).is_some()
+            });
+            let has_terminal_end = observed.iter().any(|evt| {
+                evt.event_type == "worker_complete" || evt.event_type == "worker_failed"
+            });
+            if has_reasoning_progress && has_terminal_end {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        let progress_event = observed
+            .iter()
+            .find(|evt| {
+                evt.event_type == "worker_progress"
+                    && evt
+                        .payload
+                        .get("reasoning")
+                        .and_then(|v| v.as_str())
+                        .is_some()
+                    && evt.payload.get("phase").and_then(|v| v.as_str()).is_some()
+            })
+            .expect("missing worker_progress event with reasoning and phase");
+
+        let corr = progress_event
+            .payload
+            .get("correlation_id")
+            .and_then(|v| v.as_str())
+            .expect("missing correlation_id on progress event");
+        assert_eq!(corr, task.correlation_id);
+    }
 }

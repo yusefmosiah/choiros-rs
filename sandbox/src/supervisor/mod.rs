@@ -58,7 +58,7 @@ use crate::actors::event_bus::{
     Event, EventBusActor, EventBusArguments, EventBusConfig, EventBusMsg, EventType,
 };
 use crate::actors::event_store::EventStoreMsg;
-use crate::actors::terminal::TerminalMsg;
+use crate::actors::terminal::{TerminalAgentProgress, TerminalMsg};
 
 /// Application supervisor - root of the supervision tree
 #[derive(Debug, Default)]
@@ -822,6 +822,8 @@ impl Actor for ApplicationSupervisor {
                     );
 
                     let (result_tx, mut result_rx) = tokio::sync::oneshot::channel();
+                    let (progress_tx, mut progress_rx) =
+                        tokio::sync::mpsc::unbounded_channel::<TerminalAgentProgress>();
                     let terminal_ref_for_task = terminal_ref.clone();
                     let command_for_task = command.clone();
                     tokio::spawn(async move {
@@ -830,6 +832,7 @@ impl Actor for ApplicationSupervisor {
                                 objective: command_for_task,
                                 timeout_ms: Some(timeout_ms),
                                 max_steps: Some(4),
+                                progress_tx: Some(progress_tx),
                                 reply: agent_reply,
                             }
                         });
@@ -859,6 +862,34 @@ impl Actor for ApplicationSupervisor {
                                         "elapsed_ms": elapsed_ms,
                                         "message": "terminal agent is still running",
                                         "timestamp": chrono::Utc::now().to_rfc3339(),
+                                    }),
+                                    correlation_id.clone(),
+                                    actor_id.clone(),
+                                    session_id.clone(),
+                                    thread_id.clone(),
+                                );
+                            }
+                            Some(progress) = progress_rx.recv() => {
+                                let elapsed_ms = tokio::time::Instant::now()
+                                    .duration_since(start_time)
+                                    .as_millis() as u64;
+                                Self::publish_worker_event(
+                                    event_bus.clone(),
+                                    shared_types::EVENT_TOPIC_WORKER_TASK_PROGRESS,
+                                    EventType::WorkerProgress,
+                                    serde_json::json!({
+                                        "task_id": task_id,
+                                        "status": shared_types::DelegatedTaskStatus::Running,
+                                        "phase": progress.phase,
+                                        "message": progress.message,
+                                        "reasoning": progress.reasoning,
+                                        "command": progress.command,
+                                        "output_excerpt": progress.output_excerpt,
+                                        "exit_code": progress.exit_code,
+                                        "step_index": progress.step_index,
+                                        "step_total": progress.step_total,
+                                        "elapsed_ms": elapsed_ms,
+                                        "timestamp": progress.timestamp,
                                     }),
                                     correlation_id.clone(),
                                     actor_id.clone(),

@@ -32,6 +32,7 @@ fn test_user_id() -> String {
 
 struct TestServer {
     addr: SocketAddr,
+    app_state: Arc<AppState>,
     _temp_dir: tempfile::TempDir,
     handle: tokio::task::JoinHandle<()>,
 }
@@ -59,7 +60,7 @@ async fn start_test_server() -> TestServer {
     let ws_sessions: sandbox::api::websocket::WsSessions =
         Arc::new(tokio::sync::Mutex::new(HashMap::new()));
     let api_state = api::ApiState {
-        app_state,
+        app_state: app_state.clone(),
         ws_sessions,
     };
 
@@ -77,6 +78,7 @@ async fn start_test_server() -> TestServer {
 
     TestServer {
         addr,
+        app_state,
         _temp_dir: temp_dir,
         handle,
     }
@@ -102,6 +104,25 @@ async fn recv_json(
             Ok(Some(Err(e))) => panic!("Frame error: {e:?}"),
             Ok(None) => panic!("Stream ended"),
             Err(_) => panic!("Timeout waiting for frame"),
+        }
+    }
+}
+
+async fn try_recv_json(
+    ws: &mut (impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin),
+    timeout_duration: Duration,
+) -> Option<Value> {
+    loop {
+        match timeout(timeout_duration, ws.next()).await {
+            Ok(Some(Ok(Message::Text(text)))) => {
+                let value: Value = serde_json::from_str(&text).expect("Invalid JSON");
+                return Some(value);
+            }
+            Ok(Some(Ok(Message::Close(_)))) => return None,
+            Ok(Some(Ok(_))) => continue,
+            Ok(Some(Err(e))) => panic!("Frame error: {e:?}"),
+            Ok(None) => return None,
+            Err(_) => return None,
         }
     }
 }
@@ -472,5 +493,209 @@ async fn test_websocket_rapid_connect_disconnect() {
         assert_eq!(pong["type"], "pong");
 
         let _ = ws.send(Message::Close(None)).await;
+    }
+}
+
+#[tokio::test]
+async fn test_websocket_streams_actor_call_for_delegated_terminal_task() {
+    let server = start_test_server().await;
+    let actor_id = test_actor_id();
+    let user_id = test_user_id();
+
+    let (mut ws, _) = connect_async(ws_url(
+        server.addr,
+        &format!("/ws/chat/{actor_id}?user_id={user_id}"),
+    ))
+    .await
+    .expect("Failed to connect WebSocket");
+
+    let connected = recv_json(&mut ws).await;
+    assert_eq!(connected["type"], "connected");
+
+    let _task = server
+        .app_state
+        .delegate_terminal_task(
+            format!("terminal:{actor_id}"),
+            actor_id.clone(),
+            user_id.clone(),
+            "/bin/zsh".to_string(),
+            ".".to_string(),
+            "sleep 6 && echo ws_actor_call_ready".to_string(),
+            Some(15_000),
+            Some(format!("session:{actor_id}")),
+            Some(format!("thread:{actor_id}")),
+        )
+        .await
+        .expect("Failed to delegate terminal task");
+
+    let mut attempts = 0;
+    send_json(
+        &mut ws,
+        json!({
+            "type": "message",
+            "text": "status update"
+        }),
+    )
+    .await;
+    attempts += 1;
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    let mut saw_actor_call = false;
+    while tokio::time::Instant::now() < deadline {
+        let Some(msg) = try_recv_json(&mut ws, Duration::from_secs(2)).await else {
+            if attempts < 8 {
+                send_json(
+                    &mut ws,
+                    json!({
+                        "type": "message",
+                        "text": "progress ping"
+                    }),
+                )
+                .await;
+                attempts += 1;
+            }
+            continue;
+        };
+        let msg_type = msg.get("type").and_then(|v| v.as_str()).unwrap_or_default();
+        if msg_type == "actor_call" {
+            let content = msg
+                .get("content")
+                .and_then(|v| v.as_str())
+                .expect("actor_call content should be a JSON string");
+            let payload: Value =
+                serde_json::from_str(content).expect("actor_call payload should be JSON");
+            assert!(
+                payload.get("task_id").and_then(|v| v.as_str()).is_some(),
+                "actor_call payload should include task_id: {payload}"
+            );
+            assert!(
+                payload.get("status").and_then(|v| v.as_str()).is_some(),
+                "actor_call payload should include status: {payload}"
+            );
+            assert!(
+                payload.get("event_type").and_then(|v| v.as_str()).is_some(),
+                "actor_call payload should include event_type: {payload}"
+            );
+            saw_actor_call = true;
+            break;
+        }
+
+        if (msg_type == "response" || msg_type == "error") && attempts < 8 {
+            send_json(
+                &mut ws,
+                json!({
+                    "type": "message",
+                    "text": "check background task progress"
+                }),
+            )
+            .await;
+            attempts += 1;
+        }
+    }
+
+    assert!(
+        saw_actor_call,
+        "expected websocket actor_call chunk from delegated terminal task"
+    );
+}
+
+#[tokio::test]
+async fn test_websocket_streams_actor_call_for_varied_prompts() {
+    let prompts = [
+        "what's the weather in boston. use api",
+        "run a quick system check",
+        "summarize current terminal task progress",
+        "verify command output and report status",
+    ];
+
+    for (idx, prompt) in prompts.iter().enumerate() {
+        let server = start_test_server().await;
+        let actor_id = test_actor_id();
+        let user_id = test_user_id();
+
+        let (mut ws, _) = connect_async(ws_url(
+            server.addr,
+            &format!("/ws/chat/{actor_id}?user_id={user_id}"),
+        ))
+        .await
+        .expect("Failed to connect WebSocket");
+
+        let connected = recv_json(&mut ws).await;
+        assert_eq!(connected["type"], "connected");
+
+        let task = server
+            .app_state
+            .delegate_terminal_task(
+                format!("terminal:{actor_id}"),
+                actor_id.clone(),
+                user_id.clone(),
+                "/bin/zsh".to_string(),
+                ".".to_string(),
+                format!("sleep 4 && echo ws_actor_call_ready_{idx}"),
+                Some(12_000),
+                Some(format!("session:{actor_id}")),
+                Some(format!("thread:{actor_id}")),
+            )
+            .await
+            .expect("Failed to delegate terminal task");
+
+        send_json(
+            &mut ws,
+            json!({
+                "type": "message",
+                "text": prompt
+            }),
+        )
+        .await;
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+        let mut saw_task_actor_call = false;
+        let mut attempts = 0;
+        while tokio::time::Instant::now() < deadline {
+            let Some(msg) = try_recv_json(&mut ws, Duration::from_secs(2)).await else {
+                if attempts < 6 {
+                    send_json(
+                        &mut ws,
+                        json!({
+                            "type": "message",
+                            "text": "progress ping"
+                        }),
+                    )
+                    .await;
+                    attempts += 1;
+                }
+                continue;
+            };
+
+            if msg.get("type").and_then(|v| v.as_str()) != Some("actor_call") {
+                continue;
+            }
+
+            let content = msg
+                .get("content")
+                .and_then(|v| v.as_str())
+                .expect("actor_call content should be a JSON string");
+            let payload: Value =
+                serde_json::from_str(content).expect("actor_call payload should be JSON");
+            let task_id = payload.get("task_id").and_then(|v| v.as_str());
+            if task_id == Some(task.task_id.as_str()) {
+                assert!(
+                    payload.get("status").and_then(|v| v.as_str()).is_some(),
+                    "actor_call payload should include status: {payload}"
+                );
+                assert!(
+                    payload.get("event_type").and_then(|v| v.as_str()).is_some(),
+                    "actor_call payload should include event_type: {payload}"
+                );
+                saw_task_actor_call = true;
+                break;
+            }
+        }
+
+        assert!(
+            saw_task_actor_call,
+            "expected actor_call for delegated task {} on prompt: {}",
+            task.task_id, prompt
+        );
     }
 }

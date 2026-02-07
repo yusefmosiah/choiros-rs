@@ -9,7 +9,7 @@ Source roadmap:
 
 | Phase | Status | Notes |
 |---|---|---|
-| B. Multiagent Control Plane v1 | In progress | Control-plane contract + async terminal delegation API implemented; terminal worker streaming still pending |
+| B. Multiagent Control Plane v1 | In progress | Control-plane contract + async terminal delegation API implemented; terminal worker reasoning + actor-call streaming now live |
 | F. Identity and Scope Enforcement v1 | In progress | Started scoped chat payloads (`session_id`, `thread_id`) |
 | C. Chat Delegation Refactor v1 | Pending | Depends on B baseline contracts |
 | D. Context Broker v1 | Pending | Blocked on F hardening |
@@ -77,6 +77,29 @@ Files:
 - `sandbox/src/app_state.rs`
 - `sandbox/tests/supervision_test.rs`
 
+### 5) Phase B Observability: Live Terminal-Agent Progress + UI Actor Timeline
+- Added structured terminal-agent progress payloads:
+  - `TerminalAgentProgress { phase, message, reasoning, command, output_excerpt, exit_code, step_index, step_total, timestamp }`
+- `TerminalMsg::RunAgenticTask` now accepts an optional progress stream channel.
+- TerminalActor now emits progress during:
+  - objective start
+  - planning cycles
+  - reasoning updates
+  - tool call dispatch
+  - tool results
+  - synthesis/fallback
+- ApplicationSupervisor now listens to terminal progress events and publishes enriched `worker.task.progress` payloads (scope/correlation preserved).
+- Chat UI websocket now ingests `actor_call` chunks and renders them inline in the tool activity timeline.
+- Added dedicated UI section for actor updates (`phase`, `message`, `reasoning`, `command`, `output_excerpt`, `exit_code`).
+- Added integration coverage:
+  - `test_terminal_delegation_emits_reasoning_progress_events`
+
+Files:
+- `sandbox/src/actors/terminal.rs`
+- `sandbox/src/supervisor/mod.rs`
+- `sandbox/tests/supervision_test.rs`
+- `dioxus-desktop/src/components.rs`
+
 ### 3) Phase F Starter: Scoped Chat Payloads (Backward Compatible)
 - Added shared payload helpers:
   - `shared_types::chat_user_payload(...)`
@@ -127,10 +150,10 @@ Files:
 
 ## Immediate Next Actions
 
-1. Add supervisor/API metrics for scope-missing and scope-mismatch rejections.
-2. Add migration/backfill notes for legacy events without scope metadata.
-3. Add explicit thread/session IDs on non-chat event domains where relevant (desktop/terminal).
-4. Add explicit scope assertions in websocket integration tests (multi-instance same actor_id).
+1. Define a typed worker event schema for multi-agent observability (chat/terminal/supervisor/watcher) so UI can render by event kind instead of heuristic payload parsing.
+2. Add terminal-agent event emission for raw tool lifecycle records (`tool_call`, `tool_result`, command duration) as first-class worker events.
+3. Add watcher prototype actor that subscribes to worker event topics and emits escalation signals for timeout/failure/retry patterns.
+4. Add explicit websocket integration tests that assert actor-call chunks stream in-order with reasoning/tool events under scoped session/thread.
 
 ## Phase B Implementation Checklist
 
@@ -171,7 +194,7 @@ Files:
 
 ### Step 5: UI Actor-Call Timeline (Next)
 - [x] Subscribe to worker lifecycle topics in websocket/UI.
-- [ ] Render live actor-call state and output.
+- [x] Render live actor-call state and output.
 
 ### Step 6: Phase B Gate Test (Next)
 - [x] Add integration test: supervisor delegation -> terminal execution -> persisted trace.
@@ -189,11 +212,11 @@ Files:
   - direct `bash` execution is blocked; `bash` runs only via TerminalActor delegation
 - Step 5 completed partially:
   - websocket stream emits `actor_call` chunks from `worker_*` events
-  - terminal delegation completion payload now carries transparency fields:
+  - terminal delegation completion payload carries transparency fields:
     - `reasoning`
     - `executed_commands`
     - `steps` (command, exit_code, output_excerpt)
-  - frontend rendering of a dedicated actor-call timeline is still pending
+  - frontend now renders actor-call timeline entries during execution with live phase/reasoning/command/output metadata
 - Step 6 completed:
   - added supervision integration gate test for delegated terminal trace persistence with correlation ID continuity
 
@@ -208,9 +231,18 @@ Findings addressed in this pass:
 
 Residual risks:
 - Terminal agent client registry is currently Bedrock-only in `TerminalActor`; model-selection parity with `ChatAgent` is pending.
-- UI currently receives transparency payloads but does not yet render dedicated step/timeline views.
+- UI actor timeline currently renders JSON-backed sections; richer typed UX and grouped phases are still pending.
 
 Validation rerun:
 - `cargo check -p sandbox`
 - `cargo test -p sandbox --features supervision_refactor --test supervision_test -- --nocapture`
-- `cargo test -p sandbox --test chat_api_test`
+- `cargo test -p sandbox --lib test_run_agentic_task_executes_curl_against_local_server -- --nocapture`
+- `cargo check` (in `dioxus-desktop/`)
+- `cargo test -p sandbox --test websocket_chat_test -- --nocapture`
+
+Additional API test coverage:
+- Added websocket integration test to prove live actor-call observability path:
+  - connect `/ws/chat/{actor_id}?user_id={user_id}`
+  - delegate terminal task via `AppState::delegate_terminal_task(...)`
+  - trigger websocket chat stream with message frames
+  - assert receipt of `actor_call` chunks carrying worker task metadata

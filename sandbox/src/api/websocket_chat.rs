@@ -607,11 +607,24 @@ async fn emit_tool_events_since(
                 );
             }
             "worker_spawned" | "worker_progress" | "worker_complete" | "worker_failed" => {
+                let payload_with_event_type = match event.payload {
+                    serde_json::Value::Object(mut obj) => {
+                        obj.insert(
+                            "event_type".to_string(),
+                            serde_json::Value::String(event.event_type.clone()),
+                        );
+                        serde_json::Value::Object(obj)
+                    }
+                    other => serde_json::json!({
+                        "value": other,
+                        "event_type": event.event_type,
+                    }),
+                };
                 let _ = send_chunk(
                     tx,
                     StreamChunk {
                         chunk_type: "actor_call".to_string(),
-                        content: event.payload.to_string(),
+                        content: payload_with_event_type.to_string(),
                     },
                 );
             }
