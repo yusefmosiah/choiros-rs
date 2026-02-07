@@ -9,9 +9,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tower::ServiceExt;
 
-use sandbox::actor_manager::AppState;
 use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments, EventStoreMsg};
 use sandbox::api;
+use sandbox::app_state::AppState;
 
 fn file_uri(path: &std::path::Path) -> String {
     format!("file://{}", path.display())

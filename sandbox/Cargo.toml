@@ -28,7 +28,6 @@ ulid = { workspace = true }
 baml = { workspace = true }
 thiserror = { workspace = true }
 shared-types = { path = "../shared-types" }
-dashmap = "5.5"
 walkdir = "2.5"
 
 pulldown-cmark = "0.12"
@@ -41,6 +40,10 @@ portable-pty = "0.9"
 tokio-util = { version = "0.7", features = ["codec"] }
 bytes = "1.5"
 base64 = "0.22"
+
+[features]
+default = []
+supervision_refactor = []
 
 [dev-dependencies]
 http-body-util = "0.1"

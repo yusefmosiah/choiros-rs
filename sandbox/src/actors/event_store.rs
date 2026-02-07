@@ -154,13 +154,13 @@ impl Actor for EventStoreActor {
             EventStoreArguments::File(path) => {
                 tracing::info!(database_path = %path, "Opening file-based database");
                 Self::new_with_path(&path).await.map_err(|e| {
-                    ActorProcessingErr::from(format!("Failed to open database: {}", e))
+                    ActorProcessingErr::from(format!("Failed to open database: {e}"))
                 })?
             }
             EventStoreArguments::InMemory => {
                 tracing::info!("Opening in-memory database");
                 Self::new_with_path(":memory:").await.map_err(|e| {
-                    ActorProcessingErr::from(format!("Failed to open in-memory database: {}", e))
+                    ActorProcessingErr::from(format!("Failed to open in-memory database: {e}"))
                 })?
             }
         };
@@ -333,7 +333,7 @@ impl EventStoreActor {
         let row = rows
             .next()
             .await?
-            .ok_or_else(|| EventStoreError::EventNotFound(0))?;
+            .ok_or(EventStoreError::EventNotFound(0))?;
 
         // Parse SQLite datetime format: "2026-01-31 02:24:30"
         let timestamp_str: String = row.get(2)?;

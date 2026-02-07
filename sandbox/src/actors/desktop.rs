@@ -610,7 +610,7 @@ impl DesktopActor {
         match result {
             Ok(Ok(_)) => Ok(()),
             Ok(Err(e)) => Err(DesktopError::EventStore(e.to_string())),
-            Err(e) => Err(DesktopError::EventStore(format!("RPC error: {}", e))),
+            Err(e) => Err(DesktopError::EventStore(format!("RPC error: {e}"))),
         }
     }
 
@@ -638,7 +638,7 @@ impl DesktopActor {
         match result {
             Ok(Ok(event)) => Ok(event),
             Ok(Err(e)) => Err(DesktopError::EventStore(e.to_string())),
-            Err(e) => Err(DesktopError::EventStore(format!("RPC error: {}", e))),
+            Err(e) => Err(DesktopError::EventStore(format!("RPC error: {e}"))),
         }
     }
 
@@ -748,8 +748,7 @@ impl DesktopActor {
         // Update memory
         if width < MIN_WINDOW_WIDTH || height < MIN_WINDOW_HEIGHT {
             return Err(DesktopError::InvalidOperation(format!(
-                "Window size below minimum: {}x{} (min {}x{})",
-                width, height, MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT
+                "Window size below minimum: {width}x{height} (min {MIN_WINDOW_WIDTH}x{MIN_WINDOW_HEIGHT})"
             )));
         }
 
@@ -1163,7 +1162,7 @@ pub async fn sync_events(
 ) -> Result<(), ractor::RactorErr<DesktopActorMsg>> {
     desktop
         .cast(DesktopActorMsg::SyncEvents { events })
-        .map_err(|e| ractor::RactorErr::from(e))
+        .map_err(ractor::RactorErr::from)
 }
 
 /// Convenience function to get actor info

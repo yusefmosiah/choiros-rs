@@ -77,7 +77,7 @@ pub async fn get_viewer_content(
     State(state): State<ApiState>,
     Query(query): Query<ViewerContentQuery>,
 ) -> impl IntoResponse {
-    let event_store = state.app_state.actor_manager.event_store();
+    let event_store = state.app_state.event_store();
     let uri = query.uri;
 
     match get_latest_snapshot(&event_store, &uri).await {
@@ -138,7 +138,7 @@ pub async fn patch_viewer_content(
     State(state): State<ApiState>,
     Json(req): Json<PatchViewerContentRequest>,
 ) -> impl IntoResponse {
-    let event_store = state.app_state.actor_manager.event_store();
+    let event_store = state.app_state.event_store();
     let uri = req.uri.clone();
     let mime = infer_mime(&uri);
 

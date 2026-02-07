@@ -15,9 +15,9 @@ use tokio::net::TcpListener;
 use tokio::time::timeout;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-use sandbox::actor_manager::AppState;
 use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};
 use sandbox::api;
+use sandbox::app_state::AppState;
 
 fn test_terminal_id() -> String {
     format!("test-terminal-{}", uuid::Uuid::new_v4())

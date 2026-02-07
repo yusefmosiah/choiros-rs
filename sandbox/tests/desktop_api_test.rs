@@ -11,9 +11,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tower::ServiceExt;
 
-use sandbox::actor_manager::AppState;
 use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};
 use sandbox::api;
+use sandbox::app_state::AppState;
 
 /// Generate a unique test desktop ID
 fn test_desktop_id() -> String {

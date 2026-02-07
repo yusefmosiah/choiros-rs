@@ -19,8 +19,8 @@ pub mod viewer;
 pub mod websocket;
 pub mod websocket_chat;
 
-use crate::actor_manager::AppState;
 use crate::api::websocket::WsSessions;
+use crate::app_state::AppState;
 
 #[derive(Clone)]
 pub struct ApiState {

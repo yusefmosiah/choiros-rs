@@ -30,7 +30,7 @@ pub async fn get_user_preferences(
     Path(user_id): Path<String>,
     axum::extract::State(state): axum::extract::State<ApiState>,
 ) -> impl IntoResponse {
-    let event_store = state.app_state.actor_manager.event_store();
+    let event_store = state.app_state.event_store();
     let actor_id = user_actor_id(&user_id);
 
     match get_events_for_actor(&event_store, actor_id, 0).await {
@@ -90,7 +90,7 @@ pub async fn update_user_preferences(
             .into_response();
     }
 
-    let event_store = state.app_state.actor_manager.event_store();
+    let event_store = state.app_state.event_store();
     let append_event = crate::actors::event_store::AppendEvent {
         event_type: shared_types::EVENT_USER_THEME_PREFERENCE.to_string(),
         payload: json!({ "theme": req.theme }),

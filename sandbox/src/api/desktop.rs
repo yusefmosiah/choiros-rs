@@ -10,13 +10,31 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::actor_manager::DesktopActorMsg;
-use crate::actors::terminal::TerminalMsg;
+use crate::actors::desktop::DesktopActorMsg;
 use crate::api::websocket::{broadcast_event, WsMessage};
 use crate::api::ApiState;
 
 const MIN_WINDOW_WIDTH: i32 = 200;
 const MIN_WINDOW_HEIGHT: i32 = 160;
+
+async fn get_desktop_actor(
+    app_state: &std::sync::Arc<crate::app_state::AppState>,
+    desktop_id: &str,
+) -> Result<ractor::ActorRef<DesktopActorMsg>, axum::response::Response> {
+    app_state
+        .get_or_create_desktop(desktop_id.to_string(), "system".to_string())
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "success": false,
+                    "error": format!("Failed to get desktop: {e}")
+                })),
+            )
+                .into_response()
+        })
+}
 
 /// Request to open a window
 #[derive(Debug, Deserialize)]
@@ -56,11 +74,10 @@ pub async fn open_window(
 ) -> impl IntoResponse {
     let app_state = state.app_state.clone();
 
-    // Get or create DesktopActor
-    let desktop = app_state
-        .actor_manager
-        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
-        .await;
+    let desktop = match get_desktop_actor(&app_state, &desktop_id).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
 
     // Use ractor call pattern
     match ractor::call!(desktop, |reply| DesktopActorMsg::OpenWindow {
@@ -103,7 +120,7 @@ pub async fn open_window(
             Json(OpenWindowResponse {
                 success: false,
                 window: None,
-                error: Some(format!("Actor error: {}", e)),
+                error: Some(format!("Actor error: {e}")),
             }),
         )
             .into_response(),
@@ -117,10 +134,10 @@ pub async fn get_windows(
 ) -> impl IntoResponse {
     let app_state = state.app_state.clone();
 
-    let desktop = app_state
-        .actor_manager
-        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
-        .await;
+    let desktop = match get_desktop_actor(&app_state, &desktop_id).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
 
     // Use ractor call pattern
     match ractor::call!(desktop, |reply| DesktopActorMsg::GetWindows { reply }) {
@@ -150,10 +167,10 @@ pub async fn close_window(
 ) -> impl IntoResponse {
     let app_state = state.app_state.clone();
 
-    let desktop = app_state
-        .actor_manager
-        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
-        .await;
+    let desktop = match get_desktop_actor(&app_state, &desktop_id).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
 
     // Use ractor call pattern
     match ractor::call!(desktop, |reply| DesktopActorMsg::CloseWindow {
@@ -161,15 +178,6 @@ pub async fn close_window(
         reply,
     }) {
         Ok(Ok(())) => {
-            // Window IDs are used as terminal IDs for terminal app windows.
-            // If a terminal actor exists with this ID, stop and evict it when
-            // the window is explicitly closed.
-            if let Some(terminal_actor) = app_state.actor_manager.get_terminal(&window_id) {
-                let _ = ractor::call!(terminal_actor, |reply| TerminalMsg::Stop { reply });
-                terminal_actor.stop(None);
-                app_state.actor_manager.remove_terminal(&window_id);
-            }
-
             broadcast_event(
                 &state.ws_sessions,
                 &desktop_id,
@@ -215,10 +223,10 @@ pub async fn move_window(
 ) -> impl IntoResponse {
     let app_state = state.app_state.clone();
 
-    let desktop = app_state
-        .actor_manager
-        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
-        .await;
+    let desktop = match get_desktop_actor(&app_state, &desktop_id).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
 
     // Use ractor call pattern
     match ractor::call!(desktop, |reply| DesktopActorMsg::MoveWindow {
@@ -292,10 +300,10 @@ pub async fn resize_window(
 
     let app_state = state.app_state.clone();
 
-    let desktop = app_state
-        .actor_manager
-        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
-        .await;
+    let desktop = match get_desktop_actor(&app_state, &desktop_id).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
 
     // Use ractor call pattern
     match ractor::call!(desktop, |reply| DesktopActorMsg::ResizeWindow {
@@ -351,10 +359,10 @@ pub async fn focus_window(
 ) -> impl IntoResponse {
     let app_state = state.app_state.clone();
 
-    let desktop = app_state
-        .actor_manager
-        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
-        .await;
+    let desktop = match get_desktop_actor(&app_state, &desktop_id).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
 
     // Use ractor call pattern
     match ractor::call!(desktop, |reply| DesktopActorMsg::FocusWindow {
@@ -417,10 +425,10 @@ pub async fn minimize_window(
 ) -> impl IntoResponse {
     let app_state = state.app_state.clone();
 
-    let desktop = app_state
-        .actor_manager
-        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
-        .await;
+    let desktop = match get_desktop_actor(&app_state, &desktop_id).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
 
     match ractor::call!(desktop, |reply| DesktopActorMsg::MinimizeWindow {
         window_id: window_id.clone(),
@@ -471,10 +479,10 @@ pub async fn maximize_window(
 ) -> impl IntoResponse {
     let app_state = state.app_state.clone();
 
-    let desktop = app_state
-        .actor_manager
-        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
-        .await;
+    let desktop = match get_desktop_actor(&app_state, &desktop_id).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
 
     match ractor::call!(desktop, |reply| DesktopActorMsg::MaximizeWindow {
         window_id: window_id.clone(),
@@ -530,10 +538,10 @@ pub async fn restore_window(
 ) -> impl IntoResponse {
     let app_state = state.app_state.clone();
 
-    let desktop = app_state
-        .actor_manager
-        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
-        .await;
+    let desktop = match get_desktop_actor(&app_state, &desktop_id).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
 
     match ractor::call!(desktop, |reply| DesktopActorMsg::RestoreWindow {
         window_id: window_id.clone(),
@@ -591,10 +599,10 @@ pub async fn get_desktop_state(
 ) -> impl IntoResponse {
     let app_state = state.app_state.clone();
 
-    let desktop = app_state
-        .actor_manager
-        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
-        .await;
+    let desktop = match get_desktop_actor(&app_state, &desktop_id).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
 
     // Use ractor call pattern
     match ractor::call!(desktop, |reply| DesktopActorMsg::GetDesktopState { reply }) {
@@ -625,10 +633,10 @@ pub async fn register_app(
 ) -> impl IntoResponse {
     let app_state = state.app_state.clone();
 
-    let desktop = app_state
-        .actor_manager
-        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
-        .await;
+    let desktop = match get_desktop_actor(&app_state, &desktop_id).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
 
     // Use ractor call pattern
     match ractor::call!(desktop, |reply| DesktopActorMsg::RegisterApp {
@@ -669,10 +677,10 @@ pub async fn get_apps(
 ) -> impl IntoResponse {
     let app_state = state.app_state.clone();
 
-    let desktop = app_state
-        .actor_manager
-        .get_or_create_desktop(desktop_id.clone(), "system".to_string())
-        .await;
+    let desktop = match get_desktop_actor(&app_state, &desktop_id).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
 
     // Use ractor call pattern
     match ractor::call!(desktop, |reply| DesktopActorMsg::GetApps { reply }) {

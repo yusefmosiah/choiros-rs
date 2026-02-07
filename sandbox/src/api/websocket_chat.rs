@@ -15,9 +15,10 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::time::{sleep, Duration};
 
-use crate::actor_manager::{AppState, ChatAgentMsg};
+use crate::actors::chat_agent::ChatAgentMsg;
 use crate::actors::event_store::{get_events_for_actor, EventStoreMsg};
 use crate::api::ApiState;
+use crate::app_state::AppState;
 
 /// Stream chunk types for WebSocket
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -169,7 +170,7 @@ async fn handle_chat_socket(
                     let client_message_id = client_message_id.clone();
 
                     tokio::spawn(async move {
-                        let event_store = app_state.actor_manager.event_store();
+                        let event_store = app_state.event_store();
                         let append_user_event = crate::actors::event_store::AppendEvent {
                             event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
                             payload: serde_json::json!(user_text.clone()),
@@ -234,10 +235,23 @@ async fn handle_chat_socket(
                             stream_done_rx,
                         ));
 
-                        let agent = app_state
-                            .actor_manager
+                        let agent = match app_state
                             .get_or_create_chat_agent(actor_id.clone(), user_id.clone())
-                            .await;
+                            .await
+                        {
+                            Ok(agent) => agent,
+                            Err(e) => {
+                                tracing::error!(
+                                    actor_id = %actor_id,
+                                    error = %e,
+                                    "Failed to get chat agent"
+                                );
+                                let _ = send_error(&tx_clone, "Failed to initialize chat agent");
+                                let _ = stream_done_tx.send(());
+                                let _ = stream_task.await;
+                                return;
+                            }
+                        };
 
                         match ractor::call!(agent, |reply| ChatAgentMsg::ProcessMessage {
                             text: user_text,
@@ -302,10 +316,23 @@ async fn handle_chat_socket(
                     let user_id = user_id.clone();
 
                     tokio::spawn(async move {
-                        let agent = app_state
-                            .actor_manager
+                        let agent = match app_state
                             .get_or_create_chat_agent(actor_id.clone(), user_id.clone())
-                            .await;
+                            .await
+                        {
+                            Ok(agent) => agent,
+                            Err(e) => {
+                                let _ = tx_clone.send(Message::Text(
+                                    json!({
+                                        "type": "error",
+                                        "message": format!("Model switch failed: {e}")
+                                    })
+                                    .to_string()
+                                    .into(),
+                                ));
+                                return;
+                            }
+                        };
 
                         match ractor::call!(agent, |reply| ChatAgentMsg::SwitchModel {
                             model: model.clone(),

@@ -1,10 +1,10 @@
 use axum::http::{header, HeaderValue, Method};
 use ractor::Actor;
-use sandbox::actor_manager::AppState;
 use sandbox::actors::event_store::{
     AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg,
 };
 use sandbox::api;
+use sandbox::app_state::AppState;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -58,11 +58,14 @@ async fn main() -> std::io::Result<()> {
         Err(e) => tracing::error!("RPC error: {}", e),
     }
 
-    // Create app state with actor manager
-    let app_state = Arc::new(AppState::new(event_store.clone()));
-
     // Create WebSocket sessions state
     let ws_sessions: api::websocket::WsSessions = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+
+    let app_state = Arc::new(AppState::new(event_store.clone()));
+    let _ = app_state
+        .ensure_supervisor()
+        .await
+        .expect("Failed to spawn ApplicationSupervisor");
 
     tracing::info!("Starting HTTP server on http://0.0.0.0:8080");
 

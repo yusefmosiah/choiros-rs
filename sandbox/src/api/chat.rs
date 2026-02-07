@@ -1,7 +1,6 @@
-//! Chat API endpoints with ActorManager
+//! Chat API endpoints
 //!
-//! PREDICTION: HTTP endpoints can use ActorManager to get persistent actor
-//! instances, enabling multiturn chat with history preservation.
+//! HTTP endpoints route through supervision and event store.
 
 use axum::extract::Path;
 use axum::http::StatusCode;
@@ -10,7 +9,8 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::actor_manager::{ChatActorMsg, ChatAgentMsg};
+use crate::actors::chat::ChatActorMsg;
+use crate::actors::chat_agent::ChatAgentMsg;
 use crate::actors::event_store::get_events_for_actor;
 use crate::api::ApiState;
 
@@ -44,10 +44,22 @@ pub async fn send_message(
     let text = req.text.clone();
 
     // Get or create persistent ChatActor via Manager
-    let chat_actor = app_state
-        .actor_manager
+    let chat_actor = match app_state
         .get_or_create_chat(actor_id.clone(), user_id.clone())
-        .await;
+        .await
+    {
+        Ok(actor) => actor,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "success": false,
+                    "error": format!("Failed to get chat actor: {e}")
+                })),
+            )
+                .into_response();
+        }
+    };
 
     // Send the message (optimistic) using ractor call pattern
     match ractor::call!(chat_actor, |reply| ChatActorMsg::SendUserMessage {
@@ -57,7 +69,7 @@ pub async fn send_message(
         Ok(Ok(temp_id)) => {
             // Persist user message immediately to keep HTTP chat responsive even if the
             // agent is currently processing another turn.
-            let event_store = app_state.actor_manager.event_store();
+            let event_store = app_state.event_store();
             let actor_id_for_event = actor_id.clone();
             let user_id_for_event = user_id.clone();
             let text_for_event = text.clone();
@@ -101,10 +113,27 @@ pub async fn send_message(
 
             // Trigger ChatAgent to process the message and generate response (fire and forget).
             // ChatAgent logs assistant + tool events to EventStore.
-            let chat_agent = app_state
-                .actor_manager
+            let chat_agent = match app_state
                 .get_or_create_chat_agent(actor_id.clone(), user_id.clone())
-                .await;
+                .await
+            {
+                Ok(agent) => agent,
+                Err(e) => {
+                    tracing::error!(
+                        actor_id = %actor_id,
+                        error = %e,
+                        "Failed to get chat agent"
+                    );
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({
+                            "success": false,
+                            "error": "Failed to get chat agent"
+                        })),
+                    )
+                        .into_response();
+                }
+            };
             let text_for_agent = text.clone();
 
             // Spawn async task for fire-and-forget processing
@@ -174,7 +203,7 @@ pub async fn get_messages(
     let app_state = state.app_state.clone();
 
     // Query EventStore directly for chat events using ractor
-    let event_store = app_state.actor_manager.event_store();
+    let event_store = app_state.event_store();
 
     match get_events_for_actor(&event_store, actor_id.clone(), 0).await {
         Ok(Ok(events)) => {

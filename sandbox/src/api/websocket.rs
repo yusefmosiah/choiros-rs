@@ -12,8 +12,9 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
 
-use crate::actor_manager::{AppState, DesktopActorMsg};
+use crate::actors::desktop::DesktopActorMsg;
 use crate::api::ApiState;
+use crate::app_state::AppState;
 
 /// Shared state for WebSocket sessions
 pub type WsSessions = Arc<Mutex<HashMap<String, HashMap<Uuid, mpsc::UnboundedSender<Message>>>>>;
@@ -127,10 +128,21 @@ async fn handle_socket(socket: WebSocket, app_state: Arc<AppState>, sessions: Ws
 
                         current_desktop_id = Some(desktop_id.clone());
 
-                        let desktop_actor = app_state
-                            .actor_manager
+                        let desktop_actor = match app_state
                             .get_or_create_desktop(desktop_id.clone(), "anonymous".to_string())
-                            .await;
+                            .await
+                        {
+                            Ok(actor) => actor,
+                            Err(e) => {
+                                let _ = send_json(
+                                    &tx,
+                                    &WsMessage::Error {
+                                        message: format!("Failed to get desktop: {e}"),
+                                    },
+                                );
+                                continue;
+                            }
+                        };
 
                         match ractor::call!(desktop_actor, |reply| {
                             DesktopActorMsg::GetDesktopState { reply }

@@ -121,6 +121,12 @@ impl From<serde_json::Error> for ChatAgentError {
 // Actor Implementation
 // ============================================================================
 
+impl Default for ChatAgent {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChatAgent {
     /// Create a new ChatAgent actor instance
     pub fn new() -> Self {
@@ -421,8 +427,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                 Ok(())
             }
             _ => Err(ChatAgentError::InvalidModel(format!(
-                "Unknown model: {}. Available: ClaudeBedrock, GLM47",
-                model
+                "Unknown model: {model}. Available: ClaudeBedrock, GLM47"
             ))),
         }
     }

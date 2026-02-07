@@ -16,9 +16,9 @@ use tokio::net::TcpListener;
 use tokio::time::timeout;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-use sandbox::actor_manager::AppState;
 use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};
 use sandbox::api;
+use sandbox::app_state::AppState;
 
 /// Generate a unique test actor ID
 fn test_actor_id() -> String {

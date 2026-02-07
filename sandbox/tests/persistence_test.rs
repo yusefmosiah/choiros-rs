@@ -1511,17 +1511,11 @@ async fn test_agent_conversation_recovery() {
     // Allow time for any sync
     sleep(Duration::from_millis(100)).await;
 
-    // Agent2 starts with empty in-memory state (ChatAgent doesn't auto-sync from EventStore)
+    // Agent2 restores conversation history from EventStore when events are present.
     let history = ractor::call!(agent2_ref, |reply| ChatAgentMsg::GetConversationHistory {
         reply
     })
     .unwrap();
-
-    assert_eq!(
-        history.len(),
-        0,
-        "New ChatAgent starts with empty in-memory state"
-    );
 
     // But EventStore should have persisted events
     let events = ractor::call!(store2_ref, |reply| EventStoreMsg::GetEventsForActor {
@@ -1531,6 +1525,18 @@ async fn test_agent_conversation_recovery() {
     })
     .unwrap()
     .unwrap();
+
+    if events.is_empty() {
+        assert!(
+            history.is_empty(),
+            "History should be empty when no events were persisted"
+        );
+    } else {
+        assert!(
+            !history.is_empty(),
+            "History should be restored when events are persisted"
+        );
+    }
 
     // Note: This may be 0 if BAML failed, or 2+ if BAML succeeded
     // The test verifies the architecture allows recovery

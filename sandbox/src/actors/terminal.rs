@@ -420,12 +420,12 @@ async fn spawn_pty(
     let mut master_writer = pair
         .master
         .take_writer()
-        .map_err(|e| TerminalError::SpawnFailed(format!("Failed to get PTY writer: {}", e)))?;
+        .map_err(|e| TerminalError::SpawnFailed(format!("Failed to get PTY writer: {e}")))?;
 
     let mut master_reader = pair
         .master
         .try_clone_reader()
-        .map_err(|e| TerminalError::SpawnFailed(format!("Failed to clone PTY reader: {}", e)))?;
+        .map_err(|e| TerminalError::SpawnFailed(format!("Failed to clone PTY reader: {e}")))?;
 
     // Spawn input task: read from channel, write to PTY (blocking I/O in spawn_blocking)
     tokio::task::spawn_blocking(move || {

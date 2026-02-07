@@ -1,8 +1,4 @@
 //! Terminal WebSocket handler - streams terminal I/O via WebSocket
-//!
-//! This module provides WebSocket endpoints for terminal sessions,
-//! enabling real-time bidirectional communication between the browser
-//! and PTY processes.
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
@@ -14,35 +10,28 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
 
-use crate::actor_manager::AppState;
 use crate::actors::terminal::{TerminalArguments, TerminalError, TerminalMsg};
 use crate::api::ApiState;
+use crate::app_state::AppState;
 
-/// WebSocket message types for terminal communication
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum TerminalWsMessage {
-    /// Input from client (keyboard)
     #[serde(rename = "input")]
     Input { data: String },
-    /// Output to client (terminal data)
     #[serde(rename = "output")]
     Output { data: String },
-    /// Resize terminal
     #[serde(rename = "resize")]
     Resize { rows: u16, cols: u16 },
-    /// Terminal info
     #[serde(rename = "info")]
     Info {
         terminal_id: String,
         is_running: bool,
     },
-    /// Error message
     #[serde(rename = "error")]
     Error { message: String },
 }
 
-/// Query parameters for terminal WebSocket connection
 #[derive(Debug, Deserialize, Clone)]
 pub struct TerminalWsQuery {
     user_id: String,
@@ -62,7 +51,6 @@ fn default_working_dir() -> String {
         .unwrap_or_else(|_| "/".to_string())
 }
 
-/// WebSocket handler for terminal sessions
 pub async fn terminal_websocket(
     ws: WebSocketUpgrade,
     Path(terminal_id): Path<String>,
@@ -80,12 +68,6 @@ async fn handle_terminal_socket(
     query: TerminalWsQuery,
 ) {
     let session_id = Uuid::new_v4();
-    tracing::info!(
-        terminal_id = %terminal_id,
-        session_id = %session_id,
-        user_id = %query.user_id,
-        "terminal websocket connected"
-    );
 
     let (mut sender, mut receiver) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
@@ -97,24 +79,15 @@ async fn handle_terminal_socket(
         }
     });
 
-    let actor_manager = app_state.actor_manager.clone();
-    let event_store = actor_manager.event_store();
     let terminal_args = TerminalArguments {
         terminal_id: terminal_id.clone(),
         user_id: query.user_id.clone(),
         shell: query.shell.clone(),
         working_dir: query.working_dir.clone(),
-        event_store,
+        event_store: app_state.event_store(),
     };
 
-    let terminal_actor = match ensure_started_terminal(
-        &actor_manager,
-        &terminal_id,
-        terminal_args,
-        session_id,
-    )
-    .await
-    {
+    let terminal_actor = match ensure_started_terminal(&app_state, terminal_args).await {
         Ok(actor) => actor,
         Err(message) => {
             let _ = send_terminal_message(&tx, TerminalWsMessage::Error { message });
@@ -140,12 +113,6 @@ async fn handle_terminal_socket(
     };
 
     if let Ok(buffer) = ractor::call!(terminal_actor, |reply| TerminalMsg::GetOutput { reply }) {
-        tracing::debug!(
-            terminal_id = %terminal_id,
-            session_id = %session_id,
-            buffered_chunks = buffer.len(),
-            "replaying terminal output buffer to websocket client"
-        );
         for data in buffer {
             let _ = send_terminal_message(&tx, TerminalWsMessage::Output { data });
         }
@@ -206,9 +173,7 @@ async fn handle_terminal_socket(
                     );
                 }
             },
-            Message::Close(_) => {
-                break;
-            }
+            Message::Close(_) => break,
             _ => {}
         }
     }
@@ -223,45 +188,16 @@ async fn handle_terminal_socket(
 }
 
 async fn ensure_started_terminal(
-    actor_manager: &crate::actor_manager::ActorManager,
-    terminal_id: &str,
+    app_state: &AppState,
     args: TerminalArguments,
-    session_id: Uuid,
 ) -> Result<ractor::ActorRef<TerminalMsg>, String> {
-    for attempt in 1..=2 {
-        let terminal_actor = actor_manager
-            .get_or_create_terminal(terminal_id, args.clone())
-            .await
-            .map_err(|e| format!("Failed to create terminal actor: {e}"))?;
+    let terminal_actor = app_state.get_or_create_terminal_with_args(args).await?;
 
-        match ractor::call!(terminal_actor, |reply| TerminalMsg::Start { reply }) {
-            Ok(Ok(())) => return Ok(terminal_actor),
-            Ok(Err(TerminalError::AlreadyRunning)) => {
-                tracing::debug!(
-                    terminal_id = %terminal_id,
-                    session_id = %session_id,
-                    "terminal already running; attaching websocket session"
-                );
-                return Ok(terminal_actor);
-            }
-            Ok(Err(e)) => return Err(format!("Failed to start terminal: {e}")),
-            Err(e) => {
-                tracing::warn!(
-                    terminal_id = %terminal_id,
-                    session_id = %session_id,
-                    attempt = attempt,
-                    error = ?e,
-                    "terminal actor call failed; removing stale registry entry"
-                );
-                actor_manager.remove_terminal(terminal_id);
-                if attempt == 2 {
-                    return Err(format!("Failed to start terminal after retry: {e:?}"));
-                }
-            }
-        }
+    match ractor::call!(terminal_actor, |reply| TerminalMsg::Start { reply }) {
+        Ok(Ok(())) | Ok(Err(TerminalError::AlreadyRunning)) => Ok(terminal_actor),
+        Ok(Err(e)) => Err(format!("Failed to start terminal: {e}")),
+        Err(e) => Err(format!("Failed to start terminal: {e:?}")),
     }
-
-    Err("Failed to start terminal".to_string())
 }
 
 fn send_terminal_message(tx: &mpsc::UnboundedSender<Message>, msg: TerminalWsMessage) -> bool {
@@ -274,26 +210,19 @@ fn send_terminal_message(tx: &mpsc::UnboundedSender<Message>, msg: TerminalWsMes
     }
 }
 
-/// HTTP handler to create a new terminal session
 pub async fn create_terminal(
     State(state): State<ApiState>,
     Path(terminal_id): Path<String>,
 ) -> impl IntoResponse {
-    let actor_manager = &state.app_state.actor_manager;
-    let event_store = actor_manager.event_store();
-
     let args = TerminalArguments {
         terminal_id: terminal_id.clone(),
         user_id: "anonymous".to_string(),
         shell: default_shell(),
         working_dir: default_working_dir(),
-        event_store,
+        event_store: state.app_state.event_store(),
     };
 
-    match actor_manager
-        .get_or_create_terminal(&terminal_id, args)
-        .await
-    {
+    match state.app_state.get_or_create_terminal_with_args(args).await {
         Ok(_) => (
             StatusCode::OK,
             Json(serde_json::json!({
@@ -305,31 +234,25 @@ pub async fn create_terminal(
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
-                "error": format!("Failed to create terminal: {e:?}")
+                "error": format!("Failed to create terminal: {e}")
             })),
         )
             .into_response(),
     }
 }
 
-/// HTTP handler to get terminal info
 pub async fn get_terminal_info(
     State(state): State<ApiState>,
     Path(terminal_id): Path<String>,
 ) -> impl IntoResponse {
-    let actor_manager = &state.app_state.actor_manager;
-    let event_store = actor_manager.event_store();
-
-    let args = TerminalArguments {
-        terminal_id: terminal_id.clone(),
-        user_id: "anonymous".to_string(),
-        shell: default_shell(),
-        working_dir: default_working_dir(),
-        event_store,
-    };
-
-    let terminal_actor = match actor_manager
-        .get_or_create_terminal(&terminal_id, args)
+    let terminal = match state
+        .app_state
+        .get_or_create_terminal(
+            terminal_id.clone(),
+            "anonymous".to_string(),
+            default_shell(),
+            default_working_dir(),
+        )
         .await
     {
         Ok(actor) => actor,
@@ -337,14 +260,14 @@ pub async fn get_terminal_info(
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
-                    "error": format!("Failed to get terminal: {e:?}")
+                    "error": format!("Failed to get terminal: {e}")
                 })),
             )
                 .into_response();
         }
     };
 
-    match ractor::call!(terminal_actor, |reply| TerminalMsg::GetInfo { reply }) {
+    match ractor::call!(terminal, |reply| TerminalMsg::GetInfo { reply }) {
         Ok(info) => (StatusCode::OK, Json(info)).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -356,24 +279,18 @@ pub async fn get_terminal_info(
     }
 }
 
-/// HTTP handler to stop a terminal session
 pub async fn stop_terminal(
     State(state): State<ApiState>,
     Path(terminal_id): Path<String>,
 ) -> impl IntoResponse {
-    let actor_manager = &state.app_state.actor_manager;
-    let event_store = actor_manager.event_store();
-
-    let args = TerminalArguments {
-        terminal_id: terminal_id.clone(),
-        user_id: "anonymous".to_string(),
-        shell: default_shell(),
-        working_dir: default_working_dir(),
-        event_store,
-    };
-
-    let terminal_actor = match actor_manager
-        .get_or_create_terminal(&terminal_id, args)
+    let terminal = match state
+        .app_state
+        .get_or_create_terminal(
+            terminal_id.clone(),
+            "anonymous".to_string(),
+            default_shell(),
+            default_working_dir(),
+        )
         .await
     {
         Ok(actor) => actor,
@@ -381,27 +298,22 @@ pub async fn stop_terminal(
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
-                    "error": format!("Failed to get terminal: {e:?}")
+                    "error": format!("Failed to get terminal: {e}")
                 })),
             )
                 .into_response();
         }
     };
 
-    match ractor::call!(terminal_actor, |reply| TerminalMsg::Stop { reply }) {
-        Ok(Ok(())) => {
-            terminal_actor.stop(None);
-            actor_manager.remove_terminal(&terminal_id);
-
-            (
-                StatusCode::OK,
-                Json(serde_json::json!({
-                    "terminal_id": terminal_id,
-                    "status": "stopped"
-                })),
-            )
-                .into_response()
-        }
+    match ractor::call!(terminal, |reply| TerminalMsg::Stop { reply }) {
+        Ok(Ok(())) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "terminal_id": terminal_id,
+                "status": "stopped"
+            })),
+        )
+            .into_response(),
         Ok(Err(e)) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({

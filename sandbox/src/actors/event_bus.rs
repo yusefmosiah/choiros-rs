@@ -88,8 +88,7 @@ impl Event {
             return true;
         }
 
-        if pattern.ends_with(".*") {
-            let prefix = &pattern[..pattern.len() - 2];
+        if let Some(prefix) = pattern.strip_suffix(".*") {
             self.topic.starts_with(prefix)
                 && (self.topic.len() == prefix.len() || self.topic[prefix.len()..].starts_with('.'))
         } else {
@@ -160,7 +159,7 @@ impl std::fmt::Display for EventType {
             EventType::UserCommand => write!(f, "user_command"),
             EventType::SystemHeartbeat => write!(f, "system_heartbeat"),
             EventType::SystemError => write!(f, "system_error"),
-            EventType::Custom(s) => write!(f, "custom.{}", s),
+            EventType::Custom(s) => write!(f, "custom.{s}"),
         }
     }
 }
