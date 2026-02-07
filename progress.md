@@ -1,3 +1,86 @@
+# ChoirOS Progress - 2026-02-06/07 (Late-Night Workday)
+
+## Summary
+
+Completed the Phase B terminal delegation and observability slice: chat-to-terminal delegation is now tracked as worker lifecycle events, terminal-agent progress is streamed, and websocket/UI paths surface actor-call updates in real time.
+
+## Commit Window
+
+Time window: **2026-02-06 04:00 EST** through **2026-02-07 01:39 EST**
+
+Commits in window (16):
+1. `b50879c` - fix: resolve 5 critical bugs from porting review
+2. `5ce6b92` - docs: move review reports to docs directory
+3. `48d7627` - bug fixes
+4. `6ded167` - need to fix connecting to desktop bug and too many open files
+5. `25e6427` - Fix Dioxus runtime panic
+6. `bf90464` - Stabilize terminal websocket lifecycle across reloads and multi-browser sessions
+7. `0e25530` - Add window drag and mobile layout
+8. `973ea53` - refactor: complete supervision cutover, remove ActorManager runtime
+9. `d9790c3` - docs: archive React migration docs and remove sandbox-ui directory
+10. `0b7fc0b` - Document critical roadmap gaps
+11. `e53c1f9` - Act on roadmap progress update
+12. `f67ee36` - Document scoped roadmap progress
+13. `0e77f99` - Document ChatAgent scope fixes
+14. `00e7769` - Investigate agent communication time
+15. `eaabac7` - Plan multiagent terminal API
+16. `6b095dd` - Fetch Boston weather via API
+
+## Metrics (Commit Window)
+
+- Commit count: `16`
+- Files changed (sum across commits): `249`
+- Unique files touched: `165`
+- LOC added: `27,165`
+- LOC deleted: `9,374`
+- Net LOC: `+17,791`
+- Largest addition commit: `b50879c` (`+9,954 / -121`, `16 files`)
+- Largest deletion commit: `d9790c3` (`+2,724 / -7,906`, `56 files`)
+
+## Work Delivered
+
+- Added/solidified async terminal delegation contract in supervisor/app state.
+- Implemented terminal-agent progress telemetry in execution loop.
+- Wired worker progress to websocket chat stream as `actor_call` chunks.
+- Added UI support for actor-call visibility in tool activity stream.
+- Added websocket integration tests for delegated terminal actor-call streaming.
+
+## Narrative (What Happened Today)
+
+1. **Stabilization and bug-fix wave (early window):**
+   - Closed critical runtime and UI bugs (desktop connect/file-descriptor issues, panic fixes, terminal WS lifecycle hardening, drag/mobile behavior).
+2. **Architecture reset and cleanup (mid window):**
+   - Completed supervision cutover and removed ActorManager runtime anti-patterns.
+   - Archived React migration artifacts and removed `sandbox-ui`, creating a large deletion-heavy cleanup commit.
+3. **Roadmap analysis to execution bridge (late window):**
+   - Documented dependency tree + critical gaps, then converted roadmap items into actionable progress tasks.
+   - Added scope hardening and chat-agent/context fixes in docs and code paths.
+4. **Phase B multiagent execution (latest window):**
+   - Implemented/refined terminal delegation API, terminal-agent progress telemetry, websocket actor-call streaming, and UI observability wiring.
+   - Added integration tests proving actor-call stream visibility over `/ws/chat`.
+
+## Changed Areas (from today’s commits)
+
+- `sandbox/src/actors/terminal.rs`
+- `sandbox/src/supervisor/mod.rs`
+- `sandbox/src/api/websocket_chat.rs`
+- `sandbox/src/app_state.rs`
+- `sandbox/src/actors/chat_agent.rs`
+- `dioxus-desktop/src/components.rs`
+- `sandbox/tests/supervision_test.rs`
+- `sandbox/tests/websocket_chat_test.rs`
+- `roadmap_progress.md`
+- `docs/architecture/roadmap-critical-analysis.md`
+- `docs/architecture/roadmap-dependency-tree.md`
+
+## Validation Highlights
+
+- `cargo test -p sandbox --features supervision_refactor --test supervision_test -- --nocapture`
+- `cargo test -p sandbox --test websocket_chat_test -- --nocapture`
+- `cargo check -p sandbox`
+
+---
+
 # ChoirOS Progress - 2026-02-06
 
 ## Summary
