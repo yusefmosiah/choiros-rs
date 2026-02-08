@@ -145,6 +145,22 @@ impl ChatAgent {
         format!("[{}]\n{}", Self::format_timestamp(ts), content)
     }
 
+    fn delegated_soft_wait_ms(hard_timeout_ms: u64) -> u64 {
+        let configured = std::env::var("CHOIR_DELEGATED_TOOL_SOFT_WAIT_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(1_500);
+        configured.clamp(300, hard_timeout_ms.max(300))
+    }
+
+    fn delegated_result_output(payload: &serde_json::Value) -> Option<String> {
+        payload
+            .get("output")
+            .and_then(|v| v.as_str())
+            .or_else(|| payload.get("summary").and_then(|v| v.as_str()))
+            .map(ToString::to_string)
+    }
+
     fn get_tools_description(_state: &ChatAgentState) -> String {
         let bash_schema = serde_json::json!({
             "type": "object",
@@ -867,6 +883,69 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         }
     }
 
+    fn spawn_background_followup(
+        &self,
+        state: &ChatAgentState,
+        task_id: String,
+        session_id: Option<String>,
+        thread_id: Option<String>,
+        hard_wait_timeout_ms: u64,
+        capability: &'static str,
+    ) {
+        let event_store = state.args.event_store.clone();
+        let actor_id = state.args.actor_id.clone();
+        tokio::spawn(async move {
+            let result = Self::wait_for_delegated_task_result_internal(
+                &event_store,
+                &actor_id,
+                &task_id,
+                session_id.clone(),
+                thread_id.clone(),
+                hard_wait_timeout_ms,
+            )
+            .await;
+
+            let followup_text = match result {
+                Ok(result) => match result.status {
+                    shared_types::DelegatedTaskStatus::Completed => {
+                        let output = result
+                            .output
+                            .unwrap_or_else(|| format!("{capability} task completed."));
+                        format!("Async {capability} update\n\n{output}")
+                    }
+                    shared_types::DelegatedTaskStatus::Failed => {
+                        let error = result
+                            .error
+                            .unwrap_or_else(|| format!("{capability} task failed."));
+                        format!("Async {capability} update\n\nTask failed: {error}")
+                    }
+                    _ => return,
+                },
+                Err(err) => format!("Async {capability} update\n\nTask did not finish: {err}"),
+            };
+
+            let payload = serde_json::json!({
+                "text": followup_text,
+                "thinking": format!("Asynchronous {} follow-up emitted from delegated task completion.", capability),
+                "confidence": 1.0,
+                "model": "system.delegated_task",
+                "model_source": "system",
+                "tools_used": 1,
+                "async_followup": true,
+                "task_id": task_id,
+                "capability": capability,
+            });
+            let event = AppendEvent {
+                event_type: shared_types::EVENT_CHAT_ASSISTANT_MSG.to_string(),
+                payload: shared_types::with_scope(payload, session_id, thread_id),
+                actor_id,
+                user_id: "system".to_string(),
+            };
+
+            let _ = ractor::call!(event_store, |reply| EventStoreMsg::Append { event, reply });
+        });
+    }
+
     /// Handle ProcessMessage
     async fn handle_process_message(
         &self,
@@ -1225,16 +1304,39 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         .map_err(ChatAgentError::Tool)?;
 
         let wait_timeout_ms = timeout_ms.unwrap_or(30_000).clamp(1_000, 120_000) + 2_000;
+        let soft_wait_ms = Self::delegated_soft_wait_ms(wait_timeout_ms);
         let result = self
             .wait_for_delegated_task_result(
                 &state.args.event_store,
                 &state.args.actor_id,
                 &task.task_id,
-                session_id,
-                thread_id,
-                wait_timeout_ms,
+                session_id.clone(),
+                thread_id.clone(),
+                soft_wait_ms,
             )
-            .await?;
+            .await;
+
+        let result = match result {
+            Ok(result) => result,
+            Err(ChatAgentError::Tool(err)) if err.contains("timed out") => {
+                self.spawn_background_followup(
+                    state,
+                    task.task_id.clone(),
+                    session_id,
+                    thread_id,
+                    wait_timeout_ms,
+                    "terminal",
+                );
+                return Ok(ToolOutput {
+                    success: true,
+                    content: format!(
+                        "Terminal task {} is running in the background. I will append results when it finishes.",
+                        task.task_id
+                    ),
+                });
+            }
+            Err(err) => return Err(err),
+        };
 
         match result.status {
             shared_types::DelegatedTaskStatus::Completed => Ok(ToolOutput {
@@ -1350,16 +1452,39 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         .map_err(ChatAgentError::Tool)?;
 
         let wait_timeout_ms = timeout_ms.unwrap_or(45_000).clamp(3_000, 120_000) + 2_000;
+        let soft_wait_ms = Self::delegated_soft_wait_ms(wait_timeout_ms);
         let result = self
             .wait_for_delegated_task_result(
                 &state.args.event_store,
                 &state.args.actor_id,
                 &task.task_id,
-                session_id,
-                thread_id,
-                wait_timeout_ms,
+                session_id.clone(),
+                thread_id.clone(),
+                soft_wait_ms,
             )
-            .await?;
+            .await;
+
+        let result = match result {
+            Ok(result) => result,
+            Err(ChatAgentError::Tool(err)) if err.contains("timed out") => {
+                self.spawn_background_followup(
+                    state,
+                    task.task_id.clone(),
+                    session_id,
+                    thread_id,
+                    wait_timeout_ms,
+                    "research",
+                );
+                return Ok(ToolOutput {
+                    success: true,
+                    content: format!(
+                        "Research task {} is running in the background. I will append findings when it finishes.",
+                        task.task_id
+                    ),
+                });
+            }
+            Err(err) => return Err(err),
+        };
 
         match result.status {
             shared_types::DelegatedTaskStatus::Completed => Ok(ToolOutput {
@@ -1388,13 +1513,32 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         thread_id: Option<String>,
         timeout_ms: u64,
     ) -> Result<shared_types::DelegatedTaskResult, ChatAgentError> {
+        Self::wait_for_delegated_task_result_internal(
+            event_store,
+            actor_id,
+            task_id,
+            session_id,
+            thread_id,
+            timeout_ms,
+        )
+        .await
+    }
+
+    async fn wait_for_delegated_task_result_internal(
+        event_store: &ActorRef<EventStoreMsg>,
+        actor_id: &str,
+        task_id: &str,
+        session_id: Option<String>,
+        thread_id: Option<String>,
+        timeout_ms: u64,
+    ) -> Result<shared_types::DelegatedTaskResult, ChatAgentError> {
         let deadline =
             tokio::time::Instant::now() + std::time::Duration::from_millis(timeout_ms.max(1_000));
         let mut since_seq = 0;
         loop {
             if tokio::time::Instant::now() >= deadline {
                 return Err(ChatAgentError::Tool(format!(
-                    "Delegated terminal task timed out after {timeout_ms}ms while awaiting result"
+                    "Delegated task timed out after {timeout_ms}ms while awaiting result"
                 )));
             }
 
@@ -1464,7 +1608,8 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                         .payload
                         .get("output")
                         .and_then(|v| v.as_str())
-                        .map(ToString::to_string),
+                        .map(ToString::to_string)
+                        .or_else(|| Self::delegated_result_output(&event.payload)),
                     error: event
                         .payload
                         .get("error")
@@ -1672,6 +1817,15 @@ mod tests {
         let stamped = ChatAgent::timestamped_prompt_content("hello world", ts);
         assert!(stamped.starts_with("[2026-02-08T20:49:43Z]"));
         assert!(stamped.ends_with("hello world"));
+    }
+
+    #[test]
+    fn test_delegated_result_output_falls_back_to_summary() {
+        let payload = serde_json::json!({
+            "summary": "Research summary output"
+        });
+        let output = ChatAgent::delegated_result_output(&payload);
+        assert_eq!(output.as_deref(), Some("Research summary output"));
     }
 
     #[tokio::test]
