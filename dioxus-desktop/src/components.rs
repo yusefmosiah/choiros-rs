@@ -1381,11 +1381,15 @@ const CHAT_STYLES: &str = r#"
     flex-direction: column;
     min-width: 220px;
     max-width: 320px;
+    position: relative;
 }
 
 .thread-sidebar.collapsed {
-    width: 42px;
-    min-width: 42px;
+    width: 0;
+    min-width: 0;
+    max-width: 0;
+    border-right: none;
+    overflow: visible;
 }
 
 .thread-sidebar-toggle {
@@ -1396,6 +1400,17 @@ const CHAT_STYLES: &str = r#"
     font-size: 0.85rem;
     padding: 0.5rem 0.4rem;
     align-self: flex-end;
+}
+
+.thread-sidebar.collapsed .thread-sidebar-toggle {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.35rem;
+    z-index: 30;
+    border-radius: 999px;
+    background: color-mix(in srgb, #0b1222 82%, transparent);
+    border: 1px solid #1f2a44;
+    padding: 0.35rem 0.45rem;
 }
 
 .thread-sidebar-header {
@@ -1830,5 +1845,37 @@ const CHAT_STYLES: &str = r#"
     font-size: 0.75rem;
     color: var(--text-muted, #64748b);
     text-align: center;
+}
+
+@media (max-width: 1024px) {
+    .chat-body {
+        position: relative;
+    }
+
+    .thread-sidebar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        min-width: 100%;
+        max-width: none;
+        z-index: 35;
+        border-right: none;
+        border-left: none;
+        box-shadow: 0 14px 34px rgba(2, 6, 23, 0.55);
+    }
+
+    .thread-sidebar.collapsed {
+        width: 0;
+        min-width: 0;
+        max-width: 0;
+        box-shadow: none;
+    }
+
+    .thread-sidebar.collapsed .thread-sidebar-toggle {
+        left: 0.5rem;
+        top: 0.5rem;
+    }
 }
 "#;
