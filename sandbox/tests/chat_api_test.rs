@@ -202,7 +202,8 @@ async fn test_send_multiple_messages() {
         let message_req = json!({
             "actor_id": chat_id,
             "user_id": "test-user",
-            "text": format!("Message {}", i)
+            "text": format!("Message {}", i),
+            "model": "__invalid_model__"
         });
 
         let req = Request::builder()
@@ -215,7 +216,7 @@ async fn test_send_multiple_messages() {
         let _ = json_response(&app, req).await;
     }
 
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
 
     let req = Request::builder()
         .method("GET")

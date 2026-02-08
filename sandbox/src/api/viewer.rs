@@ -12,6 +12,7 @@ use serde_json::json;
 use std::path::Path;
 
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
+use crate::api::logs::{build_run_markdown_from_store, RunLogQuery};
 use crate::api::ApiState;
 
 #[derive(Debug, Deserialize)]
@@ -34,6 +35,7 @@ pub struct ViewerContentResponse {
     pub uri: String,
     pub mime: String,
     pub content: String,
+    pub rendered_html: Option<String>,
     pub revision: shared_types::ViewerRevision,
     pub readonly: bool,
 }
@@ -80,32 +82,84 @@ pub async fn get_viewer_content(
     let event_store = state.app_state.event_store();
     let uri = query.uri;
 
+    if let Some(run_query) = parse_runlog_uri(&uri) {
+        match build_run_markdown_from_store(event_store.clone(), run_query).await {
+            Ok(markdown) => {
+                let mime = "text/markdown".to_string();
+                let rendered_html = render_markdown_html_if_applicable(&mime, &markdown);
+                return (
+                    StatusCode::OK,
+                    Json(ViewerContentResponse {
+                        success: true,
+                        uri,
+                        mime,
+                        content: markdown,
+                        rendered_html,
+                        revision: make_revision(0),
+                        readonly: true,
+                    }),
+                )
+                    .into_response();
+            }
+            Err(err) if err.starts_with("bad_request:") => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "success": false,
+                        "error": err.trim_start_matches("bad_request:")
+                    })),
+                )
+                    .into_response();
+            }
+            Err(err) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({
+                        "success": false,
+                        "error": format!("Failed to render run transcript: {err}")
+                    })),
+                )
+                    .into_response();
+            }
+        }
+    }
+
     match get_latest_snapshot(&event_store, &uri).await {
-        Ok(Some(snapshot)) => (
-            StatusCode::OK,
-            Json(ViewerContentResponse {
-                success: true,
-                uri,
-                mime: snapshot.mime,
-                content: snapshot.content,
-                revision: snapshot.revision,
-                readonly: snapshot.readonly,
-            }),
-        )
-            .into_response(),
-        Ok(None) => match load_initial_snapshot(&uri) {
-            Ok(Some(snapshot)) => (
+        Ok(Some(snapshot)) => {
+            let rendered_html =
+                render_markdown_html_if_applicable(&snapshot.mime, &snapshot.content);
+            (
                 StatusCode::OK,
                 Json(ViewerContentResponse {
                     success: true,
                     uri,
                     mime: snapshot.mime,
                     content: snapshot.content,
+                    rendered_html,
                     revision: snapshot.revision,
                     readonly: snapshot.readonly,
                 }),
             )
-                .into_response(),
+                .into_response()
+        }
+        Ok(None) => match load_initial_snapshot(&uri) {
+            Ok(Some(snapshot)) => {
+                let rendered_html =
+                    render_markdown_html_if_applicable(&snapshot.mime, &snapshot.content);
+                (
+                    StatusCode::OK,
+                    Json(ViewerContentResponse {
+                        success: true,
+                        uri,
+                        mime: snapshot.mime,
+                        content: snapshot.content,
+                        rendered_html,
+                        revision: snapshot.revision,
+                        readonly: snapshot.readonly,
+                    }),
+                )
+                    .into_response()
+            }
             Ok(None) => (
                 StatusCode::NOT_FOUND,
                 Json(json!({
@@ -290,6 +344,10 @@ fn file_path_from_uri(uri: &str) -> Option<String> {
 }
 
 fn infer_mime(uri: &str) -> String {
+    if uri.starts_with("runlog://") {
+        return "text/markdown".to_string();
+    }
+
     let Some(path) = file_path_from_uri(uri) else {
         return "text/plain".to_string();
     };
@@ -310,6 +368,45 @@ fn infer_mime(uri: &str) -> String {
         "svg" => "image/svg+xml".to_string(),
         _ => "text/plain".to_string(),
     }
+}
+
+fn render_markdown_html_if_applicable(mime: &str, content: &str) -> Option<String> {
+    if mime == "text/markdown" {
+        Some(crate::markdown::render_to_html(content))
+    } else {
+        None
+    }
+}
+
+fn parse_runlog_uri(uri: &str) -> Option<RunLogQuery> {
+    let query = uri.strip_prefix("runlog://")?.split_once('?')?.1;
+    let mut out = RunLogQuery {
+        since_seq: None,
+        limit: None,
+        actor_id: None,
+        user_id: None,
+        session_id: None,
+        thread_id: None,
+        correlation_id: None,
+        task_id: None,
+    };
+
+    for pair in query.split('&') {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        match key {
+            "since_seq" => out.since_seq = value.parse::<i64>().ok(),
+            "limit" => out.limit = value.parse::<i64>().ok(),
+            "actor_id" => out.actor_id = Some(value.to_string()),
+            "user_id" => out.user_id = Some(value.to_string()),
+            "session_id" => out.session_id = Some(value.to_string()),
+            "thread_id" => out.thread_id = Some(value.to_string()),
+            "correlation_id" => out.correlation_id = Some(value.to_string()),
+            "task_id" => out.task_id = Some(value.to_string()),
+            _ => {}
+        }
+    }
+
+    Some(out)
 }
 
 fn is_readonly_mime(mime: &str) -> bool {

@@ -3,6 +3,7 @@ use shared_types::{ViewerDescriptor, ViewerKind, ViewerRevision};
 
 use crate::api::{fetch_viewer_content, patch_viewer_content, PatchViewerContentError};
 use crate::viewers::image::ImageViewer;
+use crate::viewers::markdown::MarkdownViewer;
 use crate::viewers::text::TextViewer;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,6 +19,7 @@ pub enum ViewerShellState {
 pub fn ViewerShell(window_id: String, desktop_id: String, descriptor: ViewerDescriptor) -> Element {
     let mut shell_state = use_signal(|| ViewerShellState::Loading);
     let mut content = use_signal(String::new);
+    let mut rendered_html = use_signal(|| None::<String>);
     let mut saved_content = use_signal(String::new);
     let mut revision = use_signal(|| ViewerRevision {
         rev: 0,
@@ -28,6 +30,9 @@ pub fn ViewerShell(window_id: String, desktop_id: String, descriptor: ViewerDesc
     let uri = descriptor.resource.uri.clone();
     let mime = descriptor.resource.mime.clone();
     let readonly = descriptor.capabilities.readonly;
+    let text_mode = matches!(descriptor.kind, ViewerKind::Text);
+    let markdown_mode = text_mode && mime == "text/markdown";
+    let effective_readonly = readonly || text_mode;
 
     let uri_for_initial = uri.clone();
     use_effect(move || {
@@ -38,6 +43,7 @@ pub fn ViewerShell(window_id: String, desktop_id: String, descriptor: ViewerDesc
             match fetch_viewer_content(&uri_inner).await {
                 Ok(resp) => {
                     content.set(resp.content.clone());
+                    rendered_html.set(resp.rendered_html.clone());
                     saved_content.set(resp.content);
                     revision.set(resp.revision);
                     shell_state.set(ViewerShellState::Ready);
@@ -52,6 +58,7 @@ pub fn ViewerShell(window_id: String, desktop_id: String, descriptor: ViewerDesc
 
     let on_text_change = move |next: String| {
         content.set(next.clone());
+        rendered_html.set(None);
         if next != saved_content() {
             shell_state.set(ViewerShellState::Dirty);
         } else {
@@ -59,7 +66,7 @@ pub fn ViewerShell(window_id: String, desktop_id: String, descriptor: ViewerDesc
         }
     };
 
-    let save_enabled = matches!(shell_state(), ViewerShellState::Dirty) && !readonly;
+    let save_enabled = matches!(shell_state(), ViewerShellState::Dirty) && !effective_readonly;
     let uri_for_save = uri.clone();
     let on_save = move |_| {
         if !save_enabled {
@@ -121,6 +128,23 @@ pub fn ViewerShell(window_id: String, desktop_id: String, descriptor: ViewerDesc
                 }
                 div {
                     style: "display: flex; gap: 8px;",
+                    if markdown_mode {
+                        button {
+                            onclick: move |_| set_markdown_details_open(true),
+                            "Expand all"
+                        }
+                        button {
+                            onclick: move |_| set_markdown_details_open(false),
+                            "Collapse all"
+                        }
+                        button {
+                            onclick: {
+                                let content_snapshot = content();
+                                move |_| copy_text_to_clipboard(&content_snapshot)
+                            },
+                            "Copy all"
+                        }
+                    }
                     button {
                         onclick: move |_| {
                             let uri_inner = uri_for_reload.clone();
@@ -130,6 +154,7 @@ pub fn ViewerShell(window_id: String, desktop_id: String, descriptor: ViewerDesc
                                 match fetch_viewer_content(&uri_inner).await {
                                     Ok(resp) => {
                                         content.set(resp.content.clone());
+                                        rendered_html.set(resp.rendered_html.clone());
                                         saved_content.set(resp.content);
                                         revision.set(resp.revision);
                                         shell_state.set(ViewerShellState::Ready);
@@ -143,10 +168,12 @@ pub fn ViewerShell(window_id: String, desktop_id: String, descriptor: ViewerDesc
                         },
                         "Reload"
                     }
-                    button {
-                        disabled: !save_enabled,
-                        onclick: on_save,
-                        "Save"
+                    if !effective_readonly {
+                        button {
+                            disabled: !save_enabled,
+                            onclick: on_save,
+                            "Save"
+                        }
                     }
                 }
             }
@@ -158,10 +185,24 @@ pub fn ViewerShell(window_id: String, desktop_id: String, descriptor: ViewerDesc
                 } else {
                     match descriptor.kind {
                         ViewerKind::Text => rsx! {
-                            TextViewer {
-                                content: content(),
-                                readonly: readonly,
-                                on_change: on_text_change,
+                            if markdown_mode {
+                                if let Some(html) = rendered_html() {
+                                    MarkdownViewer {
+                                        html: html.clone(),
+                                    }
+                                } else {
+                                    TextViewer {
+                                        content: content(),
+                                        readonly: true,
+                                        on_change: on_text_change,
+                                    }
+                                }
+                            } else {
+                                TextViewer {
+                                    content: content(),
+                                    readonly: true,
+                                    on_change: on_text_change,
+                                }
                             }
                         },
                         ViewerKind::Image => rsx! {
@@ -187,6 +228,25 @@ pub fn ViewerShell(window_id: String, desktop_id: String, descriptor: ViewerDesc
             }
         }
     }
+}
+
+fn set_markdown_details_open(open: bool) {
+    let js = if open {
+        "document.querySelectorAll('.viewer-shell details').forEach((el)=>el.setAttribute('open',''));"
+    } else {
+        "document.querySelectorAll('.viewer-shell details').forEach((el)=>el.removeAttribute('open'));"
+    };
+    let _ = js_sys::eval(js);
+}
+
+fn copy_text_to_clipboard(text: &str) {
+    let Ok(payload) = serde_json::to_string(text) else {
+        return;
+    };
+    let js = format!(
+        "if (navigator && navigator.clipboard) {{ navigator.clipboard.writeText({payload}); }}"
+    );
+    let _ = js_sys::eval(&js);
 }
 
 pub fn shell_status_text(state: &ViewerShellState) -> &'static str {

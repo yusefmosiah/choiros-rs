@@ -78,6 +78,13 @@ async fn test_get_viewer_content_happy_path() {
     assert_eq!(body["uri"], uri);
     assert_eq!(body["mime"], "text/markdown");
     assert_eq!(body["content"], "# Hello viewer\n");
+    assert!(
+        body["rendered_html"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("<h1>"),
+        "expected rendered markdown HTML in response"
+    );
     assert_eq!(body["revision"]["rev"], 0);
 }
 

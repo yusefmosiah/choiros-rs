@@ -15,6 +15,47 @@ Active order:
 4. Worker Signal Contract
 5. Researcher
 
+## Narrative Summary (1-minute read)
+
+Logging + Watcher + Model Policy are now at a strong foundation level for operations. We now have run-scoped observability (not just raw event tails), markdown run projection, structured worker failure telemetry, and deterministic watcher rules that include network-spike detection. The current highest-value next build target is Researcher, with Prompt Bar + Conductor as the next orchestration layer once researcher lifecycle and signals are live.
+
+## What Changed (Latest)
+
+- Logging UX moved to run-centric operation:
+  - watcher logs preload persisted events on load (not empty after restart),
+  - runs sidebar groups by correlation/task ids,
+  - selected run filters main event pane,
+  - run markdown can be opened directly from watcher.
+- Run markdown export upgraded:
+  - worker events collapsed by default,
+  - explicit worker completion/failure diagnostic sections,
+  - expand/collapse/copy-all controls in markdown viewer.
+- Worker failure telemetry hardened:
+  - structured fields now emitted (`failure_kind`, `failure_retriable`, `failure_hint`, `failure_origin`, `error_code`, `duration_ms`).
+- Watcher rules hardened:
+  - new `watcher.alert.network_spike`,
+  - timeout detection reads structured failure fields first,
+  - startup stale-task bootstrap false-positive reduced.
+- Model observability completed for worker path:
+  - worker events now normalize and persist both `model_requested` and `model_used` on every lifecycle event.
+
+## What To Do Next (Priority Order)
+
+1. Researcher v1:
+   - implement provider-isolated search surface (Tavily + Brave + Exa),
+   - emit typed research findings/learnings/citations/events,
+   - verify websocket ordering and run-level replay.
+2. Worker Signal Contract implementation:
+   - typed turn report ingestion, validation, anti-spam gates,
+   - escalation signaling semantics into Conductor control plane.
+3. Prompt Bar + Conductor:
+   - route universal input to actors (not chat-only),
+   - maintain directives/checklist state at a glance,
+   - preserve run/log traceability for every routed action.
+4. Model Policy UX hardening:
+   - keep document-first settings flow,
+   - ensure policy edits emit model-change events with actor attribution.
+
 Now:
 - Reconciliation gate closeout (blocking Researcher):
   - close capability boundary leak (`ChatAgent` direct tools)
@@ -110,6 +151,11 @@ Validation executed:
 
 Remaining from the reconciliation gate:
 - C3 still open: finalize terminal contract split/retirement strategy for natural-language `RunAgenticTask` vs typed app-tool dispatch envelope.
+
+Status update:
+- C3 is functionally narrowed:
+  - appactor->toolactor terminal delegation now stable and typed.
+  - remaining C3 work is contract clarity/documentation and explicit retirement boundaries, not core runtime breakage.
 
 ## C3 + Logging Expansion Update (2026-02-08, pass 3)
 
@@ -301,10 +347,10 @@ Execution mode update (2026-02-08):
 
 | Phase | Status | Notes |
 |---|---|---|
-| B. Multiagent Control Plane v1 | In progress | Control-plane contract + async terminal delegation API implemented; terminal worker reasoning + actor-call streaming now live |
+| B. Multiagent Control Plane v1 | In progress | Control-plane contract + async terminal delegation API implemented; run-scoped logs + structured failure telemetry live |
 | F. Identity and Scope Enforcement v1 | In progress | Started scoped chat payloads (`session_id`, `thread_id`) |
 | C. Chat Delegation Refactor v1 | Pending | Depends on B baseline contracts |
-| D. Context Broker v1 | Pending | Blocked on F hardening |
+| D. Context Broker v1 | Pending | Blocked on F hardening; likely absorbed into Prompt Bar + Conductor routing layer |
 | G. SandboxFS Persistence | Pending | Not started in this session |
 | H. Hypervisor Integration | Pending | Not started in this session |
 

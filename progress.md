@@ -1,3 +1,55 @@
+# ChoirOS Progress - 2026-02-08 (Observability and Run-Logging Hardening)
+
+## Summary
+
+Completed a full run-observability hardening pass across backend + desktop UI: run-scoped watcher views, markdown run projection from watcher/chat, structured worker failure telemetry, watcher network-spike alerts, and normalized model attribution on every worker lifecycle event.
+
+## Narrative Summary (1-minute read)
+
+The system moved from event-tail visibility to operator-grade run visibility. Logs now load from persisted history, group into runs, and stream live updates. Each run can be projected into markdown with collapsible worker detail and copy/expand controls. Worker failures now carry explicit diagnostic fields instead of opaque strings. Watcher now detects network failure spikes, and model usage is persisted across all worker lifecycle events.
+
+## What Changed
+
+- Run-centric watcher logs UX:
+  - preload persisted logs on startup (no empty view after rebuild),
+  - runs sidebar grouped by `correlation_id`/`task_id`,
+  - per-run filtering in the main event pane.
+- Run markdown projection:
+  - `runlog://export` supported from watcher + chat workflows,
+  - worker timeline entries collapsed by default,
+  - markdown viewer supports `Expand all`, `Collapse all`, `Copy all`.
+- Worker diagnostics:
+  - structured failure metadata fields emitted on failed worker events:
+    - `failure_kind`, `failure_retriable`, `failure_hint`, `failure_origin`, `error_code`, `duration_ms`.
+  - completion events now also persist `duration_ms`.
+- Watcher rules:
+  - added `watcher.alert.network_spike`,
+  - timeout classification now reads structured `failure_kind` first,
+  - reduced stale startup false-positives for stalled tasks.
+- Model observability:
+  - worker events now normalize `model_requested` + `model_used` for every lifecycle event (`started/progress/completed/failed`).
+
+## Validation Highlights
+
+- `cargo check -p sandbox`
+- `cargo test -p sandbox --test logs_api_test -- --nocapture`
+- `cargo test -p sandbox watcher::tests:: -- --nocapture`
+- `cargo check --manifest-path dioxus-desktop/Cargo.toml`
+
+## Next Steps
+
+1. ResearcherActor implementation:
+   - provider adapters: Tavily + Brave + Exa,
+   - typed findings/learnings/citations events,
+   - websocket ordering + replay tests.
+2. Worker Signal Contract runtime implementation:
+   - typed report ingestion + anti-spam gates + escalation routing.
+3. Prompt Bar + Conductor:
+   - universal routing over actors (not chat-only),
+   - directives/checklist state surfaced as primary operator view.
+
+---
+
 # ChoirOS Progress - 2026-02-06/07 (Late-Night Workday)
 
 ## Summary

@@ -42,6 +42,7 @@ pub fn router() -> Router<ApiState> {
         // Logs routes
         .route("/logs/events", get(logs::get_events))
         .route("/logs/events.jsonl", get(logs::export_events_jsonl))
+        .route("/logs/run.md", get(logs::export_run_markdown))
         // User preference routes
         .route(
             "/user/{user_id}/preferences",

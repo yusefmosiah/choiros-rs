@@ -11,6 +11,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
+use tokio::time::sleep;
+
+const DEFAULT_LIVE_MODEL_TARGETS: &[&str] = &["ZaiGLM47", "ZaiGLM47Flash", "KimiK25"];
 
 fn env_present(key: &str) -> bool {
     std::env::var(key)
@@ -64,6 +67,62 @@ fn live_test_concurrency(default_limit: usize) -> usize {
     parsed.clamp(1, 8)
 }
 
+fn live_retry_attempts() -> usize {
+    std::env::var("CHOIR_LIVE_TEST_RETRIES")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(3)
+        .clamp(1, 8)
+}
+
+fn live_retry_base_delay_ms() -> u64 {
+    std::env::var("CHOIR_LIVE_TEST_RETRY_DELAY_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(1_200)
+        .clamp(100, 30_000)
+}
+
+fn is_rate_limited_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("ratelimited")
+        || lower.contains("rate limited")
+        || lower.contains("too many requests")
+        || lower.contains("status code: 429")
+}
+
+async fn run_with_rate_limit_retry<T, F, Fut>(label: &str, mut op: F) -> Result<T, String>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, String>>,
+{
+    let attempts = live_retry_attempts();
+    let base_delay_ms = live_retry_base_delay_ms();
+    let mut last_error = String::new();
+
+    for attempt in 1..=attempts {
+        match op().await {
+            Ok(value) => return Ok(value),
+            Err(err) => {
+                last_error = err.clone();
+                let retryable = is_rate_limited_error(&err);
+                if attempt < attempts && retryable {
+                    let delay = base_delay_ms.saturating_mul(attempt as u64);
+                    println!(
+                        "RETRY {} attempt {}/{} after {}ms due to rate limit: {}",
+                        label, attempt, attempts, delay, err
+                    );
+                    sleep(Duration::from_millis(delay)).await;
+                    continue;
+                }
+                break;
+            }
+        }
+    }
+
+    Err(last_error)
+}
+
 fn available_live_models(registry: &ModelRegistry) -> (Vec<String>, Vec<String>) {
     let mut eligible = Vec::new();
     let mut skipped = Vec::new();
@@ -88,40 +147,33 @@ fn available_live_models(registry: &ModelRegistry) -> (Vec<String>, Vec<String>)
     (eligible, skipped)
 }
 
+fn requested_live_model_targets() -> Vec<String> {
+    if let Ok(raw) = std::env::var("CHOIR_LIVE_MODEL_IDS") {
+        let mut parsed = raw
+            .split(',')
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        parsed.dedup();
+        if !parsed.is_empty() {
+            return parsed;
+        }
+    }
+    DEFAULT_LIVE_MODEL_TARGETS
+        .iter()
+        .map(|m| (*m).to_string())
+        .collect()
+}
+
 fn sampled_live_models(eligible: &[String]) -> Vec<String> {
-    let mut selected: Vec<String> = Vec::new();
-
-    let prefer = |candidates: &[&str]| -> Option<String> {
-        for candidate in candidates {
-            if eligible.iter().any(|model| model == candidate) {
-                return Some((*candidate).to_string());
-            }
-        }
-        None
-    };
-
-    if let Some(model) = prefer(&[
-        "ClaudeBedrockHaiku45",
-        "ClaudeBedrockSonnet45",
-        "ClaudeBedrockOpus46",
-    ]) {
-        selected.push(model);
-    }
-    if let Some(model) = prefer(&["ZaiGLM47", "ZaiGLM47Air", "ZaiGLM47Flash"]) {
-        if !selected.contains(&model) {
-            selected.push(model);
+    let requested = requested_live_model_targets();
+    let mut selected = Vec::new();
+    for model_id in requested {
+        if eligible.iter().any(|eligible_id| eligible_id == &model_id) {
+            selected.push(model_id);
         }
     }
-    if let Some(model) = prefer(&["KimiK25", "KimiK25Fallback"]) {
-        if !selected.contains(&model) {
-            selected.push(model);
-        }
-    }
-
-    if selected.is_empty() {
-        selected.extend(eligible.iter().take(3).cloned());
-    }
-
     selected
 }
 
@@ -168,47 +220,53 @@ async fn run_delegation_case(
         "Use the bash tool exactly once with cmd `printf {marker}`. Do not answer from memory."
     );
 
-    let reply = ractor::call!(agent, |rpc| ChatAgentMsg::ProcessMessage {
-        text: prompt,
-        session_id: Some(format!("session-{model_id}")),
-        thread_id: Some(format!("thread-{model_id}")),
-        model_override: Some(model_id.clone()),
-        reply: rpc,
-    })
-    .map_err(|e| format!("chat rpc failed: {e}"))?;
-
-    let result = match reply {
-        Ok(response) => {
-            let call = match response.tool_calls.iter().find(|c| c.tool_name == "bash") {
-                Some(call) => call,
-                None => return Err(format!("{model_id} produced no bash tool call")),
-            };
-
-            if !call.result.success {
-                return Err(format!(
-                    "{model_id} bash tool call failed: {}",
-                    call.result.content
-                ));
-            }
-
-            let command = parse_bash_command(&call.tool_args)
-                .ok_or_else(|| format!("{model_id} bash tool args missing cmd/command"))?;
-            if !command.contains(&marker) {
-                return Err(format!(
-                    "{model_id} bash tool args missing marker command: {}",
-                    command
-                ));
-            }
-
-            if !call.result.content.contains(&marker) {
-                println!(
-                    "WARN {} => delegated output omitted marker; accepted based on success + command: {}",
-                    model_id, call.result.content
-                );
-            }
-            Ok(format!("delegated bash accepted: {command}"))
+    let reply = run_with_rate_limit_retry(&format!("delegation:{model_id}"), || {
+        let agent = agent.clone();
+        let prompt = prompt.clone();
+        let model_id = model_id.clone();
+        async move {
+            ractor::call!(agent, |rpc| ChatAgentMsg::ProcessMessage {
+                text: prompt,
+                session_id: Some(format!("session-{model_id}")),
+                thread_id: Some(format!("thread-{model_id}")),
+                model_override: Some(model_id.clone()),
+                reply: rpc,
+            })
+            .map_err(|e| format!("chat rpc failed: {e}"))?
+            .map_err(|e| format!("chat processing error: {e}"))
         }
-        Err(e) => Err(format!("{model_id} chat processing error: {e}")),
+    })
+    .await?;
+
+    let result = {
+        let call = match reply.tool_calls.iter().find(|c| c.tool_name == "bash") {
+            Some(call) => call,
+            None => return Err(format!("{model_id} produced no bash tool call")),
+        };
+
+        if !call.result.success {
+            return Err(format!(
+                "{model_id} bash tool call failed: {}",
+                call.result.content
+            ));
+        }
+
+        let command = parse_bash_command(&call.tool_args)
+            .ok_or_else(|| format!("{model_id} bash tool args missing cmd/command"))?;
+        if !command.contains(&marker) {
+            return Err(format!(
+                "{model_id} bash tool args missing marker command: {}",
+                command
+            ));
+        }
+
+        if !call.result.content.contains(&marker) {
+            println!(
+                "WARN {} => delegated output omitted marker; accepted based on success + command: {}",
+                model_id, call.result.content
+            );
+        }
+        Ok(format!("delegated bash accepted: {command}"))
     };
 
     agent.stop(None);
@@ -241,15 +299,27 @@ async fn run_mixed_model_case(
         "Reply with exactly MIXED_CHAT_OK_{}. Do not call any tools.",
         chat_model.to_lowercase()
     );
-    let chat_reply = ractor::call!(agent, |rpc| ChatAgentMsg::ProcessMessage {
-        text: chat_prompt,
-        session_id: Some(format!("mixed-chat-session-{chat_model}-{terminal_model}")),
-        thread_id: Some("thread-1".to_string()),
-        model_override: Some(chat_model.clone()),
-        reply: rpc,
-    })
-    .map_err(|e| format!("mixed chat rpc failed: {e}"))?
-    .map_err(|e| format!("mixed chat processing failed: {e}"))?;
+    let chat_reply = run_with_rate_limit_retry(
+        &format!("mixed-chat:{chat_model}->{terminal_model}"),
+        || {
+            let agent = agent.clone();
+            let chat_prompt = chat_prompt.clone();
+            let chat_model = chat_model.clone();
+            let terminal_model = terminal_model.clone();
+            async move {
+                ractor::call!(agent, |rpc| ChatAgentMsg::ProcessMessage {
+                    text: chat_prompt,
+                    session_id: Some(format!("mixed-chat-session-{chat_model}-{terminal_model}")),
+                    thread_id: Some("thread-1".to_string()),
+                    model_override: Some(chat_model.clone()),
+                    reply: rpc,
+                })
+                .map_err(|e| format!("mixed chat rpc failed: {e}"))?
+                .map_err(|e| format!("mixed chat processing failed: {e}"))
+            }
+        },
+    )
+    .await?;
 
     if chat_reply.model_used != chat_model {
         agent.stop(None);
@@ -267,15 +337,27 @@ async fn run_mixed_model_case(
     let tool_prompt = format!(
         "Use bash exactly once with cmd `printf {marker}` and set the bash model field to `{terminal_model}`."
     );
-    let tool_reply = ractor::call!(agent, |rpc| ChatAgentMsg::ProcessMessage {
-        text: tool_prompt,
-        session_id: Some(format!("mixed-chat-session-{chat_model}-{terminal_model}")),
-        thread_id: Some("thread-2".to_string()),
-        model_override: Some(chat_model.clone()),
-        reply: rpc,
-    })
-    .map_err(|e| format!("mixed tool rpc failed: {e}"))?
-    .map_err(|e| format!("mixed tool processing failed: {e}"))?;
+    let tool_reply = run_with_rate_limit_retry(
+        &format!("mixed-tool:{chat_model}->{terminal_model}"),
+        || {
+            let agent = agent.clone();
+            let tool_prompt = tool_prompt.clone();
+            let chat_model = chat_model.clone();
+            let terminal_model = terminal_model.clone();
+            async move {
+                ractor::call!(agent, |rpc| ChatAgentMsg::ProcessMessage {
+                    text: tool_prompt,
+                    session_id: Some(format!("mixed-chat-session-{chat_model}-{terminal_model}")),
+                    thread_id: Some("thread-2".to_string()),
+                    model_override: Some(chat_model.clone()),
+                    reply: rpc,
+                })
+                .map_err(|e| format!("mixed tool rpc failed: {e}"))?
+                .map_err(|e| format!("mixed tool processing failed: {e}"))
+            }
+        },
+    )
+    .await?;
 
     let Some(tool_call) = tool_reply.tool_calls.iter().find(|c| c.tool_name == "bash") else {
         agent.stop(None);
@@ -396,7 +478,7 @@ async fn live_provider_smoke_matrix() {
     let (eligible, skipped) = available_live_models(&registry);
     let sampled = sampled_live_models(&eligible);
 
-    let concurrency = live_test_concurrency(4);
+    let concurrency = live_test_concurrency(2);
     let semaphore = Arc::new(Semaphore::new(concurrency));
     let mut join_set = JoinSet::new();
 
@@ -409,17 +491,28 @@ async fn live_provider_smoke_matrix() {
         let registry = registry.clone();
         join_set.spawn(async move {
             let _permit = permit;
-            let client_registry = registry
-                .create_runtime_client_registry_for_model(&model_id)
-                .map_err(|e| (model_id.clone(), format!("registry error: {e}")))?;
-            let quick_response = B.QuickResponse.with_client_registry(&client_registry);
-            let fut = quick_response.call("Reply with exactly: OK", "");
-            match tokio::time::timeout(Duration::from_secs(20), fut).await {
-                Ok(Ok(text)) if !text.trim().is_empty() => Ok((model_id, text.trim().to_string())),
-                Ok(Ok(_)) => Err((model_id, "returned empty response".to_string())),
-                Ok(Err(e)) => Err((model_id, format!("call error: {e}"))),
-                Err(_) => Err((model_id, "timed out".to_string())),
-            }
+            let model_label = model_id.clone();
+            let result = run_with_rate_limit_retry(&format!("quick:{model_label}"), || {
+                let registry = registry.clone();
+                let model_id = model_id.clone();
+                async move {
+                    let client_registry = registry
+                        .create_runtime_client_registry_for_model(&model_id)
+                        .map_err(|e| format!("registry error: {e}"))?;
+                    let quick_response = B.QuickResponse.with_client_registry(&client_registry);
+                    let fut = quick_response.call("Reply with exactly: OK", "");
+                    match tokio::time::timeout(Duration::from_secs(20), fut).await {
+                        Ok(Ok(text)) if !text.trim().is_empty() => Ok(text.trim().to_string()),
+                        Ok(Ok(_)) => Err("returned empty response".to_string()),
+                        Ok(Err(e)) => Err(format!("call error: {e}")),
+                        Err(_) => Err("timed out".to_string()),
+                    }
+                }
+            })
+            .await;
+            result
+                .map(|text| (model_id.clone(), text))
+                .map_err(|reason| (model_id, reason))
         });
     }
 
@@ -439,6 +532,10 @@ async fn live_provider_smoke_matrix() {
     }
 
     println!("attempted={attempted} passed={passed}");
+    println!(
+        "requested_models={}",
+        requested_live_model_targets().join(",")
+    );
     println!("sampled_models={}", sampled.join(","));
     if !skipped.is_empty() {
         println!("skipped:\n{}", skipped.join("\n"));
@@ -482,7 +579,7 @@ async fn live_plan_action_matrix() {
 "#
     .to_string();
 
-    let concurrency = live_test_concurrency(4);
+    let concurrency = live_test_concurrency(2);
     let semaphore = Arc::new(Semaphore::new(concurrency));
     let mut join_set = JoinSet::new();
 
@@ -499,28 +596,43 @@ async fn live_plan_action_matrix() {
 
         join_set.spawn(async move {
             let _permit = permit;
-            let client_registry = registry
-                .create_runtime_client_registry_for_model(&model_id)
-                .map_err(|e| (model_id.clone(), format!("registry error: {e}")))?;
-            let plan_action = B.PlanAction.with_client_registry(&client_registry);
-            let plan_call = plan_action.call(&messages, &system_context, &available_tools);
+            let model_label = model_id.clone();
+            let result = run_with_rate_limit_retry(&format!("plan:{model_label}"), || {
+                let registry = registry.clone();
+                let model_id = model_id.clone();
+                let messages = messages.clone();
+                let system_context = system_context.clone();
+                let available_tools = available_tools.clone();
+                async move {
+                    let client_registry = registry
+                        .create_runtime_client_registry_for_model(&model_id)
+                        .map_err(|e| format!("registry error: {e}"))?;
+                    let plan_action = B.PlanAction.with_client_registry(&client_registry);
+                    let plan_call = plan_action.call(&messages, &system_context, &available_tools);
 
-            match tokio::time::timeout(Duration::from_secs(30), plan_call).await {
-                Ok(Ok(plan)) => {
-                    if !(0.0..=1.0).contains(&plan.confidence) {
-                        return Err((
-                            model_id,
-                            format!("returned invalid confidence {}", plan.confidence),
-                        ));
+                    match tokio::time::timeout(Duration::from_secs(30), plan_call).await {
+                        Ok(Ok(plan)) => {
+                            if !(0.0..=1.0).contains(&plan.confidence) {
+                                return Err(format!(
+                                    "returned invalid confidence {}",
+                                    plan.confidence
+                                ));
+                            }
+                            if plan.thinking.trim().is_empty() {
+                                return Err("returned empty planning reasoning".to_string());
+                            }
+                            Ok((plan.confidence, plan.tool_calls.len()))
+                        }
+                        Ok(Err(e)) => Err(format!("plan call error: {e}")),
+                        Err(_) => Err("plan call timed out".to_string()),
                     }
-                    if plan.thinking.trim().is_empty() {
-                        return Err((model_id, "returned empty planning reasoning".to_string()));
-                    }
-                    Ok((model_id, plan.confidence, plan.tool_calls.len()))
                 }
-                Ok(Err(e)) => Err((model_id, format!("plan call error: {e}"))),
-                Err(_) => Err((model_id, "plan call timed out".to_string())),
-            }
+            })
+            .await;
+
+            result
+                .map(|(confidence, tool_calls)| (model_id.clone(), confidence, tool_calls))
+                .map_err(|reason| (model_id, reason))
         });
     }
 
@@ -543,6 +655,10 @@ async fn live_plan_action_matrix() {
     }
 
     println!("plan_action attempted={attempted} passed={passed}");
+    println!(
+        "plan_action requested_models={}",
+        requested_live_model_targets().join(",")
+    );
     println!("plan_action sampled_models={}", sampled.join(","));
     if !skipped.is_empty() {
         println!("plan_action skipped:\n{}", skipped.join("\n"));
@@ -614,6 +730,10 @@ async fn live_chat_terminal_delegation_matrix() {
     }
 
     println!("delegation attempted={attempted} passed={passed}");
+    println!(
+        "delegation requested_models={}",
+        requested_live_model_targets().join(",")
+    );
     println!("delegation sampled_models={}", sampled.join(","));
     if !skipped.is_empty() {
         println!("delegation skipped:\n{}", skipped.join("\n"));
@@ -639,33 +759,23 @@ async fn live_chat_terminal_mixed_model_sample() {
     ensure_tls_cert_env();
     let registry = ModelRegistry::new();
     let (eligible, skipped) = available_live_models(&registry);
+    let sampled = sampled_live_models(&eligible);
+    let attempted_cases = sampled.len().min(3);
 
-    let bedrock = eligible
-        .iter()
-        .find(|m| m.starts_with("ClaudeBedrock"))
-        .cloned();
-    let zai = eligible.iter().find(|m| m.starts_with("Zai")).cloned();
-    let kimi = eligible.iter().find(|m| m.starts_with("Kimi")).cloned();
-
-    let providers: Vec<String> = [bedrock, zai, kimi].into_iter().flatten().collect();
-    let attempted_cases = if providers.len() >= 2 {
-        providers.len().min(3)
-    } else {
-        0
-    };
-
-    if attempted_cases == 0 {
+    if attempted_cases < 2 {
         println!(
-            "mixed-model skipped: need at least 2 provider families (Bedrock/Zai/Kimi). available={:?} skipped={:?}",
-            eligible, skipped
+            "mixed-model skipped: need at least 2 eligible requested models. requested={:?} available={:?} skipped={:?}",
+            requested_live_model_targets(),
+            eligible,
+            skipped
         );
         return;
     }
 
     let mut cases = Vec::new();
     for idx in 0..attempted_cases {
-        let chat_model = providers[idx].clone();
-        let terminal_model = providers[(idx + 1) % providers.len()].clone();
+        let chat_model = sampled[idx].clone();
+        let terminal_model = sampled[(idx + 1) % sampled.len()].clone();
         if chat_model != terminal_model {
             cases.push((chat_model, terminal_model));
         }
@@ -723,6 +833,11 @@ async fn live_chat_terminal_mixed_model_sample() {
     }
 
     println!("mixed attempted={attempted} passed={passed}");
+    println!(
+        "mixed requested_models={}",
+        requested_live_model_targets().join(",")
+    );
+    println!("mixed sampled_models={}", sampled.join(","));
     if !skipped.is_empty() {
         println!("mixed skipped providers:\n{}", skipped.join("\n"));
     }

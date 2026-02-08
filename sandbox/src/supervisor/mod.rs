@@ -52,6 +52,7 @@ pub use terminal::{
 };
 
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort, SupervisionEvent};
+use std::collections::{HashMap, VecDeque};
 use tracing::{error, info};
 
 use crate::actors::event_bus::{
@@ -65,6 +66,12 @@ use crate::actors::terminal::{TerminalAgentProgress, TerminalMsg};
 #[derive(Debug, Default)]
 pub struct ApplicationSupervisor;
 
+struct FailureClassification {
+    kind: &'static str,
+    retriable: bool,
+    hint: &'static str,
+}
+
 /// Application supervisor state
 pub struct ApplicationState {
     pub event_store: ActorRef<EventStoreMsg>,
@@ -73,6 +80,9 @@ pub struct ApplicationState {
     pub session_supervisor: Option<ActorRef<SessionSupervisorMsg>>,
     pub supervision_event_counts: SupervisionEventCounts,
     pub last_supervision_failure: Option<String>,
+    pub worker_signal_policy: WorkerSignalPolicy,
+    pub recent_signal_keys: VecDeque<(String, chrono::DateTime<chrono::Utc>)>,
+    pub escalation_cooldowns: HashMap<String, chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -89,6 +99,73 @@ pub struct ApplicationSupervisorHealth {
     pub session_supervisor_healthy: bool,
     pub supervision_event_counts: SupervisionEventCounts,
     pub last_supervision_failure: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkerSignalPolicy {
+    pub max_findings_per_turn: usize,
+    pub max_learnings_per_turn: usize,
+    pub max_escalations_per_turn: usize,
+    pub max_artifacts_per_turn: usize,
+    pub min_confidence: f64,
+    pub duplicate_window_seconds: i64,
+    pub escalation_cooldown_seconds: i64,
+}
+
+impl WorkerSignalPolicy {
+    fn from_env() -> Self {
+        let mut policy = Self::default();
+        if let Ok(raw) = std::env::var("CHOIR_SIGNAL_MAX_FINDINGS") {
+            if let Ok(parsed) = raw.parse::<usize>() {
+                policy.max_findings_per_turn = parsed.clamp(1, 10);
+            }
+        }
+        if let Ok(raw) = std::env::var("CHOIR_SIGNAL_MAX_LEARNINGS") {
+            if let Ok(parsed) = raw.parse::<usize>() {
+                policy.max_learnings_per_turn = parsed.clamp(1, 10);
+            }
+        }
+        if let Ok(raw) = std::env::var("CHOIR_SIGNAL_MAX_ESCALATIONS") {
+            if let Ok(parsed) = raw.parse::<usize>() {
+                policy.max_escalations_per_turn = parsed.clamp(1, 10);
+            }
+        }
+        if let Ok(raw) = std::env::var("CHOIR_SIGNAL_MAX_ARTIFACTS") {
+            if let Ok(parsed) = raw.parse::<usize>() {
+                policy.max_artifacts_per_turn = parsed.clamp(1, 25);
+            }
+        }
+        if let Ok(raw) = std::env::var("CHOIR_SIGNAL_MIN_CONFIDENCE") {
+            if let Ok(parsed) = raw.parse::<f64>() {
+                policy.min_confidence = parsed.clamp(0.0, 1.0);
+            }
+        }
+        if let Ok(raw) = std::env::var("CHOIR_SIGNAL_DUP_WINDOW_SEC") {
+            if let Ok(parsed) = raw.parse::<i64>() {
+                policy.duplicate_window_seconds = parsed.clamp(10, 86_400);
+            }
+        }
+        if let Ok(raw) = std::env::var("CHOIR_SIGNAL_ESCALATION_COOLDOWN_SEC") {
+            if let Ok(parsed) = raw.parse::<i64>() {
+                policy.escalation_cooldown_seconds = parsed.clamp(5, 86_400);
+            }
+        }
+        policy
+    }
+}
+
+impl Default for WorkerSignalPolicy {
+    fn default() -> Self {
+        Self {
+            max_findings_per_turn: 2,
+            max_learnings_per_turn: 1,
+            max_escalations_per_turn: 1,
+            max_artifacts_per_turn: 8,
+            min_confidence: 0.55,
+            duplicate_window_seconds: 900,
+            escalation_cooldown_seconds: 90,
+        }
+    }
 }
 
 /// Messages handled by ApplicationSupervisor
@@ -138,6 +215,15 @@ pub enum ApplicationSupervisorMsg {
         session_id: Option<String>,
         thread_id: Option<String>,
         reply: RpcReplyPort<Result<shared_types::DelegatedTask, String>>,
+    },
+    /// Ingest a typed worker turn report and emit canonical signal events.
+    IngestWorkerTurnReport {
+        actor_id: String,
+        user_id: String,
+        session_id: Option<String>,
+        thread_id: Option<String>,
+        report: shared_types::WorkerTurnReport,
+        reply: RpcReplyPort<Result<shared_types::WorkerTurnReportIngestResult, String>>,
     },
     /// Return health snapshot and supervision counters.
     GetHealth {
@@ -361,6 +447,9 @@ impl Actor for ApplicationSupervisor {
             session_supervisor: Some(session_supervisor),
             supervision_event_counts: SupervisionEventCounts::default(),
             last_supervision_failure: None,
+            worker_signal_policy: WorkerSignalPolicy::from_env(),
+            recent_signal_keys: VecDeque::new(),
+            escalation_cooldowns: HashMap::new(),
         })
     }
 
@@ -769,6 +858,7 @@ impl Actor for ApplicationSupervisor {
                         "task": task,
                         "status": shared_types::DelegatedTaskStatus::Accepted,
                         "model_requested": model_override.clone(),
+                        "emitter_actor": "application_supervisor",
                         "started_at": chrono::Utc::now().to_rfc3339(),
                     }),
                     correlation_id.clone(),
@@ -789,6 +879,7 @@ impl Actor for ApplicationSupervisor {
                                 "task_id": task_id,
                                 "status": shared_types::DelegatedTaskStatus::Failed,
                                 "error": "SessionSupervisor not available",
+                                "emitter_actor": "application_supervisor",
                                 "finished_at": chrono::Utc::now().to_rfc3339(),
                             }),
                             correlation_id,
@@ -826,6 +917,7 @@ impl Actor for ApplicationSupervisor {
                                     "task_id": task_id,
                                     "status": shared_types::DelegatedTaskStatus::Failed,
                                     "error": e,
+                                    "emitter_actor": "application_supervisor",
                                     "finished_at": chrono::Utc::now().to_rfc3339(),
                                 }),
                                 correlation_id,
@@ -845,6 +937,7 @@ impl Actor for ApplicationSupervisor {
                                     "task_id": task_id,
                                     "status": shared_types::DelegatedTaskStatus::Failed,
                                     "error": e.to_string(),
+                                    "emitter_actor": "application_supervisor",
                                     "finished_at": chrono::Utc::now().to_rfc3339(),
                                 }),
                                 correlation_id,
@@ -871,6 +964,7 @@ impl Actor for ApplicationSupervisor {
                                     "task_id": task_id,
                                     "status": shared_types::DelegatedTaskStatus::Failed,
                                     "error": e.to_string(),
+                                    "emitter_actor": "application_supervisor",
                                     "finished_at": chrono::Utc::now().to_rfc3339(),
                                 }),
                                 correlation_id,
@@ -890,6 +984,7 @@ impl Actor for ApplicationSupervisor {
                                     "task_id": task_id,
                                     "status": shared_types::DelegatedTaskStatus::Failed,
                                     "error": e.to_string(),
+                                    "emitter_actor": "application_supervisor",
                                     "finished_at": chrono::Utc::now().to_rfc3339(),
                                 }),
                                 correlation_id,
@@ -900,24 +995,6 @@ impl Actor for ApplicationSupervisor {
                             return;
                         }
                     }
-
-                    Self::publish_worker_event(
-                        event_store.clone(),
-                        event_bus.clone(),
-                        shared_types::EVENT_TOPIC_WORKER_TASK_PROGRESS,
-                        EventType::WorkerProgress,
-                        serde_json::json!({
-                            "task_id": task_id,
-                            "status": shared_types::DelegatedTaskStatus::Running,
-                            "message": "terminal ready; dispatching command",
-                            "model_requested": model_override.clone(),
-                            "timestamp": chrono::Utc::now().to_rfc3339(),
-                        }),
-                        correlation_id.clone(),
-                        actor_id.clone(),
-                        session_id.clone(),
-                        thread_id.clone(),
-                    );
 
                     let timeout_ms = timeout_ms.unwrap_or(30_000).clamp(1_000, 120_000);
                     Self::publish_worker_event(
@@ -931,6 +1008,7 @@ impl Actor for ApplicationSupervisor {
                             "phase": "terminal_agent_dispatch",
                             "message": "terminal agent accepted request and is running",
                             "model_requested": model_override.clone(),
+                            "emitter_actor": "application_supervisor",
                             "timestamp": chrono::Utc::now().to_rfc3339(),
                         }),
                         correlation_id.clone(),
@@ -967,35 +1045,10 @@ impl Actor for ApplicationSupervisor {
                     let start_time = tokio::time::Instant::now();
                     let hard_deadline = start_time
                         + std::time::Duration::from_millis(timeout_ms.saturating_add(20_000));
-                    let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(2));
-                    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                    let terminal_emitter_actor = format!("terminal:{terminal_id}");
 
                     loop {
                         tokio::select! {
-                                _ = heartbeat.tick() => {
-                                    let elapsed_ms = tokio::time::Instant::now()
-                                        .duration_since(start_time)
-                                        .as_millis() as u64;
-                                    Self::publish_worker_event(
-                        event_store.clone(),
-                        event_bus.clone(),
-                                        shared_types::EVENT_TOPIC_WORKER_TASK_PROGRESS,
-                                        EventType::WorkerProgress,
-                                        serde_json::json!({
-                                            "task_id": task_id,
-                                            "status": shared_types::DelegatedTaskStatus::Running,
-                                            "phase": "terminal_agent_running",
-                                            "model_requested": model_override.clone(),
-                                            "elapsed_ms": elapsed_ms,
-                                            "message": "terminal agent is still running",
-                                            "timestamp": chrono::Utc::now().to_rfc3339(),
-                                        }),
-                                        correlation_id.clone(),
-                                        actor_id.clone(),
-                                        session_id.clone(),
-                                        thread_id.clone(),
-                                    );
-                                }
                                 Some(progress) = progress_rx.recv() => {
                                     let elapsed_ms = tokio::time::Instant::now()
                                         .duration_since(start_time)
@@ -1018,6 +1071,7 @@ impl Actor for ApplicationSupervisor {
                                             "exit_code": progress.exit_code,
                                             "step_index": progress.step_index,
                                             "step_total": progress.step_total,
+                                            "emitter_actor": terminal_emitter_actor.clone(),
                                             "elapsed_ms": elapsed_ms,
                                             "timestamp": progress.timestamp,
                                         }),
@@ -1028,6 +1082,9 @@ impl Actor for ApplicationSupervisor {
                                     );
                                 }
                                 _ = tokio::time::sleep_until(hard_deadline) => {
+                                    let elapsed_ms = tokio::time::Instant::now()
+                                        .duration_since(start_time)
+                                        .as_millis() as u64;
                                     Self::publish_worker_event(
                         event_store.clone(),
                         event_bus,
@@ -1037,6 +1094,12 @@ impl Actor for ApplicationSupervisor {
                                             "task_id": task_id,
                                             "status": shared_types::DelegatedTaskStatus::Failed,
                                             "error": format!("terminal agent did not return within {}ms", timeout_ms.saturating_add(20_000)),
+                                            "failure_kind": "timeout",
+                                            "failure_retriable": true,
+                                            "failure_hint": "Terminal agent exceeded hard deadline. Check command latency and model/tool timeouts.",
+                                            "failure_origin": "application_supervisor",
+                                            "emitter_actor": "application_supervisor",
+                                            "duration_ms": elapsed_ms,
                                             "finished_at": chrono::Utc::now().to_rfc3339(),
                                         }),
                                         correlation_id,
@@ -1049,7 +1112,14 @@ impl Actor for ApplicationSupervisor {
                                 result = &mut result_rx => {
                                     match result {
                                         Ok(Ok(Ok(result))) => {
+                                            let elapsed_ms = tokio::time::Instant::now()
+                                                .duration_since(start_time)
+                                                .as_millis() as u64;
                                             if !result.success {
+                                                let failure = Self::classify_terminal_failure(
+                                                    result.exit_code,
+                                                    &result.summary,
+                                                );
                                                 Self::publish_worker_event(
                         event_store.clone(),
                         event_bus,
@@ -1062,12 +1132,19 @@ impl Actor for ApplicationSupervisor {
                                                             Some(code) => format!("terminal command exited with status {code}"),
                                                             None => "terminal agent task failed".to_string(),
                                                         },
+                                                        "error_code": result.exit_code,
+                                                        "failure_kind": failure.kind,
+                                                        "failure_retriable": failure.retriable,
+                                                        "failure_hint": failure.hint,
+                                                        "failure_origin": "terminal_command",
                                                         "output": result.summary,
                                                         "reasoning": result.reasoning,
                                                         "model_requested": model_override.clone(),
                                                         "model_used": result.model_used,
+                                                        "emitter_actor": terminal_emitter_actor.clone(),
                                                         "executed_commands": result.executed_commands,
                                                         "steps": result.steps,
+                                                        "duration_ms": elapsed_ms,
                                                         "finished_at": chrono::Utc::now().to_rfc3339(),
                                                     }),
                                                     correlation_id,
@@ -1089,8 +1166,10 @@ impl Actor for ApplicationSupervisor {
                                                     "reasoning": result.reasoning,
                                                     "model_requested": model_override.clone(),
                                                     "model_used": result.model_used,
+                                                    "emitter_actor": terminal_emitter_actor.clone(),
                                                     "executed_commands": result.executed_commands,
                                                     "steps": result.steps,
+                                                    "duration_ms": elapsed_ms,
                                                     "finished_at": chrono::Utc::now().to_rfc3339(),
                                                 }),
                                                 correlation_id,
@@ -1101,6 +1180,9 @@ impl Actor for ApplicationSupervisor {
                                             return;
                                         }
                                         Ok(Ok(Err(e))) => {
+                                            let elapsed_ms = tokio::time::Instant::now()
+                                                .duration_since(start_time)
+                                                .as_millis() as u64;
                                             Self::publish_worker_event(
                         event_store.clone(),
                         event_bus,
@@ -1110,6 +1192,12 @@ impl Actor for ApplicationSupervisor {
                                                     "task_id": task_id,
                                                     "status": shared_types::DelegatedTaskStatus::Failed,
                                                     "error": e.to_string(),
+                                                    "failure_kind": "terminal_actor_error",
+                                                    "failure_retriable": false,
+                                                    "failure_hint": "Inspect terminal actor logs and task payload for contract/runtime mismatches.",
+                                                    "failure_origin": "terminal_actor",
+                                                    "emitter_actor": "application_supervisor",
+                                                    "duration_ms": elapsed_ms,
                                                     "finished_at": chrono::Utc::now().to_rfc3339(),
                                                 }),
                                                 correlation_id,
@@ -1120,6 +1208,9 @@ impl Actor for ApplicationSupervisor {
                                             return;
                                         }
                                         Ok(Err(e)) => {
+                                            let elapsed_ms = tokio::time::Instant::now()
+                                                .duration_since(start_time)
+                                                .as_millis() as u64;
                                             Self::publish_worker_event(
                         event_store.clone(),
                         event_bus,
@@ -1129,6 +1220,12 @@ impl Actor for ApplicationSupervisor {
                                                     "task_id": task_id,
                                                     "status": shared_types::DelegatedTaskStatus::Failed,
                                                     "error": e.to_string(),
+                                                    "failure_kind": "rpc_error",
+                                                    "failure_retriable": true,
+                                                    "failure_hint": "Check actor RPC path and backpressure; retry may succeed if transient.",
+                                                    "failure_origin": "application_supervisor",
+                                                    "emitter_actor": "application_supervisor",
+                                                    "duration_ms": elapsed_ms,
                                                     "finished_at": chrono::Utc::now().to_rfc3339(),
                                                 }),
                                                 correlation_id,
@@ -1139,6 +1236,9 @@ impl Actor for ApplicationSupervisor {
                                             return;
                                         }
                                         Err(_) => {
+                                            let elapsed_ms = tokio::time::Instant::now()
+                                                .duration_since(start_time)
+                                                .as_millis() as u64;
                                             Self::publish_worker_event(
                         event_store.clone(),
                         event_bus,
@@ -1148,6 +1248,12 @@ impl Actor for ApplicationSupervisor {
                                                     "task_id": task_id,
                                                     "status": shared_types::DelegatedTaskStatus::Failed,
                                                     "error": "terminal agent result channel closed".to_string(),
+                                                    "failure_kind": "result_channel_closed",
+                                                    "failure_retriable": true,
+                                                    "failure_hint": "Terminal task channel closed early; check runtime cancellation and actor lifetimes.",
+                                                    "failure_origin": "application_supervisor",
+                                                    "emitter_actor": "application_supervisor",
+                                                    "duration_ms": elapsed_ms,
                                                     "finished_at": chrono::Utc::now().to_rfc3339(),
                                                 }),
                                                 correlation_id,
@@ -1162,6 +1268,47 @@ impl Actor for ApplicationSupervisor {
                             }
                     }
                 });
+            }
+            ApplicationSupervisorMsg::IngestWorkerTurnReport {
+                actor_id,
+                user_id,
+                session_id,
+                thread_id,
+                report,
+                reply,
+            } => {
+                let correlation_id = ulid::Ulid::new().to_string();
+                Self::publish_worker_event(
+                    state.event_store.clone(),
+                    state.event_bus.clone(),
+                    shared_types::EVENT_TOPIC_WORKER_REPORT_RECEIVED,
+                    EventType::Custom(shared_types::EVENT_TOPIC_WORKER_REPORT_RECEIVED.to_string()),
+                    serde_json::json!({
+                        "turn_id": report.turn_id.clone(),
+                        "task_id": report.task_id.clone(),
+                        "worker_id": report.worker_id.clone(),
+                        "worker_role": report.worker_role.clone(),
+                        "status": report.status.clone(),
+                        "summary": report.summary.clone(),
+                        "report": report.clone(),
+                        "ingested_by": "application_supervisor",
+                        "ingested_at": chrono::Utc::now().to_rfc3339(),
+                        "requested_by": user_id,
+                    }),
+                    correlation_id.clone(),
+                    actor_id.clone(),
+                    session_id.clone(),
+                    thread_id.clone(),
+                );
+                let ingest = Self::ingest_worker_turn_report(
+                    state,
+                    &actor_id,
+                    report,
+                    correlation_id,
+                    session_id,
+                    thread_id,
+                );
+                let _ = reply.send(Ok(ingest));
             }
             ApplicationSupervisorMsg::GetHealth { reply } => {
                 let _ = reply.send(ApplicationSupervisorHealth {
@@ -1188,6 +1335,442 @@ impl Actor for ApplicationSupervisor {
 }
 
 impl ApplicationSupervisor {
+    fn classify_terminal_failure(exit_code: Option<i32>, summary: &str) -> FailureClassification {
+        let lower_summary = summary.to_ascii_lowercase();
+        if lower_summary.contains("timed out") || lower_summary.contains("deadline") {
+            return FailureClassification {
+                kind: "timeout",
+                retriable: true,
+                hint: "Command timed out. Retry with longer timeout or lower-latency endpoint.",
+            };
+        }
+
+        match exit_code {
+            Some(6) | Some(7) | Some(35) | Some(52) | Some(56) => FailureClassification {
+                kind: "network",
+                retriable: true,
+                hint: "Network/API endpoint failure. Retry or switch endpoint/provider.",
+            },
+            Some(28) => FailureClassification {
+                kind: "timeout",
+                retriable: true,
+                hint: "Connection timeout. Retry and validate outbound network reachability.",
+            },
+            Some(126) => FailureClassification {
+                kind: "permission_denied",
+                retriable: false,
+                hint: "Command permission denied. Verify executable permissions and policy.",
+            },
+            Some(127) => FailureClassification {
+                kind: "command_not_found",
+                retriable: false,
+                hint: "Command not found in runtime PATH.",
+            },
+            Some(130) => FailureClassification {
+                kind: "interrupted",
+                retriable: true,
+                hint: "Process interrupted. Retry unless user/system cancellation was intentional.",
+            },
+            Some(137) => FailureClassification {
+                kind: "killed",
+                retriable: true,
+                hint: "Process killed (likely resource or signal). Check host limits and retries.",
+            },
+            Some(_) => FailureClassification {
+                kind: "nonzero_exit",
+                retriable: false,
+                hint: "Command returned non-zero exit. Inspect output and command arguments.",
+            },
+            None => FailureClassification {
+                kind: "unknown",
+                retriable: false,
+                hint: "Failure had no exit code. Inspect worker and terminal actor logs.",
+            },
+        }
+    }
+
+    fn normalize_signal_key(value: &str) -> String {
+        value
+            .trim()
+            .to_ascii_lowercase()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    fn prune_signal_windows(state: &mut ApplicationState, now: chrono::DateTime<chrono::Utc>) {
+        let duplicate_window = state.worker_signal_policy.duplicate_window_seconds.max(1);
+        while let Some((_, seen_at)) = state.recent_signal_keys.front() {
+            if now.signed_duration_since(*seen_at).num_seconds() > duplicate_window {
+                state.recent_signal_keys.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        let escalation_window = state
+            .worker_signal_policy
+            .escalation_cooldown_seconds
+            .max(1);
+        state.escalation_cooldowns.retain(|_, seen_at| {
+            now.signed_duration_since(*seen_at).num_seconds() <= escalation_window
+        });
+    }
+
+    fn is_recent_duplicate(state: &ApplicationState, key: &str) -> bool {
+        state
+            .recent_signal_keys
+            .iter()
+            .any(|(existing, _)| existing == key)
+    }
+
+    fn remember_signal_key(
+        state: &mut ApplicationState,
+        key: String,
+        now: chrono::DateTime<chrono::Utc>,
+    ) {
+        state.recent_signal_keys.push_back((key, now));
+    }
+
+    fn emit_worker_signal_rejection(
+        state: &ApplicationState,
+        source_actor_id: &str,
+        correlation_id: &str,
+        session_id: Option<String>,
+        thread_id: Option<String>,
+        rejection: &shared_types::WorkerSignalRejection,
+    ) {
+        Self::publish_worker_event(
+            state.event_store.clone(),
+            state.event_bus.clone(),
+            shared_types::EVENT_TOPIC_WORKER_SIGNAL_REJECTED,
+            EventType::Custom(shared_types::EVENT_TOPIC_WORKER_SIGNAL_REJECTED.to_string()),
+            serde_json::json!({
+                "signal_type": rejection.signal_type,
+                "signal_id": rejection.signal_id,
+                "reason": rejection.reason,
+                "detail": rejection.detail,
+                "rejected_at": chrono::Utc::now().to_rfc3339(),
+            }),
+            correlation_id.to_string(),
+            source_actor_id.to_string(),
+            session_id,
+            thread_id,
+        );
+    }
+
+    fn ingest_worker_turn_report(
+        state: &mut ApplicationState,
+        source_actor_id: &str,
+        report: shared_types::WorkerTurnReport,
+        correlation_id: String,
+        session_id: Option<String>,
+        thread_id: Option<String>,
+    ) -> shared_types::WorkerTurnReportIngestResult {
+        let policy = state.worker_signal_policy.clone();
+        let now = chrono::Utc::now();
+        Self::prune_signal_windows(state, now);
+        let turn_id = report.turn_id.clone();
+        let task_id = report.task_id.clone();
+        let worker_id = report.worker_id.clone();
+        let worker_role = report.worker_role.clone();
+        let status = report.status.clone();
+
+        let mut ingest = shared_types::WorkerTurnReportIngestResult {
+            accepted_findings: 0,
+            accepted_learnings: 0,
+            accepted_escalations: 0,
+            accepted_artifacts: 0,
+            escalation_notified: false,
+            rejections: Vec::new(),
+        };
+
+        for (idx, finding) in report.findings.iter().enumerate() {
+            let reject = if idx >= policy.max_findings_per_turn {
+                Some((
+                    shared_types::WorkerSignalRejectReason::MaxPerTurnExceeded,
+                    format!("max findings per turn is {}", policy.max_findings_per_turn),
+                ))
+            } else if finding.claim.trim().is_empty() {
+                Some((
+                    shared_types::WorkerSignalRejectReason::InvalidPayload,
+                    "finding claim is empty".to_string(),
+                ))
+            } else if finding.evidence_refs.is_empty() {
+                Some((
+                    shared_types::WorkerSignalRejectReason::MissingEvidence,
+                    "finding requires at least one evidence reference".to_string(),
+                ))
+            } else if finding.confidence < policy.min_confidence {
+                Some((
+                    shared_types::WorkerSignalRejectReason::LowConfidence,
+                    format!(
+                        "confidence {} below threshold {}",
+                        finding.confidence, policy.min_confidence
+                    ),
+                ))
+            } else {
+                let dedup_key = format!("finding:{}", Self::normalize_signal_key(&finding.claim));
+                if Self::is_recent_duplicate(state, &dedup_key) {
+                    Some((
+                        shared_types::WorkerSignalRejectReason::DuplicateWithinWindow,
+                        "duplicate finding within dedup window".to_string(),
+                    ))
+                } else {
+                    Self::remember_signal_key(state, dedup_key, now);
+                    None
+                }
+            };
+
+            if let Some((reason, detail)) = reject {
+                ingest.rejections.push(shared_types::WorkerSignalRejection {
+                    signal_type: shared_types::WorkerSignalType::Finding,
+                    signal_id: finding.finding_id.clone(),
+                    reason,
+                    detail,
+                });
+                continue;
+            }
+
+            ingest.accepted_findings += 1;
+            let topic = if report.worker_role.as_deref() == Some("researcher") {
+                shared_types::EVENT_TOPIC_RESEARCH_FINDING_CREATED
+            } else {
+                shared_types::EVENT_TOPIC_WORKER_FINDING_CREATED
+            };
+            Self::publish_worker_event(
+                state.event_store.clone(),
+                state.event_bus.clone(),
+                topic,
+                EventType::Custom(topic.to_string()),
+                serde_json::json!({
+                    "turn_id": turn_id.clone(),
+                    "task_id": task_id.clone(),
+                    "worker_id": worker_id.clone(),
+                    "worker_role": worker_role.clone(),
+                    "status": status.clone(),
+                    "finding": finding,
+                    "accepted_at": chrono::Utc::now().to_rfc3339(),
+                }),
+                correlation_id.clone(),
+                source_actor_id.to_string(),
+                session_id.clone(),
+                thread_id.clone(),
+            );
+        }
+
+        for (idx, learning) in report.learnings.iter().enumerate() {
+            let reject = if idx >= policy.max_learnings_per_turn {
+                Some((
+                    shared_types::WorkerSignalRejectReason::MaxPerTurnExceeded,
+                    format!(
+                        "max learnings per turn is {}",
+                        policy.max_learnings_per_turn
+                    ),
+                ))
+            } else if learning.insight.trim().is_empty() {
+                Some((
+                    shared_types::WorkerSignalRejectReason::InvalidPayload,
+                    "learning insight is empty".to_string(),
+                ))
+            } else if learning.confidence < policy.min_confidence {
+                Some((
+                    shared_types::WorkerSignalRejectReason::LowConfidence,
+                    format!(
+                        "confidence {} below threshold {}",
+                        learning.confidence, policy.min_confidence
+                    ),
+                ))
+            } else {
+                let dedup_key =
+                    format!("learning:{}", Self::normalize_signal_key(&learning.insight));
+                if Self::is_recent_duplicate(state, &dedup_key) {
+                    Some((
+                        shared_types::WorkerSignalRejectReason::DuplicateWithinWindow,
+                        "duplicate learning within dedup window".to_string(),
+                    ))
+                } else {
+                    Self::remember_signal_key(state, dedup_key, now);
+                    None
+                }
+            };
+
+            if let Some((reason, detail)) = reject {
+                ingest.rejections.push(shared_types::WorkerSignalRejection {
+                    signal_type: shared_types::WorkerSignalType::Learning,
+                    signal_id: learning.learning_id.clone(),
+                    reason,
+                    detail,
+                });
+                continue;
+            }
+
+            ingest.accepted_learnings += 1;
+            let topic = if report.worker_role.as_deref() == Some("researcher") {
+                shared_types::EVENT_TOPIC_RESEARCH_LEARNING_CREATED
+            } else {
+                shared_types::EVENT_TOPIC_WORKER_LEARNING_CREATED
+            };
+            Self::publish_worker_event(
+                state.event_store.clone(),
+                state.event_bus.clone(),
+                topic,
+                EventType::Custom(topic.to_string()),
+                serde_json::json!({
+                    "turn_id": turn_id.clone(),
+                    "task_id": task_id.clone(),
+                    "worker_id": worker_id.clone(),
+                    "worker_role": worker_role.clone(),
+                    "status": status.clone(),
+                    "learning": learning,
+                    "accepted_at": chrono::Utc::now().to_rfc3339(),
+                }),
+                correlation_id.clone(),
+                source_actor_id.to_string(),
+                session_id.clone(),
+                thread_id.clone(),
+            );
+        }
+
+        for (idx, escalation) in report.escalations.iter().enumerate() {
+            let reject = if idx >= policy.max_escalations_per_turn {
+                Some((
+                    shared_types::WorkerSignalRejectReason::MaxPerTurnExceeded,
+                    format!(
+                        "max escalations per turn is {}",
+                        policy.max_escalations_per_turn
+                    ),
+                ))
+            } else if escalation.reason.trim().is_empty() {
+                Some((
+                    shared_types::WorkerSignalRejectReason::InvalidPayload,
+                    "escalation reason is empty".to_string(),
+                ))
+            } else {
+                let cooldown_key = format!(
+                    "escalation:{:?}:{}",
+                    escalation.kind,
+                    Self::normalize_signal_key(&escalation.reason)
+                );
+                match state.escalation_cooldowns.get(&cooldown_key) {
+                    Some(last_seen)
+                        if now.signed_duration_since(*last_seen).num_seconds()
+                            < policy.escalation_cooldown_seconds =>
+                    {
+                        Some((
+                            shared_types::WorkerSignalRejectReason::EscalationCooldown,
+                            format!(
+                                "escalation cooldown {}s active",
+                                policy.escalation_cooldown_seconds
+                            ),
+                        ))
+                    }
+                    _ => {
+                        state.escalation_cooldowns.insert(cooldown_key, now);
+                        None
+                    }
+                }
+            };
+
+            if let Some((reason, detail)) = reject {
+                ingest.rejections.push(shared_types::WorkerSignalRejection {
+                    signal_type: shared_types::WorkerSignalType::Escalation,
+                    signal_id: escalation.escalation_id.clone(),
+                    reason,
+                    detail,
+                });
+                continue;
+            }
+
+            ingest.accepted_escalations += 1;
+            ingest.escalation_notified = true;
+            Self::publish_worker_event(
+                state.event_store.clone(),
+                state.event_bus.clone(),
+                shared_types::EVENT_TOPIC_WORKER_SIGNAL_ESCALATION_REQUESTED,
+                EventType::Custom(
+                    shared_types::EVENT_TOPIC_WORKER_SIGNAL_ESCALATION_REQUESTED.to_string(),
+                ),
+                serde_json::json!({
+                    "turn_id": turn_id.clone(),
+                    "task_id": task_id.clone(),
+                    "worker_id": worker_id.clone(),
+                    "worker_role": worker_role.clone(),
+                    "status": status.clone(),
+                    "escalation": escalation,
+                    "notified_target": "conductor",
+                    "accepted_at": chrono::Utc::now().to_rfc3339(),
+                }),
+                correlation_id.clone(),
+                source_actor_id.to_string(),
+                session_id.clone(),
+                thread_id.clone(),
+            );
+        }
+
+        for (idx, artifact) in report.artifacts.iter().enumerate() {
+            let reject = if idx >= policy.max_artifacts_per_turn {
+                Some((
+                    shared_types::WorkerSignalRejectReason::MaxPerTurnExceeded,
+                    format!(
+                        "max artifacts per turn is {}",
+                        policy.max_artifacts_per_turn
+                    ),
+                ))
+            } else if artifact.reference.trim().is_empty() {
+                Some((
+                    shared_types::WorkerSignalRejectReason::InvalidPayload,
+                    "artifact reference is empty".to_string(),
+                ))
+            } else {
+                None
+            };
+
+            if let Some((reason, detail)) = reject {
+                ingest.rejections.push(shared_types::WorkerSignalRejection {
+                    signal_type: shared_types::WorkerSignalType::Artifact,
+                    signal_id: artifact.artifact_id.clone(),
+                    reason,
+                    detail,
+                });
+                continue;
+            }
+
+            ingest.accepted_artifacts += 1;
+            Self::publish_worker_event(
+                state.event_store.clone(),
+                state.event_bus.clone(),
+                shared_types::EVENT_TOPIC_ARTIFACT_CREATED,
+                EventType::Custom(shared_types::EVENT_TOPIC_ARTIFACT_CREATED.to_string()),
+                serde_json::json!({
+                    "turn_id": turn_id.clone(),
+                    "task_id": task_id.clone(),
+                    "worker_id": worker_id.clone(),
+                    "worker_role": worker_role.clone(),
+                    "artifact": artifact,
+                    "accepted_at": chrono::Utc::now().to_rfc3339(),
+                }),
+                correlation_id.clone(),
+                source_actor_id.to_string(),
+                session_id.clone(),
+                thread_id.clone(),
+            );
+        }
+
+        for rejection in &ingest.rejections {
+            Self::emit_worker_signal_rejection(
+                state,
+                source_actor_id,
+                &correlation_id,
+                session_id.clone(),
+                thread_id.clone(),
+                rejection,
+            );
+        }
+
+        ingest
+    }
+
     fn extract_task_id(payload: &serde_json::Value) -> Option<String> {
         if let Some(task_id) = payload.get("task_id").and_then(|v| v.as_str()) {
             return Some(task_id.to_string());
@@ -1209,6 +1792,9 @@ impl ApplicationSupervisor {
 
         match payload {
             serde_json::Value::Object(mut obj) => {
+                if interface_kind == "appactor_toolactor" {
+                    Self::normalize_worker_model_fields(&mut obj);
+                }
                 obj.entry("trace_id".to_string())
                     .or_insert(serde_json::Value::String(correlation_id.to_string()));
                 obj.entry("span_id".to_string())
@@ -1229,6 +1815,35 @@ impl ApplicationSupervisor {
                 "task_id": task_id,
             }),
         }
+    }
+
+    fn normalize_worker_model_fields(obj: &mut serde_json::Map<String, serde_json::Value>) {
+        let requested = obj
+            .get("model_requested")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string());
+
+        obj.insert(
+            "model_requested".to_string(),
+            serde_json::Value::String(requested.clone()),
+        );
+
+        let used = obj
+            .get("model_used")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| {
+                if requested == "none" {
+                    "direct_command".to_string()
+                } else {
+                    requested.clone()
+                }
+            });
+
+        obj.insert("model_used".to_string(), serde_json::Value::String(used));
     }
 
     async fn emit_request_event(

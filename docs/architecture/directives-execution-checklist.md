@@ -4,6 +4,26 @@ Date: 2026-02-08
 Status: Active directives checklist
 Owner: PromptBar + Supervisor architecture track
 
+## Narrative Summary (1-minute read)
+
+Directives remains the north-star operator surface, but current implementation momentum is intentionally focused on observability foundations first. Logging/Watcher now provide run-level visibility, markdown run exports, structured worker failure diagnostics, and model attribution across worker lifecycle events. This enables safer execution for the next delivery lane: Researcher, then PromptBar + Conductor orchestration.
+
+## What Changed
+
+- Run-level logs now exist as a first-class operational unit:
+  - run grouping in watcher logs,
+  - markdown run projection from watcher/chat,
+  - worker timeline collapse/expand and copy-all controls.
+- Watcher rules now include network-spike detection.
+- Worker lifecycle events now persist `model_requested` and `model_used` on all worker states.
+- Structured failure diagnostics are now emitted for worker failures (`failure_kind`, hints, retriable, origin, duration).
+
+## What To Do Next
+
+1. Complete ResearcherActor milestone with typed findings/learnings/citations events.
+2. Implement Worker Signal Contract runtime validator/gates before broadening orchestration.
+3. Resume Directives app implementation as the primary cockpit for PromptBar + Conductor.
+
 ## North Star Deliverable
 
 First-class operator cockpit:
@@ -154,10 +174,10 @@ Acceptance:
 - Tests prove PromptBar cannot call tools.
 
 ### 2) Bash as Terminal Transport Contract
-- [ ] Keep `bash` as Chat-facing interface.
-- [ ] Ensure handler path is delegation-only to TerminalActor.
-- [ ] Ensure no remaining fallback path can run shell directly.
-- [ ] Emit `terminal_agent_dispatch` + `terminal_tool_call/result` consistently.
+- [x] Keep `bash` as Chat-facing interface.
+- [x] Ensure handler path is delegation-only to TerminalActor.
+- [~] Ensure no remaining fallback path can run shell directly.
+- [x] Emit `terminal_agent_dispatch` + `terminal_tool_call/result` consistently.
 
 Acceptance:
 - All shell commands produce worker/terminal actor events and no local process path in Chat.

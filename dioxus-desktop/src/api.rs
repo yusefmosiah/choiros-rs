@@ -739,6 +739,7 @@ pub struct ViewerContentResponse {
     pub uri: String,
     pub mime: String,
     pub content: String,
+    pub rendered_html: Option<String>,
     pub revision: ViewerRevision,
     pub readonly: bool,
 }

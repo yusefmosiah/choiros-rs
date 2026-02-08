@@ -805,13 +805,11 @@ fn test_bash_tool_parameters_schema() {
         .as_str()
         .unwrap()
         .contains("object"));
-    assert!(schema.get("properties").unwrap().get("command").is_some());
-    assert!(schema
-        .get("required")
-        .unwrap()
-        .as_array()
-        .unwrap()
-        .contains(&json!("command")));
+    let properties = schema.get("properties").unwrap();
+    assert!(properties.get("command").is_some());
+    assert!(properties.get("cmd").is_some());
+    let any_of = schema.get("anyOf").unwrap().as_array().unwrap();
+    assert!(!any_of.is_empty());
 }
 
 #[test]

@@ -8,6 +8,7 @@ Status: Authoritative immediate order
 ChoirOS is now executing one lane only: `Logging -> Watcher -> Model Policy -> Worker Signal Contract -> Researcher`.
 The goal is to finish observability foundations before expanding behavior.
 EventStore is canonical; EventBus is delivery-only; watcher/researcher must emit rich, queryable events.
+Run-level observability is now in place: persisted run indexing, watcher run navigation, run markdown projection, and structured worker failure telemetry with model attribution on worker lifecycle events.
 
 ## What Changed
 
@@ -17,6 +18,16 @@ EventStore is canonical; EventBus is delivery-only; watcher/researcher must emit
 - A dedicated backend live logs stream (`/ws/logs/events`) is now in scope as part of watcher observability.
 - Architecture reconciliation review added a **blocking pre-Researcher gate** for capability boundaries and messaging contracts.
 - Added docs gate for worker typed turn signaling, including anti-spam controls and conductor escalation contract.
+- Added run-centric watcher UI foundations:
+  - preload persisted events on load,
+  - runs sidebar grouping by correlation/task,
+  - run markdown projection path from watcher.
+- Added structured worker failure monitoring fields:
+  - `failure_kind`, `failure_retriable`, `failure_hint`, `failure_origin`, `error_code`, `duration_ms`.
+- Added watcher network reliability rule:
+  - `watcher.alert.network_spike`.
+- Worker lifecycle model attribution normalized:
+  - every worker lifecycle event now carries `model_requested` and `model_used`.
 
 ## What To Do Next
 
@@ -29,6 +40,11 @@ EventStore is canonical; EventBus is delivery-only; watcher/researcher must emit
   - control-plane escalation vs observability event split
   - anti-spam validation/dedup/cooldown semantics
 - Start ResearcherActor only after reconciliation gate passes.
+- Build ResearcherActor immediately after worker signal gate:
+  - provider-isolated search APIs (Tavily/Brave/Exa),
+  - typed findings/learnings/citations events,
+  - run-level replay and watcher visibility from day one.
+- After Researcher, build Prompt Bar + Conductor orchestration layer.
 
 ## Single Active Lane
 
@@ -55,8 +71,11 @@ Locked decision:
 Blocking checklist:
 - [x] Remove `ChatAgent` direct tool execution path (`ToolRegistry` bypass).
 - [x] Ensure all app-level bash execution is delegated through `TerminalActor`.
-- [ ] Remove/retire ambiguous dual app-tool contract path on terminal calls.
+- [~] Remove/retire ambiguous dual app-tool contract path on terminal calls.
 - [x] Verify watcher/log views render committed event stream output under active task traffic.
+
+Note:
+- C3 is now mostly a contract-clarity cleanup item. Runtime app delegation path is stable and typed.
 
 Gate tests:
 - [x] `cargo test -p sandbox --test websocket_chat_test test_websocket_streams_actor_call_for_delegated_terminal_task -- --nocapture`
@@ -117,6 +136,7 @@ Checklist:
 - [x] Add first deterministic rules: timeout spikes, repeated worker failures, retry storms, missing completions.
 - [x] Rule `worker_failure_spike` (windowed failure count) implemented.
 - [x] Rule `worker_timeout_spike` (timeout-like failure count) implemented.
+- [x] Rule `worker_network_spike` (network-like failure count) implemented.
 - [x] Rule `worker_retry_storm` (retry-like progress burst) implemented.
 - [x] Rule `worker_stalled_task` (started without completion/failure past threshold) implemented.
 - [x] Emit `watcher.alert.*` events and persist in EventStore.
@@ -138,6 +158,7 @@ Checklist:
 - [ ] Persist accepted/rejected signal events with rejection reasons.
 - [ ] Implement ResearcherActor with constrained capability surface.
 - [ ] Route chat `web_search` through ResearcherActor only (no terminal-side web search tool).
+- [ ] Implement provider adapters for Tavily + Brave + Exa under researcher capability boundary.
 - [ ] Stream lifecycle events (`planning`, `search`, `read`, `synthesis`, `citation_attach`).
 - [ ] Persist citations and source metadata in event payloads.
 - [ ] Add websocket tests for ordered researcher event streaming.

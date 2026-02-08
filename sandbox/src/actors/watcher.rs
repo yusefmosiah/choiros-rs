@@ -18,6 +18,7 @@ pub struct WatcherArguments {
     pub poll_interval_ms: u64,
     pub failure_spike_threshold: usize,
     pub timeout_spike_threshold: usize,
+    pub network_spike_threshold: usize,
     pub retry_storm_threshold: usize,
     pub stalled_task_timeout_ms: u64,
 }
@@ -28,8 +29,10 @@ pub struct WatcherState {
     last_seq: i64,
     failure_spike_threshold: usize,
     timeout_spike_threshold: usize,
+    network_spike_threshold: usize,
     retry_storm_threshold: usize,
     stalled_task_timeout_ms: u64,
+    watcher_started_at: chrono::DateTime<Utc>,
     pending_tasks: HashMap<String, PendingTask>,
     // Small memory for dedup suppression.
     recent_alert_keys: VecDeque<(String, i64)>,
@@ -106,8 +109,10 @@ impl Actor for WatcherActor {
             last_seq: 0,
             failure_spike_threshold: args.failure_spike_threshold.max(1),
             timeout_spike_threshold: args.timeout_spike_threshold.max(1),
+            network_spike_threshold: args.network_spike_threshold.max(1),
             retry_storm_threshold: args.retry_storm_threshold.max(1),
             stalled_task_timeout_ms: args.stalled_task_timeout_ms.max(1_000),
+            watcher_started_at: Utc::now(),
             pending_tasks: HashMap::new(),
             recent_alert_keys: VecDeque::new(),
         })
@@ -149,6 +154,7 @@ impl WatcherActor {
         let mut max_seq = state.last_seq;
         let mut failed_events = Vec::new();
         let mut timeout_failures = Vec::new();
+        let mut network_failures = Vec::new();
         let mut retry_events = Vec::new();
 
         if !recent.is_empty() {
@@ -157,6 +163,10 @@ impl WatcherActor {
                 let task_id = Self::extract_task_id(&event.payload);
 
                 if event.event_type == "worker.task.started" {
+                    let bootstrap_cutoff = state.watcher_started_at - chrono::TimeDelta::seconds(2);
+                    if event.timestamp < bootstrap_cutoff {
+                        continue;
+                    }
                     if let Some(task_id) = &task_id {
                         state.pending_tasks.insert(
                             task_id.clone(),
@@ -181,6 +191,9 @@ impl WatcherActor {
                     failed_events.push(event.seq);
                     if Self::is_timeout_failure(&event.payload) {
                         timeout_failures.push(event.seq);
+                    }
+                    if Self::is_network_failure(&event.payload) {
+                        network_failures.push(event.seq);
                     }
                 }
 
@@ -244,6 +257,32 @@ impl WatcherActor {
         }
 
         // Rule 3: started tasks that have not reached completion/failure in time.
+        if network_failures.len() >= state.network_spike_threshold {
+            let key = format!(
+                "network_spike:{}:{}",
+                network_failures[0],
+                network_failures.len()
+            );
+            if self.should_emit_alert(state, &key) {
+                let payload = serde_json::json!({
+                    "key": key,
+                    "severity": "high",
+                    "message": format!(
+                        "Detected {} network-like worker failures in a single watcher scan window",
+                        network_failures.len()
+                    ),
+                    "rule": "worker_network_spike",
+                    "failed_count": network_failures.len(),
+                    "window_start_seq": network_failures.first().copied().unwrap_or(state.last_seq),
+                    "window_end_seq": network_failures.last().copied().unwrap_or(state.last_seq),
+                    "generated_at": Utc::now().to_rfc3339(),
+                });
+                self.emit_alert(state, "watcher.alert.network_spike", payload)
+                    .await?;
+            }
+        }
+
+        // Rule 4: retry-like storms in progress events.
         if retry_events.len() >= state.retry_storm_threshold {
             let key = format!("retry_storm:{}:{}", retry_events[0], retry_events.len());
             if self.should_emit_alert(state, &key) {
@@ -265,7 +304,7 @@ impl WatcherActor {
             }
         }
 
-        // Rule 4: started tasks that have not reached completion/failure in time.
+        // Rule 5: started tasks that have not reached completion/failure in time.
         let now = Utc::now();
         let stalled_after_ms = i64::try_from(state.stalled_task_timeout_ms).unwrap_or(i64::MAX);
         let stalled: Vec<(String, PendingTask)> = state
@@ -337,6 +376,13 @@ impl WatcherActor {
     }
 
     fn is_timeout_failure(payload: &serde_json::Value) -> bool {
+        if payload
+            .get("failure_kind")
+            .and_then(|v| v.as_str())
+            .is_some_and(|kind| kind.eq_ignore_ascii_case("timeout"))
+        {
+            return true;
+        }
         let error = payload
             .get("error")
             .and_then(|v| v.as_str())
@@ -365,6 +411,36 @@ impl WatcherActor {
             .unwrap_or("")
             .to_ascii_lowercase();
         phase.contains("retry") || status.contains("retry") || message.contains("retry")
+    }
+
+    fn is_network_failure(payload: &serde_json::Value) -> bool {
+        if payload
+            .get("failure_kind")
+            .and_then(|v| v.as_str())
+            .is_some_and(|kind| kind.eq_ignore_ascii_case("network"))
+        {
+            return true;
+        }
+
+        if payload
+            .get("error_code")
+            .and_then(|v| v.as_i64())
+            .is_some_and(|code| matches!(code, 6 | 7 | 28 | 35 | 52 | 56))
+        {
+            return true;
+        }
+
+        let error = payload
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        error.contains("could not resolve host")
+            || error.contains("couldn't connect")
+            || error.contains("failed to connect")
+            || error.contains("empty reply")
+            || error.contains("connection reset")
+            || error.contains("network")
     }
 
     fn should_emit_alert(&self, state: &mut WatcherState, key: &str) -> bool {
@@ -428,6 +504,7 @@ mod tests {
                 poll_interval_ms: 10_000, // keep background loop effectively inactive for test
                 failure_spike_threshold: 3,
                 timeout_spike_threshold: 2,
+                network_spike_threshold: 2,
                 retry_storm_threshold: 3,
                 stalled_task_timeout_ms: 60_000,
             },
@@ -490,6 +567,7 @@ mod tests {
                 poll_interval_ms: 10_000,
                 failure_spike_threshold: 99,
                 timeout_spike_threshold: 2,
+                network_spike_threshold: 99,
                 retry_storm_threshold: 99,
                 stalled_task_timeout_ms: 60_000,
             },
@@ -526,6 +604,23 @@ mod tests {
                 .await
                 .unwrap();
 
+        let (watcher_ref, _watcher_handle) = Actor::spawn(
+            None,
+            WatcherActor,
+            WatcherArguments {
+                event_store: store_ref.clone(),
+                watcher_id: "watcher:default".to_string(),
+                poll_interval_ms: 10_000,
+                failure_spike_threshold: 99,
+                timeout_spike_threshold: 99,
+                network_spike_threshold: 99,
+                retry_storm_threshold: 99,
+                stalled_task_timeout_ms: 1_000,
+            },
+        )
+        .await
+        .unwrap();
+
         let _ = ractor::call!(store_ref, |reply| EventStoreMsg::Append {
             event: AppendEvent {
                 event_type: "worker.task.started".to_string(),
@@ -538,22 +633,6 @@ mod tests {
             reply
         })
         .unwrap()
-        .unwrap();
-
-        let (watcher_ref, _watcher_handle) = Actor::spawn(
-            None,
-            WatcherActor,
-            WatcherArguments {
-                event_store: store_ref.clone(),
-                watcher_id: "watcher:default".to_string(),
-                poll_interval_ms: 10_000,
-                failure_spike_threshold: 99,
-                timeout_spike_threshold: 99,
-                retry_storm_threshold: 99,
-                stalled_task_timeout_ms: 1_000,
-            },
-        )
-        .await
         .unwrap();
 
         tokio::time::sleep(Duration::from_millis(1_100)).await;
@@ -613,6 +692,7 @@ mod tests {
                 poll_interval_ms: 10_000,
                 failure_spike_threshold: 99,
                 timeout_spike_threshold: 99,
+                network_spike_threshold: 99,
                 retry_storm_threshold: 3,
                 stalled_task_timeout_ms: 60_000,
             },
@@ -637,6 +717,71 @@ mod tests {
 
         assert_eq!(alerts.len(), 1);
         assert_eq!(alerts[0].event_type, "watcher.alert.retry_storm");
+
+        watcher_ref.stop(None);
+        store_ref.stop(None);
+    }
+
+    #[tokio::test]
+    async fn test_watcher_emits_network_spike_alert() {
+        let (store_ref, _store_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
+
+        for idx in 0..2 {
+            let _ = ractor::call!(store_ref, |reply| EventStoreMsg::Append {
+                event: AppendEvent {
+                    event_type: "worker.task.failed".to_string(),
+                    payload: serde_json::json!({
+                        "task_id": format!("t-network-{idx}"),
+                        "failure_kind": "network",
+                        "error_code": 52,
+                        "error": "terminal command exited with status 52"
+                    }),
+                    actor_id: "supervisor:test".to_string(),
+                    user_id: "system".to_string(),
+                },
+                reply
+            })
+            .unwrap()
+            .unwrap();
+        }
+
+        let (watcher_ref, _watcher_handle) = Actor::spawn(
+            None,
+            WatcherActor,
+            WatcherArguments {
+                event_store: store_ref.clone(),
+                watcher_id: "watcher:default".to_string(),
+                poll_interval_ms: 10_000,
+                failure_spike_threshold: 99,
+                timeout_spike_threshold: 99,
+                network_spike_threshold: 2,
+                retry_storm_threshold: 99,
+                stalled_task_timeout_ms: 60_000,
+            },
+        )
+        .await
+        .unwrap();
+
+        let _ = watcher_ref.cast(WatcherMsg::ScanNow);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let alerts = get_recent_events(
+            &store_ref,
+            0,
+            50,
+            Some("watcher.alert.network_spike".to_string()),
+            Some("watcher:default".to_string()),
+            None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].event_type, "watcher.alert.network_spike");
 
         watcher_ref.stop(None);
         store_ref.stop(None);

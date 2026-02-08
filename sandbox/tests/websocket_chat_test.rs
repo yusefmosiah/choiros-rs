@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tokio::time::timeout;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
@@ -133,6 +133,50 @@ async fn send_json(
 ) {
     let text = msg.to_string();
     ws.send(Message::Text(text)).await.expect("Send error");
+}
+
+async fn wait_for_worker_task_completion(
+    app_state: &Arc<AppState>,
+    actor_id: &str,
+    correlation_id: &str,
+    timeout_duration: Duration,
+) -> bool {
+    let start = Instant::now();
+    while start.elapsed() < timeout_duration {
+        let recent = match ractor::call!(app_state.event_store(), |reply| {
+            sandbox::actors::event_store::EventStoreMsg::GetRecentEvents {
+                since_seq: 0,
+                limit: 500,
+                event_type_prefix: Some("worker.task".to_string()),
+                actor_id: Some(actor_id.to_string()),
+                user_id: None,
+                reply,
+            }
+        }) {
+            Ok(Ok(events)) => events,
+            _ => {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                continue;
+            }
+        };
+
+        let done = recent.into_iter().any(|event| {
+            let corr = event
+                .payload
+                .get("correlation_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            corr == correlation_id
+                && (event.event_type == "worker.task.completed"
+                    || event.event_type == "worker.task.failed")
+        });
+        if done {
+            return true;
+        }
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    false
 }
 
 #[tokio::test]
@@ -512,7 +556,7 @@ async fn test_websocket_streams_actor_call_for_delegated_terminal_task() {
     let connected = recv_json(&mut ws).await;
     assert_eq!(connected["type"], "connected");
 
-    let _task = server
+    let task = server
         .app_state
         .delegate_terminal_task(
             format!("terminal:{actor_id}"),
@@ -598,6 +642,45 @@ async fn test_websocket_streams_actor_call_for_delegated_terminal_task() {
         saw_actor_call,
         "expected websocket actor_call chunk from delegated terminal task"
     );
+
+    let completed = wait_for_worker_task_completion(
+        &server.app_state,
+        &actor_id,
+        &task.correlation_id,
+        Duration::from_secs(20),
+    )
+    .await;
+    assert!(
+        completed,
+        "expected worker task completion for correlation {}",
+        task.correlation_id
+    );
+
+    let session_id = format!("session:{actor_id}");
+    let thread_id = format!("thread:{actor_id}");
+    let client = reqwest::Client::new();
+    let markdown = client
+        .get(format!("http://{}/logs/run.md", server.addr))
+        .query(&[
+            ("actor_id", actor_id.as_str()),
+            ("session_id", session_id.as_str()),
+            ("thread_id", thread_id.as_str()),
+            ("correlation_id", task.correlation_id.as_str()),
+        ])
+        .send()
+        .await
+        .expect("request run markdown")
+        .text()
+        .await
+        .expect("read run markdown");
+
+    assert!(markdown.contains("# Run Log"));
+    assert!(markdown.contains("worker.task.started"));
+    assert!(
+        markdown.contains("worker.task.completed") || markdown.contains("worker.task.failed"),
+        "expected task terminal state in markdown transcript"
+    );
+    assert!(markdown.contains(&task.correlation_id));
 }
 
 #[tokio::test]

@@ -10,7 +10,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::{CloseEvent, ErrorEvent, Event, MessageEvent, WebSocket};
 
 use super::styles::CHAT_STYLES;
-use crate::api::{fetch_messages, fetch_windows, focus_window, send_chat_message};
+use crate::api::{fetch_messages, fetch_windows, focus_window, open_window, send_chat_message};
 
 const TOOL_CALL_PREFIX: &str = "__tool_call__:";
 const TOOL_RESULT_PREFIX: &str = "__tool_result__:";
@@ -550,8 +550,9 @@ pub fn ChatView(actor_id: String, desktop_id: String, window_id: String) -> Elem
         input_text.set(String::new());
     });
 
+    let desktop_id_for_select_thread = desktop_id.clone();
     let on_select_thread = use_callback(move |thread_id: String| {
-        let desktop_id_val = desktop_id.clone();
+        let desktop_id_val = desktop_id_for_select_thread.clone();
         let window_id_val = window_id.clone();
         spawn(async move {
             let existing_window_id = match fetch_windows(&desktop_id_val).await {
@@ -580,7 +581,6 @@ pub fn ChatView(actor_id: String, desktop_id: String, window_id: String) -> Elem
         entries.sort_by_key(|entry| -entry.last_updated_ms);
         entries
     };
-
     rsx! {
         style { {CHAT_STYLES} }
 
@@ -630,19 +630,48 @@ pub fn ChatView(actor_id: String, desktop_id: String, window_id: String) -> Elem
                         div {
                             class: "thread-list",
                             for thread in sorted_threads {
-                                button {
-                                    class: if thread.thread_id == actor_id_signal() {
-                                        "thread-item active"
-                                    } else {
-                                        "thread-item"
-                                    },
-                                    onclick: {
-                                        let thread_id = thread.thread_id.clone();
-                                        move |_| on_select_thread.call(thread_id.clone())
-                                    },
-                                    div { class: "thread-title", "{thread.title}" }
-                                    if !thread.last_preview.trim().is_empty() {
-                                        div { class: "thread-preview", "{thread.last_preview}" }
+                                div {
+                                    class: "thread-row",
+                                    button {
+                                        class: if thread.thread_id == actor_id_signal() {
+                                            "thread-item active"
+                                        } else {
+                                            "thread-item"
+                                        },
+                                        onclick: {
+                                            let thread_id = thread.thread_id.clone();
+                                            move |_| on_select_thread.call(thread_id.clone())
+                                        },
+                                        div { class: "thread-title", "{thread.title}" }
+                                        if !thread.last_preview.trim().is_empty() {
+                                            div { class: "thread-preview", "{thread.last_preview}" }
+                                        }
+                                    }
+                                    button {
+                                        class: "thread-run-button",
+                                        title: "Open latest run transcript for this thread",
+                                        onclick: {
+                                            let desktop_id = desktop_id.clone();
+                                            let thread_id = thread.thread_id.clone();
+                                            move |_| {
+                                                let desktop_id = desktop_id.clone();
+                                                let thread_id = thread_id.clone();
+                                                spawn(async move {
+                                                    if let Err(e) = open_latest_thread_run_transcript_window(
+                                                        desktop_id,
+                                                        thread_id,
+                                                    )
+                                                    .await
+                                                    {
+                                                        dioxus_logger::tracing::error!(
+                                                            "Failed to open run transcript window: {}",
+                                                            e
+                                                        );
+                                                    }
+                                                });
+                                            }
+                                        },
+                                        "Run"
                                     }
                                 }
                             }
@@ -664,7 +693,9 @@ pub fn ChatView(actor_id: String, desktop_id: String, window_id: String) -> Elem
                             }
                         } else {
                             for msg in messages.iter() {
-                                MessageBubble { message: msg.clone() }
+                                MessageBubble {
+                                    message: msg.clone(),
+                                }
                             }
                         }
                         if loading() {
@@ -769,7 +800,7 @@ pub fn MessageBubble(message: ChatMessage) -> Element {
                 if let Some(bundle) = parse_assistant_bundle(&message.text) {
                     AssistantMessageWithTools {
                         bundle,
-                        pending: message.pending
+                        pending: message.pending,
                     }
                 } else if let Some(payload) = parse_tool_payload(&message.text, TOOL_CALL_PREFIX) {
                     ToolCallSection {
@@ -1325,6 +1356,63 @@ fn clear_pending_user_message(messages: &mut Vec<ChatMessage>) {
     {
         msg.pending = false;
     }
+}
+
+fn latest_run_correlation_id(tools: &[ToolEntry]) -> Option<String> {
+    tools.iter().rev().find_map(|tool| {
+        tool.payload
+            .get("correlation_id")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| v.to_string())
+    })
+}
+
+fn latest_thread_run_correlation_id(messages: &[ChatMessage]) -> Option<String> {
+    messages.iter().rev().find_map(|msg| {
+        if let Some(bundle) = parse_assistant_bundle(&msg.text) {
+            if let Some(correlation_id) = latest_run_correlation_id(&bundle.tools) {
+                return Some(correlation_id);
+            }
+        }
+        parse_tool_payload(&msg.text, ACTOR_CALL_PREFIX).and_then(|payload| {
+            payload
+                .get("correlation_id")
+                .and_then(|v| v.as_str())
+                .filter(|v| !v.trim().is_empty())
+                .map(|v| v.to_string())
+        })
+    })
+}
+
+async fn open_latest_thread_run_transcript_window(
+    desktop_id: String,
+    thread_id: String,
+) -> Result<(), String> {
+    let messages = fetch_messages(&thread_id).await?;
+    let normalized = collapse_tool_messages(messages);
+    let correlation_id = latest_thread_run_correlation_id(&normalized);
+    let uri = if let Some(correlation_id) = correlation_id {
+        format!(
+            "runlog://export?actor_id={}&correlation_id={}",
+            thread_id, correlation_id
+        )
+    } else {
+        format!("runlog://export?actor_id={}", thread_id)
+    };
+    let props = serde_json::json!({
+        "viewer": {
+            "kind": "text",
+            "resource": {
+                "uri": uri,
+                "mime": "text/markdown"
+            },
+            "capabilities": { "readonly": true }
+        }
+    });
+    open_window(&desktop_id, "writer", "Run Transcript", Some(props))
+        .await
+        .map(|_| ())
 }
 
 fn build_chat_ws_url(actor_id: &str, user_id: &str) -> String {

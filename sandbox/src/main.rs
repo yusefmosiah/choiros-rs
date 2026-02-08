@@ -85,6 +85,10 @@ async fn main() -> std::io::Result<()> {
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .unwrap_or(2);
+        let network_spike_threshold = std::env::var("WATCHER_NETWORK_SPIKE_THRESHOLD")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(2);
         let retry_storm_threshold = std::env::var("WATCHER_RETRY_STORM_THRESHOLD")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
@@ -102,6 +106,7 @@ async fn main() -> std::io::Result<()> {
                 poll_interval_ms: poll_ms,
                 failure_spike_threshold,
                 timeout_spike_threshold,
+                network_spike_threshold,
                 retry_storm_threshold,
                 stalled_task_timeout_ms,
             },
@@ -112,6 +117,7 @@ async fn main() -> std::io::Result<()> {
             poll_ms,
             failure_spike_threshold,
             timeout_spike_threshold,
+            network_spike_threshold,
             retry_storm_threshold,
             stalled_task_timeout_ms,
             "WatcherActor started"

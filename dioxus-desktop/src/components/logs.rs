@@ -7,7 +7,7 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::prelude::*;
 use web_sys::{CloseEvent, ErrorEvent, Event, MessageEvent, WebSocket};
 
-use crate::api::LogsEvent;
+use crate::api::{fetch_logs_events, open_window, LogsEvent};
 
 use super::styles::CHAT_STYLES;
 
@@ -30,33 +30,78 @@ struct LogsRuntime {
 #[derive(Clone)]
 struct LogFeedEntry {
     event: LogsEvent,
-    received_at_ms: f64,
-    summary: Option<String>,
+}
+
+#[derive(Clone)]
+struct RunListEntry {
+    run_id: String,
+    actor_id: String,
+    status: String,
+    started_at: String,
+    updated_at: String,
+    last_seq: i64,
+    event_count: usize,
+    headline: String,
 }
 
 #[component]
 pub fn LogsView(desktop_id: String, window_id: String) -> Element {
     let mut entries = use_signal(Vec::<LogFeedEntry>::new);
     let mut since_seq = use_signal(load_logs_cursor);
+    let mut selected_run_id = use_signal(|| None::<String>);
     let mut connected = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
-    let mut summarizer_model = use_signal(|| "local deterministic summarizer".to_string());
     let mut ws_runtime = use_signal(|| None::<LogsRuntime>);
+    let mut preload_started = use_signal(|| false);
+    let mut preload_ready = use_signal(|| false);
     let ws_event_queue = use_hook(|| Rc::new(RefCell::new(VecDeque::<LogsWsEvent>::new())));
     let mut ws_event_pump_started = use_signal(|| false);
     let ws_event_pump_alive = use_hook(|| Rc::new(Cell::new(true)));
-    let pump_alive = use_hook(|| Rc::new(Cell::new(true)));
 
     {
-        let pump_alive = pump_alive.clone();
         let ws_event_pump_alive = ws_event_pump_alive.clone();
         use_drop(move || {
-            pump_alive.set(false);
             ws_event_pump_alive.set(false);
             if let Some(runtime) = ws_runtime.write().take() {
                 runtime.closing.set(true);
                 let _ = runtime.ws.close();
             }
+        });
+    }
+
+    {
+        use_effect(move || {
+            if preload_started() {
+                return;
+            }
+            preload_started.set(true);
+
+            let cursor = since_seq().max(0);
+            let preload_since = cursor.saturating_sub(2_500);
+            spawn(async move {
+                match fetch_logs_events(preload_since, 1_000, None).await {
+                    Ok(events) => {
+                        let mut max_seq = cursor;
+                        let mut preload = events
+                            .into_iter()
+                            .filter(should_display_event)
+                            .map(|event| {
+                                max_seq = max_seq.max(event.seq);
+                                LogFeedEntry { event }
+                            })
+                            .collect::<Vec<_>>();
+                        preload.sort_by_key(|entry| entry.event.seq);
+                        preload.dedup_by(|a, b| a.event.event_id == b.event.event_id);
+                        entries.set(preload);
+                        since_seq.set(max_seq);
+                        persist_logs_cursor(max_seq);
+                    }
+                    Err(e) => {
+                        error.set(Some(format!("Failed to preload logs: {e}")));
+                    }
+                }
+                preload_ready.set(true);
+            });
         });
     }
 
@@ -96,13 +141,6 @@ pub fn LogsView(desktop_id: String, window_id: String) -> Element {
                                 match json.get("type").and_then(|v| v.as_str()).unwrap_or("") {
                                     "connected" | "pong" => {
                                         connected.set(true);
-                                        if let Some(model) = json
-                                            .get("summarizer_model")
-                                            .and_then(|v| v.as_str())
-                                            .filter(|m| !m.trim().is_empty())
-                                        {
-                                            summarizer_model.set(model.to_string());
-                                        }
                                     }
                                     "event" => {
                                         let event = LogsEvent {
@@ -140,25 +178,15 @@ pub fn LogsView(desktop_id: String, window_id: String) -> Element {
                                                 .cloned()
                                                 .unwrap_or(serde_json::Value::Null),
                                         };
-                                        if !(event.event_type.starts_with("worker.task")
-                                            || event.event_type.starts_with("watcher.alert")
-                                            || event.event_type.starts_with("log.summary")
-                                            || event.event_type.starts_with("model.")
-                                            || event.event_type.starts_with("chat."))
-                                        {
+                                        if !should_display_event(&event) {
                                             continue;
                                         }
 
                                         let next_seq = since_seq().max(event.seq);
                                         since_seq.set(next_seq);
                                         persist_logs_cursor(next_seq);
-                                        let now_ms = js_sys::Date::now();
                                         let mut list = entries.write();
-                                        list.push(LogFeedEntry {
-                                            event,
-                                            received_at_ms: now_ms,
-                                            summary: None,
-                                        });
+                                        list.push(LogFeedEntry { event });
                                         list.sort_by_key(|entry| entry.event.seq);
                                         list.dedup_by(|a, b| a.event.event_id == b.event.event_id);
                                         if list.len() > 400 {
@@ -189,6 +217,9 @@ pub fn LogsView(desktop_id: String, window_id: String) -> Element {
     {
         let ws_event_queue = ws_event_queue.clone();
         use_effect(move || {
+            if !preload_ready() {
+                return;
+            }
             if ws_runtime.read().is_some() {
                 return;
             }
@@ -254,32 +285,26 @@ pub fn LogsView(desktop_id: String, window_id: String) -> Element {
         });
     }
 
-    use_effect(move || {
-        let pump_alive = pump_alive.clone();
-        spawn(async move {
-            while pump_alive.get() {
-                let now_ms = js_sys::Date::now();
-                {
-                    let mut list = entries.write();
-                    for entry in list.iter_mut() {
-                        if entry.summary.is_none() && now_ms - entry.received_at_ms >= 1200.0 {
-                            if entry.event.event_type.starts_with("log.summary") {
-                                entry.summary = Some(entry.event.event_type.clone());
-                            } else {
-                                entry.summary = Some(summarize_log_event(&entry.event));
-                            }
-                        }
-                    }
-                }
-                TimeoutFuture::new(220).await;
-            }
-        });
-    });
-
     let status_label = if connected() { "Live" } else { "Reconnecting" };
     let snapshot = entries.read().clone();
+    let runs = derive_runs(&snapshot);
+    let active_run_id = selected_run_id()
+        .filter(|id| runs.iter().any(|run| run.run_id == *id))
+        .or_else(|| runs.first().map(|run| run.run_id.clone()));
+    let selected_run = active_run_id
+        .as_ref()
+        .and_then(|id| runs.iter().find(|run| run.run_id == *id))
+        .cloned();
     let mut reversed = snapshot.into_iter().collect::<Vec<_>>();
     reversed.reverse();
+    let filtered = if let Some(run_id) = active_run_id.as_deref() {
+        reversed
+            .into_iter()
+            .filter(|entry| run_key_for_event(&entry.event).as_deref() == Some(run_id))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
 
     rsx! {
         style { {CHAT_STYLES} }
@@ -305,38 +330,108 @@ pub fn LogsView(desktop_id: String, window_id: String) -> Element {
                     "Log stream error: {message}"
                 }
             }
-            if reversed.is_empty() {
+            if runs.is_empty() {
                 div {
                     class: "empty-state",
                     div { class: "empty-icon", "📡" }
-                    p { "No streamed log events yet" }
-                    span { "Raw events stream via /ws/logs/events, then summarize in place" }
+                    p { "No runs available yet" }
+                    span { "Run index loads from /logs/events then stays live on /ws/logs/events" }
                 }
             } else {
                 div {
-                    class: "messages-list",
-                    for entry in reversed {
-                        details {
-                            class: "tool-details",
-                            summary {
-                                class: "tool-summary",
-                                style: if entry.summary.is_some() { "font-style: italic;" } else { "" },
-                                "{entry.summary.clone().unwrap_or_else(|| entry.event.event_type.clone())} #{entry.event.seq}"
+                    class: "chat-body",
+                    aside {
+                        class: "thread-sidebar",
+                        div {
+                            class: "thread-sidebar-header",
+                            span { "Runs" }
+                            span { "{runs.len()}" }
+                        }
+                        div {
+                            class: "thread-list",
+                            for run in runs {
+                                button {
+                                    class: if active_run_id.as_deref() == Some(run.run_id.as_str()) {
+                                        "thread-item active"
+                                    } else {
+                                        "thread-item"
+                                    },
+                                    onclick: {
+                                        let run_id = run.run_id.clone();
+                                        move |_| selected_run_id.set(Some(run_id.clone()))
+                                    },
+                                    div { class: "thread-title", "{run.headline}" }
+                                    div { class: "thread-preview", "#{run.last_seq} {run.status} {run.event_count} events" }
+                                }
+                            }
+                        }
+                    }
+                    div {
+                        class: "messages-scroll-area",
+                        if let Some(run) = selected_run {
+                            button {
+                                class: "thread-run-button",
+                                onclick: {
+                                    let desktop_id = desktop_id.clone();
+                                    let run = run.clone();
+                                    move |_| {
+                                        let desktop_id = desktop_id.clone();
+                                        let run = run.clone();
+                                        spawn(async move {
+                                            if let Err(e) = open_run_markdown_from_logs(desktop_id, run).await
+                                            {
+                                                dioxus_logger::tracing::error!(
+                                                    "Failed to open run markdown from logs: {}",
+                                                    e
+                                                );
+                                            }
+                                        });
+                                    }
+                                },
+                                "Open Run Markdown"
                             }
                             div {
-                                class: "tool-body",
-                                if entry.summary.is_some() {
-                                    if let Some(summary_model) = summary_model_label(&entry.event, &summarizer_model()) {
-                                        p { class: "tool-meta", "summarized by {summary_model}" }
+                                class: "message-bubble system-bubble",
+                                "Run {run.run_id} | actor {run.actor_id} | status {run.status} | events {run.event_count} | start {run.started_at} | last {run.updated_at}"
+                            }
+                            if filtered.is_empty() {
+                                div {
+                                    class: "empty-state",
+                                    div { class: "empty-icon", "🪵" }
+                                    p { "No events found for selected run" }
+                                }
+                            } else {
+                                div {
+                                    class: "messages-list",
+                                    for entry in filtered {
+                                        details {
+                                            class: "tool-details",
+                                            summary {
+                                                class: "tool-summary",
+                                                "{event_headline(&entry.event)} #{entry.event.seq}"
+                                            }
+                                            div {
+                                                class: "tool-body",
+                                                p { class: "tool-meta", "Event: {entry.event.event_type}" }
+                                                p { class: "tool-meta", "Scope actor: {entry.event.actor_id}" }
+                                                if let Some(emitter_actor) = event_emitter_label(&entry.event) {
+                                                    p { class: "tool-meta", "Emitter: {emitter_actor}" }
+                                                }
+                                                p { class: "tool-meta", "Time: {entry.event.timestamp}" }
+                                                pre {
+                                                    class: "tool-pre",
+                                                    "{serde_json::to_string_pretty(&entry.event.payload).unwrap_or_else(|_| entry.event.payload.to_string())}"
+                                                }
+                                            }
+                                        }
                                     }
                                 }
-                                p { class: "tool-meta", "Event: {entry.event.event_type}" }
-                                p { class: "tool-meta", "Actor: {entry.event.actor_id}" }
-                                p { class: "tool-meta", "Time: {entry.event.timestamp}" }
-                                pre {
-                                    class: "tool-pre",
-                                    "{serde_json::to_string_pretty(&entry.event.payload).unwrap_or_else(|_| entry.event.payload.to_string())}"
-                                }
+                            }
+                        } else {
+                            div {
+                                class: "empty-state",
+                                div { class: "empty-icon", "🧭" }
+                                p { "Select a run from the sidebar" }
                             }
                         }
                     }
@@ -350,7 +445,156 @@ pub fn LogsView(desktop_id: String, window_id: String) -> Element {
     }
 }
 
-fn summarize_log_event(event: &LogsEvent) -> String {
+fn run_key_for_event(event: &LogsEvent) -> Option<String> {
+    event
+        .payload
+        .get("correlation_id")
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            event
+                .payload
+                .get("task")
+                .and_then(|task| task.get("correlation_id"))
+                .and_then(|v| v.as_str())
+        })
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| format!("corr:{value}"))
+        .or_else(|| {
+            event
+                .payload
+                .get("task_id")
+                .and_then(|v| v.as_str())
+                .or_else(|| {
+                    event
+                        .payload
+                        .get("task")
+                        .and_then(|task| task.get("task_id"))
+                        .and_then(|v| v.as_str())
+                })
+                .filter(|value| !value.trim().is_empty())
+                .map(|value| format!("task:{value}"))
+        })
+}
+
+fn derive_runs(entries: &[LogFeedEntry]) -> Vec<RunListEntry> {
+    let mut ordered = entries.iter().collect::<Vec<_>>();
+    ordered.sort_by_key(|entry| entry.event.seq);
+
+    let mut runs = std::collections::HashMap::<String, RunListEntry>::new();
+    for entry in ordered {
+        let Some(run_id) = run_key_for_event(&entry.event) else {
+            continue;
+        };
+        let actor =
+            event_emitter_label(&entry.event).unwrap_or_else(|| entry.event.actor_id.clone());
+        let status = match entry.event.event_type.as_str() {
+            "worker.task.failed" => "failed",
+            "worker.task.completed" => "completed",
+            "worker.task.started" | "worker.task.progress" => "running",
+            _ => "active",
+        }
+        .to_string();
+        let headline = event_headline(&entry.event);
+
+        runs.entry(run_id.clone())
+            .and_modify(|run| {
+                run.last_seq = run.last_seq.max(entry.event.seq);
+                run.updated_at = entry.event.timestamp.clone();
+                run.event_count += 1;
+                run.headline = headline.clone();
+                if run.status != "failed" {
+                    if status == "failed" || status == "completed" || status == "running" {
+                        run.status = status.clone();
+                    }
+                }
+            })
+            .or_insert_with(|| RunListEntry {
+                run_id,
+                actor_id: actor,
+                status,
+                started_at: entry.event.timestamp.clone(),
+                updated_at: entry.event.timestamp.clone(),
+                last_seq: entry.event.seq,
+                event_count: 1,
+                headline,
+            });
+    }
+
+    let mut out = runs.into_values().collect::<Vec<_>>();
+    out.sort_by_key(|run| -run.last_seq);
+    out
+}
+
+async fn open_run_markdown_from_logs(desktop_id: String, run: RunListEntry) -> Result<(), String> {
+    let query = if let Some(correlation_id) = run.run_id.strip_prefix("corr:") {
+        format!(
+            "actor_id={}&correlation_id={}",
+            url_encode(&run.actor_id),
+            url_encode(correlation_id)
+        )
+    } else if let Some(task_id) = run.run_id.strip_prefix("task:") {
+        format!(
+            "actor_id={}&task_id={}",
+            url_encode(&run.actor_id),
+            url_encode(task_id)
+        )
+    } else {
+        format!("actor_id={}", url_encode(&run.actor_id))
+    };
+
+    let uri = format!("runlog://export?{query}");
+    let props = serde_json::json!({
+        "viewer": {
+            "kind": "text",
+            "resource": {
+                "uri": uri,
+                "mime": "text/markdown"
+            },
+            "capabilities": { "readonly": true }
+        }
+    });
+    open_window(&desktop_id, "writer", "Run Transcript", Some(props))
+        .await
+        .map(|_| ())
+}
+
+fn url_encode(value: &str) -> String {
+    js_sys::encode_uri_component(value)
+        .as_string()
+        .unwrap_or_else(|| value.to_string())
+}
+
+fn should_display_event(event: &LogsEvent) -> bool {
+    match event.event_type.as_str() {
+        "chat.user_msg"
+        | "chat.assistant_msg"
+        | "chat.tool_call"
+        | "chat.tool_result"
+        | "model.selection"
+        | "model.changed"
+        | "worker.task.started"
+        | "worker.task.completed"
+        | "worker.task.failed" => true,
+        "worker.task.progress" => {
+            let phase = event
+                .payload
+                .get("phase")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            matches!(
+                phase,
+                "terminal_tool_dispatch"
+                    | "terminal_tool_call"
+                    | "terminal_tool_result"
+                    | "terminal_agent_fallback"
+                    | "terminal_agent_synthesizing"
+            )
+        }
+        other => other.starts_with("watcher.alert"),
+    }
+}
+
+fn event_headline(event: &LogsEvent) -> String {
     fn trim_snippet(text: &str, max_chars: usize) -> String {
         if text.chars().count() <= max_chars {
             return text.to_string();
@@ -366,14 +610,20 @@ fn summarize_log_event(event: &LogsEvent) -> String {
             .join(" ")
     }
 
+    let actor = event_emitter_label(event).unwrap_or_else(|| event.actor_id.clone());
     let payload = &event.payload;
-    let summary = match event.event_type.as_str() {
+    let headline = match event.event_type.as_str() {
         "chat.user_msg" => payload
             .get("text")
             .and_then(|v| v.as_str())
             .or_else(|| payload.as_str())
-            .map(|text| format!("user asked {}", soften(&trim_snippet(text, 200))))
-            .unwrap_or_else(|| "user message received".to_string()),
+            .map(|text| {
+                format!(
+                    "{actor} received user message {}",
+                    soften(&trim_snippet(text, 180))
+                )
+            })
+            .unwrap_or_else(|| format!("{actor} received user message")),
         "chat.assistant_msg" => {
             let model = payload
                 .get("model")
@@ -392,12 +642,27 @@ fn summarize_log_event(event: &LogsEvent) -> String {
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
             format!(
-                "assistant answered using model {} from {} with {} tools response {}",
-                model,
-                model_source,
-                tools_used,
-                soften(&trim_snippet(text, 220))
+                "{actor} answered using {model} from {model_source} with {tools_used} tools {snippet}",
+                snippet = soften(&trim_snippet(text, 180)),
             )
+        }
+        "chat.tool_call" => {
+            let tool = payload
+                .get("tool_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown_tool");
+            format!("{actor} requested tool {tool}")
+        }
+        "chat.tool_result" => {
+            let tool = payload
+                .get("tool_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown_tool");
+            let success = payload
+                .get("success")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            format!("{actor} got tool result {tool} success={success}")
         }
         "model.selection" => {
             let used = payload
@@ -417,8 +682,7 @@ fn summarize_log_event(event: &LogsEvent) -> String {
                 .and_then(|v| v.as_str())
                 .unwrap_or("none");
             format!(
-                "model routing selected {} from {} requested {} app preference {}",
-                used, source, requested, chat_pref
+                "{actor} selected model {used} source={source} requested={requested} preference={chat_pref}"
             )
         }
         "model.changed" => {
@@ -435,7 +699,7 @@ fn summarize_log_event(event: &LogsEvent) -> String {
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
             format!(
-                "model changed from {} to {} triggered by {}",
+                "{actor} changed model from {} to {} triggered by {}",
                 old_model, new_model, source
             )
         }
@@ -464,15 +728,27 @@ fn summarize_log_event(event: &LogsEvent) -> String {
                 .get("output_excerpt")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
-            format!(
-                "worker update status {} phase {} requested model {} used model {} command {} output {}",
-                status,
-                phase,
-                model_requested,
-                model_used,
-                soften(&trim_snippet(command, 130)),
-                soften(&trim_snippet(output_excerpt, 130))
-            )
+            let failure_kind = payload
+                .get("failure_kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let error = payload
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            if event_type == "worker.task.failed" {
+                format!(
+                    "{actor} worker failed kind={failure_kind} phase={phase} requested={model_requested} used={model_used} error={error} output={output}",
+                    output = soften(&trim_snippet(output_excerpt, 130)),
+                    error = soften(&trim_snippet(error, 140)),
+                )
+            } else {
+                format!(
+                    "{actor} worker status={status} phase={phase} requested={model_requested} used={model_used} command={command} output={output}",
+                    command = soften(&trim_snippet(command, 130)),
+                    output = soften(&trim_snippet(output_excerpt, 130)),
+                )
+            }
         }
         event_type if event_type.starts_with("watcher.alert") => {
             let summary = payload
@@ -490,27 +766,24 @@ fn summarize_log_event(event: &LogsEvent) -> String {
                 .map(|v| format!("{v}ms"))
                 .unwrap_or_else(|| "n/a".to_string());
             format!(
-                "watcher alert {} threshold {} window {}",
+                "{actor} watcher alert {} threshold {} window {}",
                 soften(summary),
                 threshold,
                 window
             )
         }
-        _ => soften(&event.event_type),
+        _ => format!("{actor} {}", soften(&event.event_type)),
     };
-    trim_snippet(&summary, 420)
+    trim_snippet(&headline, 420)
 }
 
-fn summary_model_label(event: &LogsEvent, fallback_model: &str) -> Option<String> {
-    if let Some(model) = event
+fn event_emitter_label(event: &LogsEvent) -> Option<String> {
+    event
         .payload
-        .get("summary_model")
+        .get("emitter_actor")
         .and_then(|v| v.as_str())
         .filter(|v| !v.trim().is_empty())
-    {
-        return Some(model.to_string());
-    }
-    Some(fallback_model.to_string())
+        .map(|v| v.to_string())
 }
 
 fn build_logs_ws_url(since_seq: i64) -> String {

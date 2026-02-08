@@ -345,6 +345,133 @@ pub struct DelegatedTaskResult {
     pub finished_at: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum WorkerTurnStatus {
+    Running,
+    Completed,
+    Failed,
+    Blocked,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct WorkerFinding {
+    pub finding_id: String,
+    pub claim: String,
+    pub confidence: f64,
+    pub evidence_refs: Vec<String>,
+    pub novel: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct WorkerLearning {
+    pub learning_id: String,
+    pub insight: String,
+    pub confidence: f64,
+    pub supports: Vec<String>,
+    pub changes_plan: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum WorkerEscalationKind {
+    Blocker,
+    Help,
+    Approval,
+    Conflict,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum WorkerEscalationUrgency {
+    Low,
+    Medium,
+    High,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct WorkerEscalation {
+    pub escalation_id: String,
+    pub kind: WorkerEscalationKind,
+    pub reason: String,
+    pub urgency: WorkerEscalationUrgency,
+    pub options: Vec<String>,
+    pub recommended_option: Option<String>,
+    pub requires_human: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct WorkerArtifact {
+    pub artifact_id: String,
+    pub kind: String,
+    pub reference: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct WorkerTurnReport {
+    pub turn_id: String,
+    pub worker_id: String,
+    pub task_id: String,
+    pub worker_role: Option<String>,
+    pub status: WorkerTurnStatus,
+    pub summary: Option<String>,
+    pub findings: Vec<WorkerFinding>,
+    pub learnings: Vec<WorkerLearning>,
+    pub escalations: Vec<WorkerEscalation>,
+    pub artifacts: Vec<WorkerArtifact>,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum WorkerSignalType {
+    Finding,
+    Learning,
+    Escalation,
+    Artifact,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum WorkerSignalRejectReason {
+    MaxPerTurnExceeded,
+    LowConfidence,
+    MissingEvidence,
+    DuplicateWithinWindow,
+    EscalationCooldown,
+    InvalidPayload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct WorkerSignalRejection {
+    pub signal_type: WorkerSignalType,
+    pub signal_id: String,
+    pub reason: WorkerSignalRejectReason,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct WorkerTurnReportIngestResult {
+    pub accepted_findings: usize,
+    pub accepted_learnings: usize,
+    pub accepted_escalations: usize,
+    pub accepted_artifacts: usize,
+    pub escalation_notified: bool,
+    pub rejections: Vec<WorkerSignalRejection>,
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -446,6 +573,15 @@ pub const EVENT_TOPIC_WORKER_TASK_STARTED: &str = "worker.task.started";
 pub const EVENT_TOPIC_WORKER_TASK_PROGRESS: &str = "worker.task.progress";
 pub const EVENT_TOPIC_WORKER_TASK_COMPLETED: &str = "worker.task.completed";
 pub const EVENT_TOPIC_WORKER_TASK_FAILED: &str = "worker.task.failed";
+pub const EVENT_TOPIC_WORKER_REPORT_RECEIVED: &str = "worker.report.received";
+pub const EVENT_TOPIC_WORKER_SIGNAL_REJECTED: &str = "worker.signal.rejected";
+pub const EVENT_TOPIC_WORKER_SIGNAL_ESCALATION_REQUESTED: &str =
+    "worker.signal.escalation_requested";
+pub const EVENT_TOPIC_WORKER_FINDING_CREATED: &str = "worker.finding.created";
+pub const EVENT_TOPIC_WORKER_LEARNING_CREATED: &str = "worker.learning.created";
+pub const EVENT_TOPIC_RESEARCH_FINDING_CREATED: &str = "research.finding.created";
+pub const EVENT_TOPIC_RESEARCH_LEARNING_CREATED: &str = "research.learning.created";
+pub const EVENT_TOPIC_ARTIFACT_CREATED: &str = "artifact.created";
 
 pub const INTERFACE_KIND_UACTOR_ACTOR: &str = "uactor_actor";
 pub const INTERFACE_KIND_APPACTOR_TOOLACTOR: &str = "appactor_toolactor";
@@ -527,5 +663,17 @@ mod tests {
         WsMsg::export(&config).unwrap();
         ToolDef::export(&config).unwrap();
         ToolCall::export(&config).unwrap();
+        WorkerTurnStatus::export(&config).unwrap();
+        WorkerFinding::export(&config).unwrap();
+        WorkerLearning::export(&config).unwrap();
+        WorkerEscalationKind::export(&config).unwrap();
+        WorkerEscalationUrgency::export(&config).unwrap();
+        WorkerEscalation::export(&config).unwrap();
+        WorkerArtifact::export(&config).unwrap();
+        WorkerTurnReport::export(&config).unwrap();
+        WorkerSignalType::export(&config).unwrap();
+        WorkerSignalRejectReason::export(&config).unwrap();
+        WorkerSignalRejection::export(&config).unwrap();
+        WorkerTurnReportIngestResult::export(&config).unwrap();
     }
 }

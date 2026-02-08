@@ -120,6 +120,12 @@ pub const CHAT_STYLES: &str = r#"
     gap: 0.25rem;
 }
 
+.thread-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.25rem;
+}
+
 .thread-item {
     width: 100%;
     text-align: left;
@@ -129,6 +135,29 @@ pub const CHAT_STYLES: &str = r#"
     color: var(--text-secondary, #94a3b8);
     cursor: pointer;
     padding: 0.4rem 0.45rem;
+}
+
+.thread-row .thread-item {
+    flex: 1;
+}
+
+.thread-run-button {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #cbd5e1;
+    font-size: 0.68rem;
+    border-radius: 0.35rem;
+    padding: 0.2rem 0.35rem;
+    cursor: pointer;
+    line-height: 1.2;
+    margin-top: 0.15rem;
+    opacity: 0.75;
+}
+
+.thread-run-button:hover {
+    opacity: 1;
+    border-color: #4b6587;
+    background: #24324a;
 }
 
 .thread-item:hover {
