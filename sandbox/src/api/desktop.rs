@@ -10,7 +10,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::actors::desktop::DesktopActorMsg;
+use crate::actors::desktop::{DesktopActorMsg, WindowBounds};
 use crate::api::websocket::{broadcast_event, WsMessage};
 use crate::api::ApiState;
 
@@ -62,6 +62,15 @@ pub struct MoveWindowRequest {
 /// Request to resize a window
 #[derive(Debug, Deserialize)]
 pub struct ResizeWindowRequest {
+    pub width: i32,
+    pub height: i32,
+}
+
+/// Request to maximize a window to a specific work area
+#[derive(Debug, Deserialize)]
+pub struct MaximizeWindowRequest {
+    pub x: i32,
+    pub y: i32,
     pub width: i32,
     pub height: i32,
 }
@@ -476,8 +485,31 @@ pub async fn minimize_window(
 pub async fn maximize_window(
     Path((desktop_id, window_id)): Path<(String, String)>,
     axum::extract::State(state): axum::extract::State<ApiState>,
+    payload: Option<Json<MaximizeWindowRequest>>,
 ) -> impl IntoResponse {
     let app_state = state.app_state.clone();
+    let work_area = payload.map(|Json(req)| WindowBounds {
+        x: req.x,
+        y: req.y,
+        width: req.width,
+        height: req.height,
+    });
+
+    if let Some(bounds) = work_area.as_ref() {
+        if bounds.width < MIN_WINDOW_WIDTH || bounds.height < MIN_WINDOW_HEIGHT {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "success": false,
+                    "error": format!(
+                        "Maximize work area below minimum: {}x{} (min {}x{})",
+                        bounds.width, bounds.height, MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT
+                    )
+                })),
+            )
+                .into_response();
+        }
+    }
 
     let desktop = match get_desktop_actor(&app_state, &desktop_id).await {
         Ok(actor) => actor,
@@ -486,6 +518,7 @@ pub async fn maximize_window(
 
     match ractor::call!(desktop, |reply| DesktopActorMsg::MaximizeWindow {
         window_id: window_id.clone(),
+        work_area,
         reply,
     }) {
         Ok(Ok(window)) => {
@@ -558,6 +591,7 @@ pub async fn restore_window(
                     width: restored.window.width,
                     height: restored.window.height,
                     from: restored.from.clone(),
+                    maximized: restored.window.maximized,
                 },
             )
             .await;

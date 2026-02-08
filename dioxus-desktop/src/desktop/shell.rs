@@ -7,6 +7,7 @@ use gloo_timers::future::TimeoutFuture;
 use shared_types::DesktopState;
 
 use crate::desktop::actions;
+use crate::desktop::actions::ShowDesktopSnapshot;
 use crate::desktop::apps::core_apps;
 use crate::desktop::components::prompt_bar::PromptBar;
 use crate::desktop::components::workspace_canvas::WorkspaceCanvas;
@@ -16,6 +17,7 @@ use crate::desktop::theme::{
     apply_theme_to_document, next_theme, set_cached_theme_preference, DEFAULT_THEME,
 };
 use crate::desktop::ws::{DesktopWsRuntime, WsEvent};
+use crate::interop::get_viewport_size;
 
 #[component]
 pub fn DesktopShell(desktop_id: String) -> Element {
@@ -28,10 +30,11 @@ pub fn DesktopShell(desktop_id: String) -> Element {
     let mut ws_event_pump_started = use_signal(|| false);
     let ws_event_pump_alive = use_hook(|| Rc::new(Cell::new(true)));
     let desktop_id_signal = use_signal(|| desktop_id.clone());
-    let viewport = use_signal(|| (1920u32, 1080u32));
+    let viewport = use_signal(get_viewport_size);
     let apps_registered = use_signal(|| false);
     let theme_initialized = use_signal(|| false);
     let mut current_theme = use_signal(|| DEFAULT_THEME.to_string());
+    let show_desktop_snapshot = use_signal(|| None::<ShowDesktopSnapshot>);
 
     {
         let ws_event_pump_alive = ws_event_pump_alive.clone();
@@ -166,10 +169,22 @@ pub fn DesktopShell(desktop_id: String) -> Element {
         });
     });
 
+    let show_desktop_cb = use_callback(move |_| {
+        let desktop_id = desktop_id_signal.read().clone();
+        spawn(async move {
+            actions::toggle_show_desktop_action(
+                desktop_id,
+                desktop_state,
+                show_desktop_snapshot,
+            )
+            .await;
+        });
+    });
+
     let maximize_window_cb = use_callback(move |window_id: String| {
         let desktop_id = desktop_id_signal.read().clone();
         spawn(async move {
-            actions::maximize_window_action(desktop_id, window_id).await;
+            actions::maximize_window_action(desktop_id, window_id, desktop_state).await;
         });
     });
 
@@ -248,6 +263,7 @@ pub fn DesktopShell(desktop_id: String) -> Element {
                 active_window,
                 on_submit: handle_prompt_submit,
                 on_focus_window: focus_window_cb,
+                on_show_desktop: show_desktop_cb,
                 current_theme: current_theme(),
                 on_toggle_theme: toggle_theme,
             }

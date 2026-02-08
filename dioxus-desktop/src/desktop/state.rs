@@ -101,11 +101,12 @@ pub fn apply_ws_event(
             y,
             width,
             height,
+            maximized,
         } => {
             if let Some(state) = desktop_state.write().as_mut() {
                 if let Some(window) = state.windows.iter_mut().find(|w| w.id == window_id) {
                     window.minimized = false;
-                    window.maximized = false;
+                    window.maximized = maximized;
                     window.x = x;
                     window.y = y;
                     window.width = width;

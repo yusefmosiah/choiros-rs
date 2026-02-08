@@ -48,6 +48,7 @@ pub enum WsEvent {
         y: i32,
         width: i32,
         height: i32,
+        maximized: bool,
     },
     Pong,
     Error(String),
@@ -154,13 +155,22 @@ pub fn parse_ws_message(payload: &str) -> Option<WsEvent> {
             }
         }
         "window_restored" => {
-            if let (Some(window_id), Some(x), Some(y), Some(width), Some(height), Some(_from)) = (
+            if let (
+                Some(window_id),
+                Some(x),
+                Some(y),
+                Some(width),
+                Some(height),
+                Some(_from),
+                Some(maximized),
+            ) = (
                 json.get("window_id").and_then(|v| v.as_str()),
                 json.get("x").and_then(|v| v.as_i64()),
                 json.get("y").and_then(|v| v.as_i64()),
                 json.get("width").and_then(|v| v.as_i64()),
                 json.get("height").and_then(|v| v.as_i64()),
                 json.get("from").and_then(|v| v.as_str()),
+                json.get("maximized").and_then(|v| v.as_bool()),
             ) {
                 Some(WsEvent::WindowRestored {
                     window_id: window_id.to_string(),
@@ -168,6 +178,7 @@ pub fn parse_ws_message(payload: &str) -> Option<WsEvent> {
                     y: y as i32,
                     width: width as i32,
                     height: height as i32,
+                    maximized,
                 })
             } else {
                 None

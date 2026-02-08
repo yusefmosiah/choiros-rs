@@ -50,12 +50,18 @@ pub struct RestoreResult {
     pub from: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
 const MIN_WINDOW_WIDTH: i32 = 200;
 const MIN_WINDOW_HEIGHT: i32 = 160;
 const MAXIMIZED_X: i32 = 0;
 const MAXIMIZED_Y: i32 = 0;
-const MAXIMIZED_WIDTH: i32 = 1920;
-const MAXIMIZED_HEIGHT: i32 = 1080;
 
 // ============================================================================
 // Messages
@@ -103,6 +109,7 @@ pub enum DesktopActorMsg {
     /// Maximize a window
     MaximizeWindow {
         window_id: String,
+        work_area: Option<WindowBounds>,
         reply: RpcReplyPort<Result<shared_types::WindowState, DesktopError>>,
     },
     /// Restore a window from minimized or maximized state
@@ -294,8 +301,14 @@ impl Actor for DesktopActor {
                 let result = self.handle_minimize_window(window_id, state).await;
                 let _ = reply.send(result);
             }
-            DesktopActorMsg::MaximizeWindow { window_id, reply } => {
-                let result = self.handle_maximize_window(window_id, state).await;
+            DesktopActorMsg::MaximizeWindow {
+                window_id,
+                work_area,
+                reply,
+            } => {
+                let result = self
+                    .handle_maximize_window(window_id, work_area, state)
+                    .await;
                 let _ = reply.send(result);
             }
             DesktopActorMsg::RestoreWindow { window_id, reply } => {
@@ -394,6 +407,63 @@ impl DesktopActor {
         }
     }
 
+    fn minimized_maximized_bounds_from_props(
+        props: &serde_json::Value,
+    ) -> Option<(i32, i32, i32, i32)> {
+        let bounds = props.get("window_minimized_maximized_bounds")?;
+        let x = bounds.get("x")?.as_i64()? as i32;
+        let y = bounds.get("y")?.as_i64()? as i32;
+        let width = bounds.get("width")?.as_i64()? as i32;
+        let height = bounds.get("height")?.as_i64()? as i32;
+        Some((x, y, width, height))
+    }
+
+    fn was_maximized_before_minimize(props: &serde_json::Value) -> bool {
+        props
+            .get("window_minimized_was_maximized")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    }
+
+    fn set_minimize_state_props(
+        window: &mut shared_types::WindowState,
+        was_maximized: bool,
+        maximized_bounds: Option<(i32, i32, i32, i32)>,
+    ) {
+        if !window.props.is_object() {
+            window.props = serde_json::json!({});
+        }
+        let Some(props) = window.props.as_object_mut() else {
+            return;
+        };
+
+        props.insert(
+            "window_minimized_was_maximized".to_string(),
+            serde_json::json!(was_maximized),
+        );
+
+        if let Some((x, y, width, height)) = maximized_bounds {
+            props.insert(
+                "window_minimized_maximized_bounds".to_string(),
+                serde_json::json!({
+                    "x": x,
+                    "y": y,
+                    "width": width,
+                    "height": height,
+                }),
+            );
+        } else {
+            props.remove("window_minimized_maximized_bounds");
+        }
+    }
+
+    fn clear_minimize_state_props(window: &mut shared_types::WindowState) {
+        if let Some(props) = window.props.as_object_mut() {
+            props.remove("window_minimized_was_maximized");
+            props.remove("window_minimized_maximized_bounds");
+        }
+    }
+
     fn next_top_non_minimized_window_id(&self, state: &DesktopState) -> Option<String> {
         state
             .windows
@@ -481,6 +551,41 @@ impl DesktopActor {
                     {
                         if let Some(window_id) = payload.get("window_id").and_then(|v| v.as_str()) {
                             if let Some(window) = state.windows.get_mut(window_id) {
+                                let was_maximized = payload
+                                    .get("was_maximized")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false);
+                                let maximized_bounds = if was_maximized {
+                                    let x = payload
+                                        .get("maximized_x")
+                                        .and_then(|v| v.as_i64())
+                                        .map(|v| v as i32);
+                                    let y = payload
+                                        .get("maximized_y")
+                                        .and_then(|v| v.as_i64())
+                                        .map(|v| v as i32);
+                                    let width = payload
+                                        .get("maximized_width")
+                                        .and_then(|v| v.as_i64())
+                                        .map(|v| v as i32);
+                                    let height = payload
+                                        .get("maximized_height")
+                                        .and_then(|v| v.as_i64())
+                                        .map(|v| v as i32);
+                                    match (x, y, width, height) {
+                                        (Some(x), Some(y), Some(width), Some(height)) => {
+                                            Some((x, y, width, height))
+                                        }
+                                        _ => None,
+                                    }
+                                } else {
+                                    None
+                                };
+                                Self::set_minimize_state_props(
+                                    window,
+                                    was_maximized,
+                                    maximized_bounds,
+                                );
                                 window.minimized = true;
                                 window.maximized = false;
                             }
@@ -513,12 +618,12 @@ impl DesktopActor {
                                     .get("width")
                                     .and_then(|v| v.as_i64())
                                     .map(|v| v as i32)
-                                    .unwrap_or(MAXIMIZED_WIDTH);
+                                    .unwrap_or(window.width.max(MIN_WINDOW_WIDTH));
                                 window.height = payload
                                     .get("height")
                                     .and_then(|v| v.as_i64())
                                     .map(|v| v as i32)
-                                    .unwrap_or(MAXIMIZED_HEIGHT);
+                                    .unwrap_or(window.height.max(MIN_WINDOW_HEIGHT));
                                 window.z_index = new_z;
                             }
                             state.active_window = Some(window_id.to_string());
@@ -546,7 +651,11 @@ impl DesktopActor {
                                     window.height = height as i32;
                                 }
                                 window.minimized = false;
-                                window.maximized = false;
+                                window.maximized = payload
+                                    .get("maximized")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false);
+                                Self::clear_minimize_state_props(window);
                                 window.z_index = new_z;
                             }
                             state.active_window = Some(window_id.to_string());
@@ -815,6 +924,13 @@ impl DesktopActor {
         state: &mut DesktopState,
     ) -> Result<(), DesktopError> {
         if let Some(window) = state.windows.get_mut(&window_id) {
+            let was_maximized = window.maximized;
+            let maximized_bounds = if was_maximized {
+                Some((window.x, window.y, window.width, window.height))
+            } else {
+                None
+            };
+            Self::set_minimize_state_props(window, was_maximized, maximized_bounds);
             window.minimized = true;
             window.maximized = false;
         } else {
@@ -825,7 +941,24 @@ impl DesktopActor {
             state.active_window = self.next_top_non_minimized_window_id(state);
         }
 
-        let payload = serde_json::json!({"window_id": window_id});
+        let (was_maximized, maximized_bounds) = state
+            .windows
+            .get(&window_id)
+            .map(|window| {
+                (
+                    Self::was_maximized_before_minimize(&window.props),
+                    Self::minimized_maximized_bounds_from_props(&window.props),
+                )
+            })
+            .unwrap_or((false, None));
+        let payload = serde_json::json!({
+            "window_id": window_id,
+            "was_maximized": was_maximized,
+            "maximized_x": maximized_bounds.map(|(x, _, _, _)| x),
+            "maximized_y": maximized_bounds.map(|(_, y, _, _)| y),
+            "maximized_width": maximized_bounds.map(|(_, _, width, _)| width),
+            "maximized_height": maximized_bounds.map(|(_, _, _, height)| height),
+        });
         self.append_event_unit(EVENT_WINDOW_MINIMIZED, payload, state)
             .await
     }
@@ -833,11 +966,12 @@ impl DesktopActor {
     async fn handle_maximize_window(
         &self,
         window_id: String,
+        work_area: Option<WindowBounds>,
         state: &mut DesktopState,
     ) -> Result<shared_types::WindowState, DesktopError> {
         let new_z = self.next_z(state);
 
-        let (prev_x, prev_y, prev_width, prev_height) = {
+        let (prev_x, prev_y, prev_width, prev_height, max_x, max_y, max_width, max_height) = {
             let window = state
                 .windows
                 .get_mut(&window_id)
@@ -851,16 +985,34 @@ impl DesktopActor {
 
             let previous = (window.x, window.y, window.width, window.height);
             Self::set_normal_bounds_props(window, previous.0, previous.1, previous.2, previous.3);
+            Self::clear_minimize_state_props(window);
+            let (max_x, max_y, max_width, max_height) = if let Some(bounds) = work_area {
+                (
+                    bounds.x,
+                    bounds.y,
+                    bounds.width.max(MIN_WINDOW_WIDTH),
+                    bounds.height.max(MIN_WINDOW_HEIGHT),
+                )
+            } else {
+                (
+                    MAXIMIZED_X,
+                    MAXIMIZED_Y,
+                    previous.2.max(MIN_WINDOW_WIDTH),
+                    previous.3.max(MIN_WINDOW_HEIGHT),
+                )
+            };
 
             window.minimized = false;
             window.maximized = true;
-            window.x = MAXIMIZED_X;
-            window.y = MAXIMIZED_Y;
-            window.width = MAXIMIZED_WIDTH;
-            window.height = MAXIMIZED_HEIGHT;
+            window.x = max_x;
+            window.y = max_y;
+            window.width = max_width;
+            window.height = max_height;
             window.z_index = new_z;
 
-            previous
+            (
+                previous.0, previous.1, previous.2, previous.3, max_x, max_y, max_width, max_height,
+            )
         };
 
         state.active_window = Some(window_id.clone());
@@ -871,10 +1023,10 @@ impl DesktopActor {
             "prev_y": prev_y,
             "prev_width": prev_width,
             "prev_height": prev_height,
-            "x": MAXIMIZED_X,
-            "y": MAXIMIZED_Y,
-            "width": MAXIMIZED_WIDTH,
-            "height": MAXIMIZED_HEIGHT,
+            "x": max_x,
+            "y": max_y,
+            "width": max_width,
+            "height": max_height,
         });
         self.append_event_unit(EVENT_WINDOW_MAXIMIZED, payload, state)
             .await?;
@@ -893,7 +1045,7 @@ impl DesktopActor {
     ) -> Result<RestoreResult, DesktopError> {
         let new_z = self.next_z(state);
 
-        let (from, x, y, width, height) = {
+        let (from, x, y, width, height, maximized) = {
             let window = state
                 .windows
                 .get_mut(&window_id)
@@ -906,33 +1058,52 @@ impl DesktopActor {
             }
 
             let from = if window.maximized {
-                "maximized"
+                "maximized".to_string()
             } else {
-                "minimized"
+                "minimized".to_string()
             };
 
-            let (restore_x, restore_y, restore_w, restore_h) =
-                Self::normal_bounds_from_props(&window.props).unwrap_or((
-                    window.x,
-                    window.y,
-                    window.width.max(MIN_WINDOW_WIDTH),
-                    window.height.max(MIN_WINDOW_HEIGHT),
-                ));
-
-            window.minimized = false;
-            window.maximized = false;
-            window.x = restore_x;
-            window.y = restore_y;
-            window.width = restore_w.max(MIN_WINDOW_WIDTH);
-            window.height = restore_h.max(MIN_WINDOW_HEIGHT);
+            let minimized_from_maximized =
+                window.minimized && Self::was_maximized_before_minimize(&window.props);
+            if minimized_from_maximized {
+                let (restore_x, restore_y, restore_w, restore_h) =
+                    Self::minimized_maximized_bounds_from_props(&window.props).unwrap_or((
+                        window.x,
+                        window.y,
+                        window.width.max(MIN_WINDOW_WIDTH),
+                        window.height.max(MIN_WINDOW_HEIGHT),
+                    ));
+                window.minimized = false;
+                window.maximized = true;
+                window.x = restore_x;
+                window.y = restore_y;
+                window.width = restore_w.max(MIN_WINDOW_WIDTH);
+                window.height = restore_h.max(MIN_WINDOW_HEIGHT);
+            } else {
+                let (restore_x, restore_y, restore_w, restore_h) =
+                    Self::normal_bounds_from_props(&window.props).unwrap_or((
+                        window.x,
+                        window.y,
+                        window.width.max(MIN_WINDOW_WIDTH),
+                        window.height.max(MIN_WINDOW_HEIGHT),
+                    ));
+                window.minimized = false;
+                window.maximized = false;
+                window.x = restore_x;
+                window.y = restore_y;
+                window.width = restore_w.max(MIN_WINDOW_WIDTH);
+                window.height = restore_h.max(MIN_WINDOW_HEIGHT);
+            }
+            Self::clear_minimize_state_props(window);
             window.z_index = new_z;
 
             (
-                from.to_string(),
+                from,
                 window.x,
                 window.y,
                 window.width,
                 window.height,
+                window.maximized,
             )
         };
 
@@ -945,6 +1116,7 @@ impl DesktopActor {
             "width": width,
             "height": height,
             "from": from,
+            "maximized": maximized,
         });
         self.append_event_unit(EVENT_WINDOW_RESTORED, payload, state)
             .await?;
@@ -1111,6 +1283,7 @@ pub async fn maximize_window(
 ) -> Result<Result<shared_types::WindowState, DesktopError>, ractor::RactorErr<DesktopActorMsg>> {
     ractor::call!(desktop, |reply| DesktopActorMsg::MaximizeWindow {
         window_id: window_id.into(),
+        work_area: None,
         reply,
     })
 }
@@ -1668,8 +1841,8 @@ mod tests {
         assert!(!maximized.minimized);
         assert_eq!(maximized.x, MAXIMIZED_X);
         assert_eq!(maximized.y, MAXIMIZED_Y);
-        assert_eq!(maximized.width, MAXIMIZED_WIDTH);
-        assert_eq!(maximized.height, MAXIMIZED_HEIGHT);
+        assert_eq!(maximized.width, 777);
+        assert_eq!(maximized.height, 555);
 
         let restored = restore_window(&desktop, &window.id).await.unwrap().unwrap();
         assert_eq!(restored.from, "maximized");
@@ -1679,6 +1852,66 @@ mod tests {
         assert_eq!(restored.window.y, 111);
         assert_eq!(restored.window.width, 777);
         assert_eq!(restored.window.height, 555);
+
+        desktop.stop(None);
+    }
+
+    #[tokio::test]
+    async fn test_maximize_uses_provided_work_area_bounds() {
+        let (event_store, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
+
+        let (desktop, _handle) = Actor::spawn(
+            None,
+            DesktopActor,
+            DesktopArguments {
+                desktop_id: "desktop-1".to_string(),
+                user_id: "user-1".to_string(),
+                event_store: event_store.clone(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let _ = register_app(
+            &desktop,
+            shared_types::AppDefinition {
+                id: "chat".to_string(),
+                name: "Chat".to_string(),
+                icon: "💬".to_string(),
+                component_code: "ChatApp".to_string(),
+                default_width: 800,
+                default_height: 600,
+            },
+        )
+        .await
+        .unwrap();
+
+        let window = open_window(&desktop, "chat", "Chat", None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let maximized = ractor::call!(desktop, |reply| DesktopActorMsg::MaximizeWindow {
+            window_id: window.id.clone(),
+            work_area: Some(WindowBounds {
+                x: 0,
+                y: 0,
+                width: 1200,
+                height: 700,
+            }),
+            reply,
+        })
+        .unwrap()
+        .unwrap();
+
+        assert!(maximized.maximized);
+        assert_eq!(maximized.x, 0);
+        assert_eq!(maximized.y, 0);
+        assert_eq!(maximized.width, 1200);
+        assert_eq!(maximized.height, 700);
 
         desktop.stop(None);
     }
@@ -1732,6 +1965,74 @@ mod tests {
 
         let state = get_desktop_state(&desktop).await.unwrap();
         assert_eq!(state.active_window, Some(window.id.clone()));
+
+        desktop.stop(None);
+    }
+
+    #[tokio::test]
+    async fn test_restore_minimized_window_returns_to_maximized_when_needed() {
+        let (event_store, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
+
+        let (desktop, _handle) = Actor::spawn(
+            None,
+            DesktopActor,
+            DesktopArguments {
+                desktop_id: "desktop-1".to_string(),
+                user_id: "user-1".to_string(),
+                event_store: event_store.clone(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let _ = register_app(
+            &desktop,
+            shared_types::AppDefinition {
+                id: "chat".to_string(),
+                name: "Chat".to_string(),
+                icon: "💬".to_string(),
+                component_code: "ChatApp".to_string(),
+                default_width: 800,
+                default_height: 600,
+            },
+        )
+        .await
+        .unwrap();
+
+        let window = open_window(&desktop, "chat", "Chat", None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let _ = ractor::call!(desktop, |reply| DesktopActorMsg::MaximizeWindow {
+            window_id: window.id.clone(),
+            work_area: Some(WindowBounds {
+                x: 0,
+                y: 0,
+                width: 1280,
+                height: 720,
+            }),
+            reply,
+        })
+        .unwrap()
+        .unwrap();
+
+        let _ = minimize_window(&desktop, &window.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let restored = restore_window(&desktop, &window.id).await.unwrap().unwrap();
+
+        assert_eq!(restored.from, "minimized");
+        assert!(!restored.window.minimized);
+        assert!(restored.window.maximized);
+        assert_eq!(restored.window.x, 0);
+        assert_eq!(restored.window.y, 0);
+        assert_eq!(restored.window.width, 1280);
+        assert_eq!(restored.window.height, 720);
 
         desktop.stop(None);
     }

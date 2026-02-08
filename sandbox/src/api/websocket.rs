@@ -76,6 +76,7 @@ pub enum WsMessage {
         width: i32,
         height: i32,
         from: String,
+        maximized: bool,
     },
 
     #[serde(rename = "app_registered")]

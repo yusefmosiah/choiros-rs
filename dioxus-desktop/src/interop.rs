@@ -19,6 +19,20 @@ pub fn get_viewport_size() -> (u32, u32) {
     (width, height)
 }
 
+/// Get the current workspace canvas size in CSS pixels.
+pub fn get_window_canvas_size() -> Option<(i32, i32)> {
+    let window = window()?;
+    let document = window.document()?;
+    let canvas = document.query_selector(".window-canvas").ok()??;
+    let width = canvas.client_width();
+    let height = canvas.client_height();
+    if width > 0 && height > 0 {
+        Some((width, height))
+    } else {
+        None
+    }
+}
+
 /// Start dragging a window. Calls `on_move` with delta (dx, dy) on each mouse move.
 pub fn start_window_drag(window_id: String, on_move: Callback<(i32, i32)>) {
     let window = window().expect("no global `window` exists");

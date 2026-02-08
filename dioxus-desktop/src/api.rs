@@ -443,7 +443,19 @@ pub async fn minimize_window(desktop_id: &str, window_id: &str) -> Result<(), St
     Ok(())
 }
 
-pub async fn maximize_window(desktop_id: &str, window_id: &str) -> Result<(), String> {
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct MaximizeWindowRequest {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+pub async fn maximize_window(
+    desktop_id: &str,
+    window_id: &str,
+    work_area: Option<MaximizeWindowRequest>,
+) -> Result<(), String> {
     let url = format!(
         "{}/desktop/{}/windows/{}/maximize",
         api_base(),
@@ -451,10 +463,20 @@ pub async fn maximize_window(desktop_id: &str, window_id: &str) -> Result<(), St
         window_id
     );
 
-    let response = Request::post(&url)
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {e}"))?;
+    let response = match work_area {
+        Some(work_area) => {
+            Request::post(&url)
+                .json(&work_area)
+                .map_err(|e| format!("Failed to serialize request: {e}"))?
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {e}"))?
+        }
+        None => Request::post(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {e}"))?,
+    };
 
     if !response.ok() {
         return Err(format!("HTTP error: {}", response.status()));

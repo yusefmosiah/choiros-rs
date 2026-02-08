@@ -690,6 +690,153 @@ async fn test_minimize_maximize_restore_endpoints() {
 }
 
 #[tokio::test]
+async fn test_maximize_endpoint_uses_work_area_bounds() {
+    let (app, _temp_dir) = setup_test_app().await;
+    let desktop_id = test_desktop_id();
+
+    let app_def = json!({
+        "id": "test-chat",
+        "name": "Test Chat",
+        "icon": "💬",
+        "component_code": "ChatView",
+        "default_width": 400,
+        "default_height": 600
+    });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .header("content-type", "application/json")
+        .body(Body::from(app_def.to_string()))
+        .unwrap();
+    let _ = json_response(&app, req).await;
+
+    let open_req = json!({
+        "app_id": "test-chat",
+        "title": "Chat Window",
+        "props": null
+    });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .header("content-type", "application/json")
+        .body(Body::from(open_req.to_string()))
+        .unwrap();
+    let (_status, body) = json_response(&app, req).await;
+    let window_id = body["window"]["id"].as_str().unwrap();
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(&format!(
+            "/desktop/{desktop_id}/windows/{window_id}/maximize"
+        ))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "x": 0,
+                "y": 0,
+                "width": 1280,
+                "height": 720
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["success"].as_bool().unwrap());
+    assert!(body["window"]["maximized"].as_bool().unwrap());
+    assert_eq!(body["window"]["x"], 0);
+    assert_eq!(body["window"]["y"], 0);
+    assert_eq!(body["window"]["width"], 1280);
+    assert_eq!(body["window"]["height"], 720);
+}
+
+#[tokio::test]
+async fn test_restore_after_minimize_from_maximized_preserves_maximized_state() {
+    let (app, _temp_dir) = setup_test_app().await;
+    let desktop_id = test_desktop_id();
+
+    let app_def = json!({
+        "id": "test-chat",
+        "name": "Test Chat",
+        "icon": "💬",
+        "component_code": "ChatView",
+        "default_width": 400,
+        "default_height": 600
+    });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .header("content-type", "application/json")
+        .body(Body::from(app_def.to_string()))
+        .unwrap();
+    let _ = json_response(&app, req).await;
+
+    let open_req = json!({
+        "app_id": "test-chat",
+        "title": "Chat Window",
+        "props": null
+    });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .header("content-type", "application/json")
+        .body(Body::from(open_req.to_string()))
+        .unwrap();
+    let (_status, body) = json_response(&app, req).await;
+    let window_id = body["window"]["id"].as_str().unwrap();
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(&format!(
+            "/desktop/{desktop_id}/windows/{window_id}/maximize"
+        ))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "x": 0,
+                "y": 0,
+                "width": 1280,
+                "height": 720
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["window"]["maximized"].as_bool().unwrap());
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(&format!(
+            "/desktop/{desktop_id}/windows/{window_id}/minimize"
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let (status, _body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(&format!(
+            "/desktop/{desktop_id}/windows/{window_id}/restore"
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["success"].as_bool().unwrap());
+    assert!(body["window"]["maximized"].as_bool().unwrap());
+    assert_eq!(body["window"]["x"], 0);
+    assert_eq!(body["window"]["y"], 0);
+    assert_eq!(body["window"]["width"], 1280);
+    assert_eq!(body["window"]["height"], 720);
+}
+
+#[tokio::test]
 async fn test_new_window_endpoints_reject_unknown_window() {
     let (app, _temp_dir) = setup_test_app().await;
     let desktop_id = test_desktop_id();

@@ -11,6 +11,7 @@ pub fn PromptBar(
     active_window: Option<String>,
     on_submit: Callback<String>,
     on_focus_window: Callback<String>,
+    on_show_desktop: Callback<()>,
     current_theme: String,
     on_toggle_theme: Callback<()>,
 ) -> Element {
@@ -21,7 +22,7 @@ pub fn PromptBar(
     rsx! {
         div {
             class: "prompt-bar",
-            style: "display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1rem; background: var(--promptbar-bg, #111827); border-top: 1px solid var(--border-color, #374151); position: relative;",
+            style: "display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1rem; background: var(--promptbar-bg, #111827); border-top: 1px solid var(--border-color, #374151); position: relative; z-index: 2000;",
 
             button {
                 class: "prompt-help-btn",
@@ -59,10 +60,14 @@ pub fn PromptBar(
                 }
             }
 
-            if !windows.is_empty() && !is_mobile {
+            if !is_mobile {
                 div {
                     class: "running-apps",
                     style: "display: flex; align-items: center; gap: 0.25rem; flex-shrink: 0;",
+
+                    ShowDesktopIndicator {
+                        on_show_desktop,
+                    }
 
                     for window in windows.iter() {
                         RunningAppIndicator {
@@ -80,6 +85,10 @@ pub fn PromptBar(
                     class: "mobile-dock",
                     style: "display: flex; align-items: center; gap: 0.25rem; flex-shrink: 0; margin-left: auto;",
 
+                    ShowDesktopIndicator {
+                        on_show_desktop,
+                    }
+
                     for window in windows.iter().take(visible_mobile_icons) {
                         RunningAppIndicator {
                             key: "{window.id}",
@@ -92,7 +101,7 @@ pub fn PromptBar(
                     if windows.len() > visible_mobile_icons {
                         button {
                             class: "mobile-dock-more",
-                            style: "width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--window-bg, #1f2937); color: var(--text-secondary, #9ca3af); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); cursor: pointer; font-size: 0.75rem; font-weight: 600;",
+                            style: "position: relative; z-index: 2100; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--window-bg, #1f2937); color: var(--text-secondary, #9ca3af); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); cursor: pointer; font-size: 0.75rem; font-weight: 600;",
                             onclick: move |_| mobile_dock_expanded.set(!mobile_dock_expanded()),
                             title: "Show all open windows",
                             "+{windows.len() - visible_mobile_icons}"
@@ -109,13 +118,13 @@ pub fn PromptBar(
                     }
                 }
 
-                if mobile_dock_expanded() && !windows.is_empty() {
+                if mobile_dock_expanded() && windows.len() > visible_mobile_icons {
                     div {
                         class: "mobile-dock-panel",
-                        style: "position: absolute; right: 0.75rem; bottom: 3.5rem; z-index: 30; display: flex; flex-wrap: wrap; gap: 0.35rem; max-width: min(80vw, 320px); padding: 0.5rem; background: var(--window-bg, #1f2937); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); box-shadow: var(--shadow-lg, 0 10px 40px rgba(0,0,0,0.5));",
-                        for window in windows.iter() {
+                        style: "position: absolute; right: 0.75rem; bottom: 3.5rem; z-index: 2200; display: flex; flex-wrap: wrap; gap: 0.35rem; max-width: min(80vw, 320px); padding: 0.5rem; background: var(--window-bg, #1f2937); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); box-shadow: var(--shadow-lg, 0 10px 40px rgba(0,0,0,0.5));",
+                        for window in windows.iter().skip(visible_mobile_icons) {
                             RunningAppIndicator {
-                                key: "mobile-{window.id}",
+                                key: "mobile-overflow-{window.id}",
                                 window: window.clone(),
                                 is_active: active_window.as_ref() == Some(&window.id),
                                 on_focus: on_focus_window,
@@ -136,6 +145,19 @@ pub fn PromptBar(
                     span { if connected { "Connected" } else { "Connecting..." } }
                 }
             }
+        }
+    }
+}
+
+#[component]
+pub fn ShowDesktopIndicator(on_show_desktop: Callback<()>) -> Element {
+    rsx! {
+        button {
+            class: "show-desktop",
+            style: "width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--window-bg, #1f2937); color: var(--text-secondary, #9ca3af); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); cursor: pointer; font-size: 1rem;",
+            onclick: move |_| on_show_desktop.call(()),
+            title: "Show desktop",
+            "⌂"
         }
     }
 }
