@@ -21,6 +21,7 @@
   - Capability Actor pattern: tool → agent → actor with standard contract
   - StateIndexActor: compressed state plane (AHDB) for all actor context
   - PromptBarActor: universal entrypoint above individual apps
+  - ResearcherActor: web research capability actor abstracted as `web_search` tool
   - Safety as capability: Verifier, HITL (email), Policy, LLM guardrails
   - Self-hosting introspection: Choir modifying Choir with headless test sandboxes
 
@@ -54,7 +55,7 @@ A. Supervision Cutover (complete)
    |      |             |
    |      |             +--> B3. PromptBarActor (universal entrypoint)
    |      |                    |
-   |      |                    +--> B4. First Capability: GitActor
+   |      |                    +--> B4. First Capability Pair: GitActor + ResearcherActor
    |      |                           |
    |      |                           +--> B5. SafetyOrchestrator (verifiers, policy)
    |      |                                  |
@@ -92,7 +93,7 @@ A. Supervision Cutover (complete)
 2. **B2** StateIndexActor — compressed state plane (foundation for context)
 3. **F** Identity and Scope Enforcement — security boundary
 4. **B3** PromptBarActor — universal entrypoint
-5. **B4** GitActor — prove capability pattern
+5. **B4** GitActor + ResearcherActor — prove capability pattern on local+network tasks
 6. **B5** SafetyOrchestrator — verifiers and policy
 7. **C** Chat Delegation Refactor — router to capabilities
 8. **D** Context Broker v1 — layered retrieval
@@ -161,17 +162,41 @@ A. Supervision Cutover (complete)
 ---
 
 ### Phase B4 - GitActor (First Capability)
-**Objective:** Prove capability actor pattern with concrete implementation.
+**Objective:** Prove capability actor pattern with concrete local+network implementations.
 
 **Deliverables:**
 - `GitActor`: typed git ops (status, diff, branch, commit, push, log, checkout)
+- `ResearcherActor`: typed web research ops (search, fetch, extract, synthesize)
+- Tool abstraction:
+  - `bash` -> TerminalActor
+  - `web_search` -> ResearcherActor
 - Event-sourced: `EVENT_GIT_COMMIT`, `EVENT_GIT_BRANCH`, etc.
+- Event-sourced researcher lifecycle:
+  - `research.planning`
+  - `research.search_results`
+  - `research.fetch_started|completed`
+  - `research.synthesis_started|completed`
 - Safety policy integration
 - Observable via same `CapabilityEvent` schema as all capabilities
 
 **Gate:**
 - Git operations complete with full event trail.
+- Web research completes with citations and observable actor-call timeline.
 - Failed operations retry with supervision.
+
+---
+
+## Immediate Build Order (Clarity Pass)
+
+1. **B1 contract lock**: finalize shared capability/task/event schema.
+2. **B2 StateIndexActor skeleton**: compressed snapshot + task tree query API.
+3. **B3 PromptBarActor skeleton**: route one universal intent (`open chat with prompt`).
+4. **B4 ResearcherActor v1**: implement as `web_search` capability with streamed actor-call phases.
+5. **B4 GitActor v1**: typed git operations through same capability contract.
+6. **Watcher bootstrap**: emit blockers/stalls/failures into StateIndex task tree.
+
+Rule:
+- Prioritize concrete capability actors (`ResearcherActor`, `GitActor`) over broad app expansion.
 
 ---
 

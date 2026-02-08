@@ -155,6 +155,27 @@ Files:
 3. Add watcher prototype actor that subscribes to worker event topics and emits escalation signals for timeout/failure/retry patterns.
 4. Add explicit websocket integration tests that assert actor-call chunks stream in-order with reasoning/tool events under scoped session/thread.
 
+## Direction Reset (2026-02-08)
+
+Reason for reset:
+- Abstract architecture work was feeling diffuse; next steps need to be concrete, high-leverage, and visibly multi-agent.
+
+Updated near-term priority:
+1. `ResearcherActor` as first networked capability actor exposed as `web_search` tool.
+2. `PromptBarActor` as universal entrypoint above app actors.
+3. `GitActor` as first local capability actor through the same contract.
+4. `McpActor` after PromptBar + Git/Researcher prove the capability pattern.
+
+Design rule now in force:
+- Treat every tool call as an actor call (`tool -> agent -> actor`), with one lifecycle/event contract and one observability stream (`actor_call`).
+
+Concrete next milestone (Phase B continuation):
+- Ship `ResearcherActor v1` with:
+  - delegated execution from ChatAgent via tool abstraction (`web_search`)
+  - streaming phases (`planning`, `search_results`, `fetch_started/completed`, `synthesis`)
+  - citation-rich output + openable page links
+  - websocket integration tests for ordered actor-call flow
+
 ## Phase B Implementation Checklist
 
 ### Step 1: Control-Plane Contract
