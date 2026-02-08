@@ -10,8 +10,8 @@ use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use std::sync::Arc;
 
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
+use crate::actors::model_config::{ModelConfigError, ModelRegistry, ModelResolutionContext};
 use crate::baml_client::types::{Message as BamlMessage, ToolResult};
-use crate::baml_client::ClientRegistry;
 use crate::supervisor::ApplicationSupervisorMsg;
 use crate::tools::{ToolError, ToolOutput, ToolRegistry};
 
@@ -35,6 +35,7 @@ pub struct ChatAgentState {
     messages: Vec<BamlMessage>,
     tool_registry: Arc<ToolRegistry>,
     current_model: String,
+    model_registry: ModelRegistry,
 }
 
 // ============================================================================
@@ -49,6 +50,7 @@ pub enum ChatAgentMsg {
         text: String,
         session_id: Option<String>,
         thread_id: Option<String>,
+        model_override: Option<String>,
         reply: RpcReplyPort<Result<AgentResponse, ChatAgentError>>,
     },
     /// Switch between available LLM models
@@ -167,33 +169,18 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         )
     }
 
-    fn create_client_registry(current_model: &str) -> ClientRegistry {
-        let mut cr = ClientRegistry::new();
-
-        match current_model {
-            "GLM47" => {
-                let mut glm_options = std::collections::HashMap::new();
-                glm_options.insert("api_key".to_string(), serde_json::json!("env.ZAI_API_KEY"));
-                glm_options.insert(
-                    "base_url".to_string(),
-                    serde_json::json!("https://api.z.ai/api/anthropic"),
-                );
-                glm_options.insert("model".to_string(), serde_json::json!("glm-4.7"));
-                // Keep alias as ClaudeBedrock since BAML functions target this client name.
-                cr.add_llm_client("ClaudeBedrock", "anthropic", glm_options);
+    fn map_model_error(error: ModelConfigError) -> ChatAgentError {
+        match error {
+            ModelConfigError::UnknownModel(model_id) => {
+                ChatAgentError::InvalidModel(format!("Unknown model: {model_id}"))
             }
-            _ => {
-                let mut bedrock_options = std::collections::HashMap::new();
-                bedrock_options.insert(
-                    "model".to_string(),
-                    serde_json::json!("us.anthropic.claude-opus-4-5-20251101-v1:0"),
-                );
-                bedrock_options.insert("region".to_string(), serde_json::json!("us-east-1"));
-                cr.add_llm_client("ClaudeBedrock", "aws-bedrock", bedrock_options);
+            ModelConfigError::MissingApiKey(env_var) => ChatAgentError::ModelSwitch(format!(
+                "Missing API key environment variable for selected model: {env_var}"
+            )),
+            ModelConfigError::NoFallbackAvailable => {
+                ChatAgentError::ModelSwitch("No fallback model available".to_string())
             }
         }
-
-        cr
     }
 
     fn history_from_events(events: Vec<shared_types::Event>) -> Vec<BamlMessage> {
@@ -266,6 +253,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         text: String,
         session_id: Option<String>,
         thread_id: Option<String>,
+        model_override: Option<String>,
     ) -> Result<AgentResponse, ChatAgentError> {
         let user_text = text.trim().to_string();
         if user_text.is_empty() {
@@ -281,8 +269,19 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
 
         let tools_description = Self::get_tools_description(state);
         let system_context = Self::get_system_context(state);
-        let current_model = state.current_model.clone();
-        let client_registry = Self::create_client_registry(&current_model);
+        let resolved_model = state
+            .model_registry
+            .resolve(&ModelResolutionContext {
+                request_model: model_override,
+                app_preference: Some(state.current_model.clone()),
+                user_preference: None,
+            })
+            .map_err(Self::map_model_error)?;
+        let model_used = resolved_model.config.id;
+        let client_registry = state
+            .model_registry
+            .create_client_registry_for_model(&model_used, &["ClaudeBedrock"])
+            .map_err(Self::map_model_error)?;
 
         let plan = crate::baml_client::B
             .PlanAction
@@ -323,6 +322,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                     tool_call.tool_args.clone(),
                     session_id.clone(),
                     thread_id.clone(),
+                    Some(model_used.clone()),
                 )
                 .await
                 .map_err(|e| ToolError::new(e.to_string()))
@@ -420,7 +420,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                 "text": response_text,
                 "thinking": plan.thinking,
                 "confidence": plan.confidence,
-                "model": current_model,
+                "model": model_used,
                 "tools_used": executed_tools.len(),
             }),
             session_id,
@@ -434,7 +434,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
             tool_calls: executed_tools,
             thinking: plan.thinking,
             confidence: plan.confidence,
-            model_used: state.current_model.clone(),
+            model_used,
         })
     }
 
@@ -444,21 +444,20 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         state: &mut ChatAgentState,
         model: String,
     ) -> Result<(), ChatAgentError> {
-        match model.as_str() {
-            "ClaudeBedrock" | "GLM47" => {
-                tracing::info!(
-                    actor_id = %state.args.actor_id,
-                    old_model = %state.current_model,
-                    new_model = %model,
-                    "Switching model"
-                );
-                state.current_model = model;
-                Ok(())
-            }
-            _ => Err(ChatAgentError::InvalidModel(format!(
-                "Unknown model: {model}. Available: ClaudeBedrock, GLM47"
-            ))),
-        }
+        let resolved_model = state.model_registry.get(&model).cloned().ok_or_else(|| {
+            let available = state.model_registry.available_model_ids().join(", ");
+            ChatAgentError::InvalidModel(format!(
+                "Unknown model: {model}. Available models: {available}"
+            ))
+        })?;
+        tracing::info!(
+            actor_id = %state.args.actor_id,
+            old_model = %state.current_model,
+            new_model = %resolved_model.id,
+            "Switching model"
+        );
+        state.current_model = resolved_model.id;
+        Ok(())
     }
 
     /// Handle GetConversationHistory
@@ -480,7 +479,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
     ) -> Result<ToolOutput, ToolError> {
         if tool_name == "bash" {
             return self
-                .delegate_terminal_tool(state, tool_args, None, None)
+                .delegate_terminal_tool(state, tool_args, None, None, None)
                 .await
                 .map_err(|e| ToolError::new(e.to_string()));
         }
@@ -494,6 +493,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         tool_args: String,
         session_id: Option<String>,
         thread_id: Option<String>,
+        default_model_override: Option<String>,
     ) -> Result<ToolOutput, ChatAgentError> {
         let Some(supervisor) = &state.args.application_supervisor else {
             return Err(ChatAgentError::Tool(
@@ -523,6 +523,11 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
             .unwrap_or(".")
             .to_string();
         let timeout_ms = parsed_args.get("timeout_ms").and_then(|v| v.as_u64());
+        let model_override = parsed_args
+            .get("model")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string)
+            .or(default_model_override);
 
         let terminal_id = match (&session_id, &thread_id) {
             (Some(session_id), Some(thread_id)) => {
@@ -540,6 +545,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                 working_dir: working_dir.clone(),
                 command: command.clone(),
                 timeout_ms,
+                model_override,
                 session_id: session_id.clone(),
                 thread_id: thread_id.clone(),
                 reply,
@@ -740,7 +746,11 @@ impl Actor for ChatAgent {
             args,
             messages,
             tool_registry: Arc::new(ToolRegistry::new()),
-            current_model: "ClaudeBedrock".to_string(),
+            current_model: std::env::var("CHOIR_CHAT_MODEL")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "ClaudeBedrockOpus45".to_string()),
+            model_registry: ModelRegistry::new(),
         })
     }
 
@@ -767,10 +777,11 @@ impl Actor for ChatAgent {
                 text,
                 session_id,
                 thread_id,
+                model_override,
                 reply,
             } => {
                 let result = self
-                    .handle_process_message(state, text, session_id, thread_id)
+                    .handle_process_message(state, text, session_id, thread_id, model_override)
                     .await;
                 let _ = reply.send(result);
             }
@@ -839,6 +850,7 @@ pub async fn process_message(
         text: text.into(),
         session_id: None,
         thread_id: None,
+        model_override: None,
         reply,
     })
 }
@@ -954,6 +966,43 @@ mod tests {
         let result = switch_model(&agent_ref, "InvalidModel").await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_err());
+
+        agent_ref.stop(None);
+        event_store_ref.stop(None);
+    }
+
+    #[tokio::test]
+    async fn test_per_request_model_override_validation() {
+        let (event_store_ref, _event_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
+
+        let (agent_ref, _agent_handle) = Actor::spawn(
+            None,
+            ChatAgent::new(),
+            ChatAgentArguments {
+                actor_id: "agent-override-test".to_string(),
+                user_id: "user-1".to_string(),
+                event_store: event_store_ref.clone(),
+                preload_session_id: None,
+                preload_thread_id: None,
+                application_supervisor: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let result = ractor::call!(agent_ref, |reply| ChatAgentMsg::ProcessMessage {
+            text: "hello".to_string(),
+            session_id: None,
+            thread_id: None,
+            model_override: Some("NotARealModel".to_string()),
+            reply,
+        })
+        .expect("chat agent call should succeed");
+
+        assert!(matches!(result, Err(ChatAgentError::InvalidModel(_))));
 
         agent_ref.stop(None);
         event_store_ref.stop(None);

@@ -24,6 +24,8 @@ pub struct SendMessageRequest {
     pub user_id: String,
     pub text: String,
     #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
     pub session_id: Option<String>,
     #[serde(default)]
     pub thread_id: Option<String>,
@@ -52,6 +54,7 @@ pub async fn send_message(
     let actor_id = req.actor_id.clone();
     let user_id = req.user_id.clone();
     let text = req.text.clone();
+    let model_override = req.model.clone();
     let session_id = req.session_id.clone();
     let thread_id = req.thread_id.clone();
     if let Err(error) = validate_scope_pair(&session_id, &thread_id) {
@@ -176,6 +179,7 @@ pub async fn send_message(
                     text: text_for_agent,
                     session_id,
                     thread_id,
+                    model_override,
                     reply,
                 }) {
                     Ok(Ok(response)) => {

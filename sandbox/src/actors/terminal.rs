@@ -23,6 +23,7 @@ use std::io::{Read, Write};
 use tokio::sync::{broadcast, mpsc};
 
 use crate::actors::event_store::EventStoreMsg;
+use crate::actors::model_config::{ModelConfigError, ModelRegistry, ModelResolutionContext};
 use crate::baml_client::types::{Message as BamlMessage, ToolResult as BamlToolResult};
 use crate::baml_client::{ClientRegistry, B};
 
@@ -107,6 +108,7 @@ pub enum TerminalMsg {
         objective: String,
         timeout_ms: Option<u64>,
         max_steps: Option<u8>,
+        model_override: Option<String>,
         progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
         reply: RpcReplyPort<Result<TerminalAgentResult, TerminalError>>,
     },
@@ -136,6 +138,7 @@ pub struct TerminalAgentResult {
     pub summary: String,
     pub reasoning: Option<String>,
     pub success: bool,
+    pub model_used: Option<String>,
     pub exit_code: Option<i32>,
     pub executed_commands: Vec<String>,
     pub steps: Vec<TerminalExecutionStep>,
@@ -372,6 +375,7 @@ impl Actor for TerminalActor {
                 objective,
                 timeout_ms,
                 max_steps,
+                model_override,
                 progress_tx,
                 reply,
             } => {
@@ -388,8 +392,15 @@ impl Actor for TerminalActor {
                         };
                         drop(input_tx);
                         drop(output_tx);
-                        self.run_agentic_task(exec, objective, timeout_ms, max_steps, progress_tx)
-                            .await
+                        self.run_agentic_task(
+                            exec,
+                            objective,
+                            timeout_ms,
+                            max_steps,
+                            model_override,
+                            progress_tx,
+                        )
+                        .await
                     }
                     _ => Err(TerminalError::NotRunning),
                 };
@@ -437,16 +448,38 @@ impl Actor for TerminalActor {
 }
 
 impl TerminalActor {
-    fn create_client_registry() -> ClientRegistry {
-        let mut cr = ClientRegistry::new();
-        let mut bedrock_options = std::collections::HashMap::new();
-        bedrock_options.insert(
-            "model".to_string(),
-            serde_json::json!("us.anthropic.claude-opus-4-5-20251101-v1:0"),
-        );
-        bedrock_options.insert("region".to_string(), serde_json::json!("us-east-1"));
-        cr.add_llm_client("ClaudeBedrock", "aws-bedrock", bedrock_options);
-        cr
+    fn map_model_error(error: ModelConfigError) -> TerminalError {
+        match error {
+            ModelConfigError::UnknownModel(model_id) => {
+                TerminalError::InvalidInput(format!("Unknown model: {model_id}"))
+            }
+            ModelConfigError::MissingApiKey(env_var) => TerminalError::InvalidInput(format!(
+                "Missing API key environment variable for selected model: {env_var}"
+            )),
+            ModelConfigError::NoFallbackAvailable => {
+                TerminalError::InvalidInput("No fallback model available".to_string())
+            }
+        }
+    }
+
+    fn resolve_model_registry(
+        model_override: Option<String>,
+    ) -> Result<(ClientRegistry, String), TerminalError> {
+        let registry = ModelRegistry::new();
+        let resolved_model = registry
+            .resolve(&ModelResolutionContext {
+                request_model: model_override,
+                app_preference: std::env::var("CHOIR_TERMINAL_MODEL")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty()),
+                user_preference: None,
+            })
+            .map_err(Self::map_model_error)?;
+        let model_id = resolved_model.config.id;
+        let client_registry = registry
+            .create_client_registry_for_model(&model_id, &["ClaudeBedrock"])
+            .map_err(Self::map_model_error)?;
+        Ok((client_registry, model_id))
     }
 
     async fn run_agentic_task(
@@ -455,6 +488,7 @@ impl TerminalActor {
         objective: String,
         timeout_ms: Option<u64>,
         max_steps: Option<u8>,
+        model_override: Option<String>,
         progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
     ) -> Result<TerminalAgentResult, TerminalError> {
         let per_step_timeout = timeout_ms.unwrap_or(30_000).clamp(1_000, 120_000);
@@ -506,6 +540,7 @@ impl TerminalActor {
                 summary,
                 reasoning: Some("Direct command execution (explicit bash command).".to_string()),
                 success: exit_code == 0,
+                model_used: None,
                 exit_code: Some(exit_code),
                 executed_commands: vec![objective.clone()],
                 steps: vec![TerminalExecutionStep {
@@ -524,6 +559,7 @@ impl TerminalActor {
             content: objective.clone(),
         }];
         let mut latest_reasoning: Option<String> = None;
+        let (client_registry, model_used) = Self::resolve_model_registry(model_override)?;
 
         let tools_description = r#"Tool: bash
 Description: Execute shell commands in the current terminal.
@@ -533,7 +569,17 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
             "You are ChoirOS Terminal Agent. Use bash tool calls to complete terminal objectives.\nTerminal ID: {}\nWorking Directory: {}\nPrefer minimal safe command sequences.",
             ctx.terminal_id, ctx.working_dir
         );
-        let client_registry = Self::create_client_registry();
+        Self::emit_progress(
+            &progress_tx,
+            "terminal_agent_model_selected",
+            "terminal agent selected runtime model",
+            Some(format!("Using model {model_used}")),
+            None,
+            None,
+            None,
+            None,
+            Some(max_steps),
+        );
 
         for _ in 0..max_steps {
             Self::emit_progress(
@@ -585,6 +631,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                                 .to_string(),
                         ),
                         success: exit_code == 0,
+                        model_used: Some(model_used.clone()),
                         exit_code: Some(exit_code),
                         executed_commands: vec![objective.clone()],
                         steps: vec![TerminalExecutionStep {
@@ -625,6 +672,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                         summary: final_response,
                         reasoning: latest_reasoning.clone(),
                         success: tool_results.iter().all(|r| r.success),
+                        model_used: Some(model_used.clone()),
                         exit_code: steps.last().map(|s| s.exit_code),
                         executed_commands,
                         steps,
@@ -753,6 +801,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
             summary,
             reasoning: latest_reasoning,
             success: tool_results.iter().all(|r| r.success),
+            model_used: Some(model_used),
             exit_code: steps.last().map(|s| s.exit_code),
             executed_commands,
             steps,
@@ -1369,6 +1418,7 @@ mod tests {
             objective,
             timeout_ms: Some(5_000),
             max_steps: Some(1),
+            model_override: None,
             progress_tx: None,
             reply,
         })
@@ -1433,6 +1483,7 @@ mod tests {
             objective: "sleep 2 && echo done".to_string(),
             timeout_ms: Some(1_000),
             max_steps: Some(1),
+            model_override: None,
             progress_tx: None,
             reply,
         })

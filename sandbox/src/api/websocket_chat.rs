@@ -36,6 +36,8 @@ pub enum ClientMessage {
         text: String,
         #[serde(default)]
         client_message_id: Option<String>,
+        #[serde(default)]
+        model: Option<String>,
     },
 
     #[serde(rename = "ping")]
@@ -181,6 +183,7 @@ async fn handle_chat_socket(
                 Ok(ClientMessage::Message {
                     text: user_text,
                     client_message_id,
+                    model,
                 }) => {
                     let _ = send_chunk(
                         &tx,
@@ -197,6 +200,7 @@ async fn handle_chat_socket(
                     let session_id = session_id.clone();
                     let thread_id = thread_id.clone();
                     let client_message_id = client_message_id.clone();
+                    let model_override = model.clone();
 
                     tokio::spawn(async move {
                         let event_store = app_state.event_store();
@@ -313,6 +317,7 @@ async fn handle_chat_socket(
                             text: user_text,
                             session_id: Some(session_id),
                             thread_id: Some(thread_id),
+                            model_override,
                             reply,
                         }) {
                             Ok(Ok(resp)) => {

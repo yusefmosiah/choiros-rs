@@ -9,7 +9,7 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::prelude::*;
 use web_sys::{CloseEvent, ErrorEvent, Event, MessageEvent, WebSocket};
 
-use crate::api::{fetch_messages, send_chat_message};
+use crate::api::{fetch_messages, fetch_windows, focus_window, send_chat_message};
 
 const TOOL_CALL_PREFIX: &str = "__tool_call__:";
 const TOOL_RESULT_PREFIX: &str = "__tool_result__:";
@@ -45,8 +45,16 @@ struct ChatRuntime {
     _on_close: Closure<dyn FnMut(CloseEvent)>,
 }
 
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct ChatThreadEntry {
+    thread_id: String,
+    title: String,
+    last_preview: String,
+    last_updated_ms: i64,
+}
+
 #[component]
-pub fn ChatView(actor_id: String) -> Element {
+pub fn ChatView(actor_id: String, desktop_id: String, window_id: String) -> Element {
     let mut messages = use_signal(Vec::<ChatMessage>::new);
     let mut input_text = use_signal(String::new);
     let user_id = use_signal(|| "user-1".to_string());
@@ -57,7 +65,9 @@ pub fn ChatView(actor_id: String) -> Element {
         use_hook(|| Rc::new(std::cell::RefCell::new(VecDeque::<ChatWsEvent>::new())));
     let mut ws_event_pump_started = use_signal(|| false);
     let ws_event_pump_alive = use_hook(|| Rc::new(Cell::new(true)));
-    let actor_id_signal = use_signal(|| actor_id.clone());
+    let mut actor_id_signal = use_signal(|| actor_id.clone());
+    let mut thread_entries = use_signal(load_chat_thread_entries);
+    let mut thread_sidebar_collapsed = use_signal(default_thread_sidebar_collapsed);
     let _messages_end_ref = use_signal(|| None::<dioxus::prelude::Element>);
 
     {
@@ -67,13 +77,54 @@ pub fn ChatView(actor_id: String) -> Element {
         });
     }
 
+    // Ensure active thread exists in local thread history.
+    use_effect(move || {
+        let active_thread_id = actor_id_signal.to_string();
+        let mut entries = load_chat_thread_entries();
+        upsert_thread_entry(
+            &mut entries,
+            ChatThreadEntry {
+                thread_id: active_thread_id.clone(),
+                title: short_thread_title(&active_thread_id),
+                last_preview: String::new(),
+                last_updated_ms: chrono::Utc::now().timestamp_millis(),
+            },
+        );
+        persist_chat_thread_entries(&entries);
+        thread_entries.set(entries);
+    });
+
+    // Reconnect websocket when active thread changes.
+    use_effect(move || {
+        let _ = actor_id_signal.to_string();
+        if let Some(runtime) = ws_runtime.write().take() {
+            runtime.closing.set(true);
+            let _ = runtime.ws.close();
+        }
+        ws_connected.set(false);
+    });
+
     // Load messages on mount
     use_effect(move || {
         let actor_id = actor_id_signal.to_string();
         spawn(async move {
             match fetch_messages(&actor_id).await {
                 Ok(msgs) => {
-                    messages.set(collapse_tool_messages(msgs));
+                    let normalized = collapse_tool_messages(msgs);
+                    let mut entries = thread_entries.read().clone();
+                    let preview = latest_message_preview(&normalized);
+                    upsert_thread_entry(
+                        &mut entries,
+                        ChatThreadEntry {
+                            thread_id: actor_id.clone(),
+                            title: thread_title_from_messages(&actor_id, &normalized),
+                            last_preview: preview,
+                            last_updated_ms: chrono::Utc::now().timestamp_millis(),
+                        },
+                    );
+                    persist_chat_thread_entries(&entries);
+                    thread_entries.set(entries);
+                    messages.set(normalized);
                 }
                 Err(e) => {
                     dioxus_logger::tracing::error!("Failed to fetch messages: {}", e);
@@ -362,6 +413,20 @@ pub fn ChatView(actor_id: String) -> Element {
             pending: true,
         };
         messages.push(optimistic_msg);
+        {
+            let mut entries = thread_entries.read().clone();
+            upsert_thread_entry(
+                &mut entries,
+                ChatThreadEntry {
+                    thread_id: actor_id_val.clone(),
+                    title: short_thread_title(&actor_id_val),
+                    last_preview: text.chars().take(120).collect(),
+                    last_updated_ms: chrono::Utc::now().timestamp_millis(),
+                },
+            );
+            persist_chat_thread_entries(&entries);
+            thread_entries.set(entries);
+        }
         input_text.set(String::new());
         loading.set(true);
 
@@ -389,7 +454,22 @@ pub fn ChatView(actor_id: String) -> Element {
             match send_chat_message(&actor_id_val, &user_id_val, &text).await {
                 Ok(_) => {
                     match fetch_messages(&actor_id_val).await {
-                        Ok(msgs) => messages.set(collapse_tool_messages(msgs)),
+                        Ok(msgs) => {
+                            let normalized = collapse_tool_messages(msgs);
+                            let mut entries = thread_entries.read().clone();
+                            upsert_thread_entry(
+                                &mut entries,
+                                ChatThreadEntry {
+                                    thread_id: actor_id_val.clone(),
+                                    title: thread_title_from_messages(&actor_id_val, &normalized),
+                                    last_preview: latest_message_preview(&normalized),
+                                    last_updated_ms: chrono::Utc::now().timestamp_millis(),
+                                },
+                            );
+                            persist_chat_thread_entries(&entries);
+                            thread_entries.set(entries);
+                            messages.set(normalized);
+                        }
                         Err(e) => {
                             dioxus_logger::tracing::error!("Failed to refresh messages: {}", e)
                         }
@@ -433,6 +513,56 @@ pub fn ChatView(actor_id: String) -> Element {
         input_text.set(e.value());
     });
 
+    let on_new_thread = use_callback(move |_| {
+        let new_thread_id = format!("thread-{}", chrono::Utc::now().timestamp_millis());
+        let mut entries = thread_entries.read().clone();
+        upsert_thread_entry(
+            &mut entries,
+            ChatThreadEntry {
+                thread_id: new_thread_id.clone(),
+                title: short_thread_title(&new_thread_id),
+                last_preview: String::new(),
+                last_updated_ms: chrono::Utc::now().timestamp_millis(),
+            },
+        );
+        persist_chat_thread_entries(&entries);
+        thread_entries.set(entries);
+        actor_id_signal.set(new_thread_id);
+        messages.set(Vec::new());
+        input_text.set(String::new());
+    });
+
+    let on_select_thread = use_callback(move |thread_id: String| {
+        let desktop_id_val = desktop_id.clone();
+        let window_id_val = window_id.clone();
+        spawn(async move {
+            let existing_window_id = match fetch_windows(&desktop_id_val).await {
+                Ok(windows) => windows
+                    .iter()
+                    .find(|w| w.app_id == "chat" && w.id == thread_id && w.id != window_id_val)
+                    .map(|w| w.id.clone()),
+                Err(_) => None,
+            };
+
+            if let Some(existing_window_id) = existing_window_id {
+                if let Err(e) = focus_window(&desktop_id_val, &existing_window_id).await {
+                    dioxus_logger::tracing::error!("Failed to focus existing chat thread: {e}");
+                }
+                return;
+            }
+
+            actor_id_signal.set(thread_id.clone());
+            input_text.set(String::new());
+            loading.set(false);
+        });
+    });
+
+    let sorted_threads = {
+        let mut entries = thread_entries.read().clone();
+        entries.sort_by_key(|entry| -entry.last_updated_ms);
+        entries
+    };
+
     rsx! {
         style { {CHAT_STYLES} }
 
@@ -454,25 +584,74 @@ pub fn ChatView(actor_id: String) -> Element {
                 }
             }
 
-            // Messages - scrollable area
             div {
-                class: "messages-scroll-area",
-                div {
-                    class: "messages-list",
-                    if messages.read().is_empty() {
-                        div {
-                            class: "empty-state",
-                            div { class: "empty-icon", "💬" }
-                            p { "Start a conversation" }
-                            span { "Type a message below to begin chatting" }
-                        }
+                class: "chat-body",
+
+                // Thread sidebar
+                aside {
+                    class: if thread_sidebar_collapsed() {
+                        "thread-sidebar collapsed"
                     } else {
-                        for msg in messages.iter() {
-                            MessageBubble { message: msg.clone() }
+                        "thread-sidebar"
+                    },
+                    button {
+                        class: "thread-sidebar-toggle",
+                        onclick: move |_| thread_sidebar_collapsed.set(!thread_sidebar_collapsed()),
+                        if thread_sidebar_collapsed() { "▶" } else { "◀" }
+                    }
+                    if !thread_sidebar_collapsed() {
+                        div {
+                            class: "thread-sidebar-header",
+                            span { "Threads" }
+                            button {
+                                class: "thread-new-button",
+                                onclick: on_new_thread,
+                                "+ New"
+                            }
+                        }
+                        div {
+                            class: "thread-list",
+                            for thread in sorted_threads {
+                                button {
+                                    class: if thread.thread_id == actor_id_signal() {
+                                        "thread-item active"
+                                    } else {
+                                        "thread-item"
+                                    },
+                                    onclick: {
+                                        let thread_id = thread.thread_id.clone();
+                                        move |_| on_select_thread.call(thread_id.clone())
+                                    },
+                                    div { class: "thread-title", "{thread.title}" }
+                                    if !thread.last_preview.trim().is_empty() {
+                                        div { class: "thread-preview", "{thread.last_preview}" }
+                                    }
+                                }
+                            }
                         }
                     }
-                    if loading() {
-                        LoadingIndicator {}
+                }
+
+                // Messages - scrollable area
+                div {
+                    class: "messages-scroll-area",
+                    div {
+                        class: "messages-list",
+                        if messages.read().is_empty() {
+                            div {
+                                class: "empty-state",
+                                div { class: "empty-icon", "💬" }
+                                p { "Start a conversation" }
+                                span { "Type a message below to begin chatting" }
+                            }
+                        } else {
+                            for msg in messages.iter() {
+                                MessageBubble { message: msg.clone() }
+                            }
+                        }
+                        if loading() {
+                            LoadingIndicator {}
+                        }
                     }
                 }
             }
@@ -634,6 +813,77 @@ pub fn LoadingIndicator() -> Element {
 
 fn format_timestamp(timestamp: DateTime<Utc>) -> String {
     timestamp.format("%H:%M").to_string()
+}
+
+fn default_thread_sidebar_collapsed() -> bool {
+    let width = web_sys::window()
+        .and_then(|w| w.inner_width().ok())
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1200.0);
+    width < 1100.0
+}
+
+fn load_chat_thread_entries() -> Vec<ChatThreadEntry> {
+    let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) else {
+        return Vec::new();
+    };
+    let Ok(Some(raw)) = storage.get_item("choiros.chat_threads.v1") else {
+        return Vec::new();
+    };
+    serde_json::from_str::<Vec<ChatThreadEntry>>(&raw).unwrap_or_default()
+}
+
+fn persist_chat_thread_entries(entries: &[ChatThreadEntry]) {
+    let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) else {
+        return;
+    };
+    if let Ok(payload) = serde_json::to_string(entries) {
+        let _ = storage.set_item("choiros.chat_threads.v1", &payload);
+    }
+}
+
+fn upsert_thread_entry(entries: &mut Vec<ChatThreadEntry>, entry: ChatThreadEntry) {
+    if let Some(existing) = entries
+        .iter_mut()
+        .find(|existing| existing.thread_id == entry.thread_id)
+    {
+        if !entry.title.trim().is_empty() {
+            existing.title = entry.title;
+        }
+        if !entry.last_preview.trim().is_empty() {
+            existing.last_preview = entry.last_preview;
+        }
+        existing.last_updated_ms = entry.last_updated_ms;
+        return;
+    }
+    entries.push(entry);
+}
+
+fn short_thread_title(thread_id: &str) -> String {
+    let suffix = thread_id.chars().rev().take(6).collect::<String>();
+    format!("Thread {}", suffix.chars().rev().collect::<String>())
+}
+
+fn latest_message_preview(messages: &[ChatMessage]) -> String {
+    messages
+        .iter()
+        .rev()
+        .find(|m| !matches!(m.sender, Sender::System))
+        .map(|m| m.text.chars().take(120).collect::<String>())
+        .unwrap_or_default()
+}
+
+fn thread_title_from_messages(thread_id: &str, messages: &[ChatMessage]) -> String {
+    let seed = messages
+        .iter()
+        .find(|m| matches!(m.sender, Sender::User))
+        .map(|m| m.text.trim())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_default();
+    if seed.is_empty() {
+        return short_thread_title(thread_id);
+    }
+    seed.chars().take(32).collect()
 }
 
 fn parse_chat_response_text(content: &str) -> String {
@@ -1113,6 +1363,106 @@ const CHAT_STYLES: &str = r#"
 .status-dot {
     color: var(--success-bg, #10b981);
     font-size: 0.5rem;
+}
+
+/* Body Layout */
+.chat-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    overflow: hidden;
+}
+
+.thread-sidebar {
+    width: 260px;
+    background: #0b1222;
+    border-right: 1px solid var(--border-color, #334155);
+    display: flex;
+    flex-direction: column;
+    min-width: 220px;
+    max-width: 320px;
+}
+
+.thread-sidebar.collapsed {
+    width: 42px;
+    min-width: 42px;
+}
+
+.thread-sidebar-toggle {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary, #94a3b8);
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 0.5rem 0.4rem;
+    align-self: flex-end;
+}
+
+.thread-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--text-primary, #f8fafc);
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.25rem 0.6rem 0.5rem 0.6rem;
+}
+
+.thread-new-button {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #cbd5e1;
+    font-size: 0.72rem;
+    border-radius: 0.35rem;
+    padding: 0.15rem 0.35rem;
+    cursor: pointer;
+}
+
+.thread-list {
+    overflow: auto;
+    padding: 0 0.4rem 0.5rem 0.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.thread-item {
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 0.4rem;
+    color: var(--text-secondary, #94a3b8);
+    cursor: pointer;
+    padding: 0.4rem 0.45rem;
+}
+
+.thread-item:hover {
+    background: #111b32;
+    border-color: #23395d;
+}
+
+.thread-item.active {
+    background: #13213d;
+    border-color: #2f4f7a;
+    color: #dbeafe;
+}
+
+.thread-title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.thread-preview {
+    font-size: 0.72rem;
+    margin-top: 0.2rem;
+    color: #94a3b8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* Messages Scroll Area */

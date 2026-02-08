@@ -541,7 +541,12 @@ pub fn FloatingWindow(
                 } else {
                     match window.app_id.as_str() {
                     "chat" => rsx! {
-                        ChatView { key: "{window.id}", actor_id: window.id.clone() }
+                        ChatView {
+                            key: "{window.id}",
+                            actor_id: window.id.clone(),
+                            desktop_id: desktop_id.clone(),
+                            window_id: window.id.clone(),
+                        }
                     },
                     "terminal" => rsx! {
                         TerminalView {

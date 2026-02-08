@@ -131,6 +131,7 @@ pub enum ApplicationSupervisorMsg {
         working_dir: String,
         command: String,
         timeout_ms: Option<u64>,
+        model_override: Option<String>,
         session_id: Option<String>,
         thread_id: Option<String>,
         reply: RpcReplyPort<Result<shared_types::DelegatedTask, String>>,
@@ -631,6 +632,7 @@ impl Actor for ApplicationSupervisor {
                 working_dir,
                 command,
                 timeout_ms,
+                model_override,
                 session_id,
                 thread_id,
                 reply,
@@ -650,6 +652,7 @@ impl Actor for ApplicationSupervisor {
                         "working_dir": working_dir,
                         "user_id": user_id,
                         "timeout_ms": timeout_ms,
+                        "model_override": model_override.clone(),
                     }),
                 };
 
@@ -826,12 +829,14 @@ impl Actor for ApplicationSupervisor {
                         tokio::sync::mpsc::unbounded_channel::<TerminalAgentProgress>();
                     let terminal_ref_for_task = terminal_ref.clone();
                     let command_for_task = command.clone();
+                    let model_override_for_task = model_override.clone();
                     tokio::spawn(async move {
                         let call_result = ractor::call!(terminal_ref_for_task, |agent_reply| {
                             TerminalMsg::RunAgenticTask {
                                 objective: command_for_task,
                                 timeout_ms: Some(timeout_ms),
                                 max_steps: Some(4),
+                                model_override: model_override_for_task,
                                 progress_tx: Some(progress_tx),
                                 reply: agent_reply,
                             }

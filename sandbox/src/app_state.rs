@@ -142,6 +142,7 @@ impl AppState {
         working_dir: String,
         command: String,
         timeout_ms: Option<u64>,
+        model_override: Option<String>,
         session_id: Option<String>,
         thread_id: Option<String>,
     ) -> Result<shared_types::DelegatedTask, String> {
@@ -155,6 +156,7 @@ impl AppState {
                 working_dir,
                 command,
                 timeout_ms,
+                model_override,
                 session_id,
                 thread_id,
                 reply,

@@ -721,6 +721,9 @@ async fn test_agent_executes_bash_tool() {
             actor_id: "test-agent-1".to_string(),
             user_id: "test-user".to_string(),
             event_store,
+            preload_session_id: None,
+            preload_thread_id: None,
+            application_supervisor: None,
         },
     )
     .await
@@ -759,6 +762,9 @@ async fn test_agent_executes_read_tool() {
             actor_id: "test-agent-2".to_string(),
             user_id: "test-user".to_string(),
             event_store,
+            preload_session_id: None,
+            preload_thread_id: None,
+            application_supervisor: None,
         },
     )
     .await
@@ -794,6 +800,9 @@ async fn test_agent_executes_write_tool() {
             actor_id: "test-agent-3".to_string(),
             user_id: "test-user".to_string(),
             event_store,
+            preload_session_id: None,
+            preload_thread_id: None,
+            application_supervisor: None,
         },
     )
     .await
@@ -834,6 +843,9 @@ async fn test_agent_tool_error_handling() {
             actor_id: "test-agent-4".to_string(),
             user_id: "test-user".to_string(),
             event_store,
+            preload_session_id: None,
+            preload_thread_id: None,
+            application_supervisor: None,
         },
     )
     .await
@@ -872,6 +884,9 @@ async fn test_agent_multiple_tools() {
             actor_id: "test-agent-5".to_string(),
             user_id: "test-user".to_string(),
             event_store,
+            preload_session_id: None,
+            preload_thread_id: None,
+            application_supervisor: None,
         },
     )
     .await
@@ -1043,6 +1058,9 @@ async fn test_agent_get_available_tools() {
             actor_id: "test-agent-tools".to_string(),
             user_id: "test-user".to_string(),
             event_store,
+            preload_session_id: None,
+            preload_thread_id: None,
+            application_supervisor: None,
         },
     )
     .await

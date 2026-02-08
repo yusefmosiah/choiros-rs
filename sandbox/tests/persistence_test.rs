@@ -1261,6 +1261,7 @@ async fn test_agent_logs_user_message() {
         text: "Hello, agent!".to_string(),
         session_id: None,
         thread_id: None,
+        model_override: None,
         reply,
     });
 
@@ -1311,6 +1312,7 @@ async fn test_agent_logs_assistant_response() {
         text: "Tell me a joke".to_string(),
         session_id: None,
         thread_id: None,
+        model_override: None,
         reply,
     });
 
@@ -1493,6 +1495,7 @@ async fn test_agent_conversation_recovery() {
         text: "First message".to_string(),
         session_id: None,
         thread_id: None,
+        model_override: None,
         reply,
     });
 
