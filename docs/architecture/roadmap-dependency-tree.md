@@ -24,6 +24,11 @@
   - ResearcherActor: web research capability actor abstracted as `web_search` tool
   - Safety as capability: Verifier, HITL (email), Policy, LLM guardrails
   - Self-hosting introspection: Choir modifying Choir with headless test sandboxes
+  - Directives app as first-class control surface (persistent directive forest + event links)
+  - Policy pattern split:
+    - supervision for lifecycle only
+    - deterministic local policy checks for normal actor calls
+    - policy actors for high-risk escalation paths only
 
 ---
 
@@ -123,8 +128,8 @@ A. Supervision Cutover (complete)
 
 **Deliverables:**
 - `StateIndexActor`: subscribes to EventBus, maintains compressed snapshots
-- `CompressedState` struct: active goals, task checklist, recent blocks, scope anchors
-- `TaskForest`: hierarchical task tree with live status
+- `CompressedState` struct: active goals, directives summary, recent blocks, scope anchors
+- `DirectiveForest`: hierarchical directive tree with live status
 - Query API: `GetLatestSnapshot`, `GetTaskTree`, `GetAlerts`
 
 **Gate:**
@@ -153,7 +158,7 @@ A. Supervision Cutover (complete)
 - `PromptBarActor`: receives all user input (typed, voice)
 - Intent classification: NL → structured capability calls
 - Routing to: ChatActor, TerminalActor, GitActor, etc.
-- UI: persistent input bar, hierarchical task checklist display
+- UI: persistent input bar, Directives app with hierarchical directive display
 
 **Gate:**
 - "Open chat with X" and "Run command Y" both route correctly.
@@ -188,20 +193,27 @@ A. Supervision Cutover (complete)
 
 ## Immediate Build Order (Clarity Pass)
 
+0. **Directives app lock**: make hierarchical directives the primary operator view.
 1. **B1 contract lock**: finalize shared capability/task/event schema.
-2. **B2 StateIndexActor skeleton**: compressed snapshot + task tree query API.
+2. **B2 StateIndexActor skeleton**: compressed snapshot + directive tree query API.
 3. **B3 PromptBarActor skeleton**: route one universal intent (`open chat with prompt`).
 4. **B4 ResearcherActor v1**: implement as `web_search` capability with streamed actor-call phases.
 5. **B4 GitActor v1**: typed git operations through same capability contract.
-6. **Watcher bootstrap**: emit blockers/stalls/failures into StateIndex task tree.
+6. **Watcher bootstrap**: emit blockers/stalls/failures into StateIndex directive tree.
 
 Rule:
 - Prioritize concrete capability actors (`ResearcherActor`, `GitActor`) over broad app expansion.
+- Do not ship further app complexity until Directives app + hard capability boundaries are in place.
 
 ---
 
 ### Phase B5 - SafetyOrchestrator
 **Objective:** Safety as a capability layer, not an afterthought.
+
+Policy execution model:
+- Do not route all actor calls through a policy/supervisor bottleneck.
+- Use direct actor-to-actor calls with deterministic local policy checks.
+- Route only high-risk actions to policy actor workflows.
 
 **Deliverables:**
 - `PolicyEnforcementActor`: static rule checking

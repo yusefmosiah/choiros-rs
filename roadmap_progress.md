@@ -16,6 +16,19 @@ Source roadmap:
 | G. SandboxFS Persistence | Pending | Not started in this session |
 | H. Hypervisor Integration | Pending | Not started in this session |
 
+## Priority Reset (Most Important View)
+
+Top deliverable is now explicit:
+- First-class Directives app cockpit (hierarchical, event-linked, always available as an app/window).
+
+Execution source of truth:
+- `docs/architecture/directives-execution-checklist.md`
+
+Non-negotiables from this reset:
+- Chat uses `bash` as interface but all shell execution is delegated to `TerminalActor`.
+- PromptBar orchestrates actors and writes memos; it does not call tools.
+- Capability boundaries are enforced in supervisor/actor code paths, not only prompts.
+
 ## Completed In This Session
 
 ### 1) Phase A Foundation: EventBus Integration + Correlation Tracing
