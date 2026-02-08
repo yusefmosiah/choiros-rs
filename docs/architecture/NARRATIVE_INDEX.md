@@ -27,11 +27,13 @@ Core architecture rule: direct actor-to-actor calls stay fast; deterministic pol
    - Product-level execution checklist and boundaries for Directives + policy pattern.
 3. `/Users/wiz/choiros-rs/roadmap_progress.md`
    - What has already landed and what is next.
-4. `/Users/wiz/choiros-rs/docs/architecture/model-provider-agnostic-runbook.md`
+4. `/Users/wiz/choiros-rs/docs/architecture/worker-signal-contract.md`
+   - Control-plane vs observability contract, typed turn reports, anti-spam rules.
+5. `/Users/wiz/choiros-rs/docs/architecture/model-provider-agnostic-runbook.md`
    - Model/provider matrix and validation plan.
-5. `/Users/wiz/choiros-rs/docs/architecture/pdf-app-implementation-guide.md`
+6. `/Users/wiz/choiros-rs/docs/architecture/pdf-app-implementation-guide.md`
    - Deferred guide-only milestone (no build yet).
-6. `/Users/wiz/choiros-rs/docs/architecture/roadmap-critical-analysis.md`
+7. `/Users/wiz/choiros-rs/docs/architecture/roadmap-critical-analysis.md`
    - Historical gap analysis and risks (use as reference, not current ordering authority).
 
 ## Current Decisions (Explicit)
@@ -48,6 +50,7 @@ Core architecture rule: direct actor-to-actor calls stay fast; deterministic pol
 - `directives-execution-checklist.md`: "What must be true before we call this architecture real."
 - `roadmap_progress.md`: "What changed and what we tackle next."
 - `model-provider-agnostic-runbook.md`: "How to prove model routing and provider support."
+- `worker-signal-contract.md`: "How workers decide what to signal, without spamming."
 - `pdf-app-implementation-guide.md`: "What PDF should become later, without building it now."
 - `roadmap-critical-analysis.md`: "Where the earlier plan overestimated readiness."
 

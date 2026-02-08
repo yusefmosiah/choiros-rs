@@ -149,7 +149,7 @@ Design intent:
 4. Researcher observability first
 - Researcher should not launch without emitting structured lifecycle + citation events.
 
-## 7) Reconciliation Decision (New)
+## 6) Reconciliation Decision (New)
 
 Architecture gate:
 - `docs/architecture/adr-0001-eventstore-eventbus-reconciliation.md`
@@ -160,9 +160,22 @@ Decision summary:
 - Single-write rule: producers write to EventStore, then committed events may be relayed to EventBus.
 - Watchers and replay correctness are EventStore-cursor based.
 
-## 6) Recommended Next Slice
+## 7) Worker Signal Contract Decision (New)
+
+Architecture gate:
+- `docs/architecture/worker-signal-contract.md`
+
+Decision summary:
+- Workers emit typed per-turn report envelopes.
+- Findings/learnings are observability outputs by default.
+- Escalations are control-plane requests and can notify Conductor directly after runtime validation.
+- File writes are artifacts only, not signaling channels.
+- Anti-spam controls are required at prompt, schema, and runtime layers.
+
+## 8) Recommended Next Slice
 
 1. Normalize worker and watcher event names under one namespace.
 2. Extend watcher rules for timeout/retry/missing completion patterns.
-3. Add watcher signal payload schemas (`finding`, `learning`, `escalation`).
-4. Start `ResearcherActor` with mandatory event contracts and websocket streaming tests.
+3. Implement typed worker turn-report validation and canonical event mapping.
+4. Add escalation dedup/cooldown and rejection telemetry.
+5. Start `ResearcherActor` with mandatory event contracts and websocket streaming tests.

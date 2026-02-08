@@ -1,8 +1,10 @@
 use crate::baml_client::ClientRegistry;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 
 pub const REQUIRED_BAML_CLIENT_ALIASES: &[&str] = &["ClaudeBedrock", "GLM47"];
+pub const DEFAULT_MODEL_POLICY_PATH: &str = "config/model-policy.toml";
 
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
 pub enum ModelConfigError {
@@ -80,6 +82,21 @@ pub struct ModelRegistry {
     configs: HashMap<String, ModelConfig>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelPolicy {
+    pub default_model: Option<String>,
+    pub chat_default_model: Option<String>,
+    pub terminal_default_model: Option<String>,
+    pub conductor_default_model: Option<String>,
+    pub summarizer_default_model: Option<String>,
+    pub allow_request_override: Option<bool>,
+    pub allowed_models: Option<Vec<String>>,
+    pub chat_allowed_models: Option<Vec<String>>,
+    pub terminal_allowed_models: Option<Vec<String>>,
+    pub conductor_allowed_models: Option<Vec<String>>,
+    pub summarizer_allowed_models: Option<Vec<String>>,
+}
+
 impl ModelRegistry {
     pub fn new() -> Self {
         Self {
@@ -139,7 +156,7 @@ impl ModelRegistry {
             }
         }
 
-        self.get("ClaudeBedrockOpus45")
+        self.get("ClaudeBedrockSonnet45")
             .cloned()
             .map(|config| ResolvedModel {
                 config,
@@ -166,12 +183,106 @@ impl ModelRegistry {
     ) -> Result<ClientRegistry, ModelConfigError> {
         self.create_client_registry_for_model(model_id, REQUIRED_BAML_CLIENT_ALIASES)
     }
+
+    pub fn resolve_for_role(
+        &self,
+        role: &str,
+        context: &ModelResolutionContext,
+    ) -> Result<ResolvedModel, ModelConfigError> {
+        let policy = load_model_policy();
+        let allow_request_override = policy.allow_request_override.unwrap_or(true);
+        let scoped_request = if allow_request_override {
+            context.request_model.clone()
+        } else {
+            None
+        };
+
+        let role_default = match role {
+            "chat" => policy.chat_default_model.clone(),
+            "terminal" => policy.terminal_default_model.clone(),
+            "conductor" => policy.conductor_default_model.clone(),
+            "summarizer" => policy.summarizer_default_model.clone(),
+            _ => None,
+        };
+
+        let mut resolved = self.resolve(&ModelResolutionContext {
+            request_model: scoped_request,
+            app_preference: context
+                .app_preference
+                .clone()
+                .or(role_default)
+                .or(policy.default_model.clone()),
+            user_preference: context.user_preference.clone(),
+        })?;
+
+        let is_allowed = |model_id: &str| {
+            let in_global = policy
+                .allowed_models
+                .as_ref()
+                .map(|models| models.iter().any(|m| m == model_id))
+                .unwrap_or(true);
+            let in_role = match role {
+                "chat" => policy
+                    .chat_allowed_models
+                    .as_ref()
+                    .map(|models| models.iter().any(|m| m == model_id))
+                    .unwrap_or(true),
+                "terminal" => policy
+                    .terminal_allowed_models
+                    .as_ref()
+                    .map(|models| models.iter().any(|m| m == model_id))
+                    .unwrap_or(true),
+                "conductor" => policy
+                    .conductor_allowed_models
+                    .as_ref()
+                    .map(|models| models.iter().any(|m| m == model_id))
+                    .unwrap_or(true),
+                "summarizer" => policy
+                    .summarizer_allowed_models
+                    .as_ref()
+                    .map(|models| models.iter().any(|m| m == model_id))
+                    .unwrap_or(true),
+                _ => true,
+            };
+            in_global && in_role
+        };
+
+        if !is_allowed(&resolved.config.id) {
+            if let Some(fallback) = self
+                .available_model_ids()
+                .into_iter()
+                .find(|candidate| is_allowed(candidate))
+                .and_then(|candidate| self.get(&candidate).cloned())
+            {
+                resolved = ResolvedModel {
+                    config: fallback,
+                    source: ModelResolutionSource::Fallback,
+                };
+            } else {
+                return Err(ModelConfigError::NoFallbackAvailable);
+            }
+        }
+
+        Ok(resolved)
+    }
 }
 
 impl Default for ModelRegistry {
     fn default() -> Self {
         Self::new()
     }
+}
+
+pub fn load_model_policy() -> ModelPolicy {
+    let path = std::env::var("CHOIR_MODEL_POLICY_PATH")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_MODEL_POLICY_PATH.to_string());
+    let content = match std::fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(_) => return ModelPolicy::default(),
+    };
+    toml::from_str(&content).unwrap_or_default()
 }
 
 pub fn create_client_registry_for_config(
@@ -245,14 +356,13 @@ fn add_provider_client(
 
 pub fn canonical_model_id(model_id: &str) -> Option<&'static str> {
     match model_id {
-        "ClaudeBedrock" => Some("ClaudeBedrockOpus45"),
+        "ClaudeBedrock" => Some("ClaudeBedrockSonnet45"),
         "GLM47" => Some("ZaiGLM47"),
         "GLM47Flash" => Some("ZaiGLM47Flash"),
         "KimiK25OpenAI" => Some("KimiK25"),
         "KimiK25" => Some("KimiK25"),
         "KimiK25Fallback" => Some("KimiK25Fallback"),
         "ClaudeBedrockOpus46" => Some("ClaudeBedrockOpus46"),
-        "ClaudeBedrockOpus45" => Some("ClaudeBedrockOpus45"),
         "ClaudeBedrockSonnet45" => Some("ClaudeBedrockSonnet45"),
         "ClaudeBedrockHaiku45" => Some("ClaudeBedrockHaiku45"),
         "ZaiGLM47" => Some("ZaiGLM47"),
@@ -272,17 +382,6 @@ fn default_model_configs() -> HashMap<String, ModelConfig> {
             name: "Claude Opus 4.6 (Bedrock)".to_string(),
             provider: ProviderConfig::AwsBedrock {
                 model: "us.anthropic.claude-opus-4-6-v1".to_string(),
-                region: "us-east-1".to_string(),
-            },
-        },
-    );
-    configs.insert(
-        "ClaudeBedrockOpus45".to_string(),
-        ModelConfig {
-            id: "ClaudeBedrockOpus45".to_string(),
-            name: "Claude Opus 4.5 (Bedrock)".to_string(),
-            provider: ProviderConfig::AwsBedrock {
-                model: "us.anthropic.claude-opus-4-5-20251101-v1:0".to_string(),
                 region: "us-east-1".to_string(),
             },
         },
@@ -397,7 +496,7 @@ mod tests {
         let registry = ModelRegistry::new();
         let ctx = ModelResolutionContext {
             request_model: Some("ZaiGLM47Flash".to_string()),
-            app_preference: Some("ClaudeBedrockOpus45".to_string()),
+            app_preference: Some("ClaudeBedrockSonnet45".to_string()),
             user_preference: Some("ClaudeBedrockSonnet45".to_string()),
         };
 
@@ -411,7 +510,7 @@ mod tests {
         let registry = ModelRegistry::new();
         assert_eq!(
             registry.get("ClaudeBedrock").map(|cfg| cfg.id.clone()),
-            Some("ClaudeBedrockOpus45".to_string())
+            Some("ClaudeBedrockSonnet45".to_string())
         );
         assert_eq!(
             registry.get("GLM47").map(|cfg| cfg.id.clone()),
@@ -515,5 +614,129 @@ mod tests {
         assert_eq!(ModelResolutionSource::User.as_str(), "user");
         assert_eq!(ModelResolutionSource::EnvDefault.as_str(), "env_default");
         assert_eq!(ModelResolutionSource::Fallback.as_str(), "fallback");
+    }
+
+    #[test]
+    fn test_resolve_for_role_respects_override_denial() {
+        let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let policy_path = temp_dir.path().join("model-policy.toml");
+        std::fs::write(
+            &policy_path,
+            r#"
+chat_default_model = "ClaudeBedrockSonnet45"
+allow_request_override = false
+"#,
+        )
+        .expect("write policy");
+
+        let previous_policy = std::env::var("CHOIR_MODEL_POLICY_PATH").ok();
+        std::env::set_var(
+            "CHOIR_MODEL_POLICY_PATH",
+            policy_path.to_string_lossy().to_string(),
+        );
+
+        let registry = ModelRegistry::new();
+        let resolved = registry
+            .resolve_for_role(
+                "chat",
+                &ModelResolutionContext {
+                    request_model: Some("ZaiGLM47".to_string()),
+                    app_preference: None,
+                    user_preference: None,
+                },
+            )
+            .expect("resolve_for_role");
+
+        assert_eq!(resolved.config.id, "ClaudeBedrockSonnet45");
+
+        if let Some(value) = previous_policy {
+            std::env::set_var("CHOIR_MODEL_POLICY_PATH", value);
+        } else {
+            std::env::remove_var("CHOIR_MODEL_POLICY_PATH");
+        }
+    }
+
+    #[test]
+    fn test_resolve_for_role_respects_allowed_model_lists() {
+        let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let policy_path = temp_dir.path().join("model-policy.toml");
+        std::fs::write(
+            &policy_path,
+            r#"
+allowed_models = ["ClaudeBedrockSonnet45", "KimiK25"]
+terminal_allowed_models = ["KimiK25"]
+terminal_default_model = "KimiK25"
+"#,
+        )
+        .expect("write policy");
+
+        let previous_policy = std::env::var("CHOIR_MODEL_POLICY_PATH").ok();
+        std::env::set_var(
+            "CHOIR_MODEL_POLICY_PATH",
+            policy_path.to_string_lossy().to_string(),
+        );
+
+        let registry = ModelRegistry::new();
+        let resolved = registry
+            .resolve_for_role(
+                "terminal",
+                &ModelResolutionContext {
+                    request_model: Some("ClaudeBedrockSonnet45".to_string()),
+                    app_preference: None,
+                    user_preference: None,
+                },
+            )
+            .expect("resolve_for_role");
+
+        assert_eq!(resolved.config.id, "KimiK25");
+
+        if let Some(value) = previous_policy {
+            std::env::set_var("CHOIR_MODEL_POLICY_PATH", value);
+        } else {
+            std::env::remove_var("CHOIR_MODEL_POLICY_PATH");
+        }
+    }
+
+    #[test]
+    fn test_resolve_for_role_uses_conductor_and_summarizer_defaults() {
+        let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let policy_path = temp_dir.path().join("model-policy.toml");
+        std::fs::write(
+            &policy_path,
+            r#"
+default_model = "ClaudeBedrockSonnet45"
+conductor_default_model = "ClaudeBedrockOpus46"
+summarizer_default_model = "ZaiGLM47Flash"
+conductor_allowed_models = ["ClaudeBedrockOpus46"]
+summarizer_allowed_models = ["ZaiGLM47Flash"]
+"#,
+        )
+        .expect("write policy");
+
+        let previous_policy = std::env::var("CHOIR_MODEL_POLICY_PATH").ok();
+        std::env::set_var(
+            "CHOIR_MODEL_POLICY_PATH",
+            policy_path.to_string_lossy().to_string(),
+        );
+
+        let registry = ModelRegistry::new();
+        let conductor = registry
+            .resolve_for_role("conductor", &ModelResolutionContext::default())
+            .expect("resolve conductor");
+        assert_eq!(conductor.config.id, "ClaudeBedrockOpus46");
+
+        let summarizer = registry
+            .resolve_for_role("summarizer", &ModelResolutionContext::default())
+            .expect("resolve summarizer");
+        assert_eq!(summarizer.config.id, "ZaiGLM47Flash");
+
+        if let Some(value) = previous_policy {
+            std::env::set_var("CHOIR_MODEL_POLICY_PATH", value);
+        } else {
+            std::env::remove_var("CHOIR_MODEL_POLICY_PATH");
+        }
     }
 }

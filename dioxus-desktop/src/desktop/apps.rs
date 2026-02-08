@@ -42,6 +42,14 @@ pub fn core_apps() -> Vec<AppDefinition> {
             default_width: 780,
             default_height: 520,
         },
+        AppDefinition {
+            id: "settings".to_string(),
+            name: "Settings".to_string(),
+            icon: "⚙️".to_string(),
+            component_code: "SettingsApp".to_string(),
+            default_width: 860,
+            default_height: 560,
+        },
     ]
 }
 
@@ -52,6 +60,7 @@ pub fn get_app_icon(app_id: &str) -> &'static str {
         "terminal" => "🖥️",
         "files" => "📁",
         "logs" => "📡",
+        "settings" => "⚙️",
         _ => "📱",
     }
 }

@@ -12,6 +12,7 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 
 use crate::actors::event_store::EventStoreMsg;
+use crate::actors::model_config::load_model_policy;
 use crate::api::ApiState;
 
 pub async fn logs_websocket(
@@ -82,6 +83,9 @@ async fn handle_logs_socket(
             "actor_id": actor_id,
             "user_id": user_id,
             "poll_ms": poll_ms,
+            "summarizer_model": load_model_policy()
+                .summarizer_default_model
+                .unwrap_or_else(|| "ZaiGLM47Flash".to_string()),
         })
         .to_string()
         .into(),

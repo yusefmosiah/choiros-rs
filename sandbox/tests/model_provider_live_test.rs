@@ -103,7 +103,6 @@ fn sampled_live_models(eligible: &[String]) -> Vec<String> {
     if let Some(model) = prefer(&[
         "ClaudeBedrockHaiku45",
         "ClaudeBedrockSonnet45",
-        "ClaudeBedrockOpus45",
         "ClaudeBedrockOpus46",
     ]) {
         selected.push(model);
@@ -132,6 +131,14 @@ fn parse_bash_command(tool_args_json: &str) -> Option<String> {
         .get("cmd")
         .and_then(|v| v.as_str())
         .or_else(|| parsed.get("command").and_then(|v| v.as_str()))
+        .map(ToString::to_string)
+}
+
+fn parse_bash_model(tool_args_json: &str) -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_str(tool_args_json).ok()?;
+    parsed
+        .get("model")
+        .and_then(|v| v.as_str())
         .map(ToString::to_string)
 }
 
@@ -257,25 +264,53 @@ async fn run_mixed_model_case(
         chat_model.to_lowercase(),
         terminal_model.to_lowercase()
     );
-    let tool_args = serde_json::json!({
-        "cmd": format!("printf {marker}"),
-        "model": terminal_model,
-    })
-    .to_string();
-
-    let tool_result = ractor::call!(agent, |rpc| ChatAgentMsg::ExecuteTool {
-        tool_name: "bash".to_string(),
-        tool_args,
+    let tool_prompt = format!(
+        "Use bash exactly once with cmd `printf {marker}` and set the bash model field to `{terminal_model}`."
+    );
+    let tool_reply = ractor::call!(agent, |rpc| ChatAgentMsg::ProcessMessage {
+        text: tool_prompt,
+        session_id: Some(format!("mixed-chat-session-{chat_model}-{terminal_model}")),
+        thread_id: Some("thread-2".to_string()),
+        model_override: Some(chat_model.clone()),
         reply: rpc,
     })
-    .map_err(|e| format!("mixed execute tool rpc failed: {e}"))?
-    .map_err(|e| format!("mixed execute tool failed: {e}"))?;
+    .map_err(|e| format!("mixed tool rpc failed: {e}"))?
+    .map_err(|e| format!("mixed tool processing failed: {e}"))?;
 
-    if !tool_result.success {
+    let Some(tool_call) = tool_reply.tool_calls.iter().find(|c| c.tool_name == "bash") else {
         agent.stop(None);
         return Err(format!(
-            "mixed execute tool returned failure: {}",
-            tool_result.content
+            "mixed tool run did not produce bash call for case {} -> {}",
+            chat_model, terminal_model
+        ));
+    };
+    if !tool_call.result.success {
+        agent.stop(None);
+        return Err(format!(
+            "mixed tool run bash failed for case {} -> {}: {}",
+            chat_model, terminal_model, tool_call.result.content
+        ));
+    }
+    let delegated_command = parse_bash_command(&tool_call.tool_args).ok_or_else(|| {
+        format!(
+            "mixed tool args missing cmd/command for case {} -> {}",
+            chat_model, terminal_model
+        )
+    })?;
+    if !delegated_command.contains(&marker) {
+        agent.stop(None);
+        return Err(format!(
+            "mixed tool args command marker mismatch for case {} -> {}: {}",
+            chat_model, terminal_model, delegated_command
+        ));
+    }
+    let delegated_model =
+        parse_bash_model(&tool_call.tool_args).unwrap_or_else(|| "UNSET".to_string());
+    if delegated_model != terminal_model {
+        agent.stop(None);
+        return Err(format!(
+            "mixed tool args model mismatch for case {} -> {}: {}",
+            chat_model, terminal_model, delegated_model
         ));
     }
 
@@ -288,12 +323,14 @@ async fn run_mixed_model_case(
     .map_err(|e| format!("load mixed events failed: {e}"))?;
 
     let command_marker = marker.clone();
-    let matching_completion = events.iter().rev().find(|event| {
-        if event.event_type != "worker_complete" {
-            return false;
-        }
-        event
-            .payload
+    let has_command_marker = events.iter().rev().any(|event| {
+        let payload = &event.payload;
+        let command_match = payload
+            .get("command")
+            .and_then(|v| v.as_str())
+            .map(|cmd| cmd.contains(&command_marker))
+            .unwrap_or(false);
+        let executed_match = payload
             .get("executed_commands")
             .and_then(|v| v.as_array())
             .map(|commands| {
@@ -302,24 +339,36 @@ async fn run_mixed_model_case(
                     .filter_map(|cmd| cmd.as_str())
                     .any(|cmd| cmd.contains(&command_marker))
             })
-            .unwrap_or(false)
+            .unwrap_or(false);
+        (event.event_type.starts_with("worker.task") || event.event_type == "worker_complete")
+            && (command_match || executed_match)
     });
 
-    let Some(worker_complete) = matching_completion else {
+    if !has_command_marker {
         agent.stop(None);
         return Err(format!(
-            "no worker_complete event with command marker found for case {} -> {}",
+            "no worker event with command marker found for case {} -> {}",
             chat_model, terminal_model
         ));
-    };
+    }
 
-    let model_used = worker_complete
-        .payload
-        .get("model_used")
-        .and_then(|v| v.as_str())
+    let model_used = events
+        .iter()
+        .rev()
+        .find_map(|event| {
+            if event.event_type.starts_with("worker.task") || event.event_type == "worker_complete"
+            {
+                return event
+                    .payload
+                    .get("model_used")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string);
+            }
+            None
+        })
         .ok_or_else(|| {
             format!(
-                "worker_complete missing model_used for case {} -> {}",
+                "worker events missing model_used for case {} -> {}",
                 chat_model, terminal_model
             )
         })?;

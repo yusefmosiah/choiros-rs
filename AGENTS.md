@@ -8,6 +8,10 @@
 - Terminal work emits worker lifecycle + progress telemetry and streams as websocket `actor_call` chunks.
 - Scope isolation (`session_id`, `thread_id`) is required for chat/tool event retrieval to prevent cross-instance bleed.
 - EventBus/EventStore are the observability backbone for worker/task tracing.
+- Model policy defaults (current):
+  - Chat: `ClaudeBedrockSonnet45`
+  - Conductor: `ClaudeBedrockOpus46`
+  - Summarizer: `ZaiGLM47Flash`
 
 ## Current High-Priority Development Targets
 
@@ -15,6 +19,15 @@
 2. Terminal loop event enrichment (`tool_call`, `tool_result`, durations, retry/error metadata).
 3. WatcherActor prototype for timeout/failure escalation signals to supervisors.
 4. Ordered websocket integration tests for scoped multi-instance streams.
+5. Model policy system before Researcher rollout (policy-resolved model routing + audit events).
+
+## Naming Reconciliation (Authoritative)
+
+- `Logging`: Event capture/persistence/transport only.
+- `Watcher`: Deterministic detection/alerting over logs.
+- `Summarizer`: Human-readable compression over event batches/windows.
+
+Do not overload these terms in docs/code reviews.
 
 ## Documentation Readability Rule
 

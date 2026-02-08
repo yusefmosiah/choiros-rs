@@ -172,12 +172,8 @@ pub fn DesktopShell(desktop_id: String) -> Element {
     let show_desktop_cb = use_callback(move |_| {
         let desktop_id = desktop_id_signal.read().clone();
         spawn(async move {
-            actions::toggle_show_desktop_action(
-                desktop_id,
-                desktop_state,
-                show_desktop_snapshot,
-            )
-            .await;
+            actions::toggle_show_desktop_action(desktop_id, desktop_state, show_desktop_snapshot)
+                .await;
         });
     });
 

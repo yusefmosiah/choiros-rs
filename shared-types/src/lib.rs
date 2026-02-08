@@ -447,6 +447,9 @@ pub const EVENT_TOPIC_WORKER_TASK_PROGRESS: &str = "worker.task.progress";
 pub const EVENT_TOPIC_WORKER_TASK_COMPLETED: &str = "worker.task.completed";
 pub const EVENT_TOPIC_WORKER_TASK_FAILED: &str = "worker.task.failed";
 
+pub const INTERFACE_KIND_UACTOR_ACTOR: &str = "uactor_actor";
+pub const INTERFACE_KIND_APPACTOR_TOOLACTOR: &str = "appactor_toolactor";
+
 // ============================================================================
 // Tests
 // ============================================================================

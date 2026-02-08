@@ -7,13 +7,14 @@
 
 use async_trait::async_trait;
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
-use std::sync::Arc;
 
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
-use crate::actors::model_config::{ModelConfigError, ModelRegistry, ModelResolutionContext};
+use crate::actors::model_config::{
+    load_model_policy, ModelConfigError, ModelRegistry, ModelResolutionContext,
+};
 use crate::baml_client::types::{Message as BamlMessage, ToolResult};
 use crate::supervisor::ApplicationSupervisorMsg;
-use crate::tools::{ToolError, ToolOutput, ToolRegistry};
+use crate::tools::ToolOutput;
 
 /// ChatAgent - AI assistant with planning and tool execution capabilities
 pub struct ChatAgent;
@@ -33,7 +34,6 @@ pub struct ChatAgentArguments {
 pub struct ChatAgentState {
     args: ChatAgentArguments,
     messages: Vec<BamlMessage>,
-    tool_registry: Arc<ToolRegistry>,
     current_model: String,
     model_registry: ModelRegistry,
 }
@@ -64,12 +64,6 @@ pub enum ChatAgentMsg {
     },
     /// Get available tools list
     GetAvailableTools { reply: RpcReplyPort<Vec<String>> },
-    /// Execute a specific tool (for testing/debugging)
-    ExecuteTool {
-        tool_name: String,
-        tool_args: String,
-        reply: RpcReplyPort<Result<ToolOutput, ToolError>>,
-    },
 }
 
 /// Agent response structure
@@ -142,8 +136,45 @@ impl ChatAgent {
         Self
     }
 
-    fn get_tools_description(state: &ChatAgentState) -> String {
-        state.tool_registry.descriptions()
+    fn get_tools_description(_state: &ChatAgentState) -> String {
+        let bash_schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "reasoning": {
+                    "type": "string",
+                    "description": "Optional rationale for why this command is being run."
+                },
+                "timeout_ms": {
+                    "type": "integer",
+                    "description": "Timeout in milliseconds (default: 30000)",
+                    "default": 30000
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Optional working directory for command execution."
+                },
+                "command": {
+                    "type": "string",
+                    "description": "The shell command to execute (legacy key)."
+                },
+                "cmd": {
+                    "type": "string",
+                    "description": "The shell command to execute (preferred key)."
+                },
+                "model": {
+                    "type": "string",
+                    "description": "Optional terminal runtime model override."
+                }
+            },
+            "anyOf": [
+                { "required": ["command"] },
+                { "required": ["cmd"] }
+            ]
+        });
+        format!(
+            "Tool: bash\nDescription: Execute shell commands via TerminalActor delegation.\nParameters Schema: {}\n",
+            bash_schema
+        )
     }
 
     fn get_system_context(state: &ChatAgentState) -> String {
@@ -155,11 +186,7 @@ Actor ID: {}
 Working Directory: {}
 
 You have access to tools for:
-- Executing bash commands
-- Reading files
-- Writing files
-- Listing directories
-- Searching files
+- Executing bash commands (delegated via TerminalActor)
 
 Behavior requirements:
 - If the user asks for real-time/external information (for example weather, web/API data, latest status), attempt a tool call first.
@@ -641,6 +668,20 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
             ));
         }
 
+        self.log_event(
+            state,
+            shared_types::EVENT_CHAT_USER_MSG,
+            shared_types::chat_user_payload(
+                user_text.clone(),
+                session_id.clone(),
+                thread_id.clone(),
+            ),
+            session_id.clone(),
+            thread_id.clone(),
+            state.args.user_id.clone(),
+        )
+        .await?;
+
         state.messages.push(BamlMessage {
             role: "user".to_string(),
             content: user_text.clone(),
@@ -651,11 +692,14 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         let requested_model = model_override.clone();
         let resolved_model = state
             .model_registry
-            .resolve(&ModelResolutionContext {
-                request_model: model_override,
-                app_preference: Some(state.current_model.clone()),
-                user_preference: None,
-            })
+            .resolve_for_role(
+                "chat",
+                &ModelResolutionContext {
+                    request_model: model_override,
+                    app_preference: Some(state.current_model.clone()),
+                    user_preference: None,
+                },
+            )
             .map_err(Self::map_model_error)?;
         let model_used = resolved_model.config.id;
         let model_source = resolved_model.source.as_str().to_string();
@@ -668,6 +712,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
             state,
             shared_types::EVENT_MODEL_SELECTION,
             serde_json::json!({
+                "role": "chat",
                 "model_used": model_used.clone(),
                 "model_source": model_source.clone(),
                 "requested_model": requested_model,
@@ -725,14 +770,11 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                     Some(model_used.clone()),
                 )
                 .await
-                .map_err(|e| ToolError::new(e.to_string()))
             } else {
-                execute_tool_impl(
-                    state.tool_registry.clone(),
-                    tool_call.tool_name.clone(),
-                    tool_args.clone(),
-                )
-                .await
+                Err(ChatAgentError::Tool(format!(
+                    "Unsupported tool '{}' for ChatAgent. Use delegated capability actors only.",
+                    tool_call.tool_name
+                )))
             };
 
             match result {
@@ -772,7 +814,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                         serde_json::json!({
                             "tool_name": tool_call.tool_name,
                             "success": false,
-                            "error": e.message,
+                            "error": e.to_string(),
                         }),
                         session_id.clone(),
                         thread_id.clone(),
@@ -784,7 +826,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                         tool_name: tool_call.tool_name.clone(),
                         success: false,
                         output: String::new(),
-                        error: Some(e.message),
+                        error: Some(e.to_string()),
                     });
                 }
             }
@@ -886,25 +928,8 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
     }
 
     /// Handle GetAvailableTools
-    fn handle_get_available_tools(&self, state: &ChatAgentState) -> Vec<String> {
-        state.tool_registry.available_tools()
-    }
-
-    /// Handle ExecuteTool
-    async fn handle_execute_tool(
-        &self,
-        state: &ChatAgentState,
-        tool_name: String,
-        tool_args: String,
-    ) -> Result<ToolOutput, ToolError> {
-        if tool_name == "bash" {
-            return self
-                .delegate_terminal_tool(state, tool_args, None, None, None)
-                .await
-                .map_err(|e| ToolError::new(e.to_string()));
-        }
-
-        execute_tool_impl(state.tool_registry.clone(), tool_name, tool_args).await
+    fn handle_get_available_tools(&self, _state: &ChatAgentState) -> Vec<String> {
+        vec!["bash".to_string()]
     }
 
     async fn delegate_terminal_tool(
@@ -1165,11 +1190,11 @@ impl Actor for ChatAgent {
         Ok(ChatAgentState {
             args,
             messages,
-            tool_registry: Arc::new(ToolRegistry::new()),
             current_model: std::env::var("CHOIR_CHAT_MODEL")
                 .ok()
                 .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| "ClaudeBedrockOpus45".to_string()),
+                .or_else(|| load_model_policy().chat_default_model)
+                .unwrap_or_else(|| "ClaudeBedrockSonnet45".to_string()),
             model_registry: ModelRegistry::new(),
         })
     }
@@ -1217,14 +1242,6 @@ impl Actor for ChatAgent {
                 let tools = self.handle_get_available_tools(state);
                 let _ = reply.send(tools);
             }
-            ChatAgentMsg::ExecuteTool {
-                tool_name,
-                tool_args,
-                reply,
-            } => {
-                let result = self.handle_execute_tool(state, tool_name, tool_args).await;
-                let _ = reply.send(result);
-            }
         }
 
         Ok(())
@@ -1241,20 +1258,6 @@ impl Actor for ChatAgent {
         );
         Ok(())
     }
-}
-
-// Helper function to execute a tool outside of the actor context
-async fn execute_tool_impl(
-    registry: Arc<ToolRegistry>,
-    tool_name: String,
-    tool_args: String,
-) -> Result<ToolOutput, ToolError> {
-    let args: serde_json::Value = serde_json::from_str(&tool_args)
-        .map_err(|e| ToolError::new(format!("Invalid tool arguments: {e}")))?;
-
-    tokio::task::spawn_blocking(move || registry.execute(&tool_name, args))
-        .await
-        .map_err(|e| ToolError::new(format!("Tool execution task failed: {e}")))?
 }
 
 // ============================================================================
@@ -1302,19 +1305,6 @@ pub async fn get_available_tools(
     ractor::call!(agent, |reply| ChatAgentMsg::GetAvailableTools { reply })
 }
 
-/// Convenience function to execute a tool
-pub async fn execute_tool(
-    agent: &ActorRef<ChatAgentMsg>,
-    tool_name: impl Into<String>,
-    tool_args: impl Into<String>,
-) -> Result<Result<ToolOutput, ToolError>, ractor::RactorErr<ChatAgentMsg>> {
-    ractor::call!(agent, |reply| ChatAgentMsg::ExecuteTool {
-        tool_name: tool_name.into(),
-        tool_args: tool_args.into(),
-        reply,
-    })
-}
-
 // ============================================================================
 // Tests
 // ============================================================================
@@ -1348,10 +1338,8 @@ mod tests {
         .unwrap();
 
         let tools = get_available_tools(&agent_ref).await.unwrap();
-        assert!(!tools.is_empty());
+        assert_eq!(tools.len(), 1);
         assert!(tools.contains(&"bash".to_string()));
-        assert!(tools.contains(&"read_file".to_string()));
-        assert!(tools.contains(&"write_file".to_string()));
 
         agent_ref.stop(None);
         event_store_ref.stop(None);

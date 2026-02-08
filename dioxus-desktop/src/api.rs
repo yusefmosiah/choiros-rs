@@ -513,14 +513,12 @@ pub async fn maximize_window(
     );
 
     let response = match work_area {
-        Some(work_area) => {
-            Request::post(&url)
-                .json(&work_area)
-                .map_err(|e| format!("Failed to serialize request: {e}"))?
-                .send()
-                .await
-                .map_err(|e| format!("Request failed: {e}"))?
-        }
+        Some(work_area) => Request::post(&url)
+            .json(&work_area)
+            .map_err(|e| format!("Failed to serialize request: {e}"))?
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {e}"))?,
         None => Request::post(&url)
             .send()
             .await

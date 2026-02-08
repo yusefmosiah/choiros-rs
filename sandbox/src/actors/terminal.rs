@@ -103,12 +103,19 @@ pub enum TerminalMsg {
     Stop {
         reply: RpcReplyPort<Result<(), TerminalError>>,
     },
-    /// Execute a high-level objective using an agentic loop over this terminal.
+    /// Execute a high-level natural-language objective over this terminal.
+    /// Intended for uactor->actor orchestration contracts.
     RunAgenticTask {
         objective: String,
         timeout_ms: Option<u64>,
         max_steps: Option<u8>,
         model_override: Option<String>,
+        progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
+        reply: RpcReplyPort<Result<TerminalAgentResult, TerminalError>>,
+    },
+    /// Execute one typed bash command for appactor->toolactor delegation.
+    RunBashTool {
+        request: TerminalBashToolRequest,
         progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
         reply: RpcReplyPort<Result<TerminalAgentResult, TerminalError>>,
     },
@@ -157,11 +164,20 @@ pub struct TerminalAgentProgress {
     pub message: String,
     pub reasoning: Option<String>,
     pub command: Option<String>,
+    pub model_used: Option<String>,
     pub output_excerpt: Option<String>,
     pub exit_code: Option<i32>,
     pub step_index: Option<usize>,
     pub step_total: Option<usize>,
     pub timestamp: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TerminalBashToolRequest {
+    pub cmd: String,
+    pub timeout_ms: Option<u64>,
+    pub model_override: Option<String>,
+    pub reasoning: Option<String>,
 }
 
 #[derive(Clone)]
@@ -406,6 +422,30 @@ impl Actor for TerminalActor {
                 };
                 let _ = reply.send(result);
             }
+            TerminalMsg::RunBashTool {
+                request,
+                progress_tx,
+                reply,
+            } => {
+                let result = match (
+                    state.is_running,
+                    state.input_tx.clone(),
+                    state.output_tx.clone(),
+                ) {
+                    (true, Some(input_tx), Some(output_tx)) => {
+                        let exec = TerminalExecutionContext {
+                            terminal_id: state.terminal_id.clone(),
+                            working_dir: state.working_dir.clone(),
+                            shell: state.shell.clone(),
+                        };
+                        drop(input_tx);
+                        drop(output_tx);
+                        self.run_bash_tool_request(exec, request, progress_tx).await
+                    }
+                    _ => Err(TerminalError::NotRunning),
+                };
+                let _ = reply.send(result);
+            }
 
             TerminalMsg::OutputReceived { data } => {
                 // Add to buffer, keeping only last 1000 lines
@@ -467,13 +507,16 @@ impl TerminalActor {
     ) -> Result<(ClientRegistry, String), TerminalError> {
         let registry = ModelRegistry::new();
         let resolved_model = registry
-            .resolve(&ModelResolutionContext {
-                request_model: model_override,
-                app_preference: std::env::var("CHOIR_TERMINAL_MODEL")
-                    .ok()
-                    .filter(|value| !value.trim().is_empty()),
-                user_preference: None,
-            })
+            .resolve_for_role(
+                "terminal",
+                &ModelResolutionContext {
+                    request_model: model_override,
+                    app_preference: std::env::var("CHOIR_TERMINAL_MODEL")
+                        .ok()
+                        .filter(|value| !value.trim().is_empty()),
+                    user_preference: None,
+                },
+            )
             .map_err(Self::map_model_error)?;
         let model_id = resolved_model.config.id;
         let client_registry = registry
@@ -502,6 +545,7 @@ impl TerminalActor {
             None,
             None,
             None,
+            None,
             Some(max_steps),
         );
         if Self::looks_like_shell_command(&objective) {
@@ -511,6 +555,7 @@ impl TerminalActor {
                 "executing direct bash command",
                 Some("Direct command execution (explicit bash command).".to_string()),
                 Some(objective.clone()),
+                None,
                 None,
                 None,
                 Some(1),
@@ -531,6 +576,7 @@ impl TerminalActor {
                 "direct bash command completed",
                 Some("Direct command execution (explicit bash command).".to_string()),
                 Some(objective.clone()),
+                None,
                 Some(output_excerpt.clone()),
                 Some(exit_code),
                 Some(1),
@@ -575,6 +621,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
             "terminal agent selected runtime model",
             Some(format!("Using model {model_used}")),
             None,
+            Some(model_used.clone()),
             None,
             None,
             None,
@@ -588,6 +635,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                 "terminal agent is planning next action",
                 None,
                 None,
+                Some(model_used.clone()),
                 None,
                 None,
                 None,
@@ -619,6 +667,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                                 .to_string(),
                         ),
                         Some(objective.clone()),
+                        Some(model_used.clone()),
                         Some(output_excerpt.clone()),
                         Some(exit_code),
                         Some(1),
@@ -649,6 +698,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                 "terminal agent produced reasoning",
                 Some(plan.thinking.clone()),
                 None,
+                Some(model_used.clone()),
                 None,
                 None,
                 None,
@@ -663,6 +713,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                         "terminal agent produced final response without tool calls",
                         latest_reasoning.clone(),
                         None,
+                        Some(model_used.clone()),
                         Some(Self::truncate_excerpt(&final_response)),
                         None,
                         Some(steps.len()),
@@ -719,6 +770,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                     "terminal agent requested bash tool execution",
                     tool_call.reasoning.clone(),
                     Some(command.clone()),
+                    Some(model_used.clone()),
                     None,
                     None,
                     Some(step_index),
@@ -749,6 +801,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                     "terminal agent received bash tool result",
                     tool_call.reasoning.clone(),
                     Some(command.clone()),
+                    Some(model_used.clone()),
                     Some(output_excerpt),
                     Some(exit_code),
                     Some(step_index),
@@ -783,6 +836,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
             "terminal agent synthesized final response",
             latest_reasoning.clone(),
             None,
+            Some(model_used.clone()),
             Some(Self::truncate_excerpt(&summary)),
             None,
             Some(steps.len()),
@@ -806,6 +860,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
         command: &str,
         timeout_ms: u64,
     ) -> Result<(String, i32), TerminalError> {
+        Self::validate_command_policy(command)?;
         let command = Self::normalize_command_for_runtime(command, timeout_ms);
         let output = tokio::time::timeout(
             std::time::Duration::from_millis(timeout_ms),
@@ -835,12 +890,75 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
         Ok((combined, output.status.code().unwrap_or(1)))
     }
 
+    async fn run_bash_tool_request(
+        &self,
+        ctx: TerminalExecutionContext,
+        request: TerminalBashToolRequest,
+        progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
+    ) -> Result<TerminalAgentResult, TerminalError> {
+        let timeout_ms = request.timeout_ms.unwrap_or(30_000).clamp(1_000, 120_000);
+        Self::emit_progress(
+            &progress_tx,
+            "terminal_tool_dispatch",
+            "terminal actor received typed bash tool request",
+            request.reasoning.clone(),
+            Some(request.cmd.clone()),
+            request.model_override.clone(),
+            None,
+            None,
+            Some(1),
+            Some(1),
+        );
+
+        let result = self
+            .run_agentic_task(
+                ctx,
+                request.cmd.clone(),
+                Some(timeout_ms),
+                Some(4),
+                request.model_override.clone(),
+                progress_tx,
+            )
+            .await?;
+        Ok(result)
+    }
+
+    fn validate_command_policy(command: &str) -> Result<(), TerminalError> {
+        let allowed_prefixes = std::env::var("CHOIR_TERMINAL_ALLOWED_COMMAND_PREFIXES")
+            .ok()
+            .map(|raw| {
+                raw.split(',')
+                    .map(str::trim)
+                    .filter(|part| !part.is_empty())
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if allowed_prefixes.is_empty() {
+            return Ok(());
+        }
+
+        let normalized = command.trim_start();
+        if allowed_prefixes
+            .iter()
+            .any(|prefix| normalized.starts_with(prefix))
+        {
+            return Ok(());
+        }
+
+        Err(TerminalError::InvalidInput(format!(
+            "Command denied by terminal policy. Set CHOIR_TERMINAL_ALLOWED_COMMAND_PREFIXES to include one of: {}",
+            allowed_prefixes.join(", ")
+        )))
+    }
+
     fn emit_progress(
         progress_tx: &Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
         phase: &str,
         message: &str,
         reasoning: Option<String>,
         command: Option<String>,
+        model_used: Option<String>,
         output_excerpt: Option<String>,
         exit_code: Option<i32>,
         step_index: Option<usize>,
@@ -854,6 +972,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
             message: message.to_string(),
             reasoning,
             command,
+            model_used,
             output_excerpt,
             exit_code,
             step_index,

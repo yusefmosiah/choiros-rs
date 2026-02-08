@@ -1,31 +1,168 @@
 # Roadmap Progress
 
-Date: 2026-02-07
+Date: 2026-02-08
 Source roadmap:
 - `docs/architecture/roadmap-dependency-tree.md`
 - `docs/architecture/roadmap-critical-analysis.md`
+- `docs/architecture/2026-02-08-architecture-reconciliation-review.md`
 
 ## Current Execution Lane (2026-02-08)
 
 Active order:
 1. Logging
 2. Watcher
-3. Researcher
+3. Model Policy
+4. Worker Signal Contract
+5. Researcher
 
 Now:
-- Pre-Researcher gate closeout:
-  - finalize remaining Logging checklist items
-  - finalize remaining Watcher checklist items
-  - confirm observability UI path is wired for watcher alerts
+- Reconciliation gate closeout (blocking Researcher):
+  - close capability boundary leak (`ChatAgent` direct tools)
+  - close terminal dual-contract drift (typed vs natural-language objective)
+  - close observability gap where watcher/log panels can appear empty
 
 Next:
-- Start Researcher milestone implementation.
+- Complete Worker Signal Contract docs gate, then implement typed report validation/event mapping before Researcher.
 
 Later:
 - Implement ResearcherActor with full lifecycle + citation event streaming.
 
 Blocked:
-- None.
+- Researcher milestone start is blocked by reconciliation criticals.
+- Researcher is additionally blocked on Model Policy milestone completion.
+- Researcher is additionally blocked on Worker Signal Contract implementation gate.
+
+## Worker Signal Contract Decision Update (2026-02-08, latest)
+
+Completed in docs:
+- Added contract doc: `docs/architecture/worker-signal-contract.md`.
+- Locked plane split:
+  - control plane: worker escalations to Conductor (`blocker|help|approval|conflict`)
+  - observability plane: findings/learnings/progress/artifacts as durable events
+- Locked transport decision:
+  - workers emit typed turn report envelopes
+  - runtime validates, dedups, applies cooldowns, then emits canonical events
+- Locked anti-spam strategy:
+  - prompt defaults to sparse emission
+  - schema caps (`findings<=2`, `learnings<=1`, `escalations<=1`)
+  - runtime rejection events (`worker.signal.rejected`) with reason
+
+Next implementation tasks:
+- Add typed BAML schema for turn reports.
+- Add Rust validator + governance layer (confidence thresholds, dedup, cooldown).
+- Add event mapping:
+  - `worker.report.received`
+  - `research.finding.created`
+  - `research.learning.created`
+  - `worker.signal.escalation_requested`
+  - `worker.signal.rejected`
+- Add tests proving non-spam behavior and escalation routing correctness.
+
+## Reconciliation Gate (2026-02-08, from architecture review)
+
+Decision locked:
+- Messaging model: **Option B** (separate contracts)
+  - `uActor -> Actor`: secure delegation envelope
+  - `AppActor -> ToolActor`: typed tool call envelope
+
+Critical conflicts to resolve before Researcher:
+- [x] C1: Remove `ChatAgent` local direct tool execution path.
+- [x] C2: Ensure all bash execution routes through `TerminalActor`.
+- [ ] C3: Remove/retire dual terminal contract drift (untyped natural-language execution path for app-tool calls).
+- [x] C4: Ensure watcher/log UI receives the same committed event stream semantics as backend (`EventStore` source of truth).
+
+Acceptance checks (must pass):
+- [x] `cargo test -p sandbox --test websocket_chat_test test_websocket_streams_actor_call_for_delegated_terminal_task -- --nocapture`
+- [x] `cargo test -p sandbox --test logs_ws_test -- --nocapture`
+- [x] `cargo test -p sandbox --lib actors::watcher::tests:: -- --nocapture`
+- [x] New capability-boundary test proving chat cannot execute tools directly (`sandbox/tests/capability_boundary_test.rs`).
+
+Notes:
+- The reconciliation review recommended dropping `Automatic*` naming migration as a priority item.
+- Naming cleanup is explicitly deferred until after capability + contract + observability gates.
+
+## Reconciliation Execution Update (2026-02-08, pass 2)
+
+Completed in this pass:
+- `ChatAgent` no longer executes local tools directly:
+  - removed local `ToolRegistry` from actor state.
+  - removed `ChatAgentMsg::ExecuteTool` message path.
+  - removed direct `execute_tool_impl` helper.
+- Chat app capability surface is now explicit and narrow:
+  - `GetAvailableTools` now returns `["bash"]`.
+  - planner tool description now documents delegated `bash` contract only.
+  - non-bash model tool calls now return explicit unsupported-tool errors.
+- Added capability boundary integration tests:
+  - `sandbox/tests/capability_boundary_test.rs`
+  - validates chat-visible tool surface and delegated worker event interface kind.
+- Added terminal-side centralized soft policy control:
+  - `CHOIR_TERMINAL_ALLOWED_COMMAND_PREFIXES` (comma-separated prefix allowlist)
+  - terminal rejects command execution when policy does not match.
+- Updated mixed-model live test harness to avoid deprecated direct execute API and use `ProcessMessage` flow.
+
+Validation executed:
+- `cargo check -p sandbox`
+- `cargo test -p sandbox --test capability_boundary_test -- --nocapture`
+- `cargo test -p sandbox --test websocket_chat_test test_websocket_streams_actor_call_for_delegated_terminal_task -- --nocapture`
+- `cargo test -p sandbox --test logs_ws_test -- --nocapture`
+- `cargo test -p sandbox --lib actors::watcher::tests:: -- --nocapture`
+- `cargo test -p sandbox --test model_provider_live_test --no-run`
+
+Remaining from the reconciliation gate:
+- C3 still open: finalize terminal contract split/retirement strategy for natural-language `RunAgenticTask` vs typed app-tool dispatch envelope.
+
+## C3 + Logging Expansion Update (2026-02-08, pass 3)
+
+Completed in this pass:
+- Closed appactor->toolactor typed terminal path for delegation:
+  - `ApplicationSupervisor` now dispatches typed `TerminalMsg::RunBashTool { request, ... }`.
+  - `RunAgenticTask` remains for higher-level objective execution (uactor path), but app delegation path is now explicit.
+- Expanded worker event model telemetry:
+  - worker lifecycle payloads now include `model_requested`.
+  - progress payloads include `model_used` when available.
+  - completion/failure payloads persist both `model_requested` and `model_used`.
+- Added policy-aware model resolution hooks:
+  - `ModelRegistry::resolve_for_role("chat" | "terminal", ...)`
+  - `load_model_policy()` from `CHOIR_MODEL_POLICY_PATH` / `config/model-policy.toml`.
+- Increased chat logging coverage:
+  - `ChatAgent` now logs `chat.user_msg` directly in actor flow (not only API edge paths).
+  - API/ws duplicate user-message persistence path removed to avoid duplicate events.
+- Logs UX now summary-first and less dense:
+  - Logs window fetches targeted prefixes: `worker.task`, `watcher.alert`, `model.`, `chat.`.
+  - Adds one-line human-readable summary per event while keeping raw JSON in collapsible details.
+
+Validation:
+- `cargo check -p sandbox`
+- `cargo check --manifest-path dioxus-desktop/Cargo.toml`
+- `cargo test -p sandbox --test capability_boundary_test -- --nocapture`
+- `cargo test -p sandbox --test websocket_chat_test test_websocket_streams_actor_call_for_delegated_terminal_task -- --nocapture`
+- `cargo test -p sandbox --test logs_ws_test -- --nocapture`
+- `cargo test -p sandbox --lib actors::watcher::tests:: -- --nocapture`
+
+Remaining to fully close model-policy-before-researcher:
+- Add backend summarizer actor (raw stream already present in WS logs UI).
+- Emit `log.summary.*` events from summarizer and keep self-skip guard active.
+- Start researcher implementation on top of policy-complete model routing.
+
+## Model Policy + Logs UX Update (2026-02-08, latest)
+
+Completed:
+- Added committed policy source file: `config/model-policy.toml`.
+- Updated defaults:
+  - chat: `ClaudeBedrockSonnet45`
+  - conductor: `ClaudeBedrockOpus46`
+  - summarizer: `ZaiGLM47Flash`
+- Removed `ClaudeBedrockOpus45` from active runtime model registry and canonical fallback path.
+- Extended policy schema with role-specific fields:
+  - `conductor_default_model`, `summarizer_default_model`
+  - `conductor_allowed_models`, `summarizer_allowed_models`
+- Updated Settings `Model Policy` tab doc preview to match runtime defaults and role allowlists.
+- Added separate `Available models` catalog block in Settings (outside the policy document view).
+- Logs WS summarization guard now skips recursive summarization for `log.summary.*` events.
+
+Validation:
+- `cargo check -p sandbox`
+- `cargo check --manifest-path dioxus-desktop/Cargo.toml`
 
 ## Pre-Researcher Gate Update (2026-02-08, latest pass)
 

@@ -92,58 +92,8 @@ pub async fn send_message(
         reply,
     }) {
         Ok(Ok(temp_id)) => {
-            // Persist user message immediately to keep HTTP chat responsive even if the
-            // agent is currently processing another turn.
-            let event_store = app_state.event_store();
-            let actor_id_for_event = actor_id.clone();
-            let user_id_for_event = user_id.clone();
-            let text_for_event = text.clone();
-            let session_id_for_event = session_id.clone();
-            let thread_id_for_event = thread_id.clone();
-            tokio::spawn(async move {
-                use crate::actors::event_store::{AppendEvent, EventStoreMsg};
-
-                let append_event = AppendEvent {
-                    event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
-                    payload: shared_types::chat_user_payload(
-                        text_for_event,
-                        session_id_for_event,
-                        thread_id_for_event,
-                    ),
-                    actor_id: actor_id_for_event.clone(),
-                    user_id: user_id_for_event.clone(),
-                };
-
-                match ractor::call!(event_store, |reply| EventStoreMsg::Append {
-                    event: append_event,
-                    reply,
-                }) {
-                    Ok(Ok(event)) => {
-                        tracing::info!(
-                            actor_id = %actor_id_for_event,
-                            seq = event.seq,
-                            "User message persisted to EventStore"
-                        );
-                    }
-                    Ok(Err(e)) => {
-                        tracing::error!(
-                            actor_id = %actor_id_for_event,
-                            error = %e,
-                            "Failed to persist user message to EventStore"
-                        );
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            actor_id = %actor_id_for_event,
-                            error = %e,
-                            "EventStore actor error when persisting message"
-                        );
-                    }
-                }
-            });
-
             // Trigger ChatAgent to process the message and generate response (fire and forget).
-            // ChatAgent logs assistant + tool events to EventStore.
+            // ChatAgent logs user/assistant/tool/model events to EventStore.
             let chat_agent = match app_state
                 .get_or_create_chat_agent(
                     scoped_agent_id(&actor_id, &session_id, &thread_id),

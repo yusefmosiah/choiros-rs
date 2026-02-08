@@ -205,44 +205,6 @@ async fn handle_chat_socket(
 
                     tokio::spawn(async move {
                         let event_store = app_state.event_store();
-                        let append_user_event = crate::actors::event_store::AppendEvent {
-                            event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
-                            payload: shared_types::chat_user_payload(
-                                user_text.clone(),
-                                Some(session_id.clone()),
-                                Some(thread_id.clone()),
-                            ),
-                            actor_id: actor_id.clone(),
-                            user_id: user_id.clone(),
-                        };
-
-                        match ractor::call!(event_store, |reply| {
-                            crate::actors::event_store::EventStoreMsg::Append {
-                                event: append_user_event,
-                                reply,
-                            }
-                        }) {
-                            Ok(Ok(_)) => {}
-                            Ok(Err(e)) => {
-                                tracing::error!(
-                                    actor_id = %actor_id,
-                                    error = %e,
-                                    "Failed to persist WebSocket user message"
-                                );
-                                let _ = send_error(&tx_clone, "Failed to persist user message");
-                                return;
-                            }
-                            Err(e) => {
-                                tracing::error!(
-                                    actor_id = %actor_id,
-                                    error = %e,
-                                    "EventStore actor error while persisting WebSocket user message"
-                                );
-                                let _ = send_error(&tx_clone, "Failed to persist user message");
-                                return;
-                            }
-                        }
-
                         let last_seq = match get_events_for_actor_with_scope(
                             &event_store,
                             actor_id.clone(),

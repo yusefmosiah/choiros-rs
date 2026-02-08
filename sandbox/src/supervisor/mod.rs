@@ -768,6 +768,7 @@ impl Actor for ApplicationSupervisor {
                     serde_json::json!({
                         "task": task,
                         "status": shared_types::DelegatedTaskStatus::Accepted,
+                        "model_requested": model_override.clone(),
                         "started_at": chrono::Utc::now().to_rfc3339(),
                     }),
                     correlation_id.clone(),
@@ -909,6 +910,7 @@ impl Actor for ApplicationSupervisor {
                             "task_id": task_id,
                             "status": shared_types::DelegatedTaskStatus::Running,
                             "message": "terminal ready; dispatching command",
+                            "model_requested": model_override.clone(),
                             "timestamp": chrono::Utc::now().to_rfc3339(),
                         }),
                         correlation_id.clone(),
@@ -928,6 +930,7 @@ impl Actor for ApplicationSupervisor {
                             "status": shared_types::DelegatedTaskStatus::Running,
                             "phase": "terminal_agent_dispatch",
                             "message": "terminal agent accepted request and is running",
+                            "model_requested": model_override.clone(),
                             "timestamp": chrono::Utc::now().to_rfc3339(),
                         }),
                         correlation_id.clone(),
@@ -944,11 +947,16 @@ impl Actor for ApplicationSupervisor {
                     let model_override_for_task = model_override.clone();
                     tokio::spawn(async move {
                         let call_result = ractor::call!(terminal_ref_for_task, |agent_reply| {
-                            TerminalMsg::RunAgenticTask {
-                                objective: command_for_task,
-                                timeout_ms: Some(timeout_ms),
-                                max_steps: Some(4),
-                                model_override: model_override_for_task,
+                            TerminalMsg::RunBashTool {
+                                request: crate::actors::terminal::TerminalBashToolRequest {
+                                    cmd: command_for_task,
+                                    timeout_ms: Some(timeout_ms),
+                                    model_override: model_override_for_task,
+                                    reasoning: Some(
+                                        "Typed bash delegation from appactor->toolactor contract"
+                                            .to_string(),
+                                    ),
+                                },
                                 progress_tx: Some(progress_tx),
                                 reply: agent_reply,
                             }
@@ -977,6 +985,7 @@ impl Actor for ApplicationSupervisor {
                                             "task_id": task_id,
                                             "status": shared_types::DelegatedTaskStatus::Running,
                                             "phase": "terminal_agent_running",
+                                            "model_requested": model_override.clone(),
                                             "elapsed_ms": elapsed_ms,
                                             "message": "terminal agent is still running",
                                             "timestamp": chrono::Utc::now().to_rfc3339(),
@@ -1003,6 +1012,8 @@ impl Actor for ApplicationSupervisor {
                                             "message": progress.message,
                                             "reasoning": progress.reasoning,
                                             "command": progress.command,
+                                            "model_requested": model_override.clone(),
+                                            "model_used": progress.model_used,
                                             "output_excerpt": progress.output_excerpt,
                                             "exit_code": progress.exit_code,
                                             "step_index": progress.step_index,
@@ -1053,6 +1064,7 @@ impl Actor for ApplicationSupervisor {
                                                         },
                                                         "output": result.summary,
                                                         "reasoning": result.reasoning,
+                                                        "model_requested": model_override.clone(),
                                                         "model_used": result.model_used,
                                                         "executed_commands": result.executed_commands,
                                                         "steps": result.steps,
@@ -1075,6 +1087,7 @@ impl Actor for ApplicationSupervisor {
                                                     "status": shared_types::DelegatedTaskStatus::Completed,
                                                     "output": result.summary,
                                                     "reasoning": result.reasoning,
+                                                    "model_requested": model_override.clone(),
                                                     "model_used": result.model_used,
                                                     "executed_commands": result.executed_commands,
                                                     "steps": result.steps,
