@@ -87,6 +87,15 @@ pub struct ExecutedToolCall {
     pub result: ToolOutput,
 }
 
+#[derive(Debug, Clone)]
+enum DelegatedToolCallOutcome {
+    Immediate(ToolOutput),
+    Deferred {
+        task_id: String,
+        initial_message: String,
+    },
+}
+
 // ============================================================================
 // Error Type
 // ============================================================================
@@ -159,6 +168,15 @@ impl ChatAgent {
             .and_then(|v| v.as_str())
             .or_else(|| payload.get("summary").and_then(|v| v.as_str()))
             .map(ToString::to_string)
+    }
+
+    fn truncate_for_chat(value: &str, max_chars: usize) -> String {
+        let trimmed = value.trim();
+        if trimmed.chars().count() <= max_chars {
+            return trimmed.to_string();
+        }
+        let truncated = trimmed.chars().take(max_chars).collect::<String>();
+        format!("{truncated}...")
     }
 
     fn get_tools_description(_state: &ChatAgentState) -> String {
@@ -891,6 +909,8 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         thread_id: Option<String>,
         hard_wait_timeout_ms: u64,
         capability: &'static str,
+        user_prompt: String,
+        model_for_followup: String,
     ) {
         let event_store = state.args.event_store.clone();
         let actor_id = state.args.actor_id.clone();
@@ -911,17 +931,54 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                         let output = result
                             .output
                             .unwrap_or_else(|| format!("{capability} task completed."));
-                        format!("Async {capability} update\n\n{output}")
+                        let synthesized = if let Ok(client_registry) = ModelRegistry::new()
+                            .create_runtime_client_registry_for_model(&model_for_followup)
+                        {
+                            let synthesis_context = format!(
+                                "Asynchronous {} completion follow-up. Return final answer only for the user. Do not include raw logs, citation lists, or intermediate diagnostics unless explicitly requested.",
+                                capability
+                            );
+                            let tool_results = vec![ToolResult {
+                                tool_name: capability.to_string(),
+                                success: true,
+                                output: output.clone(),
+                                error: None,
+                            }];
+                            crate::baml_client::B
+                                .SynthesizeResponse
+                                .with_client_registry(&client_registry)
+                                .call(&user_prompt, &tool_results, &synthesis_context)
+                                .await
+                                .ok()
+                        } else {
+                            None
+                        };
+                        synthesized.unwrap_or_else(|| {
+                            if capability == "research" {
+                                "Research completed. I have the results and can provide a concise answer right away."
+                                    .to_string()
+                            } else {
+                                Self::truncate_for_chat(&output, 260)
+                            }
+                        })
                     }
                     shared_types::DelegatedTaskStatus::Failed => {
                         let error = result
                             .error
                             .unwrap_or_else(|| format!("{capability} task failed."));
-                        format!("Async {capability} update\n\nTask failed: {error}")
+                        format!(
+                            "I couldn't complete that {} request. {}",
+                            capability,
+                            Self::truncate_for_chat(&error, 220)
+                        )
                     }
                     _ => return,
                 },
-                Err(err) => format!("Async {capability} update\n\nTask did not finish: {err}"),
+                Err(err) => format!(
+                    "I couldn't complete that {} request because the delegated task did not finish in time: {}",
+                    capability,
+                    Self::truncate_for_chat(&err.to_string(), 180)
+                ),
             };
 
             let payload = serde_json::json!({
@@ -1035,6 +1092,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
 
         let mut executed_tools: Vec<ExecutedToolCall> = Vec::new();
         let mut tool_results: Vec<ToolResult> = Vec::new();
+        let mut deferred_tool_started = false;
 
         for tool_call in &plan.tool_calls {
             let tool_args_value =
@@ -1062,6 +1120,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                     session_id.clone(),
                     thread_id.clone(),
                     Some(model_used.clone()),
+                    user_text.clone(),
                 )
                 .await
             } else if tool_call.tool_name == "web_search" {
@@ -1071,6 +1130,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                     session_id.clone(),
                     thread_id.clone(),
                     Some(model_used.clone()),
+                    user_text.clone(),
                 )
                 .await
             } else {
@@ -1081,7 +1141,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
             };
 
             match result {
-                Ok(output) => {
+                Ok(DelegatedToolCallOutcome::Immediate(output)) => {
                     executed_tools.push(ExecutedToolCall {
                         tool_name: tool_call.tool_name.clone(),
                         tool_args: tool_args.clone(),
@@ -1109,6 +1169,36 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                         output: output.content.clone(),
                         error: None,
                     });
+                }
+                Ok(DelegatedToolCallOutcome::Deferred {
+                    task_id,
+                    initial_message,
+                }) => {
+                    deferred_tool_started = true;
+                    executed_tools.push(ExecutedToolCall {
+                        tool_name: tool_call.tool_name.clone(),
+                        tool_args: tool_args.clone(),
+                        reasoning: tool_call.reasoning.clone().unwrap_or_default(),
+                        result: ToolOutput {
+                            success: true,
+                            content: initial_message.clone(),
+                        },
+                    });
+                    self.log_event(
+                        state,
+                        shared_types::EVENT_CHAT_TOOL_RESULT,
+                        serde_json::json!({
+                            "tool_name": tool_call.tool_name,
+                            "success": true,
+                            "output": initial_message,
+                            "deferred": true,
+                            "task_id": task_id,
+                        }),
+                        session_id.clone(),
+                        thread_id.clone(),
+                        state.args.user_id.clone(),
+                    )
+                    .await?;
                 }
                 Err(e) => {
                     self.log_event(
@@ -1142,7 +1232,9 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
             .collect::<Vec<_>>()
             .join("\n");
 
-        let response_text = if let Some(final_response) = plan.final_response {
+        let response_text = if deferred_tool_started {
+            "Working on it now. I started the delegated task and will post the final answer when it completes.".to_string()
+        } else if let Some(final_response) = plan.final_response {
             final_response
         } else {
             let synthesis_user_prompt = Self::timestamped_prompt_content(&user_text, Utc::now());
@@ -1243,7 +1335,8 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         session_id: Option<String>,
         thread_id: Option<String>,
         default_model_override: Option<String>,
-    ) -> Result<ToolOutput, ChatAgentError> {
+        user_prompt: String,
+    ) -> Result<DelegatedToolCallOutcome, ChatAgentError> {
         let Some(supervisor) = &state.args.application_supervisor else {
             return Err(ChatAgentError::Tool(
                 "ApplicationSupervisor unavailable for delegation".to_string(),
@@ -1272,11 +1365,14 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
             .unwrap_or(".")
             .to_string();
         let timeout_ms = parsed_args.get("timeout_ms").and_then(|v| v.as_u64());
+        let followup_model = default_model_override
+            .clone()
+            .unwrap_or_else(|| "ClaudeBedrockSonnet45".to_string());
         let model_override = parsed_args
             .get("model")
             .and_then(|v| v.as_str())
             .map(ToString::to_string)
-            .or(default_model_override);
+            .or(default_model_override.clone());
 
         let terminal_id = match (&session_id, &thread_id) {
             (Some(session_id), Some(thread_id)) => {
@@ -1326,25 +1422,28 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                     thread_id,
                     wait_timeout_ms,
                     "terminal",
+                    user_prompt,
+                    followup_model,
                 );
-                return Ok(ToolOutput {
-                    success: true,
-                    content: format!(
-                        "Terminal task {} is running in the background. I will append results when it finishes.",
-                        task.task_id
-                    ),
+                return Ok(DelegatedToolCallOutcome::Deferred {
+                    task_id: task.task_id,
+                    initial_message:
+                        "Terminal task is running in the background. I will post the final result when it completes."
+                            .to_string(),
                 });
             }
             Err(err) => return Err(err),
         };
 
         match result.status {
-            shared_types::DelegatedTaskStatus::Completed => Ok(ToolOutput {
-                success: true,
-                content: result
-                    .output
-                    .unwrap_or_else(|| "Terminal task completed (no output)".to_string()),
-            }),
+            shared_types::DelegatedTaskStatus::Completed => {
+                Ok(DelegatedToolCallOutcome::Immediate(ToolOutput {
+                    success: true,
+                    content: result
+                        .output
+                        .unwrap_or_else(|| "Terminal task completed (no output)".to_string()),
+                }))
+            }
             shared_types::DelegatedTaskStatus::Failed => {
                 Err(ChatAgentError::Tool(result.error.unwrap_or_else(|| {
                     "Delegated terminal task failed".to_string()
@@ -1363,7 +1462,8 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         session_id: Option<String>,
         thread_id: Option<String>,
         default_model_override: Option<String>,
-    ) -> Result<ToolOutput, ChatAgentError> {
+        user_prompt: String,
+    ) -> Result<DelegatedToolCallOutcome, ChatAgentError> {
         let Some(supervisor) = &state.args.application_supervisor else {
             return Err(ChatAgentError::Tool(
                 "ApplicationSupervisor unavailable for research delegation".to_string(),
@@ -1409,11 +1509,14 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                     .collect::<Vec<_>>()
             });
         let timeout_ms = parsed_args.get("timeout_ms").and_then(|v| v.as_u64());
+        let followup_model = default_model_override
+            .clone()
+            .unwrap_or_else(|| "ClaudeBedrockSonnet45".to_string());
         let model_override = parsed_args
             .get("model")
             .and_then(|v| v.as_str())
             .map(ToString::to_string)
-            .or(default_model_override);
+            .or(default_model_override.clone());
         let reasoning = parsed_args
             .get("reasoning")
             .and_then(|v| v.as_str())
@@ -1474,25 +1577,28 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                     thread_id,
                     wait_timeout_ms,
                     "research",
+                    user_prompt,
+                    followup_model,
                 );
-                return Ok(ToolOutput {
-                    success: true,
-                    content: format!(
-                        "Research task {} is running in the background. I will append findings when it finishes.",
-                        task.task_id
-                    ),
+                return Ok(DelegatedToolCallOutcome::Deferred {
+                    task_id: task.task_id,
+                    initial_message:
+                        "Research task is running in the background. I will post the final answer when it completes."
+                            .to_string(),
                 });
             }
             Err(err) => return Err(err),
         };
 
         match result.status {
-            shared_types::DelegatedTaskStatus::Completed => Ok(ToolOutput {
-                success: true,
-                content: result
-                    .output
-                    .unwrap_or_else(|| "Research task completed (no output)".to_string()),
-            }),
+            shared_types::DelegatedTaskStatus::Completed => {
+                Ok(DelegatedToolCallOutcome::Immediate(ToolOutput {
+                    success: true,
+                    content: result
+                        .output
+                        .unwrap_or_else(|| "Research task completed (no output)".to_string()),
+                }))
+            }
             shared_types::DelegatedTaskStatus::Failed => {
                 Err(ChatAgentError::Tool(result.error.unwrap_or_else(|| {
                     "Delegated research task failed".to_string()
