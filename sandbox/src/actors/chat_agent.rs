@@ -80,6 +80,7 @@ pub struct AgentResponse {
     pub thinking: String,
     pub confidence: f64,
     pub model_used: String,
+    pub model_source: String,
 }
 
 /// Record of an executed tool call
@@ -269,6 +270,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
 
         let tools_description = Self::get_tools_description(state);
         let system_context = Self::get_system_context(state);
+        let requested_model = model_override.clone();
         let resolved_model = state
             .model_registry
             .resolve(&ModelResolutionContext {
@@ -278,10 +280,26 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
             })
             .map_err(Self::map_model_error)?;
         let model_used = resolved_model.config.id;
+        let model_source = resolved_model.source.as_str().to_string();
         let client_registry = state
             .model_registry
-            .create_client_registry_for_model(&model_used, &["ClaudeBedrock"])
+            .create_runtime_client_registry_for_model(&model_used)
             .map_err(Self::map_model_error)?;
+
+        self.log_event(
+            state,
+            shared_types::EVENT_MODEL_SELECTION,
+            serde_json::json!({
+                "model_used": model_used.clone(),
+                "model_source": model_source.clone(),
+                "requested_model": requested_model,
+                "chat_model_preference": state.current_model.clone(),
+            }),
+            session_id.clone(),
+            thread_id.clone(),
+            state.args.user_id.clone(),
+        )
+        .await?;
 
         let plan = crate::baml_client::B
             .PlanAction
@@ -420,7 +438,8 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                 "text": response_text,
                 "thinking": plan.thinking,
                 "confidence": plan.confidence,
-                "model": model_used,
+                "model": model_used.clone(),
+                "model_source": model_source.clone(),
                 "tools_used": executed_tools.len(),
             }),
             session_id,
@@ -435,6 +454,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
             thinking: plan.thinking,
             confidence: plan.confidence,
             model_used,
+            model_source,
         })
     }
 
@@ -456,7 +476,25 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
             new_model = %resolved_model.id,
             "Switching model"
         );
+        let old_model = state.current_model.clone();
         state.current_model = resolved_model.id;
+        let event_store = state.args.event_store.clone();
+        let actor_id = state.args.actor_id.clone();
+        let user_id = state.args.user_id.clone();
+        let new_model = state.current_model.clone();
+        tokio::spawn(async move {
+            let event = AppendEvent {
+                event_type: shared_types::EVENT_MODEL_CHANGED.to_string(),
+                payload: serde_json::json!({
+                    "old_model": old_model,
+                    "new_model": new_model,
+                    "source": "switch_model",
+                }),
+                actor_id,
+                user_id,
+            };
+            let _ = ractor::call!(event_store, |reply| EventStoreMsg::Append { event, reply });
+        });
         Ok(())
     }
 

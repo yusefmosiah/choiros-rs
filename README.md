@@ -6,6 +6,9 @@
 
 ## Current Status (2026-02-07)
 
+Human-first docs entrypoint:
+- `/Users/wiz/choiros-rs/docs/architecture/NARRATIVE_INDEX.md`
+
 **✅ Working:**
 - Supervision-tree runtime (`ApplicationSupervisor -> SessionSupervisor -> chat/desktop/terminal`)
 - EventStoreActor + EventBus-backed worker lifecycle tracing

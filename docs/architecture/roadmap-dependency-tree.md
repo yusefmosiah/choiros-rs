@@ -1,434 +1,204 @@
-# ChoirOS Roadmap Dependency Tree
-
-**Date:** 2026-02-08
-**Status:** Working roadmap (execution-oriented)
-
----
-
-## Execution Snapshot (2026-02-08)
-
-- Phase B is actively implemented:
-  - delegated terminal task contracts (`task_id`, `correlation_id`, scope keys, status) are live
-  - asynchronous delegation API is live in `ApplicationSupervisor`
-  - delegated tasks persist worker lifecycle events (`started/progress/completed/failed`)
-  - terminal delegation routes through internal agentic harness in `TerminalActor`
-
-- Phase F (Identity/Scope) remains in progress:
-  - scope-aware chat/thread isolation implemented for API + websocket/event retrieval
-  - full non-chat scope propagation remains open
-
-- **New Architecture Direction** (2026-02-08):
-  - Capability Actor pattern: tool → agent → actor with standard contract
-  - StateIndexActor: compressed state plane (AHDB) for all actor context
-  - PromptBarActor: universal entrypoint above individual apps
-  - ResearcherActor: web research capability actor abstracted as `web_search` tool
-  - Safety as capability: Verifier, HITL (email), Policy, LLM guardrails
-  - Self-hosting introspection: Choir modifying Choir with headless test sandboxes
-  - Directives app as first-class control surface (persistent directive forest + event links)
-  - Policy pattern split:
-    - supervision for lifecycle only
-    - deterministic local policy checks for normal actor calls
-    - policy actors for high-risk escalation paths only
-
----
-
-## Purpose
-
-Define a safe execution order for:
-1. Multiagent control plane and capability architecture
-2. Safety and verification infrastructure
-3. Context management and state plane
-4. Auth and identity enforcement
-5. Sandbox persistence and hypervisor integration
-6. Self-hosting introspection (code modification)
-7. Nix/NixOS migration
-
-Biased toward delivery safety, low rework, and solid foundations before self-hosting features.
-
----
-
-## Dependency Tree
-
-```text
-A. Supervision Cutover (complete)
-   |
-   +--> B. Multiagent Control Plane v1
-   |      |
-   |      +--> B1. Capability Contract Schema (docs + types)
-   |      |      |
-   |      |      +--> B2. StateIndexActor (compressed state plane)
-   |      |             |
-   |      |             +--> B3. PromptBarActor (universal entrypoint)
-   |      |                    |
-   |      |                    +--> B4. First Capability Pair: GitActor + ResearcherActor
-   |      |                           |
-   |      |                           +--> B5. SafetyOrchestrator (verifiers, policy)
-   |      |                                  |
-   |      +--> F. Identity and Scope Enforcement v1 (parallel with B2-B5)
-   |             |
-   |             +--> C. Chat Delegation Refactor (depends on B3, F)
-   |                    |
-   |                    +--> D. Context Broker v1 (depends on B2, F)
-   |                           |
-   |                           +--> E. App Expansion Wave 1
-   |
-   +--> G. SandboxFS Persistence (parallel with D)
-          |
-          +--> H. Hypervisor Integration
-                 |
-                 +--> J. Self-Hosting Introspection v1
-                        |
-                        +--> J1. Prompt visibility + editing
-                        +--> J2. Code introspection (read-only)
-                        +--> J3. Headless test sandbox
-                        +--> J4. Safe self-modification loop
-   |
-   +--> I. Nix/NixOS Migration (cross-cutting)
-          +--> I1. Dev shell + toolchain pinning
-          +--> I2. CI parity and reproducible builds
-          +--> I3. Deployment packaging
-          +--> I4. Host-level NixOS operations
-```
-
----
-
-## Critical Path (Updated)
-
-1. **B1** Capability Contract Schema — standard envelope for all actors
-2. **B2** StateIndexActor — compressed state plane (foundation for context)
-3. **F** Identity and Scope Enforcement — security boundary
-4. **B3** PromptBarActor — universal entrypoint
-5. **B4** GitActor + ResearcherActor — prove capability pattern on local+network tasks
-6. **B5** SafetyOrchestrator — verifiers and policy
-7. **C** Chat Delegation Refactor — router to capabilities
-8. **D** Context Broker v1 — layered retrieval
-9. **G+H** Persistence + Hypervisor — foundation for J
-10. **J** Self-Hosting Introspection — Choir modifying Choir
-
----
-
-## Execution Phases (Detailed)
-
-### Phase B1 - Capability Contract Schema
-**Objective:** Define the standard interface all capability actors implement.
-
-**Deliverables:**
-- `shared-types/src/capability.rs`: `CapabilityInput`, `CapabilityOutput`, `CapabilityEvent`
-- `shared-types/src/safety.rs`: `SafetyPolicy`, `VerificationLevel`, `EnforcementLevel`
-- `docs/design/capability-lifecycle.md`: State machine specification
-- `docs/design/safety-decision-flow.md`: Safety architecture
-
-**Gate:**
-- Schema review complete, types compile, documentation approved.
-
----
-
-### Phase B2 - StateIndexActor (Compressed State Plane)
-**Objective:** Build the AHDB state index that all actors query for context.
-
-**Deliverables:**
-- `StateIndexActor`: subscribes to EventBus, maintains compressed snapshots
-- `CompressedState` struct: active goals, directives summary, recent blocks, scope anchors
-- `DirectiveForest`: hierarchical directive tree with live status
-- Query API: `GetLatestSnapshot`, `GetTaskTree`, `GetAlerts`
-
-**Gate:**
-- Snapshot generation < 100ms for 10K events.
-- Task tree renders in UI with live updates.
-
----
-
-### Phase F - Identity and Scope Enforcement v1
-**Objective:** Prevent cross-user/session data leakage.
-
-**Deliverables:**
-- Required scope keys: `user_id`, `session_id`, `app_id`, `thread_id`, `sandbox_id`
-- Enforcement at API and supervisor boundaries
-- Auth integration: session validation, token lifecycle
-
-**Gate:**
-- Isolation tests prove no cross-user/session retrieval leakage.
-
----
-
-### Phase B3 - PromptBarActor (Universal Entrypoint)
-**Objective:** Global intent router above individual apps.
-
-**Deliverables:**
-- `PromptBarActor`: receives all user input (typed, voice)
-- Intent classification: NL → structured capability calls
-- Routing to: ChatActor, TerminalActor, GitActor, etc.
-- UI: persistent input bar, Directives app with hierarchical directive display
-
-**Gate:**
-- "Open chat with X" and "Run command Y" both route correctly.
-- Task tree visible and updates live.
-
----
-
-### Phase B4 - GitActor (First Capability)
-**Objective:** Prove capability actor pattern with concrete local+network implementations.
-
-**Deliverables:**
-- `GitActor`: typed git ops (status, diff, branch, commit, push, log, checkout)
-- `ResearcherActor`: typed web research ops (search, fetch, extract, synthesize)
-- Tool abstraction:
-  - `bash` -> TerminalActor
-  - `web_search` -> ResearcherActor
-- Event-sourced: `EVENT_GIT_COMMIT`, `EVENT_GIT_BRANCH`, etc.
-- Event-sourced researcher lifecycle:
-  - `research.planning`
-  - `research.search_results`
-  - `research.fetch_started|completed`
-  - `research.synthesis_started|completed`
-- Safety policy integration
-- Observable via same `CapabilityEvent` schema as all capabilities
+# ChoirOS Roadmap (Linear Execution Checklist)
 
-**Gate:**
-- Git operations complete with full event trail.
-- Web research completes with citations and observable actor-call timeline.
-- Failed operations retry with supervision.
+Date: 2026-02-08
+Status: Authoritative execution order
 
----
+## Why Linear
 
-## Immediate Build Order (Clarity Pass)
+We are intentionally moving from a dependency tree to a linear checklist.
 
-0. **Directives app lock**: make hierarchical directives the primary operator view.
-1. **B1 contract lock**: finalize shared capability/task/event schema.
-2. **B2 StateIndexActor skeleton**: compressed snapshot + directive tree query API.
-3. **B3 PromptBarActor skeleton**: route one universal intent (`open chat with prompt`).
-4. **B4 ResearcherActor v1**: implement as `web_search` capability with streamed actor-call phases.
-5. **B4 GitActor v1**: typed git operations through same capability contract.
-6. **Watcher bootstrap**: emit blockers/stalls/failures into StateIndex directive tree.
+Reason:
+- Parallel feature development is creating architectural drift and unclear ownership.
+- We need one active milestone at a time, with explicit gates.
+- Work can still have small supporting tasks, but only one primary roadmap phase is in progress.
 
-Rule:
-- Prioritize concrete capability actors (`ResearcherActor`, `GitActor`) over broad app expansion.
-- Do not ship further app complexity until Directives app + hard capability boundaries are in place.
+## Operating Rules
 
----
+- Single active roadmap phase at a time.
+- No new feature branch before current phase gate passes.
+- Bug fixes are allowed at any time, but do not advance roadmap phase state.
+- Documentation must be updated at each phase gate.
 
-### Phase B5 - SafetyOrchestrator
-**Objective:** Safety as a capability layer, not an afterthought.
+## Linear Checklist
 
-Policy execution model:
-- Do not route all actor calls through a policy/supervisor bottleneck.
-- Use direct actor-to-actor calls with deterministic local policy checks.
-- Route only high-risk actions to policy actor workflows.
+### Phase 0: Directives App Lock
 
-**Deliverables:**
-- `PolicyEnforcementActor`: static rule checking
-- `VerifierActor`: automatic verification (code, claims)
-- `LLMGuardrailActor`: prompt-based safety checks
-- `HumanInTheLoopActor`: email-based confirmation (Resend + mymx)
-- Safety decision flow: Policy → Verifier → HITL
+Goal:
+- Establish Directives as the first-class operator view (app/window, not always-on panel).
 
-**Gate:**
-- Policy blocks unauthorized capability calls.
-- Verifier catches bad code/claims.
-- HITL sends email and blocks until response.
+Checklist:
+- [ ] Define `DirectiveForest` state model.
+- [ ] Define directive event schema (`directive.created|updated|blocked|completed`).
+- [ ] Define WS stream contract for directive updates.
+- [ ] Define Directives app open/focus behavior across mobile/desktop.
 
----
+Gate:
+- Directives data + event contracts are documented and approved.
 
-### Phase C - Chat Delegation Refactor v1
-**Objective:** Chat is planner/router; capabilities do the work.
+### Phase 1: Capability Contract Lock
 
-**Deliverables:**
-- Chat routes intents to capability actors via PromptBar
-- Retains narrow direct-tool fallback for latency-critical paths
-- Timeout/retry/error contracts for all capability calls
-- Observable delegation flow
+Goal:
+- Lock shared actor-capability contracts before adding more actors.
 
-**Gate:**
-- Chat delegates to Terminal via capability contract.
-- Graceful degradation on capability failure.
+Checklist:
+- [ ] Finalize `CapabilityInput`, `CapabilityOutput`, `CapabilityEvent` schema.
+- [ ] Finalize actor-call envelope (`task_id`, `correlation_id`, scope keys, status).
+- [ ] Define mandatory event metadata fields.
 
----
+Gate:
+- Contract types compile and docs are signed off.
 
-### Phase D - Context Broker v1
-**Objective:** Layered context retrieval with drill-down.
+### Phase 2: StateIndex Baseline
 
-**Deliverables:**
-- Canonical events in libsql
-- Memory layers: global, workspace, session, thread
-- API: `brief_context` + `relevant_handles` + `expand(handle)`
-- Integration with StateIndexActor snapshots
+Goal:
+- Build compressed state/query plane for directives and context summaries.
 
-**Gate:**
-- Relevance test: prior session insights improve later task.
-- No scope boundary violations.
+Checklist:
+- [ ] Implement StateIndexActor skeleton.
+- [ ] Add compressed snapshot model with directives summary.
+- [ ] Add query API (`GetLatestSnapshot`, `GetDirectiveTree`, `GetAlerts`).
 
----
+Gate:
+- Snapshot replay works and directive tree queries are stable.
 
-### Phase G - SandboxFS Persistence
-**Objective:** Durable virtual filesystem.
+### Phase 3: Identity and Scope Enforcement
 
-**Deliverables:**
-- SandboxFS interface: read/write/list/delete/snapshot/rehydrate
-- SQLite-backed storage
-- Versioned snapshots
+Goal:
+- Enforce strict scope boundaries before broad feature expansion.
 
-**Gate:**
-- Restart/rehydrate test restores files deterministically.
+Checklist:
+- [ ] Require and validate scope keys across API and actor boundaries.
+- [ ] Add isolation tests for cross-session/thread/user leakage.
+- [ ] Ensure scope propagation in event and retrieval paths.
 
----
+Gate:
+- Isolation tests pass; no known cross-scope leaks.
 
-### Phase H - Hypervisor Integration
-**Objective:** Bind sandbox lifecycle to identity and state.
+### Phase 4: PromptBar Baseline
 
-**Deliverables:**
-- Session-attached sandbox allocation
-- Attach/detach/restore lifecycle
-- Integration with SandboxFS snapshots
+Goal:
+- PromptBar becomes orchestration entrypoint.
 
-**Gate:**
-- Multi-session integration tests pass with strict isolation.
+Checklist:
+- [ ] PromptBar routes to actors (not tools).
+- [ ] PromptBar memo output format defined.
+- [ ] PromptBar can open/focus Directives app and create directives.
 
----
+Gate:
+- PromptBar orchestration flows work end-to-end.
 
-### Phase J - Self-Hosting Introspection v1
-**Objective:** Choir can see and modify itself safely.
+### Phase 5: Researcher Actor v1
 
-**J1. Prompt Visibility + Editing**
-- `PromptRegistry`: all system prompts visible in UI
-- `PromptEditorApp`: view, edit, version prompts
-- Prompt safety guardrails (LLM-based checks)
+Goal:
+- Deliver first networked capability actor with observable lifecycle.
 
-**J2. Code Introspection**
-- `CodeIntrospectionActor`: read source, AST index, find implementations
-- `SystemBrowserApp`: browse actors, see source, trace events
+Checklist:
+- [ ] Implement ResearcherActor capability contract.
+- [ ] Add `web_search` abstraction in chat routing.
+- [ ] Emit structured lifecycle events with citations.
 
-**J3. Headless Test Sandbox**
-- `HeadlessSandboxActor`: spawn isolated Choir instance
-- Run tests against modified code
-- Nix reproducible builds (I2)
+Gate:
+- Research flow is observable and reproducible in event log.
 
-**J4. Safe Self-Modification Loop**
-- Change proposal → safety checks → headless test → HITL approval
-- Browser state hydration for live cutover
-- Rollback capability
+### Phase 6: Git Actor v1
 
-**Gate:**
-- Choir modifies a prompt, tests pass, deploys safely.
+Goal:
+- Deliver first local capability actor with deterministic operations.
 
----
+Checklist:
+- [ ] Implement typed git operations.
+- [ ] Add full event trail for git actions.
+- [ ] Add baseline safety constraints for write operations.
 
-### Phase I - Nix/NixOS Migration (Cross-Cutting)
+Gate:
+- Git workflows pass integration tests with full traceability.
 
-**I1. Dev Shell + Toolchain Pinning**
-- `flake.nix` with Rust, Node, dependencies
-- `direnv` integration
+### Phase 7: Chat Delegation Baseline
 
-**I2. CI Parity and Reproducible Builds**
-- GitHub Actions use Nix
-- Binary cache
+Goal:
+- Chat routes capabilities cleanly without direct execution leakage.
 
-**I3. Deployment Packaging**
-- Docker image from Nix build
-- EC2/NixOS deployment
+Checklist:
+- [ ] Chat `bash` interface delegates only to TerminalActor path.
+- [ ] Remove/deny remaining direct shell execution paths outside TerminalActor.
+- [ ] Verify chat tool transparency in event stream.
 
-**I4. Host-Level NixOS Operations**
-- Full NixOS host configuration
-- Declarative infrastructure
+Gate:
+- All chat shell actions show delegated worker traces only.
 
----
+### Phase 8: Context Broker Baseline
 
-## App Expansion Strategy
+Goal:
+- Add layered retrieval grounded in scoped state.
 
-**Wave 1 (after D):**
-- File Explorer
-- Settings
-- System Browser (code introspection)
-- Prompt Editor
-- Multimedia and generic viewers
-- Safe iframe window
+Checklist:
+- [ ] Implement brief context and handle expansion API.
+- [ ] Integrate with StateIndex snapshots.
+- [ ] Add relevance and scope-boundary tests.
 
-**Wave 2 (after J3):**
-- Mail App (HITL + email ingress)
-- Calendar
-- Advanced media workflows
+Gate:
+- Context retrieval improves continuity without violating scope isolation.
 
-**Rule:** No new app requiring persistent per-user data until F is complete.
+### Phase 9: Deterministic Safety Layer (Policy Deferred from Hot Path)
 
----
+Goal:
+- Add safety hardening after baseline capability flow is stable.
 
-## Now vs Later (Updated)
+Checklist:
+- [ ] Add deterministic local policy checks as mandatory boundaries.
+- [ ] Add deterministic PolicyActor for high-risk escalations only.
+- [ ] Add ModelPolicyWorker for deterministic model-routing support.
+- [ ] Keep normal actor-to-actor calls off policy/supervisor hot path.
 
-**Now (must execute before capability rollout):**
-- B1 Capability Contract Schema
-- B2 StateIndexActor (compressed state plane)
-- F Identity and Scope Enforcement
-- B3 PromptBarActor
-- B4 GitActor (prove pattern)
-- B5 SafetyOrchestrator (policy, verifier, basic HITL)
+Gate:
+- High-risk escalation paths enforced; low/medium paths remain fast and deterministic.
 
-**Next (stable capability baseline):**
-- C Chat Delegation Refactor
-- D Context Broker v1
-- E App Expansion Wave 1
+### Phase 10: PDF App Implementation Guide (Deferred)
 
-**Later (after G+H foundation):**
-- G SandboxFS Persistence
-- H Hypervisor Integration
-- J Self-Hosting Introspection
-- E App Expansion Wave 2
-- I3/I4 deeper Nix/NixOS
+Goal:
+- Complete guide-first milestone before any PDF app implementation.
 
----
+Checklist:
+- [ ] Finalize `docs/architecture/pdf-app-implementation-guide.md` scope and API notes.
+- [ ] Define render/extract test plan and deferred items.
 
-## Risk Register (Updated)
+Gate:
+- Guide accepted; PDF app remains deferred.
 
-**Risk:** Capability contract instability causes rework across actors.
-- **Mitigation:** B1 is docs-only gate; no code until schema locked.
+### Phase 11: Persistence + Hypervisor Foundation
 
-**Risk:** StateIndexActor becomes bottleneck.
-- **Mitigation:** Compressed snapshots only; full state fetched on demand.
+Goal:
+- Land durable filesystem and hypervisor lifecycle foundations.
 
-**Risk:** Safety guardrails are bypassable.
-- **Mitigation:** SafetyOrchestrator is capability all others call; no direct tool access.
+Checklist:
+- [ ] SandboxFS persistence and snapshot/rehydrate baseline.
+- [ ] Hypervisor attach/detach/restore lifecycle baseline.
 
-**Risk:** HITL email delivery unreliable.
-- **Mitigation:** Multiple channel support (deferred); fallback to in-app notifications.
+Gate:
+- Deterministic restore tests pass.
 
-**Risk:** Self-modification loop is insecure.
-- **Mitigation:** Headless sandbox + HITL + rollback; no auto-deploy without human.
+### Phase 12: Self-Hosting Introspection
 
-**Risk:** Context leakage across users/sessions.
-- **Mitigation:** F must land before D or J.
+Goal:
+- Enable safe self-modification workflows after foundations are stable.
 
-**Risk:** Documentation drift.
-- **Mitigation:** Handoff update after each phase gate.
+Checklist:
+- [ ] Prompt visibility/editing with audit trail.
+- [ ] Code introspection baseline.
+- [ ] Headless test sandbox for safe validation.
+- [ ] Rollback-tested safe modification loop.
 
----
+Gate:
+- End-to-end self-modification demo passes with explicit safeguards.
 
-## Definition of Ready for Capability Rollout
+## Deferred / Not On Current Critical Path
 
-- B1 schema locked and documented
-- B2 StateIndexActor serving snapshots
-- F scope enforcement active
-- B3 PromptBarActor routing intents
-- One capability (B4 GitActor) proven end-to-end
-- SafetyOrchestrator blocking unauthorized calls
-
-## Definition of Done for Pre-Introspection Foundation
-
-- Phases B1-B5, F, C, D complete
-- No known cross-scope leaks
-- Capability workflows observable and recoverable
-- Clear plan for G, H, J with test gates
-
-## Definition of Ready for Self-Hosting
-
-- G SandboxFS Persistence complete
-- H Hypervisor Integration complete
-- J1, J2 complete (prompt + code visibility)
-- J3 headless sandbox proven
-- Nix I2 reproducible builds
-- Rollback capability tested
-
----
+- Agentic policy actors (beyond advisory mode) are post-deployment hardening.
+- Broad app expansion beyond Directives/PromptBar/Researcher/Git is deferred.
+- PDF app implementation is deferred until guide gate passes.
 
 ## References
 
-- `docs/design/2026-02-08-capability-actor-architecture.md`
-- `docs/design/2026-02-08-self-hosting-introspection.md`
-- `docs/dev-blog/from-slop-to-signal-verified.md` (Ralph Loop demo)
+- `docs/architecture/directives-execution-checklist.md`
+- `docs/architecture/pdf-app-implementation-guide.md`
+- `docs/architecture/model-provider-agnostic-runbook.md`

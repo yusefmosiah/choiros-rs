@@ -74,6 +74,7 @@ pub enum ServerMessage {
         text: String,
         confidence: f64,
         model_used: String,
+        model_source: String,
     },
 
     #[serde(rename = "error")]
@@ -340,6 +341,7 @@ async fn handle_chat_socket(
                                             "text": resp.text,
                                             "confidence": resp.confidence,
                                             "model_used": resp.model_used,
+                                            "model_source": resp.model_source,
                                             "client_message_id": client_message_id,
                                         })
                                         .to_string(),

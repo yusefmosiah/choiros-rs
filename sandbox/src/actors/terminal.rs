@@ -477,7 +477,7 @@ impl TerminalActor {
             .map_err(Self::map_model_error)?;
         let model_id = resolved_model.config.id;
         let client_registry = registry
-            .create_client_registry_for_model(&model_id, &["ClaudeBedrock"])
+            .create_runtime_client_registry_for_model(&model_id)
             .map_err(Self::map_model_error)?;
         Ok((client_registry, model_id))
     }

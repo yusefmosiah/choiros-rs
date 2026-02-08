@@ -354,6 +354,8 @@ pub const EVENT_CHAT_USER_MSG: &str = "chat.user_msg";
 pub const EVENT_CHAT_ASSISTANT_MSG: &str = "chat.assistant_msg";
 pub const EVENT_CHAT_TOOL_CALL: &str = "chat.tool_call";
 pub const EVENT_CHAT_TOOL_RESULT: &str = "chat.tool_result";
+pub const EVENT_MODEL_SELECTION: &str = "model.selection";
+pub const EVENT_MODEL_CHANGED: &str = "model.changed";
 
 /// Build a chat user-message payload with optional session/thread scope metadata.
 pub fn chat_user_payload(

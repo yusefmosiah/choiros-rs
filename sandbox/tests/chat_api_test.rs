@@ -89,6 +89,30 @@ async fn test_send_message_success() {
 }
 
 #[tokio::test]
+async fn test_send_message_accepts_model_override() {
+    let (app, _temp_dir, _event_store) = setup_test_app().await;
+    let chat_id = test_chat_id();
+
+    let message_req = json!({
+        "actor_id": chat_id,
+        "user_id": "test-user",
+        "text": "Hello with model override",
+        "model": "ClaudeBedrock"
+    });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/chat/send")
+        .header("content-type", "application/json")
+        .body(Body::from(message_req.to_string()))
+        .unwrap();
+
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["success"].as_bool().unwrap());
+}
+
+#[tokio::test]
 async fn test_send_empty_message_rejected() {
     let (app, _temp_dir, _event_store) = setup_test_app().await;
     let chat_id = test_chat_id();

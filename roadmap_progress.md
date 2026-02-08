@@ -5,6 +5,10 @@ Source roadmap:
 - `docs/architecture/roadmap-dependency-tree.md`
 - `docs/architecture/roadmap-critical-analysis.md`
 
+Execution mode update (2026-02-08):
+- `docs/architecture/roadmap-dependency-tree.md` is now a linear checklist (authoritative order).
+- We no longer treat parallel feature-track execution as default roadmap strategy.
+
 ## Critical Path Status
 
 | Phase | Status | Notes |
@@ -28,6 +32,32 @@ Non-negotiables from this reset:
 - Chat uses `bash` as interface but all shell execution is delegated to `TerminalActor`.
 - PromptBar orchestrates actors and writes memos; it does not call tools.
 - Capability boundaries are enforced in supervisor/actor code paths, not only prompts.
+
+## Phase A Model Routing Validation (2026-02-08)
+
+Completed:
+- Added and ran non-network model-routing matrix tests (resolution precedence, aliases, API override parsing).
+- Added deterministic env-var test guard for model config tests.
+- Published report:
+  - `docs/reports/model-agnostic-test-report.md`
+
+Outstanding for full external gate:
+- Run websocket model-switch integration tests in unrestricted local environment.
+- Run live provider smoke checks for Bedrock/Z.ai/Kimi with credentials.
+
+## Phase B Model Routing UX Bake-In (2026-02-08)
+
+Completed:
+- Added `model_source` propagation in chat response payloads (`request|app|user|env_default|fallback`).
+- Added model routing audit events:
+  - `model.selection` (per processed turn)
+  - `model.changed` (switch model action)
+- Wired websocket response payload to include `model_source`.
+- Updated chat UI assistant bundle rendering to display `model_used` + `model_source`.
+
+Validation:
+- `cargo test -p sandbox --test websocket_chat_test -- --nocapture` (19 passed)
+- `cargo check --manifest-path dioxus-desktop/Cargo.toml`
 
 ## Completed In This Session
 
@@ -178,6 +208,8 @@ Updated near-term priority:
 2. `PromptBarActor` as universal entrypoint above app actors.
 3. `GitActor` as first local capability actor through the same contract.
 4. `McpActor` after PromptBar + Git/Researcher prove the capability pattern.
+5. `PolicyActor` is deferred as deterministic high-risk escalation only (not first-line routing).
+6. PDF app implementation is deferred; land a PDF implementation guide first.
 
 Design rule now in force:
 - Treat every tool call as an actor call (`tool -> agent -> actor`), with one lifecycle/event contract and one observability stream (`actor_call`).
@@ -188,6 +220,9 @@ Concrete next milestone (Phase B continuation):
   - streaming phases (`planning`, `search_results`, `fetch_started/completed`, `synthesis`)
   - citation-rich output + openable page links
   - websocket integration tests for ordered actor-call flow
+
+Deferred planning item added:
+- `docs/architecture/pdf-app-implementation-guide.md` (guide-only phase before PDF app implementation).
 
 ## Phase B Implementation Checklist
 

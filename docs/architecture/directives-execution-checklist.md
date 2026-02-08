@@ -55,6 +55,79 @@ This is the primary deliverable, not a sidebar polish task.
 - No button/dropdown requirement for policy changes.
 - Every config/model mutation emits an event.
 
+## Directives Context Contract (PromptBar + App)
+
+Directives must provide two context layers:
+
+1. Brief context for PromptBar and global orchestration.
+2. Detailed context for Directives app and deep worker retrieval.
+
+### A) Directives Brief (low-token, always available)
+
+Purpose:
+- Give PromptBar fast situational awareness of system priorities.
+
+Recommended shape:
+- `top_goals`: top active goals (short text list)
+- `progress_summary`: one short paragraph
+- `current_phase`: current roadmap phase identifier
+- `blocked_count`: number of blocked directives
+- `next_steps`: next 1-3 actionable steps
+- `last_updated`: timestamp
+
+Usage:
+- Included in PromptBar core-app digest.
+- Used for routing and memo generation, not deep implementation detail.
+
+### B) Directives Detail (drill-down context)
+
+Purpose:
+- Provide full planning and traceability context to Directives app and relevant workers.
+
+Recommended shape:
+- `directive_forest`: full hierarchical directive tree
+- `statuses`: per-directive status (`planned|active|blocked|done|cancelled`)
+- `dependencies`: explicit blocked-by relationships
+- `linked_events`: event IDs/correlation IDs for each directive
+- `ownership`: actor/app ownership metadata
+- `history`: status transition timeline
+
+Usage:
+- Used by Directives app window.
+- Not included wholesale in PromptBar default context.
+
+### C) Retrieval Hints (context engineering bridge)
+
+Purpose:
+- Turn directives into concrete retrieval handles for deeper tasks.
+
+Recommended shape per directive:
+- `file_paths`: relevant repository paths
+- `query_hints`: suggested EventStore/StateIndex query handles
+- `related_docs`: architecture/runbook references
+- `related_events`: event IDs or correlation IDs
+- `context_handles`: IDs for expandable context in broker/state index
+
+Usage:
+- PromptBar passes only selected handles to downstream actors.
+- Workers resolve handles on demand to avoid token bloat.
+
+### D) Required APIs (or actor messages)
+
+- `GetDirectivesBrief`
+  - returns compact summary for PromptBar context
+- `GetDirectivesDetail`
+  - returns full directive tree for Directives app
+- `ResolveDirectiveContext`
+  - input: directive ID(s) or context handle(s)
+  - output: retrieval bundle (`file_paths`, `query_hints`, `related_events`, `related_docs`)
+
+### E) Enforcement Rules
+
+- PromptBar defaults to `GetDirectivesBrief`; detail is opt-in.
+- Detail/retrieval access is scope-checked before resolution.
+- Context handles must be stable and replayable from event/state history.
+
 ## Checklist (Priority Ordered)
 
 ### 0) Directives App First-Class (Top Priority)

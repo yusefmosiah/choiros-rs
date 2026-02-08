@@ -2,6 +2,8 @@ use crate::baml_client::ClientRegistry;
 use serde_json::json;
 use std::collections::HashMap;
 
+pub const REQUIRED_BAML_CLIENT_ALIASES: &[&str] = &["ClaudeBedrock", "GLM47"];
+
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
 pub enum ModelConfigError {
     #[error("unknown model: {0}")]
@@ -22,11 +24,13 @@ pub enum ProviderConfig {
         base_url: String,
         api_key_env: String,
         model: String,
+        headers: HashMap<String, String>,
     },
     OpenAiGeneric {
         base_url: String,
         api_key_env: String,
         model: String,
+        headers: HashMap<String, String>,
     },
 }
 
@@ -44,6 +48,18 @@ pub enum ModelResolutionSource {
     User,
     EnvDefault,
     Fallback,
+}
+
+impl ModelResolutionSource {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Request => "request",
+            Self::App => "app",
+            Self::User => "user",
+            Self::EnvDefault => "env_default",
+            Self::Fallback => "fallback",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -143,6 +159,13 @@ impl ModelRegistry {
             .ok_or_else(|| ModelConfigError::UnknownModel(model_id.to_string()))?;
         create_client_registry_for_config(&config, aliases)
     }
+
+    pub fn create_runtime_client_registry_for_model(
+        &self,
+        model_id: &str,
+    ) -> Result<ClientRegistry, ModelConfigError> {
+        self.create_client_registry_for_model(model_id, REQUIRED_BAML_CLIENT_ALIASES)
+    }
 }
 
 impl Default for ModelRegistry {
@@ -185,6 +208,7 @@ fn add_provider_client(
             base_url,
             api_key_env,
             model,
+            headers,
         } => {
             let api_key = std::env::var(api_key_env)
                 .map_err(|_| ModelConfigError::MissingApiKey(api_key_env.clone()))?;
@@ -192,6 +216,9 @@ fn add_provider_client(
             options.insert("api_key".to_string(), json!(api_key));
             options.insert("base_url".to_string(), json!(base_url));
             options.insert("model".to_string(), json!(model));
+            if !headers.is_empty() {
+                options.insert("headers".to_string(), json!(headers));
+            }
             registry.add_llm_client(client_name, "anthropic", options);
             Ok(())
         }
@@ -199,6 +226,7 @@ fn add_provider_client(
             base_url,
             api_key_env,
             model,
+            headers,
         } => {
             let api_key = std::env::var(api_key_env)
                 .map_err(|_| ModelConfigError::MissingApiKey(api_key_env.clone()))?;
@@ -206,6 +234,9 @@ fn add_provider_client(
             options.insert("api_key".to_string(), json!(api_key));
             options.insert("base_url".to_string(), json!(base_url));
             options.insert("model".to_string(), json!(model));
+            if !headers.is_empty() {
+                options.insert("headers".to_string(), json!(headers));
+            }
             registry.add_llm_client(client_name, "openai-generic", options);
             Ok(())
         }
@@ -217,7 +248,7 @@ pub fn canonical_model_id(model_id: &str) -> Option<&'static str> {
         "ClaudeBedrock" => Some("ClaudeBedrockOpus45"),
         "GLM47" => Some("ZaiGLM47"),
         "GLM47Flash" => Some("ZaiGLM47Flash"),
-        "KimiK25OpenAI" => Some("KimiK25OpenAI"),
+        "KimiK25OpenAI" => Some("KimiK25"),
         "KimiK25" => Some("KimiK25"),
         "KimiK25Fallback" => Some("KimiK25Fallback"),
         "ClaudeBedrockOpus46" => Some("ClaudeBedrockOpus46"),
@@ -286,7 +317,8 @@ fn default_model_configs() -> HashMap<String, ModelConfig> {
             provider: ProviderConfig::AnthropicCompatible {
                 base_url: "https://api.z.ai/api/anthropic".to_string(),
                 api_key_env: "ZAI_API_KEY".to_string(),
-                model: "zai-coding-plan/glm-4.7".to_string(),
+                model: "glm-4.7".to_string(),
+                headers: HashMap::new(),
             },
         },
     );
@@ -298,7 +330,8 @@ fn default_model_configs() -> HashMap<String, ModelConfig> {
             provider: ProviderConfig::AnthropicCompatible {
                 base_url: "https://api.z.ai/api/anthropic".to_string(),
                 api_key_env: "ZAI_API_KEY".to_string(),
-                model: "zai-coding-plan/glm-4.7-flash".to_string(),
+                model: "glm-4.7-flash".to_string(),
+                headers: HashMap::new(),
             },
         },
     );
@@ -306,11 +339,12 @@ fn default_model_configs() -> HashMap<String, ModelConfig> {
         "ZaiGLM47Air".to_string(),
         ModelConfig {
             id: "ZaiGLM47Air".to_string(),
-            name: "GLM 4.7 Air (Z.ai)".to_string(),
+            name: "GLM 4.5 Air (Z.ai)".to_string(),
             provider: ProviderConfig::AnthropicCompatible {
                 base_url: "https://api.z.ai/api/anthropic".to_string(),
                 api_key_env: "ZAI_API_KEY".to_string(),
-                model: "zai-coding-plan/glm-4.7-air".to_string(),
+                model: "glm-4.5-air".to_string(),
+                headers: HashMap::new(),
             },
         },
     );
@@ -323,6 +357,11 @@ fn default_model_configs() -> HashMap<String, ModelConfig> {
                 base_url: "https://api.kimi.com/coding/".to_string(),
                 api_key_env: "ANTHROPIC_API_KEY".to_string(),
                 model: "kimi-for-coding/k2p5".to_string(),
+                headers: {
+                    let mut headers = HashMap::new();
+                    headers.insert("User-Agent".to_string(), "claude-code/1.0".to_string());
+                    headers
+                },
             },
         },
     );
@@ -335,28 +374,23 @@ fn default_model_configs() -> HashMap<String, ModelConfig> {
                 base_url: "https://api.kimi.com/coding/".to_string(),
                 api_key_env: "ANTHROPIC_API_KEY".to_string(),
                 model: "kimi-k2.5".to_string(),
+                headers: {
+                    let mut headers = HashMap::new();
+                    headers.insert("User-Agent".to_string(), "claude-code/1.0".to_string());
+                    headers
+                },
             },
         },
     );
-    configs.insert(
-        "KimiK25OpenAI".to_string(),
-        ModelConfig {
-            id: "KimiK25OpenAI".to_string(),
-            name: "Kimi K2.5 (OpenAI generic)".to_string(),
-            provider: ProviderConfig::OpenAiGeneric {
-                base_url: "https://api.moonshot.ai/v1".to_string(),
-                api_key_env: "MOONSHOT_API_KEY".to_string(),
-                model: "kimi-k2.5".to_string(),
-            },
-        },
-    );
-
     configs
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_model_resolution_priority() {
@@ -405,6 +439,7 @@ mod tests {
                 base_url: "https://example.invalid/anthropic".to_string(),
                 api_key_env: "CHOIR_TEST_MISSING_API_KEY_DO_NOT_SET".to_string(),
                 model: "test-model".to_string(),
+                headers: HashMap::new(),
             },
         };
         let missing = create_client_registry_for_config(&config, &["ClaudeBedrock"]);
@@ -420,9 +455,65 @@ mod tests {
                 base_url: "https://example.invalid/anthropic".to_string(),
                 api_key_env: "PATH".to_string(),
                 model: "test-model".to_string(),
+                headers: HashMap::new(),
             },
         };
         let result = create_client_registry_for_config(&config, &["ClaudeBedrock"]);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_model_resolution_uses_env_default_when_no_request_or_app() {
+        let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let registry = ModelRegistry::new();
+        let previous = std::env::var("CHOIR_DEFAULT_MODEL").ok();
+        std::env::set_var("CHOIR_DEFAULT_MODEL", "GLM47");
+        let resolved = registry
+            .resolve(&ModelResolutionContext::default())
+            .expect("resolve should use env default");
+        assert_eq!(resolved.config.id, "ZaiGLM47");
+        assert_eq!(resolved.source, ModelResolutionSource::EnvDefault);
+        if let Some(value) = previous {
+            std::env::set_var("CHOIR_DEFAULT_MODEL", value);
+        } else {
+            std::env::remove_var("CHOIR_DEFAULT_MODEL");
+        }
+    }
+
+    #[test]
+    fn test_app_preference_beats_env_default() {
+        let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let registry = ModelRegistry::new();
+        let previous = std::env::var("CHOIR_DEFAULT_MODEL").ok();
+        std::env::set_var("CHOIR_DEFAULT_MODEL", "ZaiGLM47Flash");
+        let resolved = registry
+            .resolve(&ModelResolutionContext {
+                app_preference: Some("ClaudeBedrockSonnet45".to_string()),
+                ..Default::default()
+            })
+            .expect("resolve should use app preference");
+        assert_eq!(resolved.config.id, "ClaudeBedrockSonnet45");
+        assert_eq!(resolved.source, ModelResolutionSource::App);
+        if let Some(value) = previous {
+            std::env::set_var("CHOIR_DEFAULT_MODEL", value);
+        } else {
+            std::env::remove_var("CHOIR_DEFAULT_MODEL");
+        }
+    }
+
+    #[test]
+    fn test_create_client_registry_for_legacy_alias() {
+        let registry = ModelRegistry::new();
+        let result = registry.create_client_registry_for_model("ClaudeBedrock", &["ClaudeBedrock"]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_model_resolution_source_labels() {
+        assert_eq!(ModelResolutionSource::Request.as_str(), "request");
+        assert_eq!(ModelResolutionSource::App.as_str(), "app");
+        assert_eq!(ModelResolutionSource::User.as_str(), "user");
+        assert_eq!(ModelResolutionSource::EnvDefault.as_str(), "env_default");
+        assert_eq!(ModelResolutionSource::Fallback.as_str(), "fallback");
     }
 }

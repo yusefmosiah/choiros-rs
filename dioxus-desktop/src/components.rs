@@ -27,6 +27,19 @@ struct AssistantBundle {
     text: String,
     thinking: Vec<String>,
     tools: Vec<ToolEntry>,
+    #[serde(default)]
+    model_used: Option<String>,
+    #[serde(default)]
+    model_source: Option<String>,
+}
+
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct ChatResponsePayload {
+    text: String,
+    #[serde(default)]
+    model_used: Option<String>,
+    #[serde(default)]
+    model_source: Option<String>,
 }
 
 enum ChatWsEvent {
@@ -252,14 +265,18 @@ pub fn ChatView(actor_id: String, desktop_id: String, window_id: String) -> Elem
                                             .get("content")
                                             .and_then(|v| v.as_str())
                                             .unwrap_or("");
-                                        let response_text = parse_chat_response_text(content);
+                                        let response_payload = parse_chat_response_payload(content);
 
                                         let mut list = messages.write();
                                         clear_pending_user_message(&mut list);
                                         update_or_create_pending_assistant_bundle(
                                             &mut list,
                                             |bundle| {
-                                                bundle.text = response_text;
+                                                bundle.text = response_payload.text.clone();
+                                                bundle.model_used =
+                                                    response_payload.model_used.clone();
+                                                bundle.model_source =
+                                                    response_payload.model_source.clone();
                                             },
                                         );
                                         mark_last_pending_assistant_complete(&mut list);
@@ -886,13 +903,29 @@ fn thread_title_from_messages(thread_id: &str, messages: &[ChatMessage]) -> Stri
     seed.chars().take(32).collect()
 }
 
-fn parse_chat_response_text(content: &str) -> String {
+fn parse_chat_response_payload(content: &str) -> ChatResponsePayload {
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
-        if let Some(text) = json.get("text").and_then(|v| v.as_str()) {
-            return text.to_string();
-        }
+        return ChatResponsePayload {
+            text: json
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or(content)
+                .to_string(),
+            model_used: json
+                .get("model_used")
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string),
+            model_source: json
+                .get("model_source")
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string),
+        };
     }
-    content.to_string()
+    ChatResponsePayload {
+        text: content.to_string(),
+        model_used: None,
+        model_source: None,
+    }
 }
 
 fn parse_tool_payload(text: &str, prefix: &str) -> Option<serde_json::Value> {
@@ -913,6 +946,8 @@ fn encode_assistant_bundle_text(response_text: &str, tools: Vec<ToolEntry>) -> S
         text: response_text.to_string(),
         thinking: Vec::new(),
         tools,
+        model_used: None,
+        model_source: None,
     };
     match serde_json::to_string(&bundle) {
         Ok(payload) => format!("{ASSISTANT_BUNDLE_PREFIX}{payload}"),
@@ -993,6 +1028,16 @@ fn AssistantMessageWithTools(bundle: AssistantBundle, pending: bool) -> Element 
     let mut tool_activity_open = use_signal(|| false);
     let mut expand_all = use_signal(|| false);
     rsx! {
+        if let Some(model_used) = bundle.model_used.clone() {
+            p {
+                class: "tool-meta",
+                if let Some(model_source) = bundle.model_source.clone() {
+                    "Model: {model_used} ({model_source})"
+                } else {
+                    "Model: {model_used}"
+                }
+            }
+        }
         if !latest_thinking.is_empty() && pending {
             p {
                 class: "tool-meta",
@@ -1117,6 +1162,8 @@ fn empty_assistant_bundle() -> AssistantBundle {
         text: String::new(),
         thinking: Vec::new(),
         tools: Vec::new(),
+        model_used: None,
+        model_source: None,
     }
 }
 

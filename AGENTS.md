@@ -16,6 +16,20 @@
 3. WatcherActor prototype for timeout/failure escalation signals to supervisors.
 4. Ordered websocket integration tests for scoped multi-instance streams.
 
+## Documentation Readability Rule
+
+Unrendered markdown must still be readable.
+
+For major architecture/roadmap docs, include these top sections:
+- `Narrative Summary (1-minute read)`
+- `What Changed`
+- `What To Do Next`
+
+If a document is long and lacks this summary block, it is incomplete.
+
+Primary human-first index:
+- `docs/architecture/NARRATIVE_INDEX.md`
+
 ## Quick Commands
 
 ```bash
