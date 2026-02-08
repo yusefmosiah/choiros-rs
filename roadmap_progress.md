@@ -17,7 +17,7 @@ Active order:
 
 ## Narrative Summary (1-minute read)
 
-Logging + Watcher + Model Policy are now at a strong foundation level for operations. We now have run-scoped observability (not just raw event tails), markdown run projection, structured worker failure telemetry, and deterministic watcher rules that include network-spike detection. The current highest-value next build target is Researcher, with Prompt Bar + Conductor as the next orchestration layer once researcher lifecycle and signals are live.
+Logging + Watcher + Model Policy are now at a strong foundation level for operations, and Researcher moved from design-only to live delegated execution for chat `web_search`. We now have run-scoped observability (not just raw event tails), markdown run projection, structured worker failure telemetry, deterministic watcher rules (including network-spike detection), and timestamped prompt context to improve model temporal awareness. The current highest-value next build target is Researcher hardening + Worker Signal quality, with Prompt Bar + Conductor as the next orchestration layer once researcher lifecycle and signals are stable.
 
 ## What Changed (Latest)
 
@@ -38,13 +38,23 @@ Logging + Watcher + Model Policy are now at a strong foundation level for operat
   - startup stale-task bootstrap false-positive reduced.
 - Model observability completed for worker path:
   - worker events now normalize and persist both `model_requested` and `model_used` on every lifecycle event.
+- Model policy extended for upcoming Researcher rollout:
+  - added `researcher_default_model` + `researcher_allowed_models` in backend policy resolution and config files,
+  - synced Settings model-policy document view with the new researcher role.
+- Researcher runtime path is now active:
+  - chat `web_search` delegations execute through ResearcherActor and emit `research.*` + `worker.task.*` run events,
+  - provider-level call/result/error events are persisted and visible in run markdown,
+  - provider selection now supports `auto`, explicit provider, `all`, and comma-list parallel fanout.
+- Prompt temporal context was hardened:
+  - chat/terminal system prompts include UTC timestamp metadata,
+  - per-message prompt payloads are timestamped for LLM temporal grounding.
 
 ## What To Do Next (Priority Order)
 
 1. Researcher v1:
-   - implement provider-isolated search surface (Tavily + Brave + Exa),
-   - emit typed research findings/learnings/citations/events,
-   - verify websocket ordering and run-level replay.
+   - finish Brave + Exa live-provider hardening and failure-path observability,
+   - tune provider fanout defaults (`auto` vs `all`) and run-level summarization quality,
+   - verify websocket ordering and run-level replay under parallel provider calls.
 2. Worker Signal Contract implementation:
    - typed turn report ingestion, validation, anti-spam gates,
    - escalation signaling semantics into Conductor control plane.
@@ -55,6 +65,26 @@ Logging + Watcher + Model Policy are now at a strong foundation level for operat
 4. Model Policy UX hardening:
    - keep document-first settings flow,
    - ensure policy edits emit model-change events with actor attribution.
+
+## Researcher Runbook Reconciliation Update (2026-02-08, latest)
+
+Completed in docs:
+- Rewrote `docs/architecture/researcher-search-dual-interface-runbook.md` to match current runtime architecture.
+- Removed stale assumptions:
+  - EventBus-first ownership (now EventStore-first per ADR-0001),
+  - outdated module/path references,
+  - oversized speculative implementation checklist.
+- Locked researcher implementation shape to current contracts:
+  - `uactor -> actor` delegation envelope for orchestration,
+  - `appactor -> toolactor` typed `web_search` surface for app actors,
+  - provider isolation behind Researcher (Tavily, Brave, Exa),
+  - typed findings/learnings/escalations via worker signal contract.
+- Locked required observability fields for researcher events:
+  - scope IDs, correlation/trace/span IDs, interface kind, model requested/used.
+
+Immediate execution impact:
+- Researcher is now decision-ready for code implementation without architectural ambiguity.
+- Next coding slice should begin with model-policy researcher-role fields, then actor/adapter implementation.
 
 Now:
 - Reconciliation gate closeout (blocking Researcher):

@@ -16,7 +16,9 @@ use tokio::net::TcpListener;
 use tokio::time::timeout;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};
+use sandbox::actors::event_store::{
+    AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg,
+};
 use sandbox::api;
 use sandbox::app_state::AppState;
 
@@ -467,6 +469,72 @@ async fn test_websocket_empty_message_handling() {
     let chunk = recv_json(&mut ws).await;
     assert_eq!(chunk["type"], "thinking");
     assert_eq!(chunk["content"], "Processing your message...");
+}
+
+#[tokio::test]
+async fn test_websocket_streams_response_from_assistant_event() {
+    let server = start_test_server().await;
+    let actor_id = test_actor_id();
+
+    let (mut ws, _) = connect_async(ws_url(server.addr, &format!("/ws/chat/{actor_id}")))
+        .await
+        .expect("Failed to connect WebSocket");
+
+    let connected = recv_json(&mut ws).await;
+    assert_eq!(connected["type"], "connected");
+
+    let session_id = format!("session:{actor_id}");
+    let thread_id = format!("thread:{actor_id}");
+
+    let _ = ractor::call!(server.app_state.event_store(), |reply| {
+        EventStoreMsg::Append {
+            event: AppendEvent {
+                event_type: shared_types::EVENT_CHAT_ASSISTANT_MSG.to_string(),
+                payload: serde_json::json!({
+                    "text": "streamed assistant response",
+                    "thinking": "streamed thinking",
+                    "confidence": 0.91,
+                    "model": "ClaudeBedrockSonnet45",
+                    "model_source": "app",
+                    "scope": {
+                        "session_id": session_id,
+                        "thread_id": thread_id,
+                    }
+                }),
+                actor_id: actor_id.clone(),
+                user_id: "system".to_string(),
+            },
+            reply,
+        }
+    })
+    .expect("append assistant event rpc")
+    .expect("append assistant event");
+
+    let mut saw_response = false;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline {
+        let msg = recv_json(&mut ws).await;
+        let msg_type = msg.get("type").and_then(|v| v.as_str()).unwrap_or_default();
+        if msg_type != "response" {
+            continue;
+        }
+
+        let content = msg
+            .get("content")
+            .and_then(|v| v.as_str())
+            .expect("response content should be a stringified JSON payload");
+        let payload: Value = serde_json::from_str(content).expect("response payload JSON");
+        assert_eq!(payload["text"], "streamed assistant response");
+        assert_eq!(payload["model_used"], "ClaudeBedrockSonnet45");
+        assert_eq!(payload["model_source"], "app");
+        saw_response = true;
+        break;
+    }
+
+    assert!(
+        saw_response,
+        "expected websocket response chunk from streamed assistant event"
+    );
 }
 
 #[tokio::test]

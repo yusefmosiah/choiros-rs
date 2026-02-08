@@ -6,6 +6,7 @@
 //! Converted from Actix to ractor actor model.
 
 use async_trait::async_trait;
+use chrono::{DateTime, SecondsFormat, Utc};
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
@@ -136,6 +137,14 @@ impl ChatAgent {
         Self
     }
 
+    fn format_timestamp(ts: DateTime<Utc>) -> String {
+        ts.to_rfc3339_opts(SecondsFormat::Secs, true)
+    }
+
+    fn timestamped_prompt_content(content: &str, ts: DateTime<Utc>) -> String {
+        format!("[{}]\n{}", Self::format_timestamp(ts), content)
+    }
+
     fn get_tools_description(_state: &ChatAgentState) -> String {
         let bash_schema = serde_json::json!({
             "type": "object",
@@ -171,15 +180,65 @@ impl ChatAgent {
                 { "required": ["cmd"] }
             ]
         });
+        let web_search_schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural-language web research query."
+                },
+                "provider": {
+                    "type": "string",
+                    "description": "Optional provider override: auto, tavily, brave, exa, all, or comma-separated list (e.g. tavily,brave)."
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum results to return (1-20).",
+                    "default": 6
+                },
+                "time_range": {
+                    "type": "string",
+                    "description": "Optional freshness scope: day, week, month, year."
+                },
+                "include_domains": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Optional allowlist of domains."
+                },
+                "exclude_domains": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Optional blocklist of domains."
+                },
+                "timeout_ms": {
+                    "type": "integer",
+                    "description": "Timeout in milliseconds (default: 45000)",
+                    "default": 45000
+                },
+                "model": {
+                    "type": "string",
+                    "description": "Optional researcher runtime model override."
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "Optional rationale for this search."
+                }
+            },
+            "required": ["query"]
+        });
         format!(
-            "Tool: bash\nDescription: Execute shell commands via TerminalActor delegation.\nParameters Schema: {}\n",
-            bash_schema
+            "Tool: bash\nDescription: Execute shell commands via TerminalActor delegation.\nParameters Schema: {}\n\nTool: web_search\nDescription: Execute web research via ResearcherActor (provider-isolated search adapters).\nParameters Schema: {}\n",
+            bash_schema, web_search_schema
         )
     }
 
     fn get_system_context(state: &ChatAgentState) -> String {
+        let now = Self::format_timestamp(Utc::now());
         format!(
             r#"You are ChoirOS, an AI assistant in a web desktop environment.
+
+System Prompt Timestamp (UTC): {}
+Current UTC Timestamp: {}
 
 User ID: {}
 Actor ID: {}
@@ -187,14 +246,18 @@ Working Directory: {}
 
 You have access to tools for:
 - Executing bash commands (delegated via TerminalActor)
+- Running web research queries (delegated via ResearcherActor)
 
 Behavior requirements:
 - If the user asks for real-time/external information (for example weather, web/API data, latest status), attempt a tool call first.
+- Prefer `web_search` for web research and source-citation tasks.
 - If the user explicitly asks to "use api", "use bash", or "run a command", use the bash tool unless unsafe.
 - Do not claim internet/API limitations before attempting a relevant tool call.
 - If a tool call fails, explain the concrete failure and then provide alternatives.
 
 Be helpful, accurate, and concise. Use tools when needed to complete user requests."#,
+            now,
+            now,
             state.args.user_id,
             state.args.actor_id,
             std::env::current_dir()
@@ -315,6 +378,58 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         serde_json::Value::Object(map)
     }
 
+    fn web_search_tool_args_to_value(
+        args: &crate::baml_client::types::WebSearchToolArgs,
+    ) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        if let Some(v) = &args.query {
+            map.insert("query".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.provider {
+            map.insert("provider".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = args.max_results {
+            map.insert(
+                "max_results".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(v)),
+            );
+        }
+        if let Some(v) = &args.time_range {
+            map.insert(
+                "time_range".to_string(),
+                serde_json::Value::String(v.clone()),
+            );
+        }
+        if let Some(v) = &args.include_domains {
+            map.insert(
+                "include_domains".to_string(),
+                serde_json::to_value(v).unwrap_or_else(|_| serde_json::Value::Array(Vec::new())),
+            );
+        }
+        if let Some(v) = &args.exclude_domains {
+            map.insert(
+                "exclude_domains".to_string(),
+                serde_json::to_value(v).unwrap_or_else(|_| serde_json::Value::Array(Vec::new())),
+            );
+        }
+        if let Some(v) = args.timeout_ms {
+            map.insert(
+                "timeout_ms".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(v)),
+            );
+        }
+        if let Some(v) = &args.model {
+            map.insert("model".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.reasoning {
+            map.insert(
+                "reasoning".to_string(),
+                serde_json::Value::String(v.clone()),
+            );
+        }
+        serde_json::Value::Object(map)
+    }
+
     fn agent_tool_args_to_value(
         args: &crate::baml_client::types::AgentToolArgs,
     ) -> serde_json::Value {
@@ -344,6 +459,12 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
             map.insert(
                 "search_files".to_string(),
                 Self::search_files_tool_args_to_value(v),
+            );
+        }
+        if let Some(v) = &args.web_search {
+            map.insert(
+                "web_search".to_string(),
+                Self::web_search_tool_args_to_value(v),
             );
         }
         if let Some(v) = &args.command {
@@ -398,6 +519,36 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
             map.insert(
                 "offset".to_string(),
                 serde_json::Value::Number(serde_json::Number::from(v)),
+            );
+        }
+        if let Some(v) = &args.query {
+            map.insert("query".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.provider {
+            map.insert("provider".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = args.max_results {
+            map.insert(
+                "max_results".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(v)),
+            );
+        }
+        if let Some(v) = &args.time_range {
+            map.insert(
+                "time_range".to_string(),
+                serde_json::Value::String(v.clone()),
+            );
+        }
+        if let Some(v) = &args.include_domains {
+            map.insert(
+                "include_domains".to_string(),
+                serde_json::to_value(v).unwrap_or_else(|_| serde_json::Value::Array(Vec::new())),
+            );
+        }
+        if let Some(v) = &args.exclude_domains {
+            map.insert(
+                "exclude_domains".to_string(),
+                serde_json::to_value(v).unwrap_or_else(|_| serde_json::Value::Array(Vec::new())),
             );
         }
         serde_json::Value::Object(map)
@@ -501,6 +652,58 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         serde_json::Value::Object(map)
     }
 
+    fn legacy_web_search_tool_args_to_value(
+        args: &crate::baml_client::types::AgentToolArgs,
+    ) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        if let Some(v) = &args.query {
+            map.insert("query".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.provider {
+            map.insert("provider".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = args.max_results {
+            map.insert(
+                "max_results".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(v)),
+            );
+        }
+        if let Some(v) = &args.time_range {
+            map.insert(
+                "time_range".to_string(),
+                serde_json::Value::String(v.clone()),
+            );
+        }
+        if let Some(v) = &args.include_domains {
+            map.insert(
+                "include_domains".to_string(),
+                serde_json::to_value(v).unwrap_or_else(|_| serde_json::Value::Array(Vec::new())),
+            );
+        }
+        if let Some(v) = &args.exclude_domains {
+            map.insert(
+                "exclude_domains".to_string(),
+                serde_json::to_value(v).unwrap_or_else(|_| serde_json::Value::Array(Vec::new())),
+            );
+        }
+        if let Some(v) = args.timeout_ms {
+            map.insert(
+                "timeout_ms".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(v)),
+            );
+        }
+        if let Some(v) = &args.model {
+            map.insert("model".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.reasoning {
+            map.insert(
+                "reasoning".to_string(),
+                serde_json::Value::String(v.clone()),
+            );
+        }
+        serde_json::Value::Object(map)
+    }
+
     fn tool_execution_args_to_value(
         tool_name: &str,
         args: &crate::baml_client::types::AgentToolArgs,
@@ -566,6 +769,18 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                         .then_some(legacy)
                 })
                 .unwrap_or_else(|| serde_json::json!({})),
+            "web_search" => args
+                .web_search
+                .as_ref()
+                .map(Self::web_search_tool_args_to_value)
+                .or_else(|| {
+                    let legacy = Self::legacy_web_search_tool_args_to_value(args);
+                    legacy
+                        .as_object()
+                        .is_some_and(|o| !o.is_empty())
+                        .then_some(legacy)
+                })
+                .unwrap_or_else(|| serde_json::json!({})),
             _ => serde_json::json!({}),
         }
     }
@@ -598,7 +813,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                     if let Some(text) = shared_types::parse_chat_user_text(&event.payload) {
                         history.push(BamlMessage {
                             role: "user".to_string(),
-                            content: text,
+                            content: Self::timestamped_prompt_content(&text, event.timestamp),
                         });
                     }
                 }
@@ -613,7 +828,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                     if !text.is_empty() {
                         history.push(BamlMessage {
                             role: "assistant".to_string(),
-                            content: text,
+                            content: Self::timestamped_prompt_content(&text, event.timestamp),
                         });
                     }
                 }
@@ -684,7 +899,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
 
         state.messages.push(BamlMessage {
             role: "user".to_string(),
-            content: user_text.clone(),
+            content: Self::timestamped_prompt_content(&user_text, Utc::now()),
         });
 
         let tools_description = Self::get_tools_description(state);
@@ -770,6 +985,15 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                     Some(model_used.clone()),
                 )
                 .await
+            } else if tool_call.tool_name == "web_search" {
+                self.delegate_research_tool(
+                    state,
+                    tool_args.clone(),
+                    session_id.clone(),
+                    thread_id.clone(),
+                    Some(model_used.clone()),
+                )
+                .await
             } else {
                 Err(ChatAgentError::Tool(format!(
                     "Unsupported tool '{}' for ChatAgent. Use delegated capability actors only.",
@@ -842,17 +1066,18 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         let response_text = if let Some(final_response) = plan.final_response {
             final_response
         } else {
+            let synthesis_user_prompt = Self::timestamped_prompt_content(&user_text, Utc::now());
             crate::baml_client::B
                 .SynthesizeResponse
                 .with_client_registry(&client_registry)
-                .call(&user_text, &tool_results, &conversation_context)
+                .call(&synthesis_user_prompt, &tool_results, &conversation_context)
                 .await
                 .map_err(|e| ChatAgentError::Baml(e.to_string()))?
         };
 
         state.messages.push(BamlMessage {
             role: "assistant".to_string(),
-            content: response_text.clone(),
+            content: Self::timestamped_prompt_content(&response_text, Utc::now()),
         });
 
         self.log_event(
@@ -929,7 +1154,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
 
     /// Handle GetAvailableTools
     fn handle_get_available_tools(&self, _state: &ChatAgentState) -> Vec<String> {
-        vec!["bash".to_string()]
+        vec!["bash".to_string(), "web_search".to_string()]
     }
 
     async fn delegate_terminal_tool(
@@ -1021,6 +1246,131 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
             shared_types::DelegatedTaskStatus::Failed => {
                 Err(ChatAgentError::Tool(result.error.unwrap_or_else(|| {
                     "Delegated terminal task failed".to_string()
+                })))
+            }
+            _ => Err(ChatAgentError::Tool(
+                "Delegated task ended in unexpected state".to_string(),
+            )),
+        }
+    }
+
+    async fn delegate_research_tool(
+        &self,
+        state: &ChatAgentState,
+        tool_args: String,
+        session_id: Option<String>,
+        thread_id: Option<String>,
+        default_model_override: Option<String>,
+    ) -> Result<ToolOutput, ChatAgentError> {
+        let Some(supervisor) = &state.args.application_supervisor else {
+            return Err(ChatAgentError::Tool(
+                "ApplicationSupervisor unavailable for research delegation".to_string(),
+            ));
+        };
+
+        let parsed_args: serde_json::Value = serde_json::from_str(&tool_args)
+            .map_err(|e| ChatAgentError::Serialization(e.to_string()))?;
+
+        let query = parsed_args
+            .get("query")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ChatAgentError::Validation("Missing 'query' argument".to_string()))?
+            .to_string();
+        let provider = parsed_args
+            .get("provider")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string);
+        let max_results = parsed_args
+            .get("max_results")
+            .and_then(|v| v.as_u64())
+            .map(|v| v.clamp(1, 20) as u32);
+        let time_range = parsed_args
+            .get("time_range")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string);
+        let include_domains = parsed_args
+            .get("include_domains")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+            });
+        let exclude_domains = parsed_args
+            .get("exclude_domains")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+            });
+        let timeout_ms = parsed_args.get("timeout_ms").and_then(|v| v.as_u64());
+        let model_override = parsed_args
+            .get("model")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string)
+            .or(default_model_override);
+        let reasoning = parsed_args
+            .get("reasoning")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string);
+
+        let researcher_id = match (&session_id, &thread_id) {
+            (Some(session_id), Some(thread_id)) => {
+                format!(
+                    "research:{}:{}:{}",
+                    state.args.actor_id, session_id, thread_id
+                )
+            }
+            _ => format!("research:{}", state.args.actor_id),
+        };
+
+        let task = ractor::call!(supervisor, |reply| {
+            ApplicationSupervisorMsg::DelegateResearchTask {
+                researcher_id,
+                actor_id: state.args.actor_id.clone(),
+                user_id: state.args.user_id.clone(),
+                query,
+                provider,
+                max_results,
+                time_range,
+                include_domains,
+                exclude_domains,
+                timeout_ms,
+                model_override,
+                reasoning,
+                session_id: session_id.clone(),
+                thread_id: thread_id.clone(),
+                reply,
+            }
+        })
+        .map_err(|e| ChatAgentError::Tool(e.to_string()))?
+        .map_err(ChatAgentError::Tool)?;
+
+        let wait_timeout_ms = timeout_ms.unwrap_or(45_000).clamp(3_000, 120_000) + 2_000;
+        let result = self
+            .wait_for_delegated_task_result(
+                &state.args.event_store,
+                &state.args.actor_id,
+                &task.task_id,
+                session_id,
+                thread_id,
+                wait_timeout_ms,
+            )
+            .await?;
+
+        match result.status {
+            shared_types::DelegatedTaskStatus::Completed => Ok(ToolOutput {
+                success: true,
+                content: result
+                    .output
+                    .unwrap_or_else(|| "Research task completed (no output)".to_string()),
+            }),
+            shared_types::DelegatedTaskStatus::Failed => {
+                Err(ChatAgentError::Tool(result.error.unwrap_or_else(|| {
+                    "Delegated research task failed".to_string()
                 })))
             }
             _ => Err(ChatAgentError::Tool(
@@ -1313,7 +1663,16 @@ pub async fn get_available_tools(
 mod tests {
     use super::*;
     use crate::actors::event_store::{EventStoreActor, EventStoreArguments};
+    use chrono::TimeZone;
     use ractor::Actor;
+
+    #[test]
+    fn test_timestamped_prompt_content_prefixes_iso_timestamp() {
+        let ts = Utc.with_ymd_and_hms(2026, 2, 8, 20, 49, 43).unwrap();
+        let stamped = ChatAgent::timestamped_prompt_content("hello world", ts);
+        assert!(stamped.starts_with("[2026-02-08T20:49:43Z]"));
+        assert!(stamped.ends_with("hello world"));
+    }
 
     #[tokio::test]
     async fn test_chat_agent_creation() {
@@ -1338,8 +1697,9 @@ mod tests {
         .unwrap();
 
         let tools = get_available_tools(&agent_ref).await.unwrap();
-        assert_eq!(tools.len(), 1);
+        assert_eq!(tools.len(), 2);
         assert!(tools.contains(&"bash".to_string()));
+        assert!(tools.contains(&"web_search".to_string()));
 
         agent_ref.stop(None);
         event_store_ref.stop(None);

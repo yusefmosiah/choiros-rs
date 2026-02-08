@@ -308,6 +308,7 @@ pub struct ToolCall {
 #[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub enum DelegatedTaskKind {
     TerminalCommand,
+    ResearchQuery,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
@@ -581,6 +582,13 @@ pub const EVENT_TOPIC_WORKER_FINDING_CREATED: &str = "worker.finding.created";
 pub const EVENT_TOPIC_WORKER_LEARNING_CREATED: &str = "worker.learning.created";
 pub const EVENT_TOPIC_RESEARCH_FINDING_CREATED: &str = "research.finding.created";
 pub const EVENT_TOPIC_RESEARCH_LEARNING_CREATED: &str = "research.learning.created";
+pub const EVENT_TOPIC_RESEARCH_TASK_STARTED: &str = "research.task.started";
+pub const EVENT_TOPIC_RESEARCH_TASK_PROGRESS: &str = "research.task.progress";
+pub const EVENT_TOPIC_RESEARCH_TASK_COMPLETED: &str = "research.task.completed";
+pub const EVENT_TOPIC_RESEARCH_TASK_FAILED: &str = "research.task.failed";
+pub const EVENT_TOPIC_RESEARCH_PROVIDER_CALL: &str = "research.provider.call";
+pub const EVENT_TOPIC_RESEARCH_PROVIDER_RESULT: &str = "research.provider.result";
+pub const EVENT_TOPIC_RESEARCH_PROVIDER_ERROR: &str = "research.provider.error";
 pub const EVENT_TOPIC_ARTIFACT_CREATED: &str = "artifact.created";
 
 pub const INTERFACE_KIND_UACTOR_ACTOR: &str = "uactor_actor";

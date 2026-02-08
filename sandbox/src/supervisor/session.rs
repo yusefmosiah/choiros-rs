@@ -7,9 +7,13 @@ use crate::actors::chat::ChatActorMsg;
 use crate::actors::chat_agent::ChatAgentMsg;
 use crate::actors::desktop::{DesktopActorMsg, DesktopArguments};
 use crate::actors::event_store::EventStoreMsg;
+use crate::actors::researcher::ResearcherMsg;
 use crate::actors::terminal::TerminalMsg;
 use crate::supervisor::chat::{ChatSupervisor, ChatSupervisorArgs, ChatSupervisorMsg};
 use crate::supervisor::desktop::{DesktopSupervisor, DesktopSupervisorArgs, DesktopSupervisorMsg};
+use crate::supervisor::researcher::{
+    ResearcherSupervisor, ResearcherSupervisorArgs, ResearcherSupervisorMsg,
+};
 use crate::supervisor::terminal::{
     TerminalSupervisor, TerminalSupervisorArgs, TerminalSupervisorMsg,
 };
@@ -29,6 +33,7 @@ pub struct SessionSupervisorState {
     pub desktop_supervisor: Option<ActorRef<DesktopSupervisorMsg>>,
     pub chat_supervisor: Option<ActorRef<ChatSupervisorMsg>>,
     pub terminal_supervisor: Option<ActorRef<TerminalSupervisorMsg>>,
+    pub researcher_supervisor: Option<ActorRef<ResearcherSupervisorMsg>>,
 }
 
 #[derive(Debug)]
@@ -59,6 +64,11 @@ pub enum SessionSupervisorMsg {
         shell: String,
         working_dir: String,
         reply: RpcReplyPort<Result<ActorRef<TerminalMsg>, String>>,
+    },
+    GetOrCreateResearcher {
+        researcher_id: String,
+        user_id: String,
+        reply: RpcReplyPort<Result<ActorRef<ResearcherMsg>, String>>,
     },
 }
 
@@ -109,11 +119,23 @@ impl Actor for SessionSupervisor {
         .await
         .map_err(ActorProcessingErr::from)?;
 
+        let (researcher_supervisor, _) = Actor::spawn_linked(
+            None,
+            ResearcherSupervisor,
+            ResearcherSupervisorArgs {
+                event_store: args.event_store.clone(),
+            },
+            myself.get_cell(),
+        )
+        .await
+        .map_err(ActorProcessingErr::from)?;
+
         Ok(SessionSupervisorState {
             event_store: args.event_store,
             desktop_supervisor: Some(desktop_supervisor),
             chat_supervisor: Some(chat_supervisor),
             terminal_supervisor: Some(terminal_supervisor),
+            researcher_supervisor: Some(researcher_supervisor),
         })
     }
 
@@ -244,6 +266,31 @@ impl Actor for SessionSupervisor {
                     }
                 } else {
                     let _ = reply.send(Err("TerminalSupervisor not available".to_string()));
+                }
+            }
+            SessionSupervisorMsg::GetOrCreateResearcher {
+                researcher_id,
+                user_id,
+                reply,
+            } => {
+                if let Some(researcher_supervisor) = &state.researcher_supervisor {
+                    match ractor::call!(researcher_supervisor, |rs_reply| {
+                        ResearcherSupervisorMsg::GetOrCreateResearcher {
+                            researcher_id: researcher_id.clone(),
+                            user_id: user_id.clone(),
+                            reply: rs_reply,
+                        }
+                    }) {
+                        Ok(result) => {
+                            let _ = reply.send(result);
+                        }
+                        Err(e) => {
+                            error!(error = %e, "Researcher supervisor RPC failed");
+                            let _ = reply.send(Err(e.to_string()));
+                        }
+                    }
+                } else {
+                    let _ = reply.send(Err("ResearcherSupervisor not available".to_string()));
                 }
             }
         }

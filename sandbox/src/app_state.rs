@@ -165,6 +165,47 @@ impl AppState {
         .map_err(|e| e.to_string())?
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub async fn delegate_research_task(
+        &self,
+        researcher_id: String,
+        actor_id: String,
+        user_id: String,
+        query: String,
+        provider: Option<String>,
+        max_results: Option<u32>,
+        time_range: Option<String>,
+        include_domains: Option<Vec<String>>,
+        exclude_domains: Option<Vec<String>>,
+        timeout_ms: Option<u64>,
+        model_override: Option<String>,
+        reasoning: Option<String>,
+        session_id: Option<String>,
+        thread_id: Option<String>,
+    ) -> Result<shared_types::DelegatedTask, String> {
+        let supervisor = self.ensure_supervisor().await?;
+        ractor::call!(supervisor, |reply| {
+            ApplicationSupervisorMsg::DelegateResearchTask {
+                researcher_id,
+                actor_id,
+                user_id,
+                query,
+                provider,
+                max_results,
+                time_range,
+                include_domains,
+                exclude_domains,
+                timeout_ms,
+                model_override,
+                reasoning,
+                session_id,
+                thread_id,
+                reply,
+            }
+        })
+        .map_err(|e| e.to_string())?
+    }
+
     pub fn desktop_args(&self, desktop_id: String, user_id: String) -> DesktopArguments {
         DesktopArguments {
             desktop_id,

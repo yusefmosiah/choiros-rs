@@ -149,6 +149,15 @@ impl TypeBuilder {
         )
     }
 
+    /// Access the `WebSearchToolArgs` class builder.
+    pub fn WebSearchToolArgs(&self) -> WebSearchToolArgsClassBuilder {
+        WebSearchToolArgsClassBuilder::new(
+            self.inner
+                .get_class("WebSearchToolArgs")
+                .expect("class WebSearchToolArgs is defined in schema"),
+        )
+    }
+
     /// Access the `WriteFileToolArgs` class builder.
     pub fn WriteFileToolArgs(&self) -> WriteFileToolArgsClassBuilder {
         WriteFileToolArgsClassBuilder::new(

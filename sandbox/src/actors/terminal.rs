@@ -17,6 +17,7 @@
 //! - Integration with opencode CLI
 
 use async_trait::async_trait;
+use chrono::{SecondsFormat, Utc};
 use portable_pty::{ChildKiller, CommandBuilder, PtySize};
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use std::io::{Read, Write};
@@ -525,6 +526,14 @@ impl TerminalActor {
         Ok((client_registry, model_id))
     }
 
+    fn format_timestamp() -> String {
+        Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
+    }
+
+    fn timestamped_prompt_content(content: &str) -> String {
+        format!("[{}]\n{}", Self::format_timestamp(), content)
+    }
+
     async fn run_agentic_task(
         &self,
         ctx: TerminalExecutionContext,
@@ -602,7 +611,7 @@ impl TerminalActor {
         let mut tool_results: Vec<BamlToolResult> = Vec::new();
         let mut messages = vec![BamlMessage {
             role: "user".to_string(),
-            content: objective.clone(),
+            content: Self::timestamped_prompt_content(&objective),
         }];
         let mut latest_reasoning: Option<String> = None;
         let (client_registry, model_used) = Self::resolve_model_registry(model_override)?;
@@ -612,8 +621,11 @@ Description: Execute shell commands in the current terminal.
 Parameters Schema: {"type":"object","properties":{"command":{"type":"string","description":"The shell command to execute"},"timeout_ms":{"type":"integer","description":"Timeout in milliseconds"}},"required":["command"]}"#;
 
         let system_context = format!(
-            "You are ChoirOS Terminal Agent. Use bash tool calls to complete terminal objectives.\nTerminal ID: {}\nWorking Directory: {}\nPrefer minimal safe command sequences.",
-            ctx.terminal_id, ctx.working_dir
+            "You are ChoirOS Terminal Agent. Use bash tool calls to complete terminal objectives.\nSystem Prompt Timestamp (UTC): {}\nCurrent UTC Timestamp: {}\nTerminal ID: {}\nWorking Directory: {}\nPrefer minimal safe command sequences.",
+            Self::format_timestamp(),
+            Self::format_timestamp(),
+            ctx.terminal_id,
+            ctx.working_dir
         );
         Self::emit_progress(
             &progress_tx,
@@ -809,20 +821,25 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                 );
                 messages.push(BamlMessage {
                     role: "assistant".to_string(),
-                    content: format!("Executed bash command:\n{}\nOutput:\n{}", command, output),
+                    content: Self::timestamped_prompt_content(&format!(
+                        "Executed bash command:\n{}\nOutput:\n{}",
+                        command, output
+                    )),
                 });
             }
         }
 
         let conversation_context = format!(
-            "Executed {} terminal commands in {}.",
+            "Generated at UTC {}. Executed {} terminal commands in {}.",
+            Self::format_timestamp(),
             executed_commands.len(),
             ctx.working_dir
         );
+        let synthesis_objective = Self::timestamped_prompt_content(&objective);
         let summary = B
             .SynthesizeResponse
             .with_client_registry(&client_registry)
-            .call(&objective, &tool_results, &conversation_context)
+            .call(&synthesis_objective, &tool_results, &conversation_context)
             .await
             .unwrap_or_else(|_| {
                 tool_results
@@ -1190,6 +1207,14 @@ mod tests {
             .status()
             .map(|s| s.success())
             .unwrap_or(false)
+    }
+
+    #[test]
+    fn test_timestamped_prompt_content_prefixes_iso_timestamp() {
+        let stamped = TerminalActor::timestamped_prompt_content("run ls");
+        assert!(stamped.starts_with('['));
+        assert!(stamped.contains("T"));
+        assert!(stamped.contains("Z]\nrun ls"));
     }
 
     #[cfg(unix)]

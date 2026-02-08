@@ -732,7 +732,7 @@ fn test_security_boundary_read_relative_traversal() {
     let tool = ReadFileTool;
 
     // Path traversal attempt
-    let result = tool.execute(json!({
+    let _result = tool.execute(json!({
         "path": "../../../etc/passwd"
     }));
 
@@ -765,7 +765,7 @@ fn test_security_boundary_write_relative_traversal() {
     let tool = WriteFileTool;
 
     // Path traversal attempt for writing
-    let result = tool.execute(json!({
+    let _result = tool.execute(json!({
         "path": "../../../tmp/hacked.txt",
         "content": "hacked"
     }));
@@ -852,8 +852,9 @@ async fn test_agent_get_available_tools() {
 
     let tools = ractor::call!(agent, |reply| ChatAgentMsg::GetAvailableTools { reply }).unwrap();
 
-    assert_eq!(tools.len(), 1);
+    assert_eq!(tools.len(), 2);
     assert!(tools.contains(&"bash".to_string()));
+    assert!(tools.contains(&"web_search".to_string()));
 }
 
 // ============================================================================

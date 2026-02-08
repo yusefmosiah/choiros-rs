@@ -2,7 +2,7 @@
 
 ## Summary
 
-Completed a full run-observability hardening pass across backend + desktop UI: run-scoped watcher views, markdown run projection from watcher/chat, structured worker failure telemetry, watcher network-spike alerts, and normalized model attribution on every worker lifecycle event.
+Completed a full run-observability hardening pass across backend + desktop UI, and moved Researcher from runbook-only to live delegated execution. The system now has run-scoped watcher views, markdown run projection from watcher/chat, structured worker failure telemetry, watcher network-spike alerts, normalized model attribution on worker lifecycle events, and timestamped prompt context for model temporal awareness.
 
 ## Narrative Summary (1-minute read)
 
@@ -10,6 +10,14 @@ The system moved from event-tail visibility to operator-grade run visibility. Lo
 
 ## What Changed
 
+- Researcher planning docs reconciled to current architecture:
+  - rewrote `/Users/wiz/choiros-rs/docs/architecture/researcher-search-dual-interface-runbook.md` to align with EventStore-first observability, model-policy gate, and typed worker signal contract.
+  - removed stale EventBus-first assumptions and outdated file-path guidance.
+  - locked implementation order for researcher rollout: policy role -> schemas -> actor core -> provider adapters -> signals -> ws/run-log tests.
+- Model policy now includes researcher role controls:
+  - backend resolver supports `researcher_default_model` and `researcher_allowed_models`,
+  - both `config/model-policy.toml` and `config/model-policy.example.toml` include researcher defaults/allowlists,
+  - Settings model-policy document preview reflects the new role fields.
 - Run-centric watcher logs UX:
   - preload persisted logs on startup (no empty view after rebuild),
   - runs sidebar grouped by `correlation_id`/`task_id`,
@@ -28,6 +36,13 @@ The system moved from event-tail visibility to operator-grade run visibility. Lo
   - reduced stale startup false-positives for stalled tasks.
 - Model observability:
   - worker events now normalize `model_requested` + `model_used` for every lifecycle event (`started/progress/completed/failed`).
+- Researcher delegation is now live through chat `web_search`:
+  - appactor -> toolactor delegation routes into `ResearcherActor` (no direct provider calls from chat),
+  - provider call/result/error lifecycle is persisted and visible in run markdown and watcher logs,
+  - provider selection supports `auto`, explicit provider, `all`, and comma-separated provider lists for parallel fanout.
+- Prompt temporal awareness is now explicit:
+  - chat and terminal prompt paths stamp UTC timestamp metadata on system prompts and per-message prompt content,
+  - synthesis calls now receive timestamped user objective context to reduce date/time ambiguity in model outputs.
 
 ## Validation Highlights
 
@@ -39,9 +54,9 @@ The system moved from event-tail visibility to operator-grade run visibility. Lo
 ## Next Steps
 
 1. ResearcherActor implementation:
-   - provider adapters: Tavily + Brave + Exa,
-   - typed findings/learnings/citations events,
-   - websocket ordering + replay tests.
+   - finish Brave + Exa live-path hardening and parallel fanout reliability checks,
+   - tighten typed findings/learnings/citations signal quality (anti-spam + confidence tuning),
+   - extend websocket ordering + replay tests for multi-provider runs.
 2. Worker Signal Contract runtime implementation:
    - typed report ingestion + anti-spam gates + escalation routing.
 3. Prompt Bar + Conductor:

@@ -366,6 +366,43 @@ async fn wait_for_worker_task_terminal(
     false
 }
 
+async fn wait_for_worker_task_research_terminal(
+    event_store: &ractor::ActorRef<EventStoreMsg>,
+    actor_id: &str,
+    correlation_id: &str,
+    timeout: Duration,
+) -> bool {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        let events = ractor::call!(event_store, |reply| EventStoreMsg::GetRecentEvents {
+            since_seq: 0,
+            limit: 500,
+            event_type_prefix: None,
+            actor_id: Some(actor_id.to_string()),
+            user_id: None,
+            reply,
+        })
+        .expect("event store rpc")
+        .expect("event store query");
+
+        let found = events.into_iter().any(|event| {
+            let corr = event
+                .payload
+                .get("correlation_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let terminal = event.event_type == shared_types::EVENT_TOPIC_RESEARCH_TASK_COMPLETED
+                || event.event_type == shared_types::EVENT_TOPIC_RESEARCH_TASK_FAILED;
+            corr == correlation_id && terminal
+        });
+        if found {
+            return true;
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    false
+}
+
 #[tokio::test]
 async fn test_logs_run_markdown_export_asserts_real_delegated_run() {
     let (app, _temp_dir, app_state, event_store) = setup_test_app().await;
@@ -429,4 +466,165 @@ async fn test_logs_run_markdown_export_asserts_real_delegated_run() {
     );
     assert!(markdown.contains("RUN_EXPORT_OK"));
     assert!(markdown.contains(&task.correlation_id));
+}
+
+#[tokio::test]
+async fn test_logs_run_markdown_export_asserts_real_delegated_research_run() {
+    let (app, _temp_dir, app_state, event_store) = setup_test_app().await;
+    let actor_id = "thread-research-export".to_string();
+    let session_id = "session:thread-research-export".to_string();
+    let thread_id = "thread:thread-research-export".to_string();
+
+    // Use an invalid model override so the run is deterministic and does not depend on API keys.
+    let task = app_state
+        .delegate_research_task(
+            "researcher:thread-research-export".to_string(),
+            actor_id.clone(),
+            "user-1".to_string(),
+            "latest rust async runtime changes".to_string(),
+            Some("tavily".to_string()),
+            Some(3),
+            None,
+            None,
+            None,
+            Some(8_000),
+            Some("DefinitelyUnknownModel".to_string()),
+            Some("logs export integration test".to_string()),
+            Some(session_id.clone()),
+            Some(thread_id.clone()),
+        )
+        .await
+        .expect("delegate research task");
+
+    let completed = wait_for_worker_task_research_terminal(
+        &event_store,
+        &actor_id,
+        &task.correlation_id,
+        Duration::from_secs(10),
+    )
+    .await;
+    assert!(
+        completed,
+        "research.task terminal state not observed for correlation {}",
+        task.correlation_id
+    );
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/logs/run.md?actor_id={}&session_id={}&thread_id={}&correlation_id={}",
+            actor_id, session_id, thread_id, task.correlation_id
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(req).await.expect("Request failed");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Failed to read body")
+        .to_bytes();
+    let markdown = String::from_utf8(body.to_vec()).expect("utf8 body");
+
+    assert!(markdown.contains("# Run Log"));
+    assert!(markdown.contains(shared_types::EVENT_TOPIC_WORKER_TASK_STARTED));
+    assert!(markdown.contains(shared_types::EVENT_TOPIC_RESEARCH_TASK_STARTED));
+    assert!(
+        markdown.contains(shared_types::EVENT_TOPIC_RESEARCH_TASK_COMPLETED)
+            || markdown.contains(shared_types::EVENT_TOPIC_RESEARCH_TASK_FAILED),
+        "expected research run final state in transcript: {}",
+        markdown
+    );
+    assert!(
+        markdown.contains(shared_types::EVENT_TOPIC_WORKER_TASK_COMPLETED)
+            || markdown.contains(shared_types::EVENT_TOPIC_WORKER_TASK_FAILED),
+        "expected worker run final state in transcript: {}",
+        markdown
+    );
+    assert!(markdown.contains(&task.correlation_id));
+}
+
+#[tokio::test]
+async fn test_research_parallel_provider_calls_are_logged_for_all_requested_engines() {
+    let (_app, _temp_dir, app_state, event_store) = setup_test_app().await;
+    let actor_id = "thread-research-parallel".to_string();
+    let session_id = "session:thread-research-parallel".to_string();
+    let thread_id = "thread:thread-research-parallel".to_string();
+
+    let task = app_state
+        .delegate_research_task(
+            "researcher:thread-research-parallel".to_string(),
+            actor_id.clone(),
+            "user-1".to_string(),
+            "latest tokyo weather report".to_string(),
+            Some("all".to_string()),
+            Some(3),
+            None,
+            None,
+            None,
+            Some(8_000),
+            None,
+            Some("parallel provider test".to_string()),
+            Some(session_id.clone()),
+            Some(thread_id.clone()),
+        )
+        .await
+        .expect("delegate research task");
+
+    let completed = wait_for_worker_task_research_terminal(
+        &event_store,
+        &actor_id,
+        &task.correlation_id,
+        Duration::from_secs(20),
+    )
+    .await;
+    assert!(
+        completed,
+        "research.task terminal state not observed for correlation {}",
+        task.correlation_id
+    );
+
+    let events = ractor::call!(event_store, |reply| {
+        EventStoreMsg::GetEventsForActorWithScope {
+            actor_id: actor_id.clone(),
+            session_id: session_id.clone(),
+            thread_id: thread_id.clone(),
+            since_seq: 0,
+            reply,
+        }
+    })
+    .expect("event query rpc")
+    .expect("event query");
+
+    let mut called = std::collections::BTreeSet::new();
+    for event in events {
+        if event.event_type != shared_types::EVENT_TOPIC_RESEARCH_PROVIDER_CALL {
+            continue;
+        }
+        if event.payload.get("correlation_id").and_then(|v| v.as_str())
+            != Some(task.correlation_id.as_str())
+        {
+            continue;
+        }
+        if let Some(provider) = event.payload.get("provider").and_then(|v| v.as_str()) {
+            called.insert(provider.to_string());
+        }
+    }
+
+    assert!(
+        called.contains("tavily"),
+        "expected tavily provider call; saw {:?}",
+        called
+    );
+    assert!(
+        called.contains("brave"),
+        "expected brave provider call; saw {:?}",
+        called
+    );
+    assert!(
+        called.contains("exa"),
+        "expected exa provider call; saw {:?}",
+        called
+    );
 }

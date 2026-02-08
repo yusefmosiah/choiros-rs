@@ -6,7 +6,7 @@ generator target {
     output_type "rust"
 
     // Where the generated code will be saved (relative to baml_src/)
-    output_dir "../sandbox/src/baml_client"
+    output_dir "../sandbox/src"
 
     // The version of the BAML package you have installed
     version "0.217.0"

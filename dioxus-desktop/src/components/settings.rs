@@ -24,6 +24,7 @@ pub fn SettingsView(desktop_id: String, window_id: String) -> Element {
 chat_default_model = "ClaudeBedrockSonnet45"
 terminal_default_model = "KimiK25"
 conductor_default_model = "ClaudeBedrockOpus46"
+researcher_default_model = "ZaiGLM47"
 summarizer_default_model = "ZaiGLM47Flash"
 allow_request_override = true
 
@@ -31,6 +32,7 @@ allowed_models = ["ClaudeBedrockOpus46", "ClaudeBedrockSonnet45", "ClaudeBedrock
 chat_allowed_models = ["ClaudeBedrockSonnet45", "ClaudeBedrockHaiku45", "ZaiGLM47Flash", "ZaiGLM47", "KimiK25"]
 terminal_allowed_models = ["KimiK25", "ZaiGLM47", "ZaiGLM47Flash"]
 conductor_allowed_models = ["ClaudeBedrockOpus46", "ClaudeBedrockSonnet45", "ZaiGLM47"]
+researcher_allowed_models = ["ZaiGLM47", "ZaiGLM47Flash", "KimiK25"]
 summarizer_allowed_models = ["ZaiGLM47Flash", "ClaudeBedrockHaiku45"]"#
         }
         "runtime" => {

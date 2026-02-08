@@ -9,6 +9,7 @@ use ractor::Actor;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tower::ServiceExt;
 
 use sandbox::actors::event_store::{AppendEvent, EventStoreMsg};
@@ -51,6 +52,24 @@ async fn setup_test_app() -> (
     (app, temp_dir, event_store)
 }
 
+fn load_env_from_ancestors() {
+    let cwd = match std::env::current_dir() {
+        Ok(dir) => dir,
+        Err(_) => return,
+    };
+    let mut current = cwd.clone();
+    loop {
+        let candidate = current.join(".env");
+        if candidate.exists() {
+            let _ = dotenvy::from_path(candidate);
+            return;
+        }
+        if !current.pop() {
+            break;
+        }
+    }
+}
+
 async fn json_response(app: &axum::Router, req: Request<Body>) -> (StatusCode, Value) {
     let response = app.clone().oneshot(req).await.expect("Request failed");
     let status = response.status();
@@ -62,6 +81,57 @@ async fn json_response(app: &axum::Router, req: Request<Body>) -> (StatusCode, V
         .to_bytes();
     let value: Value = serde_json::from_slice(&body).expect("Invalid JSON response");
     (status, value)
+}
+
+async fn wait_for_research_terminal_with_correlation(
+    event_store: &ractor::ActorRef<EventStoreMsg>,
+    actor_id: &str,
+    session_id: &str,
+    thread_id: &str,
+    timeout: Duration,
+) -> Option<String> {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        let events = ractor::call!(event_store, |reply| {
+            EventStoreMsg::GetEventsForActorWithScope {
+                actor_id: actor_id.to_string(),
+                session_id: session_id.to_string(),
+                thread_id: thread_id.to_string(),
+                since_seq: 0,
+                reply,
+            }
+        })
+        .ok()?
+        .ok()?;
+
+        let mut correlation_id: Option<String> = None;
+        for event in &events {
+            if event.event_type == shared_types::EVENT_TOPIC_WORKER_TASK_STARTED {
+                correlation_id = event
+                    .payload
+                    .get("correlation_id")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string);
+            }
+        }
+
+        if let Some(correlation_id) = correlation_id {
+            let done = events.iter().any(|event| {
+                let same_corr = event.payload.get("correlation_id").and_then(|v| v.as_str())
+                    == Some(correlation_id.as_str());
+                let terminal = event.event_type
+                    == shared_types::EVENT_TOPIC_RESEARCH_TASK_COMPLETED
+                    || event.event_type == shared_types::EVENT_TOPIC_RESEARCH_TASK_FAILED;
+                same_corr && terminal
+            });
+            if done {
+                return Some(correlation_id);
+            }
+        }
+
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+    None
 }
 
 #[tokio::test]
@@ -484,4 +554,101 @@ async fn test_send_message_rejects_partial_scope_payload() {
         body["error"].as_str(),
         Some("thread_id is required when session_id is provided")
     );
+}
+
+#[tokio::test]
+async fn test_chat_send_research_live_run_markdown_parallel_providers() {
+    load_env_from_ancestors();
+    let required_env = [
+        "ZAI_API_KEY",
+        "TAVILY_API_KEY",
+        "BRAVE_API_KEY",
+        "EXA_API_KEY",
+    ];
+    let missing = required_env
+        .iter()
+        .filter(|k| {
+            std::env::var(k)
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+                .is_none()
+        })
+        .map(|k| (*k).to_string())
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        eprintln!(
+            "SKIP live chat research test; missing env: {}",
+            missing.join(", ")
+        );
+        return;
+    }
+
+    let (app, _temp_dir, event_store) = setup_test_app().await;
+    let chat_id = test_chat_id();
+    let session_id = format!("session:{chat_id}");
+    let thread_id = format!("thread:{chat_id}");
+
+    let message_req = json!({
+        "actor_id": chat_id,
+        "user_id": "test-user",
+        "text": "Use web_search with provider all to get the current weather in Tokyo. Do not use bash. Return one short sentence.",
+        "model": "KimiK25",
+        "session_id": session_id,
+        "thread_id": thread_id
+    });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/chat/send")
+        .header("content-type", "application/json")
+        .body(Body::from(message_req.to_string()))
+        .unwrap();
+
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["success"].as_bool().unwrap_or(false));
+
+    let correlation_id = wait_for_research_terminal_with_correlation(
+        &event_store,
+        &message_req["actor_id"].as_str().unwrap_or_default(),
+        &message_req["session_id"].as_str().unwrap_or_default(),
+        &message_req["thread_id"].as_str().unwrap_or_default(),
+        Duration::from_secs(60),
+    )
+    .await
+    .expect("expected research terminal state with correlation id");
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/logs/run.md?actor_id={}&session_id={}&thread_id={}",
+            message_req["actor_id"].as_str().unwrap_or_default(),
+            message_req["session_id"].as_str().unwrap_or_default(),
+            message_req["thread_id"].as_str().unwrap_or_default()
+        ))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(req)
+        .await
+        .expect("run.md request failed");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("read run markdown body")
+        .to_bytes();
+    let markdown = String::from_utf8(body.to_vec()).expect("utf8 markdown");
+
+    assert!(markdown.contains("chat.tool_call"));
+    assert!(markdown.contains("web_search"));
+    assert!(markdown.contains("research.task.started"));
+    assert!(markdown.contains("research.provider.call"));
+    assert!(markdown.contains("tavily"));
+    assert!(markdown.contains("brave"));
+    assert!(markdown.contains("exa"));
+    assert!(markdown.contains(&correlation_id));
 }

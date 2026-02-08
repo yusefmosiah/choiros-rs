@@ -38,6 +38,18 @@ class SearchFilesToolArgs {
   file_pattern string?
 }
 
+class WebSearchToolArgs {
+  query string?
+  provider string?
+  max_results int?
+  time_range string?
+  include_domains string[]?
+  exclude_domains string[]?
+  timeout_ms int?
+  model string?
+  reasoning string?
+}
+
 // Individual tool call from the agent
 class AgentToolArgs {
   bash BashToolArgs?
@@ -45,6 +57,7 @@ class AgentToolArgs {
   write_file WriteFileToolArgs?
   list_files ListFilesToolArgs?
   search_files SearchFilesToolArgs?
+  web_search WebSearchToolArgs?
 
   // Legacy flat fields kept for compatibility with models that don't yet
   // follow the nested per-tool schema.
@@ -61,6 +74,12 @@ class AgentToolArgs {
   recursive bool?
   limit int?
   offset int?
+  query string?
+  provider string?
+  max_results int?
+  time_range string?
+  include_domains string[]?
+  exclude_domains string[]?
 }
 
 class AgentToolCall {

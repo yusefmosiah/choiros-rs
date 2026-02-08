@@ -24,6 +24,7 @@
 
 pub mod chat;
 pub mod desktop;
+pub mod researcher;
 pub mod session;
 pub mod terminal;
 
@@ -36,6 +37,12 @@ pub use session::{
 pub use desktop::{
     get_desktop, get_or_create_desktop, remove_desktop, DesktopInfo, DesktopSupervisor,
     DesktopSupervisorArgs, DesktopSupervisorMsg, DesktopSupervisorState,
+};
+
+// Re-export from researcher module
+pub use researcher::{
+    ResearcherSupervisor, ResearcherSupervisorArgs, ResearcherSupervisorMsg,
+    ResearcherSupervisorState,
 };
 
 // Re-export from chat module
@@ -60,6 +67,7 @@ use crate::actors::event_bus::{
 };
 use crate::actors::event_relay::{EventRelayActor, EventRelayArguments, EventRelayMsg};
 use crate::actors::event_store::EventStoreMsg;
+use crate::actors::researcher::{ResearcherMsg, ResearcherProgress, ResearcherWebSearchRequest};
 use crate::actors::terminal::{TerminalAgentProgress, TerminalMsg};
 
 /// Application supervisor - root of the supervision tree
@@ -212,6 +220,24 @@ pub enum ApplicationSupervisorMsg {
         command: String,
         timeout_ms: Option<u64>,
         model_override: Option<String>,
+        session_id: Option<String>,
+        thread_id: Option<String>,
+        reply: RpcReplyPort<Result<shared_types::DelegatedTask, String>>,
+    },
+    /// Delegate a typed web search task asynchronously via ResearcherActor.
+    DelegateResearchTask {
+        researcher_id: String,
+        actor_id: String,
+        user_id: String,
+        query: String,
+        provider: Option<String>,
+        max_results: Option<u32>,
+        time_range: Option<String>,
+        include_domains: Option<Vec<String>>,
+        exclude_domains: Option<Vec<String>>,
+        timeout_ms: Option<u64>,
+        model_override: Option<String>,
+        reasoning: Option<String>,
         session_id: Option<String>,
         thread_id: Option<String>,
         reply: RpcReplyPort<Result<shared_types::DelegatedTask, String>>,
@@ -1266,6 +1292,640 @@ impl Actor for ApplicationSupervisor {
                                     }
                                 }
                             }
+                    }
+                });
+            }
+            ApplicationSupervisorMsg::DelegateResearchTask {
+                researcher_id,
+                actor_id,
+                user_id,
+                query,
+                provider,
+                max_results,
+                time_range,
+                include_domains,
+                exclude_domains,
+                timeout_ms,
+                model_override,
+                reasoning,
+                session_id,
+                thread_id,
+                reply,
+            } => {
+                let correlation_id = ulid::Ulid::new().to_string();
+                let task_id = ulid::Ulid::new().to_string();
+                let task = shared_types::DelegatedTask {
+                    task_id: task_id.clone(),
+                    correlation_id: correlation_id.clone(),
+                    actor_id: actor_id.clone(),
+                    session_id: session_id.clone(),
+                    thread_id: thread_id.clone(),
+                    kind: shared_types::DelegatedTaskKind::ResearchQuery,
+                    payload: serde_json::json!({
+                        "query": query,
+                        "provider": provider,
+                        "max_results": max_results,
+                        "time_range": time_range,
+                        "include_domains": include_domains,
+                        "exclude_domains": exclude_domains,
+                        "timeout_ms": timeout_ms,
+                        "model_override": model_override.clone(),
+                        "reasoning": reasoning,
+                        "user_id": user_id,
+                    }),
+                };
+
+                Self::publish_worker_event(
+                    state.event_store.clone(),
+                    state.event_bus.clone(),
+                    shared_types::EVENT_TOPIC_WORKER_TASK_STARTED,
+                    EventType::WorkerSpawned,
+                    serde_json::json!({
+                        "task": task,
+                        "status": shared_types::DelegatedTaskStatus::Accepted,
+                        "model_requested": model_override.clone(),
+                        "emitter_actor": "application_supervisor",
+                        "started_at": chrono::Utc::now().to_rfc3339(),
+                    }),
+                    correlation_id.clone(),
+                    actor_id.clone(),
+                    session_id.clone(),
+                    thread_id.clone(),
+                );
+
+                Self::publish_worker_event(
+                    state.event_store.clone(),
+                    state.event_bus.clone(),
+                    shared_types::EVENT_TOPIC_RESEARCH_TASK_STARTED,
+                    EventType::Custom(shared_types::EVENT_TOPIC_RESEARCH_TASK_STARTED.to_string()),
+                    serde_json::json!({
+                        "task_id": task_id.clone(),
+                        "status": "accepted",
+                        "query": query,
+                        "provider": provider,
+                        "max_results": max_results,
+                        "time_range": time_range,
+                        "include_domains": include_domains,
+                        "exclude_domains": exclude_domains,
+                        "model_requested": model_override.clone(),
+                        "emitter_actor": "application_supervisor",
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    }),
+                    correlation_id.clone(),
+                    actor_id.clone(),
+                    session_id.clone(),
+                    thread_id.clone(),
+                );
+
+                let session_supervisor = match &state.session_supervisor {
+                    Some(s) => s.clone(),
+                    None => {
+                        Self::publish_worker_event(
+                            state.event_store.clone(),
+                            state.event_bus.clone(),
+                            shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                            EventType::WorkerFailed,
+                            serde_json::json!({
+                                "task_id": task_id,
+                                "status": shared_types::DelegatedTaskStatus::Failed,
+                                "error": "SessionSupervisor not available",
+                                "failure_kind": "session_supervisor_unavailable",
+                                "failure_retriable": true,
+                                "failure_hint": "SessionSupervisor missing; restart supervisor tree and retry.",
+                                "failure_origin": "application_supervisor",
+                                "emitter_actor": "application_supervisor",
+                                "finished_at": chrono::Utc::now().to_rfc3339(),
+                            }),
+                            correlation_id.clone(),
+                            actor_id.clone(),
+                            session_id.clone(),
+                            thread_id.clone(),
+                        );
+                        let _ = reply.send(Err("SessionSupervisor not available".to_string()));
+                        return Ok(());
+                    }
+                };
+
+                let event_store = state.event_store.clone();
+                let event_bus = state.event_bus.clone();
+                let myself_ref = myself.clone();
+                let task_for_reply = task.clone();
+                let _ = reply.send(Ok(task_for_reply));
+
+                tokio::spawn(async move {
+                    let researcher_ref = match ractor::call!(session_supervisor, |ss_reply| {
+                        SessionSupervisorMsg::GetOrCreateResearcher {
+                            researcher_id: researcher_id.clone(),
+                            user_id: user_id.clone(),
+                            reply: ss_reply,
+                        }
+                    }) {
+                        Ok(Ok(researcher_ref)) => researcher_ref,
+                        Ok(Err(e)) => {
+                            Self::publish_worker_event(
+                                event_store.clone(),
+                                event_bus.clone(),
+                                shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                EventType::WorkerFailed,
+                                serde_json::json!({
+                                    "task_id": task_id,
+                                    "status": shared_types::DelegatedTaskStatus::Failed,
+                                    "error": e,
+                                    "failure_kind": "researcher_spawn_failed",
+                                    "failure_retriable": true,
+                                    "failure_hint": "Researcher actor failed to start; inspect supervisor logs.",
+                                    "failure_origin": "session_supervisor",
+                                    "emitter_actor": "application_supervisor",
+                                    "finished_at": chrono::Utc::now().to_rfc3339(),
+                                }),
+                                correlation_id.clone(),
+                                actor_id.clone(),
+                                session_id.clone(),
+                                thread_id.clone(),
+                            );
+                            return;
+                        }
+                        Err(e) => {
+                            Self::publish_worker_event(
+                                event_store.clone(),
+                                event_bus.clone(),
+                                shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                EventType::WorkerFailed,
+                                serde_json::json!({
+                                    "task_id": task_id,
+                                    "status": shared_types::DelegatedTaskStatus::Failed,
+                                    "error": e.to_string(),
+                                    "failure_kind": "rpc_error",
+                                    "failure_retriable": true,
+                                    "failure_hint": "Session supervisor RPC failed while acquiring Researcher actor.",
+                                    "failure_origin": "application_supervisor",
+                                    "emitter_actor": "application_supervisor",
+                                    "finished_at": chrono::Utc::now().to_rfc3339(),
+                                }),
+                                correlation_id.clone(),
+                                actor_id.clone(),
+                                session_id.clone(),
+                                thread_id.clone(),
+                            );
+                            return;
+                        }
+                    };
+
+                    let timeout_ms = timeout_ms.unwrap_or(45_000).clamp(3_000, 120_000);
+                    Self::publish_worker_event(
+                        event_store.clone(),
+                        event_bus.clone(),
+                        shared_types::EVENT_TOPIC_WORKER_TASK_PROGRESS,
+                        EventType::WorkerProgress,
+                        serde_json::json!({
+                            "task_id": task_id,
+                            "status": shared_types::DelegatedTaskStatus::Running,
+                            "phase": "researcher_actor_dispatch",
+                            "message": "researcher actor accepted request and is running",
+                            "model_requested": model_override.clone(),
+                            "emitter_actor": "application_supervisor",
+                            "timestamp": chrono::Utc::now().to_rfc3339(),
+                        }),
+                        correlation_id.clone(),
+                        actor_id.clone(),
+                        session_id.clone(),
+                        thread_id.clone(),
+                    );
+
+                    let (result_tx, mut result_rx) = tokio::sync::oneshot::channel();
+                    let (progress_tx, mut progress_rx) =
+                        tokio::sync::mpsc::unbounded_channel::<ResearcherProgress>();
+                    let researcher_ref_for_task = researcher_ref.clone();
+                    let query_for_task = query.clone();
+                    let provider_for_task = provider.clone();
+                    let time_range_for_task = time_range.clone();
+                    let include_domains_for_task = include_domains.clone();
+                    let exclude_domains_for_task = exclude_domains.clone();
+                    let model_override_for_task = model_override.clone();
+                    let reasoning_for_task = reasoning.clone();
+
+                    tokio::spawn(async move {
+                        let call_result =
+                            ractor::call!(researcher_ref_for_task, |research_reply| {
+                                ResearcherMsg::RunWebSearchTool {
+                                    request: ResearcherWebSearchRequest {
+                                        query: query_for_task,
+                                        provider: provider_for_task,
+                                        max_results,
+                                        time_range: time_range_for_task,
+                                        include_domains: include_domains_for_task,
+                                        exclude_domains: exclude_domains_for_task,
+                                        timeout_ms: Some(timeout_ms),
+                                        model_override: model_override_for_task,
+                                        reasoning: reasoning_for_task,
+                                    },
+                                    progress_tx: Some(progress_tx),
+                                    reply: research_reply,
+                                }
+                            });
+                        let _ = result_tx.send(call_result);
+                    });
+
+                    let start_time = tokio::time::Instant::now();
+                    let hard_deadline = start_time
+                        + std::time::Duration::from_millis(timeout_ms.saturating_add(20_000));
+                    let researcher_emitter_actor = format!("researcher:{researcher_id}");
+
+                    loop {
+                        tokio::select! {
+                            Some(progress) = progress_rx.recv() => {
+                                let elapsed_ms = tokio::time::Instant::now()
+                                    .duration_since(start_time)
+                                    .as_millis() as u64;
+
+                                Self::publish_worker_event(
+                                    event_store.clone(),
+                                    event_bus.clone(),
+                                    shared_types::EVENT_TOPIC_WORKER_TASK_PROGRESS,
+                                    EventType::WorkerProgress,
+                                    serde_json::json!({
+                                        "task_id": task_id,
+                                        "status": shared_types::DelegatedTaskStatus::Running,
+                                        "phase": progress.phase.clone(),
+                                        "message": progress.message.clone(),
+                                        "provider": progress.provider.clone(),
+                                        "model_requested": model_override.clone(),
+                                        "model_used": progress.model_used.clone(),
+                                        "result_count": progress.result_count,
+                                        "emitter_actor": researcher_emitter_actor.clone(),
+                                        "elapsed_ms": elapsed_ms,
+                                        "timestamp": progress.timestamp,
+                                    }),
+                                    correlation_id.clone(),
+                                    actor_id.clone(),
+                                    session_id.clone(),
+                                    thread_id.clone(),
+                                );
+
+                                Self::publish_worker_event(
+                                    event_store.clone(),
+                                    event_bus.clone(),
+                                    shared_types::EVENT_TOPIC_RESEARCH_TASK_PROGRESS,
+                                    EventType::Custom(shared_types::EVENT_TOPIC_RESEARCH_TASK_PROGRESS.to_string()),
+                                    serde_json::json!({
+                                        "task_id": task_id,
+                                        "phase": progress.phase.clone(),
+                                        "message": progress.message.clone(),
+                                        "provider": progress.provider.clone(),
+                                        "model_requested": model_override.clone(),
+                                        "model_used": progress.model_used.clone(),
+                                        "result_count": progress.result_count,
+                                        "emitter_actor": researcher_emitter_actor.clone(),
+                                        "elapsed_ms": elapsed_ms,
+                                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                                    }),
+                                    correlation_id.clone(),
+                                    actor_id.clone(),
+                                    session_id.clone(),
+                                    thread_id.clone(),
+                                );
+
+                                match progress.phase.as_str() {
+                                    "research_provider_call" => {
+                                        Self::publish_worker_event(
+                                            event_store.clone(),
+                                            event_bus.clone(),
+                                            shared_types::EVENT_TOPIC_RESEARCH_PROVIDER_CALL,
+                                            EventType::Custom(shared_types::EVENT_TOPIC_RESEARCH_PROVIDER_CALL.to_string()),
+                                            serde_json::json!({
+                                                "task_id": task_id,
+                                                "provider": progress.provider.clone(),
+                                                "message": progress.message.clone(),
+                                                "emitter_actor": researcher_emitter_actor.clone(),
+                                                "timestamp": chrono::Utc::now().to_rfc3339(),
+                                            }),
+                                            correlation_id.clone(),
+                                            actor_id.clone(),
+                                            session_id.clone(),
+                                            thread_id.clone(),
+                                        );
+                                    }
+                                    "research_provider_result" => {
+                                        Self::publish_worker_event(
+                                            event_store.clone(),
+                                            event_bus.clone(),
+                                            shared_types::EVENT_TOPIC_RESEARCH_PROVIDER_RESULT,
+                                            EventType::Custom(shared_types::EVENT_TOPIC_RESEARCH_PROVIDER_RESULT.to_string()),
+                                            serde_json::json!({
+                                                "task_id": task_id,
+                                                "provider": progress.provider.clone(),
+                                                "result_count": progress.result_count,
+                                                "message": progress.message.clone(),
+                                                "emitter_actor": researcher_emitter_actor.clone(),
+                                                "timestamp": chrono::Utc::now().to_rfc3339(),
+                                            }),
+                                            correlation_id.clone(),
+                                            actor_id.clone(),
+                                            session_id.clone(),
+                                            thread_id.clone(),
+                                        );
+                                    }
+                                    "research_provider_error" => {
+                                        Self::publish_worker_event(
+                                            event_store.clone(),
+                                            event_bus.clone(),
+                                            shared_types::EVENT_TOPIC_RESEARCH_PROVIDER_ERROR,
+                                            EventType::Custom(shared_types::EVENT_TOPIC_RESEARCH_PROVIDER_ERROR.to_string()),
+                                            serde_json::json!({
+                                                "task_id": task_id,
+                                                "provider": progress.provider.clone(),
+                                                "message": progress.message.clone(),
+                                                "emitter_actor": researcher_emitter_actor.clone(),
+                                                "timestamp": chrono::Utc::now().to_rfc3339(),
+                                            }),
+                                            correlation_id.clone(),
+                                            actor_id.clone(),
+                                            session_id.clone(),
+                                            thread_id.clone(),
+                                        );
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            _ = tokio::time::sleep_until(hard_deadline) => {
+                                let elapsed_ms = tokio::time::Instant::now()
+                                    .duration_since(start_time)
+                                    .as_millis() as u64;
+                                Self::publish_worker_event(
+                                    event_store.clone(),
+                                    event_bus.clone(),
+                                    shared_types::EVENT_TOPIC_RESEARCH_TASK_FAILED,
+                                    EventType::Custom(shared_types::EVENT_TOPIC_RESEARCH_TASK_FAILED.to_string()),
+                                    serde_json::json!({
+                                        "task_id": task_id,
+                                        "status": "failed",
+                                        "error": format!("research task did not return within {}ms", timeout_ms.saturating_add(20_000)),
+                                        "failure_kind": "timeout",
+                                        "failure_retriable": true,
+                                        "failure_hint": "Research task exceeded hard deadline; inspect provider latency and key health.",
+                                        "failure_origin": "application_supervisor",
+                                        "emitter_actor": "application_supervisor",
+                                        "duration_ms": elapsed_ms,
+                                        "finished_at": chrono::Utc::now().to_rfc3339(),
+                                    }),
+                                    correlation_id.clone(),
+                                    actor_id.clone(),
+                                    session_id.clone(),
+                                    thread_id.clone(),
+                                );
+                                Self::publish_worker_event(
+                                    event_store.clone(),
+                                    event_bus.clone(),
+                                    shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                    EventType::WorkerFailed,
+                                    serde_json::json!({
+                                        "task_id": task_id,
+                                        "status": shared_types::DelegatedTaskStatus::Failed,
+                                        "error": format!("research task did not return within {}ms", timeout_ms.saturating_add(20_000)),
+                                        "failure_kind": "timeout",
+                                        "failure_retriable": true,
+                                        "failure_hint": "Research task exceeded hard deadline; inspect provider latency and key health.",
+                                        "failure_origin": "application_supervisor",
+                                        "model_requested": model_override.clone(),
+                                        "emitter_actor": "application_supervisor",
+                                        "duration_ms": elapsed_ms,
+                                        "finished_at": chrono::Utc::now().to_rfc3339(),
+                                    }),
+                                    correlation_id.clone(),
+                                    actor_id.clone(),
+                                    session_id.clone(),
+                                    thread_id.clone(),
+                                );
+                                return;
+                            }
+                            result = &mut result_rx => {
+                                match result {
+                                    Ok(Ok(Ok(result))) => {
+                                        let elapsed_ms = tokio::time::Instant::now()
+                                            .duration_since(start_time)
+                                            .as_millis() as u64;
+
+                                        if let Some(report) = result.worker_report.clone() {
+                                            let _ = ractor::call!(myself_ref.clone(), |ingest_reply| {
+                                                ApplicationSupervisorMsg::IngestWorkerTurnReport {
+                                                    actor_id: actor_id.clone(),
+                                                    user_id: user_id.clone(),
+                                                    session_id: session_id.clone(),
+                                                    thread_id: thread_id.clone(),
+                                                    report,
+                                                    reply: ingest_reply,
+                                                }
+                                            });
+                                        }
+
+                                        if !result.success {
+                                            Self::publish_worker_event(
+                                                event_store.clone(),
+                                                event_bus.clone(),
+                                                shared_types::EVENT_TOPIC_RESEARCH_TASK_FAILED,
+                                                EventType::Custom(shared_types::EVENT_TOPIC_RESEARCH_TASK_FAILED.to_string()),
+                                                serde_json::json!({
+                                                    "task_id": task_id,
+                                                    "status": "failed",
+                                                    "error": result.error.clone().unwrap_or_else(|| "research task failed".to_string()),
+                                                    "model_requested": model_override.clone(),
+                                                    "model_used": result.model_used.clone(),
+                                                    "provider_calls": result.provider_calls,
+                                                    "duration_ms": elapsed_ms,
+                                                    "emitter_actor": researcher_emitter_actor.clone(),
+                                                    "finished_at": chrono::Utc::now().to_rfc3339(),
+                                                }),
+                                                correlation_id.clone(),
+                                                actor_id.clone(),
+                                                session_id.clone(),
+                                                thread_id.clone(),
+                                            );
+                                            Self::publish_worker_event(
+                                                event_store.clone(),
+                                                event_bus.clone(),
+                                                shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                                EventType::WorkerFailed,
+                                                serde_json::json!({
+                                                    "task_id": task_id,
+                                                    "status": shared_types::DelegatedTaskStatus::Failed,
+                                                    "error": result.error.unwrap_or_else(|| "research task failed".to_string()),
+                                                    "failure_kind": "provider_failure",
+                                                    "failure_retriable": true,
+                                                    "failure_hint": "All configured providers failed or returned invalid responses.",
+                                                    "failure_origin": "researcher_actor",
+                                                    "model_requested": model_override.clone(),
+                                                    "model_used": result.model_used,
+                                                    "provider_calls": result.provider_calls,
+                                                    "duration_ms": elapsed_ms,
+                                                    "emitter_actor": researcher_emitter_actor.clone(),
+                                                    "finished_at": chrono::Utc::now().to_rfc3339(),
+                                                }),
+                                                correlation_id.clone(),
+                                                actor_id.clone(),
+                                                session_id.clone(),
+                                                thread_id.clone(),
+                                            );
+                                            return;
+                                        }
+
+                                        Self::publish_worker_event(
+                                            event_store.clone(),
+                                            event_bus.clone(),
+                                            shared_types::EVENT_TOPIC_RESEARCH_TASK_COMPLETED,
+                                            EventType::Custom(shared_types::EVENT_TOPIC_RESEARCH_TASK_COMPLETED.to_string()),
+                                            serde_json::json!({
+                                                "task_id": task_id,
+                                                "status": "completed",
+                                                "summary": result.summary.clone(),
+                                                "provider_used": result.provider_used.clone(),
+                                                "citations": result.citations.clone(),
+                                                "model_requested": model_override.clone(),
+                                                "model_used": result.model_used.clone(),
+                                                "provider_calls": result.provider_calls.clone(),
+                                                "duration_ms": elapsed_ms,
+                                                "emitter_actor": researcher_emitter_actor.clone(),
+                                                "finished_at": chrono::Utc::now().to_rfc3339(),
+                                            }),
+                                            correlation_id.clone(),
+                                            actor_id.clone(),
+                                            session_id.clone(),
+                                            thread_id.clone(),
+                                        );
+
+                                        Self::publish_worker_event(
+                                            event_store.clone(),
+                                            event_bus.clone(),
+                                            shared_types::EVENT_TOPIC_WORKER_TASK_COMPLETED,
+                                            EventType::WorkerComplete,
+                                            serde_json::json!({
+                                                "task_id": task_id,
+                                                "status": shared_types::DelegatedTaskStatus::Completed,
+                                                "output": result.summary,
+                                                "provider_used": result.provider_used,
+                                                "citations": result.citations,
+                                                "model_requested": model_override.clone(),
+                                                "model_used": result.model_used,
+                                                "provider_calls": result.provider_calls,
+                                                "duration_ms": elapsed_ms,
+                                                "emitter_actor": researcher_emitter_actor.clone(),
+                                                "finished_at": chrono::Utc::now().to_rfc3339(),
+                                            }),
+                                            correlation_id.clone(),
+                                            actor_id.clone(),
+                                            session_id.clone(),
+                                            thread_id.clone(),
+                                        );
+                                        return;
+                                    }
+                                    Ok(Ok(Err(e))) => {
+                                        let elapsed_ms = tokio::time::Instant::now()
+                                            .duration_since(start_time)
+                                            .as_millis() as u64;
+                                        Self::publish_worker_event(
+                                            event_store.clone(),
+                                            event_bus.clone(),
+                                            shared_types::EVENT_TOPIC_RESEARCH_TASK_FAILED,
+                                            EventType::Custom(shared_types::EVENT_TOPIC_RESEARCH_TASK_FAILED.to_string()),
+                                            serde_json::json!({
+                                                "task_id": task_id,
+                                                "status": "failed",
+                                                "error": e.to_string(),
+                                                "failure_kind": "researcher_actor_error",
+                                                "failure_retriable": false,
+                                                "failure_hint": "Researcher actor returned an error while processing web_search.",
+                                                "failure_origin": "researcher_actor",
+                                                "duration_ms": elapsed_ms,
+                                                "emitter_actor": researcher_emitter_actor.clone(),
+                                                "finished_at": chrono::Utc::now().to_rfc3339(),
+                                            }),
+                                            correlation_id.clone(),
+                                            actor_id.clone(),
+                                            session_id.clone(),
+                                            thread_id.clone(),
+                                        );
+                                        Self::publish_worker_event(
+                                            event_store.clone(),
+                                            event_bus.clone(),
+                                            shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                            EventType::WorkerFailed,
+                                            serde_json::json!({
+                                                "task_id": task_id,
+                                                "status": shared_types::DelegatedTaskStatus::Failed,
+                                                "error": e.to_string(),
+                                                "failure_kind": "researcher_actor_error",
+                                                "failure_retriable": false,
+                                                "failure_hint": "Researcher actor returned an error while processing web_search.",
+                                                "failure_origin": "researcher_actor",
+                                                "duration_ms": elapsed_ms,
+                                                "emitter_actor": researcher_emitter_actor.clone(),
+                                                "finished_at": chrono::Utc::now().to_rfc3339(),
+                                            }),
+                                            correlation_id.clone(),
+                                            actor_id.clone(),
+                                            session_id.clone(),
+                                            thread_id.clone(),
+                                        );
+                                        return;
+                                    }
+                                    Ok(Err(e)) => {
+                                        let elapsed_ms = tokio::time::Instant::now()
+                                            .duration_since(start_time)
+                                            .as_millis() as u64;
+                                        Self::publish_worker_event(
+                                            event_store.clone(),
+                                            event_bus.clone(),
+                                            shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                            EventType::WorkerFailed,
+                                            serde_json::json!({
+                                                "task_id": task_id,
+                                                "status": shared_types::DelegatedTaskStatus::Failed,
+                                                "error": e.to_string(),
+                                                "failure_kind": "rpc_error",
+                                                "failure_retriable": true,
+                                                "failure_hint": "Researcher RPC failed; retry may succeed if transient.",
+                                                "failure_origin": "application_supervisor",
+                                                "duration_ms": elapsed_ms,
+                                                "emitter_actor": "application_supervisor",
+                                                "finished_at": chrono::Utc::now().to_rfc3339(),
+                                            }),
+                                            correlation_id.clone(),
+                                            actor_id.clone(),
+                                            session_id.clone(),
+                                            thread_id.clone(),
+                                        );
+                                        return;
+                                    }
+                                    Err(_) => {
+                                        let elapsed_ms = tokio::time::Instant::now()
+                                            .duration_since(start_time)
+                                            .as_millis() as u64;
+                                        Self::publish_worker_event(
+                                            event_store.clone(),
+                                            event_bus.clone(),
+                                            shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                            EventType::WorkerFailed,
+                                            serde_json::json!({
+                                                "task_id": task_id,
+                                                "status": shared_types::DelegatedTaskStatus::Failed,
+                                                "error": "researcher result channel closed".to_string(),
+                                                "failure_kind": "result_channel_closed",
+                                                "failure_retriable": true,
+                                                "failure_hint": "Researcher result channel closed early; inspect actor lifecycle.",
+                                                "failure_origin": "application_supervisor",
+                                                "duration_ms": elapsed_ms,
+                                                "emitter_actor": "application_supervisor",
+                                                "finished_at": chrono::Utc::now().to_rfc3339(),
+                                            }),
+                                            correlation_id.clone(),
+                                            actor_id.clone(),
+                                            session_id.clone(),
+                                            thread_id.clone(),
+                                        );
+                                        return;
+                                    }
+                                }
+                            }
+                        }
                     }
                 });
             }

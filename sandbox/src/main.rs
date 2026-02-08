@@ -11,10 +11,54 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
+fn load_env_file() {
+    let cwd = match std::env::current_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            tracing::warn!(error = %e, "Could not determine current directory for .env lookup");
+            return;
+        }
+    };
+
+    let mut current = cwd.clone();
+    loop {
+        let candidate = current.join(".env");
+        if candidate.exists() {
+            match dotenvy::from_path(&candidate) {
+                Ok(_) => {
+                    tracing::info!(path = %candidate.display(), "Loaded environment from .env");
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        path = %candidate.display(),
+                        error = %e,
+                        "Failed to load .env file"
+                    );
+                }
+            }
+            return;
+        }
+
+        if !current.pop() {
+            break;
+        }
+    }
+
+    tracing::info!(
+        cwd = %cwd.display(),
+        "No .env file found in current directory or ancestors; using process environment only"
+    );
+}
+
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     // Initialize logging
     tracing_subscriber::fmt::init();
+
+    // Load .env values early so provider/model keys are available to all actors.
+    // Search the current directory and ancestors so running from `sandbox/` still
+    // picks up repo-root `.env`.
+    load_env_file();
 
     tracing::info!("Starting ChoirOS Sandbox API Server");
 

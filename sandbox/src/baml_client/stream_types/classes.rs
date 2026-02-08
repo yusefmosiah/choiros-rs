@@ -43,6 +43,8 @@ pub struct AgentToolArgs {
 
     pub search_files: Option<SearchFilesToolArgs>,
 
+    pub web_search: Option<WebSearchToolArgs>,
+
     pub command: Option<String>,
 
     pub cmd: Option<String>,
@@ -68,6 +70,18 @@ pub struct AgentToolArgs {
     pub limit: Option<i64>,
 
     pub offset: Option<i64>,
+
+    pub query: Option<String>,
+
+    pub provider: Option<String>,
+
+    pub max_results: Option<i64>,
+
+    pub time_range: Option<String>,
+
+    pub include_domains: Option<Vec<String>>,
+
+    pub exclude_domains: Option<Vec<String>>,
 }
 
 impl AsRef<AgentToolArgs> for AgentToolArgs {
@@ -220,6 +234,34 @@ pub struct ToolResult {
 
 impl AsRef<ToolResult> for ToolResult {
     fn as_ref(&self) -> &ToolResult {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct WebSearchToolArgs {
+    pub query: Option<String>,
+
+    pub provider: Option<String>,
+
+    pub max_results: Option<i64>,
+
+    pub time_range: Option<String>,
+
+    pub include_domains: Option<Vec<String>>,
+
+    pub exclude_domains: Option<Vec<String>>,
+
+    pub timeout_ms: Option<i64>,
+
+    pub model: Option<String>,
+
+    pub reasoning: Option<String>,
+}
+
+impl AsRef<WebSearchToolArgs> for WebSearchToolArgs {
+    fn as_ref(&self) -> &WebSearchToolArgs {
         self
     }
 }

@@ -40,6 +40,8 @@ pub enum StreamTypes {
 
     ToolResult(ToolResult),
 
+    WebSearchToolArgs(WebSearchToolArgs),
+
     WriteFileToolArgs(WriteFileToolArgs),
 }
 
@@ -71,6 +73,8 @@ impl baml::KnownTypes for StreamTypes {
             StreamTypes::StreamChunk(_) => "StreamChunk",
 
             StreamTypes::ToolResult(_) => "ToolResult",
+
+            StreamTypes::WebSearchToolArgs(_) => "WebSearchToolArgs",
 
             StreamTypes::WriteFileToolArgs(_) => "WriteFileToolArgs",
         }

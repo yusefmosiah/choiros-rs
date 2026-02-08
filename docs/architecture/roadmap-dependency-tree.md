@@ -9,6 +9,7 @@ ChoirOS is now executing one lane only: `Logging -> Watcher -> Model Policy -> W
 The goal is to finish observability foundations before expanding behavior.
 EventStore is canonical; EventBus is delivery-only; watcher/researcher must emit rich, queryable events.
 Run-level observability is now in place: persisted run indexing, watcher run navigation, run markdown projection, and structured worker failure telemetry with model attribution on worker lifecycle events.
+Researcher baseline is now live through delegated `web_search` runs, with provider-level run events and citation payloads persisted in EventStore.
 
 ## What Changed
 
@@ -28,6 +29,13 @@ Run-level observability is now in place: persisted run indexing, watcher run nav
   - `watcher.alert.network_spike`.
 - Worker lifecycle model attribution normalized:
   - every worker lifecycle event now carries `model_requested` and `model_used`.
+- Researcher baseline landed:
+  - Chat `web_search` delegates through `ResearcherActor`,
+  - provider call/result/error lifecycle is emitted and queryable per run,
+  - citations/provider metadata are persisted into completed task payloads and run markdown.
+- Prompt temporal-awareness hardening landed:
+  - system prompts now include UTC timestamp metadata,
+  - per-message prompt content in chat/terminal planning paths is timestamped.
 
 ## What To Do Next
 
@@ -39,11 +47,12 @@ Run-level observability is now in place: persisted run indexing, watcher run nav
   - typed turn report envelope for worker outputs
   - control-plane escalation vs observability event split
   - anti-spam validation/dedup/cooldown semantics
-- Start ResearcherActor only after reconciliation gate passes.
-- Build ResearcherActor immediately after worker signal gate:
-  - provider-isolated search APIs (Tavily/Brave/Exa),
-  - typed findings/learnings/citations events,
-  - run-level replay and watcher visibility from day one.
+- Harden Researcher v1 now that baseline is live:
+  - validate Brave/Exa in live runs and harden provider fanout defaults,
+  - tune finding/learning signal quality and anti-spam behavior,
+  - tighten websocket ordering/replay assertions for multi-provider runs.
+- Finish worker signal contract runtime enforcement:
+  - confidence gating, dedup, cooldowns, and escalation throttles.
 - After Researcher, build Prompt Bar + Conductor orchestration layer.
 
 ## Single Active Lane
@@ -147,21 +156,21 @@ Checklist:
 Gate:
 - Watcher detects and emits stable alerts on synthetic failure scenarios without noisy false storms.
 
-## Milestone 3: Researcher (Next After Model Policy + Worker Signal Contract)
+## Milestone 3: Researcher (In Progress)
 
 Goal:
 - Ship ResearcherActor with full observability so research work is inspectable in real time.
 
 Checklist:
-- [ ] Implement typed worker turn report ingestion contract (`finding`, `learning`, `escalation`, `artifact`) before researcher rollout.
-- [ ] Add runtime anti-spam gates (caps, confidence floor, dedup hash, escalation cooldown).
-- [ ] Persist accepted/rejected signal events with rejection reasons.
-- [ ] Implement ResearcherActor with constrained capability surface.
-- [ ] Route chat `web_search` through ResearcherActor only (no terminal-side web search tool).
-- [ ] Implement provider adapters for Tavily + Brave + Exa under researcher capability boundary.
-- [ ] Stream lifecycle events (`planning`, `search`, `read`, `synthesis`, `citation_attach`).
-- [ ] Persist citations and source metadata in event payloads.
-- [ ] Add websocket tests for ordered researcher event streaming.
+- [x] Implement typed worker turn report ingestion contract (`finding`, `learning`, `escalation`, `artifact`) before researcher rollout.
+- [~] Add runtime anti-spam gates (caps, confidence floor, dedup hash, escalation cooldown).
+- [~] Persist accepted/rejected signal events with rejection reasons.
+- [x] Implement ResearcherActor with constrained capability surface.
+- [x] Route chat `web_search` through ResearcherActor only (no terminal-side web search tool).
+- [x] Implement provider adapters for Tavily + Brave + Exa under researcher capability boundary.
+- [x] Stream lifecycle events (`planning`, `search`, `read`, `synthesis`, `citation_attach`).
+- [x] Persist citations and source metadata in event payloads.
+- [~] Add websocket tests for ordered researcher event streaming.
 
 Gate:
 - Research flow is fully observable, replayable, and inspectable by watcher/log UI.

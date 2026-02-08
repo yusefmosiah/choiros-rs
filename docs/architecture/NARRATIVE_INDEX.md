@@ -8,6 +8,7 @@ Purpose: Human-readable map of the architecture docs, in plain language.
 ChoirOS is shifting from parallel feature work to a linear, testable roadmap.
 The current top deliverable is the `Directives` app: a first-class planning/control view.
 Core architecture rule: direct actor-to-actor calls stay fast; deterministic policy checks enforce boundaries; policy actors are for high-risk escalation only.
+Researcher baseline is now live via delegated `web_search`, and run-level logs now include provider/citation trails.
 
 ## What We Are Building Right Now
 
@@ -18,6 +19,8 @@ Core architecture rule: direct actor-to-actor calls stay fast; deterministic pol
 3. Deterministic, reproducible operation:
    - model/config decisions are logged
    - events are the system of record
+4. Temporal awareness by default:
+   - prompt system context and prompt messages carry explicit UTC timestamps for model grounding
 
 ## Read Order (High-Level to Deep Dive)
 
@@ -29,11 +32,13 @@ Core architecture rule: direct actor-to-actor calls stay fast; deterministic pol
    - What has already landed and what is next.
 4. `/Users/wiz/choiros-rs/docs/architecture/worker-signal-contract.md`
    - Control-plane vs observability contract, typed turn reports, anti-spam rules.
-5. `/Users/wiz/choiros-rs/docs/architecture/model-provider-agnostic-runbook.md`
+5. `/Users/wiz/choiros-rs/docs/architecture/researcher-search-dual-interface-runbook.md`
+   - Canonical researcher rollout spec: dual interface, provider isolation, and observability contracts.
+6. `/Users/wiz/choiros-rs/docs/architecture/model-provider-agnostic-runbook.md`
    - Model/provider matrix and validation plan.
-6. `/Users/wiz/choiros-rs/docs/architecture/pdf-app-implementation-guide.md`
+7. `/Users/wiz/choiros-rs/docs/architecture/pdf-app-implementation-guide.md`
    - Deferred guide-only milestone (no build yet).
-7. `/Users/wiz/choiros-rs/docs/architecture/roadmap-critical-analysis.md`
+8. `/Users/wiz/choiros-rs/docs/architecture/roadmap-critical-analysis.md`
    - Historical gap analysis and risks (use as reference, not current ordering authority).
 
 ## Current Decisions (Explicit)
@@ -50,6 +55,7 @@ Core architecture rule: direct actor-to-actor calls stay fast; deterministic pol
 - `directives-execution-checklist.md`: "What must be true before we call this architecture real."
 - `roadmap_progress.md`: "What changed and what we tackle next."
 - `model-provider-agnostic-runbook.md`: "How to prove model routing and provider support."
+- `researcher-search-dual-interface-runbook.md`: "How researcher launches without breaking capability boundaries."
 - `worker-signal-contract.md`: "How workers decide what to signal, without spamming."
 - `pdf-app-implementation-guide.md`: "What PDF should become later, without building it now."
 - `roadmap-critical-analysis.md`: "Where the earlier plan overestimated readiness."

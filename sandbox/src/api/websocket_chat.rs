@@ -178,6 +178,50 @@ async fn handle_chat_socket(
         .into(),
     ));
 
+    let event_store = app_state.event_store();
+    let initial_since_seq = match get_events_for_actor_with_scope(
+        &event_store,
+        actor_id.clone(),
+        session_id.clone(),
+        thread_id.clone(),
+        0,
+    )
+    .await
+    {
+        Ok(Ok(events)) => events.last().map(|e| e.seq).unwrap_or(0),
+        Ok(Err(e)) => {
+            tracing::warn!(
+                actor_id = %actor_id,
+                session_id = %session_id,
+                thread_id = %thread_id,
+                error = %e,
+                "Failed to get scoped event cursor for connection stream"
+            );
+            0
+        }
+        Err(e) => {
+            tracing::warn!(
+                actor_id = %actor_id,
+                session_id = %session_id,
+                thread_id = %thread_id,
+                error = %e,
+                "EventStore actor error while preparing connection stream"
+            );
+            0
+        }
+    };
+
+    let (stream_done_tx, stream_done_rx) = tokio::sync::oneshot::channel::<()>();
+    let stream_task = tokio::spawn(stream_chat_events(
+        tx.clone(),
+        event_store.clone(),
+        actor_id.clone(),
+        session_id.clone(),
+        thread_id.clone(),
+        initial_since_seq,
+        stream_done_rx,
+    ));
+
     while let Some(Ok(msg)) = receiver.next().await {
         match msg {
             Message::Text(text) => match serde_json::from_str::<ClientMessage>(&text) {
@@ -204,50 +248,6 @@ async fn handle_chat_socket(
                     let model_override = model.clone();
 
                     tokio::spawn(async move {
-                        let event_store = app_state.event_store();
-                        let last_seq = match get_events_for_actor_with_scope(
-                            &event_store,
-                            actor_id.clone(),
-                            session_id.clone(),
-                            thread_id.clone(),
-                            0,
-                        )
-                        .await
-                        {
-                            Ok(Ok(events)) => events.last().map(|e| e.seq).unwrap_or(0),
-                            Ok(Err(e)) => {
-                                tracing::warn!(
-                                    actor_id = %actor_id,
-                                    session_id = %session_id,
-                                    thread_id = %thread_id,
-                                    error = %e,
-                                    "Failed to get scoped event cursor for tool streaming"
-                                );
-                                0
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    actor_id = %actor_id,
-                                    session_id = %session_id,
-                                    thread_id = %thread_id,
-                                    error = %e,
-                                    "EventStore actor error while preparing scoped tool streaming"
-                                );
-                                0
-                            }
-                        };
-
-                        let (stream_done_tx, stream_done_rx) = oneshot::channel::<()>();
-                        let stream_task = tokio::spawn(stream_tool_events(
-                            tx_clone.clone(),
-                            event_store.clone(),
-                            actor_id.clone(),
-                            session_id.clone(),
-                            thread_id.clone(),
-                            last_seq,
-                            stream_done_rx,
-                        ));
-
                         let agent = match app_state
                             .get_or_create_chat_agent(
                                 scoped_agent_id(
@@ -270,8 +270,6 @@ async fn handle_chat_socket(
                                     "Failed to get chat agent"
                                 );
                                 let _ = send_error(&tx_clone, "Failed to initialize chat agent");
-                                let _ = stream_done_tx.send(());
-                                let _ = stream_task.await;
                                 return;
                             }
                         };
@@ -283,36 +281,10 @@ async fn handle_chat_socket(
                             model_override,
                             reply,
                         }) {
-                            Ok(Ok(resp)) => {
-                                let _ = stream_done_tx.send(());
-                                let _ = stream_task.await;
-
-                                let _ = send_chunk(
-                                    &tx_clone,
-                                    StreamChunk {
-                                        chunk_type: "thinking".to_string(),
-                                        content: resp.thinking,
-                                    },
-                                );
-
-                                let _ = send_chunk(
-                                    &tx_clone,
-                                    StreamChunk {
-                                        chunk_type: "response".to_string(),
-                                        content: json!({
-                                            "text": resp.text,
-                                            "confidence": resp.confidence,
-                                            "model_used": resp.model_used,
-                                            "model_source": resp.model_source,
-                                            "client_message_id": client_message_id,
-                                        })
-                                        .to_string(),
-                                    },
-                                );
+                            Ok(Ok(_resp)) => {
+                                let _ = client_message_id;
                             }
                             Ok(Err(e)) => {
-                                let _ = stream_done_tx.send(());
-                                let _ = stream_task.await;
                                 tracing::error!(
                                     actor_id = %actor_id,
                                     error = %e,
@@ -321,8 +293,6 @@ async fn handle_chat_socket(
                                 let _ = send_error(&tx_clone, "Failed to process message");
                             }
                             Err(e) => {
-                                let _ = stream_done_tx.send(());
-                                let _ = stream_task.await;
                                 tracing::error!(
                                     actor_id = %actor_id,
                                     error = %e,
@@ -438,6 +408,8 @@ async fn handle_chat_socket(
         }
     }
 
+    let _ = stream_done_tx.send(());
+    let _ = stream_task.await;
     writer.abort();
 }
 
@@ -475,7 +447,7 @@ fn send_error(tx: &mpsc::UnboundedSender<Message>, message: &str) -> bool {
     .is_ok()
 }
 
-async fn stream_tool_events(
+async fn stream_chat_events(
     tx: mpsc::UnboundedSender<Message>,
     event_store: ractor::ActorRef<EventStoreMsg>,
     actor_id: String,
@@ -487,7 +459,7 @@ async fn stream_tool_events(
     loop {
         tokio::select! {
             _ = sleep(Duration::from_millis(120)) => {
-                if !emit_tool_events_since(
+                if !emit_chat_events_since(
                     &tx,
                     &event_store,
                     &actor_id,
@@ -499,7 +471,7 @@ async fn stream_tool_events(
                 }
             }
             _ = &mut done => {
-                let _ = emit_tool_events_since(
+                let _ = emit_chat_events_since(
                     &tx,
                     &event_store,
                     &actor_id,
@@ -513,7 +485,7 @@ async fn stream_tool_events(
     }
 }
 
-async fn emit_tool_events_since(
+async fn emit_chat_events_since(
     tx: &mpsc::UnboundedSender<Message>,
     event_store: &ractor::ActorRef<EventStoreMsg>,
     actor_id: &str,
@@ -557,6 +529,55 @@ async fn emit_tool_events_since(
         *since_seq = (*since_seq).max(event.seq);
 
         match event.event_type.as_str() {
+            shared_types::EVENT_CHAT_ASSISTANT_MSG => {
+                if let Some(thinking) = event.payload.get("thinking").and_then(|v| v.as_str()) {
+                    if !thinking.trim().is_empty() {
+                        let _ = send_chunk(
+                            tx,
+                            StreamChunk {
+                                chunk_type: "thinking".to_string(),
+                                content: thinking.to_string(),
+                            },
+                        );
+                    }
+                }
+
+                let text = event
+                    .payload
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let model_used = event
+                    .payload
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string);
+                let model_source = event
+                    .payload
+                    .get("model_source")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string);
+                let confidence = event
+                    .payload
+                    .get("confidence")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+
+                let _ = send_chunk(
+                    tx,
+                    StreamChunk {
+                        chunk_type: "response".to_string(),
+                        content: json!({
+                            "text": text,
+                            "confidence": confidence,
+                            "model_used": model_used,
+                            "model_source": model_source,
+                        })
+                        .to_string(),
+                    },
+                );
+            }
             shared_types::EVENT_CHAT_TOOL_CALL => {
                 let _ = send_chunk(
                     tx,
