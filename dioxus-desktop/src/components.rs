@@ -847,9 +847,9 @@ pub fn LogsView(desktop_id: String, window_id: String) -> Element {
 
     use_effect(move || {
         let pump_alive = pump_alive.clone();
-        spawn(async move {
-            while pump_alive.get() {
-                match fetch_logs_events(since_seq(), 200, Some("watcher.alert")).await {
+            spawn(async move {
+                while pump_alive.get() {
+                    match fetch_logs_events(since_seq(), 250, None).await {
                     Ok(mut fresh) => {
                         connected.set(true);
                         error.set(None);
@@ -858,6 +858,10 @@ pub fn LogsView(desktop_id: String, window_id: String) -> Element {
                             if let Some(last) = fresh.last() {
                                 since_seq.set(last.seq);
                             }
+                            fresh.retain(|event| {
+                                event.event_type.starts_with("watcher.alert")
+                                    || event.event_type.starts_with("worker.task")
+                            });
                             let mut list = events.write();
                             list.extend(fresh.into_iter());
                             if list.len() > 300 {

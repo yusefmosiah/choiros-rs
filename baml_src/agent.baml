@@ -25,6 +25,12 @@ function PlanAction(
     3. If using tools, specify which ones with clear reasoning
     4. Provide a confidence score (0.0-1.0) in your plan
 
+    Tool-use policy:
+    - For external or real-time requests (weather, web/API status, latest information), attempt tools instead of guessing.
+    - If the user says "use api", "use bash", or asks for command execution, prefer a bash tool call.
+    - Do not claim lack of internet/API access unless a relevant tool call was attempted and failed.
+    - On failure, report the concrete error and next-best fallback.
+
     {{ ctx.output_format }}
   "#
 }

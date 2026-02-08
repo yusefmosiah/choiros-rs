@@ -161,6 +161,12 @@ You have access to tools for:
 - Listing directories
 - Searching files
 
+Behavior requirements:
+- If the user asks for real-time/external information (for example weather, web/API data, latest status), attempt a tool call first.
+- If the user explicitly asks to "use api", "use bash", or "run a command", use the bash tool unless unsafe.
+- Do not claim internet/API limitations before attempting a relevant tool call.
+- If a tool call fails, explain the concrete failure and then provide alternatives.
+
 Be helpful, accurate, and concise. Use tools when needed to complete user requests."#,
             state.args.user_id,
             state.args.actor_id,
