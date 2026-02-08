@@ -184,6 +184,378 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         }
     }
 
+    fn bash_tool_args_to_value(
+        args: &crate::baml_client::types::BashToolArgs,
+    ) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        if let Some(v) = &args.command {
+            map.insert("command".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.cmd {
+            map.insert("cmd".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.cwd {
+            map.insert("cwd".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.reasoning {
+            map.insert(
+                "reasoning".to_string(),
+                serde_json::Value::String(v.clone()),
+            );
+        }
+        if let Some(v) = args.timeout_ms {
+            map.insert(
+                "timeout_ms".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(v)),
+            );
+        }
+        if let Some(v) = &args.model {
+            map.insert("model".to_string(), serde_json::Value::String(v.clone()));
+        }
+        serde_json::Value::Object(map)
+    }
+
+    fn read_file_tool_args_to_value(
+        args: &crate::baml_client::types::ReadFileToolArgs,
+    ) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        if let Some(v) = &args.path {
+            map.insert("path".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = args.limit {
+            map.insert(
+                "limit".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(v)),
+            );
+        }
+        if let Some(v) = args.offset {
+            map.insert(
+                "offset".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(v)),
+            );
+        }
+        serde_json::Value::Object(map)
+    }
+
+    fn write_file_tool_args_to_value(
+        args: &crate::baml_client::types::WriteFileToolArgs,
+    ) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        if let Some(v) = &args.path {
+            map.insert("path".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.content {
+            map.insert("content".to_string(), serde_json::Value::String(v.clone()));
+        }
+        serde_json::Value::Object(map)
+    }
+
+    fn list_files_tool_args_to_value(
+        args: &crate::baml_client::types::ListFilesToolArgs,
+    ) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        if let Some(v) = &args.path {
+            map.insert("path".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = args.recursive {
+            map.insert("recursive".to_string(), serde_json::Value::Bool(v));
+        }
+        serde_json::Value::Object(map)
+    }
+
+    fn search_files_tool_args_to_value(
+        args: &crate::baml_client::types::SearchFilesToolArgs,
+    ) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        if let Some(v) = &args.pattern {
+            map.insert("pattern".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.path {
+            map.insert("path".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.file_pattern {
+            map.insert(
+                "file_pattern".to_string(),
+                serde_json::Value::String(v.clone()),
+            );
+        }
+        serde_json::Value::Object(map)
+    }
+
+    fn agent_tool_args_to_value(
+        args: &crate::baml_client::types::AgentToolArgs,
+    ) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        if let Some(v) = &args.bash {
+            map.insert("bash".to_string(), Self::bash_tool_args_to_value(v));
+        }
+        if let Some(v) = &args.read_file {
+            map.insert(
+                "read_file".to_string(),
+                Self::read_file_tool_args_to_value(v),
+            );
+        }
+        if let Some(v) = &args.write_file {
+            map.insert(
+                "write_file".to_string(),
+                Self::write_file_tool_args_to_value(v),
+            );
+        }
+        if let Some(v) = &args.list_files {
+            map.insert(
+                "list_files".to_string(),
+                Self::list_files_tool_args_to_value(v),
+            );
+        }
+        if let Some(v) = &args.search_files {
+            map.insert(
+                "search_files".to_string(),
+                Self::search_files_tool_args_to_value(v),
+            );
+        }
+        if let Some(v) = &args.command {
+            map.insert("command".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.cmd {
+            map.insert("cmd".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.cwd {
+            map.insert("cwd".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.reasoning {
+            map.insert(
+                "reasoning".to_string(),
+                serde_json::Value::String(v.clone()),
+            );
+        }
+        if let Some(v) = args.timeout_ms {
+            map.insert(
+                "timeout_ms".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(v)),
+            );
+        }
+        if let Some(v) = &args.model {
+            map.insert("model".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.path {
+            map.insert("path".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.content {
+            map.insert("content".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.pattern {
+            map.insert("pattern".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.file_pattern {
+            map.insert(
+                "file_pattern".to_string(),
+                serde_json::Value::String(v.clone()),
+            );
+        }
+        if let Some(v) = args.recursive {
+            map.insert("recursive".to_string(), serde_json::Value::Bool(v));
+        }
+        if let Some(v) = args.limit {
+            map.insert(
+                "limit".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(v)),
+            );
+        }
+        if let Some(v) = args.offset {
+            map.insert(
+                "offset".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(v)),
+            );
+        }
+        serde_json::Value::Object(map)
+    }
+
+    fn legacy_bash_tool_args_to_value(
+        args: &crate::baml_client::types::AgentToolArgs,
+    ) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        if let Some(v) = &args.command {
+            map.insert("command".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.cmd {
+            map.insert("cmd".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.cwd {
+            map.insert("cwd".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.reasoning {
+            map.insert(
+                "reasoning".to_string(),
+                serde_json::Value::String(v.clone()),
+            );
+        }
+        if let Some(v) = args.timeout_ms {
+            map.insert(
+                "timeout_ms".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(v)),
+            );
+        }
+        if let Some(v) = &args.model {
+            map.insert("model".to_string(), serde_json::Value::String(v.clone()));
+        }
+        serde_json::Value::Object(map)
+    }
+
+    fn legacy_read_file_tool_args_to_value(
+        args: &crate::baml_client::types::AgentToolArgs,
+    ) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        if let Some(v) = &args.path {
+            map.insert("path".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = args.limit {
+            map.insert(
+                "limit".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(v)),
+            );
+        }
+        if let Some(v) = args.offset {
+            map.insert(
+                "offset".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(v)),
+            );
+        }
+        serde_json::Value::Object(map)
+    }
+
+    fn legacy_write_file_tool_args_to_value(
+        args: &crate::baml_client::types::AgentToolArgs,
+    ) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        if let Some(v) = &args.path {
+            map.insert("path".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.content {
+            map.insert("content".to_string(), serde_json::Value::String(v.clone()));
+        }
+        serde_json::Value::Object(map)
+    }
+
+    fn legacy_list_files_tool_args_to_value(
+        args: &crate::baml_client::types::AgentToolArgs,
+    ) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        if let Some(v) = &args.path {
+            map.insert("path".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = args.recursive {
+            map.insert("recursive".to_string(), serde_json::Value::Bool(v));
+        }
+        serde_json::Value::Object(map)
+    }
+
+    fn legacy_search_files_tool_args_to_value(
+        args: &crate::baml_client::types::AgentToolArgs,
+    ) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        if let Some(v) = &args.pattern {
+            map.insert("pattern".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.path {
+            map.insert("path".to_string(), serde_json::Value::String(v.clone()));
+        }
+        if let Some(v) = &args.file_pattern {
+            map.insert(
+                "file_pattern".to_string(),
+                serde_json::Value::String(v.clone()),
+            );
+        }
+        serde_json::Value::Object(map)
+    }
+
+    fn tool_execution_args_to_value(
+        tool_name: &str,
+        args: &crate::baml_client::types::AgentToolArgs,
+    ) -> serde_json::Value {
+        match tool_name {
+            "bash" => args
+                .bash
+                .as_ref()
+                .map(Self::bash_tool_args_to_value)
+                .or_else(|| {
+                    let legacy = Self::legacy_bash_tool_args_to_value(args);
+                    legacy
+                        .as_object()
+                        .is_some_and(|o| !o.is_empty())
+                        .then_some(legacy)
+                })
+                .unwrap_or_else(|| serde_json::json!({})),
+            "read_file" => args
+                .read_file
+                .as_ref()
+                .map(Self::read_file_tool_args_to_value)
+                .or_else(|| {
+                    let legacy = Self::legacy_read_file_tool_args_to_value(args);
+                    legacy
+                        .as_object()
+                        .is_some_and(|o| !o.is_empty())
+                        .then_some(legacy)
+                })
+                .unwrap_or_else(|| serde_json::json!({})),
+            "write_file" => args
+                .write_file
+                .as_ref()
+                .map(Self::write_file_tool_args_to_value)
+                .or_else(|| {
+                    let legacy = Self::legacy_write_file_tool_args_to_value(args);
+                    legacy
+                        .as_object()
+                        .is_some_and(|o| !o.is_empty())
+                        .then_some(legacy)
+                })
+                .unwrap_or_else(|| serde_json::json!({})),
+            "list_files" => args
+                .list_files
+                .as_ref()
+                .map(Self::list_files_tool_args_to_value)
+                .or_else(|| {
+                    let legacy = Self::legacy_list_files_tool_args_to_value(args);
+                    legacy
+                        .as_object()
+                        .is_some_and(|o| !o.is_empty())
+                        .then_some(legacy)
+                })
+                .unwrap_or_else(|| serde_json::json!({})),
+            "search_files" => args
+                .search_files
+                .as_ref()
+                .map(Self::search_files_tool_args_to_value)
+                .or_else(|| {
+                    let legacy = Self::legacy_search_files_tool_args_to_value(args);
+                    legacy
+                        .as_object()
+                        .is_some_and(|o| !o.is_empty())
+                        .then_some(legacy)
+                })
+                .unwrap_or_else(|| serde_json::json!({})),
+            _ => serde_json::json!({}),
+        }
+    }
+
+    fn tool_args_for_log(
+        tool_name: &str,
+        args: &crate::baml_client::types::AgentToolArgs,
+    ) -> serde_json::Value {
+        let execution_args = Self::tool_execution_args_to_value(tool_name, args);
+        if execution_args.as_object().is_some_and(|o| !o.is_empty()) {
+            execution_args
+        } else {
+            Self::agent_tool_args_to_value(args)
+        }
+    }
+
+    fn tool_args_for_execution(
+        tool_name: &str,
+        args: &crate::baml_client::types::AgentToolArgs,
+    ) -> String {
+        Self::tool_execution_args_to_value(tool_name, args).to_string()
+    }
+
     fn history_from_events(events: Vec<shared_types::Event>) -> Vec<BamlMessage> {
         let mut history = Vec::new();
 
@@ -320,12 +692,16 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         let mut tool_results: Vec<ToolResult> = Vec::new();
 
         for tool_call in &plan.tool_calls {
+            let tool_args_value =
+                Self::tool_args_for_log(&tool_call.tool_name, &tool_call.tool_args);
+            let tool_args =
+                Self::tool_args_for_execution(&tool_call.tool_name, &tool_call.tool_args);
             self.log_event(
                 state,
                 shared_types::EVENT_CHAT_TOOL_CALL,
                 serde_json::json!({
                     "tool_name": tool_call.tool_name,
-                    "tool_args": tool_call.tool_args,
+                    "tool_args": tool_args_value,
                     "reasoning": tool_call.reasoning,
                 }),
                 session_id.clone(),
@@ -337,7 +713,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
             let result = if tool_call.tool_name == "bash" {
                 self.delegate_terminal_tool(
                     state,
-                    tool_call.tool_args.clone(),
+                    tool_args.clone(),
                     session_id.clone(),
                     thread_id.clone(),
                     Some(model_used.clone()),
@@ -348,7 +724,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                 execute_tool_impl(
                     state.tool_registry.clone(),
                     tool_call.tool_name.clone(),
-                    tool_call.tool_args.clone(),
+                    tool_args.clone(),
                 )
                 .await
             };
@@ -357,8 +733,8 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                 Ok(output) => {
                     executed_tools.push(ExecutedToolCall {
                         tool_name: tool_call.tool_name.clone(),
-                        tool_args: tool_call.tool_args.clone(),
-                        reasoning: tool_call.reasoning.clone(),
+                        tool_args: tool_args.clone(),
+                        reasoning: tool_call.reasoning.clone().unwrap_or_default(),
                         result: output.clone(),
                     });
 

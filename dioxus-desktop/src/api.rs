@@ -150,6 +150,55 @@ pub async fn send_chat_message(actor_id: &str, user_id: &str, text: &str) -> Res
     Ok(())
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct LogsEvent {
+    pub seq: i64,
+    pub event_id: String,
+    pub timestamp: String,
+    pub event_type: String,
+    pub actor_id: String,
+    pub user_id: String,
+    pub payload: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GetLogsEventsResponse {
+    pub events: Vec<LogsEvent>,
+}
+
+pub async fn fetch_logs_events(
+    since_seq: i64,
+    limit: i64,
+    event_type_prefix: Option<&str>,
+) -> Result<Vec<LogsEvent>, String> {
+    let mut url = format!(
+        "{}/logs/events?since_seq={}&limit={}",
+        api_base(),
+        since_seq.max(0),
+        limit.clamp(1, 1000)
+    );
+    if let Some(prefix) = event_type_prefix {
+        let encoded = js_sys::encode_uri_component(prefix)
+            .as_string()
+            .unwrap_or_else(|| prefix.to_string());
+        url.push_str("&event_type_prefix=");
+        url.push_str(&encoded);
+    }
+
+    let response = Request::get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+    if !response.ok() {
+        return Err(describe_http_error(response).await);
+    }
+    let data: GetLogsEventsResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
+    Ok(data.events)
+}
+
 // ============================================================================
 // Desktop API Functions
 // ============================================================================

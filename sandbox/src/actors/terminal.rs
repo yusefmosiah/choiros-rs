@@ -686,36 +686,28 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                     continue;
                 }
 
-                let parsed_args: serde_json::Value =
-                    match serde_json::from_str(&tool_call.tool_args) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            tool_results.push(BamlToolResult {
-                                tool_name: "bash".to_string(),
-                                success: false,
-                                output: String::new(),
-                                error: Some(format!("Invalid tool args: {e}")),
-                            });
-                            continue;
-                        }
-                    };
-
-                let command = match parsed_args.get("command").and_then(|v| v.as_str()) {
+                let bash_args = tool_call.tool_args.bash.as_ref();
+                let command = match bash_args
+                    .and_then(|args| args.command.as_deref().or(args.cmd.as_deref()))
+                    .or(tool_call.tool_args.command.as_deref())
+                    .or(tool_call.tool_args.cmd.as_deref())
+                {
                     Some(command) if !command.trim().is_empty() => command.to_string(),
                     _ => {
                         tool_results.push(BamlToolResult {
                             tool_name: "bash".to_string(),
                             success: false,
                             output: String::new(),
-                            error: Some("Missing command".to_string()),
+                            error: Some("Missing command/cmd".to_string()),
                         });
                         continue;
                     }
                 };
 
-                let command_timeout = parsed_args
-                    .get("timeout_ms")
-                    .and_then(|v| v.as_u64())
+                let command_timeout = bash_args
+                    .and_then(|args| args.timeout_ms)
+                    .or(tool_call.tool_args.timeout_ms)
+                    .and_then(|value| u64::try_from(value).ok())
                     .unwrap_or(per_step_timeout)
                     .clamp(1_000, 120_000);
 
@@ -725,7 +717,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                     &progress_tx,
                     "terminal_tool_call",
                     "terminal agent requested bash tool execution",
-                    Some(tool_call.reasoning.clone()),
+                    tool_call.reasoning.clone(),
                     Some(command.clone()),
                     None,
                     None,
@@ -755,7 +747,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                     &progress_tx,
                     "terminal_tool_result",
                     "terminal agent received bash tool result",
-                    Some(tool_call.reasoning.clone()),
+                    tool_call.reasoning.clone(),
                     Some(command.clone()),
                     Some(output_excerpt),
                     Some(exit_code),

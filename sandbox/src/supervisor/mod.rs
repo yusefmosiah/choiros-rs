@@ -57,6 +57,7 @@ use tracing::{error, info};
 use crate::actors::event_bus::{
     Event, EventBusActor, EventBusArguments, EventBusConfig, EventBusMsg, EventType,
 };
+use crate::actors::event_relay::{EventRelayActor, EventRelayArguments, EventRelayMsg};
 use crate::actors::event_store::EventStoreMsg;
 use crate::actors::terminal::{TerminalAgentProgress, TerminalMsg};
 
@@ -68,6 +69,7 @@ pub struct ApplicationSupervisor;
 pub struct ApplicationState {
     pub event_store: ActorRef<EventStoreMsg>,
     pub event_bus: Option<ActorRef<EventBusMsg>>,
+    pub event_relay: Option<ActorRef<EventRelayMsg>>,
     pub session_supervisor: Option<ActorRef<SessionSupervisorMsg>>,
     pub supervision_event_counts: SupervisionEventCounts,
     pub last_supervision_failure: Option<String>,
@@ -83,6 +85,7 @@ pub struct SupervisionEventCounts {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApplicationSupervisorHealth {
     pub event_bus_healthy: bool,
+    pub event_relay_healthy: bool,
     pub session_supervisor_healthy: bool,
     pub supervision_event_counts: SupervisionEventCounts,
     pub last_supervision_failure: Option<String>,
@@ -170,6 +173,9 @@ impl Actor for ApplicationSupervisor {
             }
             SupervisionEvent::ActorTerminated(actor_cell, _, _) => {
                 state.supervision_event_counts.actor_terminated += 1;
+                let mut event_bus_terminated = false;
+                let mut event_relay_terminated = false;
+
                 if let Some(session_supervisor) = &state.session_supervisor {
                     if session_supervisor.get_id() == actor_cell.get_id() {
                         state.session_supervisor = None;
@@ -178,6 +184,74 @@ impl Actor for ApplicationSupervisor {
                 if let Some(event_bus) = &state.event_bus {
                     if event_bus.get_id() == actor_cell.get_id() {
                         state.event_bus = None;
+                        event_bus_terminated = true;
+                    }
+                }
+                if let Some(event_relay) = &state.event_relay {
+                    if event_relay.get_id() == actor_cell.get_id() {
+                        state.event_relay = None;
+                        event_relay_terminated = true;
+                    }
+                }
+
+                if event_bus_terminated {
+                    match Actor::spawn_linked(
+                        None,
+                        EventBusActor,
+                        EventBusArguments {
+                            event_store: None,
+                            config: EventBusConfig::default(),
+                        },
+                        myself.get_cell(),
+                    )
+                    .await
+                    {
+                        Ok((event_bus, _)) => {
+                            tracing::info!(
+                                event_bus_id = %event_bus.get_id(),
+                                "respawned EventBusActor after termination"
+                            );
+                            state.event_bus = Some(event_bus.clone());
+                            if let Some(event_relay) = state.event_relay.clone() {
+                                let _ = ractor::cast!(
+                                    event_relay,
+                                    EventRelayMsg::SetEventBus {
+                                        event_bus: event_bus.clone(),
+                                    }
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "failed to respawn EventBusActor");
+                        }
+                    }
+                }
+
+                if event_relay_terminated {
+                    if let Some(event_bus) = state.event_bus.clone() {
+                        match Actor::spawn_linked(
+                            None,
+                            EventRelayActor,
+                            EventRelayArguments {
+                                event_store: state.event_store.clone(),
+                                event_bus,
+                                poll_interval_ms: 120,
+                            },
+                            myself.get_cell(),
+                        )
+                        .await
+                        {
+                            Ok((event_relay, _)) => {
+                                tracing::info!(
+                                    event_relay_id = %event_relay.get_id(),
+                                    "respawned EventRelayActor after termination"
+                                );
+                                state.event_relay = Some(event_relay);
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "failed to respawn EventRelayActor");
+                            }
+                        }
                     }
                 }
             }
@@ -226,7 +300,7 @@ impl Actor for ApplicationSupervisor {
 
         // Spawn EventBusActor as a supervised child for pub/sub and correlation-aware tracing.
         let event_bus_args = EventBusArguments {
-            event_store: Some(event_store.clone()),
+            event_store: None,
             config: EventBusConfig::default(),
         };
 
@@ -265,9 +339,25 @@ impl Actor for ApplicationSupervisor {
             "SessionSupervisor spawned as child"
         );
 
+        // Spawn EventRelayActor as a supervised child to relay committed EventStore events
+        // to EventBus (ADR-0001).
+        let relay_args = EventRelayArguments {
+            event_store: event_store.clone(),
+            event_bus: event_bus.clone(),
+            poll_interval_ms: 120,
+        };
+        let (event_relay, _handle) =
+            Actor::spawn_linked(None, EventRelayActor, relay_args, myself.get_cell())
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to spawn EventRelayActor: {}", e);
+                    ActorProcessingErr::from(e)
+                })?;
+
         Ok(ApplicationState {
             event_store,
             event_bus: Some(event_bus),
+            event_relay: Some(event_relay),
             session_supervisor: Some(session_supervisor),
             supervision_event_counts: SupervisionEventCounts::default(),
             last_supervision_failure: None,
@@ -300,7 +390,8 @@ impl Actor for ApplicationSupervisor {
                         "supervisor_id": myself.get_id().to_string(),
                     }),
                     correlation_id.clone(),
-                );
+                )
+                .await;
 
                 if let Some(ref session_supervisor) = state.session_supervisor {
                     let desktop_args = crate::actors::desktop::DesktopArguments {
@@ -331,7 +422,8 @@ impl Actor for ApplicationSupervisor {
                                     "supervisor_id": myself.get_id().to_string(),
                                 }),
                                 correlation_id,
-                            );
+                            )
+                            .await;
                             let _ = reply.send(actor_ref);
                         }
                         Err(e) => {
@@ -348,7 +440,8 @@ impl Actor for ApplicationSupervisor {
                                     "supervisor_id": myself.get_id().to_string(),
                                 }),
                                 correlation_id,
-                            );
+                            )
+                            .await;
                             error!(
                                 desktop_id = %desktop_id,
                                 error = %e,
@@ -380,7 +473,8 @@ impl Actor for ApplicationSupervisor {
                         "supervisor_id": myself.get_id().to_string(),
                     }),
                     correlation_id.clone(),
-                );
+                )
+                .await;
 
                 if let Some(ref session_supervisor) = state.session_supervisor {
                     match ractor::call!(session_supervisor, |ss_reply| {
@@ -404,7 +498,8 @@ impl Actor for ApplicationSupervisor {
                                     "supervisor_id": myself.get_id().to_string(),
                                 }),
                                 correlation_id,
-                            );
+                            )
+                            .await;
                             let _ = reply.send(actor_ref);
                         }
                         Err(e) => {
@@ -421,7 +516,8 @@ impl Actor for ApplicationSupervisor {
                                     "supervisor_id": myself.get_id().to_string(),
                                 }),
                                 correlation_id,
-                            );
+                            )
+                            .await;
                             error!(
                                 actor_id = %actor_id,
                                 error = %e,
@@ -459,7 +555,8 @@ impl Actor for ApplicationSupervisor {
                         "supervisor_id": myself.get_id().to_string(),
                     }),
                     correlation_id.clone(),
-                );
+                )
+                .await;
 
                 if let Some(ref session_supervisor) = state.session_supervisor {
                     match ractor::call!(session_supervisor, |ss_reply| {
@@ -487,7 +584,8 @@ impl Actor for ApplicationSupervisor {
                                     "supervisor_id": myself.get_id().to_string(),
                                 }),
                                 correlation_id,
-                            );
+                            )
+                            .await;
                             let _ = reply.send(actor_ref);
                         }
                         Err(e) => {
@@ -505,7 +603,8 @@ impl Actor for ApplicationSupervisor {
                                     "supervisor_id": myself.get_id().to_string(),
                                 }),
                                 correlation_id,
-                            );
+                            )
+                            .await;
                             error!(
                                 agent_id = %agent_id,
                                 error = %e,
@@ -541,7 +640,8 @@ impl Actor for ApplicationSupervisor {
                         "supervisor_id": myself.get_id().to_string(),
                     }),
                     correlation_id.clone(),
-                );
+                )
+                .await;
 
                 if let Some(ref session_supervisor) = state.session_supervisor {
                     match ractor::call!(session_supervisor, |ss_reply| {
@@ -568,7 +668,8 @@ impl Actor for ApplicationSupervisor {
                                         "supervisor_id": myself.get_id().to_string(),
                                     }),
                                     correlation_id,
-                                );
+                                )
+                                .await;
                                 let _ = reply.send(actor_ref);
                             }
                             Err(e) => {
@@ -585,7 +686,8 @@ impl Actor for ApplicationSupervisor {
                                         "supervisor_id": myself.get_id().to_string(),
                                     }),
                                     correlation_id,
-                                );
+                                )
+                                .await;
                                 error!(
                                     terminal_id = %terminal_id,
                                     error = %e,
@@ -608,7 +710,8 @@ impl Actor for ApplicationSupervisor {
                                     "supervisor_id": myself.get_id().to_string(),
                                 }),
                                 correlation_id,
-                            );
+                            )
+                            .await;
                             error!(
                                 terminal_id = %terminal_id,
                                 error = %e,
@@ -655,8 +758,10 @@ impl Actor for ApplicationSupervisor {
                         "model_override": model_override.clone(),
                     }),
                 };
+                let event_store = state.event_store.clone();
 
                 Self::publish_worker_event(
+                    event_store.clone(),
                     state.event_bus.clone(),
                     shared_types::EVENT_TOPIC_WORKER_TASK_STARTED,
                     EventType::WorkerSpawned,
@@ -675,6 +780,7 @@ impl Actor for ApplicationSupervisor {
                     Some(s) => s.clone(),
                     None => {
                         Self::publish_worker_event(
+                            event_store.clone(),
                             state.event_bus.clone(),
                             shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
                             EventType::WorkerFailed,
@@ -711,6 +817,7 @@ impl Actor for ApplicationSupervisor {
                         Ok(Ok(terminal_ref)) => terminal_ref,
                         Ok(Err(e)) => {
                             Self::publish_worker_event(
+                                event_store.clone(),
                                 event_bus,
                                 shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
                                 EventType::WorkerFailed,
@@ -729,6 +836,7 @@ impl Actor for ApplicationSupervisor {
                         }
                         Err(e) => {
                             Self::publish_worker_event(
+                                event_store.clone(),
                                 event_bus,
                                 shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
                                 EventType::WorkerFailed,
@@ -754,6 +862,7 @@ impl Actor for ApplicationSupervisor {
                         | Ok(Err(crate::actors::terminal::TerminalError::AlreadyRunning)) => {}
                         Ok(Err(e)) => {
                             Self::publish_worker_event(
+                                event_store.clone(),
                                 event_bus,
                                 shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
                                 EventType::WorkerFailed,
@@ -772,6 +881,7 @@ impl Actor for ApplicationSupervisor {
                         }
                         Err(e) => {
                             Self::publish_worker_event(
+                                event_store.clone(),
                                 event_bus,
                                 shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
                                 EventType::WorkerFailed,
@@ -791,6 +901,7 @@ impl Actor for ApplicationSupervisor {
                     }
 
                     Self::publish_worker_event(
+                        event_store.clone(),
                         event_bus.clone(),
                         shared_types::EVENT_TOPIC_WORKER_TASK_PROGRESS,
                         EventType::WorkerProgress,
@@ -808,6 +919,7 @@ impl Actor for ApplicationSupervisor {
 
                     let timeout_ms = timeout_ms.unwrap_or(30_000).clamp(1_000, 120_000);
                     Self::publish_worker_event(
+                        event_store.clone(),
                         event_bus.clone(),
                         shared_types::EVENT_TOPIC_WORKER_TASK_PROGRESS,
                         EventType::WorkerProgress,
@@ -852,91 +964,118 @@ impl Actor for ApplicationSupervisor {
 
                     loop {
                         tokio::select! {
-                            _ = heartbeat.tick() => {
-                                let elapsed_ms = tokio::time::Instant::now()
-                                    .duration_since(start_time)
-                                    .as_millis() as u64;
-                                Self::publish_worker_event(
-                                    event_bus.clone(),
-                                    shared_types::EVENT_TOPIC_WORKER_TASK_PROGRESS,
-                                    EventType::WorkerProgress,
-                                    serde_json::json!({
-                                        "task_id": task_id,
-                                        "status": shared_types::DelegatedTaskStatus::Running,
-                                        "phase": "terminal_agent_running",
-                                        "elapsed_ms": elapsed_ms,
-                                        "message": "terminal agent is still running",
-                                        "timestamp": chrono::Utc::now().to_rfc3339(),
-                                    }),
-                                    correlation_id.clone(),
-                                    actor_id.clone(),
-                                    session_id.clone(),
-                                    thread_id.clone(),
-                                );
-                            }
-                            Some(progress) = progress_rx.recv() => {
-                                let elapsed_ms = tokio::time::Instant::now()
-                                    .duration_since(start_time)
-                                    .as_millis() as u64;
-                                Self::publish_worker_event(
-                                    event_bus.clone(),
-                                    shared_types::EVENT_TOPIC_WORKER_TASK_PROGRESS,
-                                    EventType::WorkerProgress,
-                                    serde_json::json!({
-                                        "task_id": task_id,
-                                        "status": shared_types::DelegatedTaskStatus::Running,
-                                        "phase": progress.phase,
-                                        "message": progress.message,
-                                        "reasoning": progress.reasoning,
-                                        "command": progress.command,
-                                        "output_excerpt": progress.output_excerpt,
-                                        "exit_code": progress.exit_code,
-                                        "step_index": progress.step_index,
-                                        "step_total": progress.step_total,
-                                        "elapsed_ms": elapsed_ms,
-                                        "timestamp": progress.timestamp,
-                                    }),
-                                    correlation_id.clone(),
-                                    actor_id.clone(),
-                                    session_id.clone(),
-                                    thread_id.clone(),
-                                );
-                            }
-                            _ = tokio::time::sleep_until(hard_deadline) => {
-                                Self::publish_worker_event(
-                                    event_bus,
-                                    shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
-                                    EventType::WorkerFailed,
-                                    serde_json::json!({
-                                        "task_id": task_id,
-                                        "status": shared_types::DelegatedTaskStatus::Failed,
-                                        "error": format!("terminal agent did not return within {}ms", timeout_ms.saturating_add(20_000)),
-                                        "finished_at": chrono::Utc::now().to_rfc3339(),
-                                    }),
-                                    correlation_id,
-                                    actor_id.clone(),
-                                    session_id.clone(),
-                                    thread_id.clone(),
-                                );
-                                return;
-                            }
-                            result = &mut result_rx => {
-                                match result {
-                                    Ok(Ok(Ok(result))) => {
-                                        if !result.success {
+                                _ = heartbeat.tick() => {
+                                    let elapsed_ms = tokio::time::Instant::now()
+                                        .duration_since(start_time)
+                                        .as_millis() as u64;
+                                    Self::publish_worker_event(
+                        event_store.clone(),
+                        event_bus.clone(),
+                                        shared_types::EVENT_TOPIC_WORKER_TASK_PROGRESS,
+                                        EventType::WorkerProgress,
+                                        serde_json::json!({
+                                            "task_id": task_id,
+                                            "status": shared_types::DelegatedTaskStatus::Running,
+                                            "phase": "terminal_agent_running",
+                                            "elapsed_ms": elapsed_ms,
+                                            "message": "terminal agent is still running",
+                                            "timestamp": chrono::Utc::now().to_rfc3339(),
+                                        }),
+                                        correlation_id.clone(),
+                                        actor_id.clone(),
+                                        session_id.clone(),
+                                        thread_id.clone(),
+                                    );
+                                }
+                                Some(progress) = progress_rx.recv() => {
+                                    let elapsed_ms = tokio::time::Instant::now()
+                                        .duration_since(start_time)
+                                        .as_millis() as u64;
+                                    Self::publish_worker_event(
+                        event_store.clone(),
+                        event_bus.clone(),
+                                        shared_types::EVENT_TOPIC_WORKER_TASK_PROGRESS,
+                                        EventType::WorkerProgress,
+                                        serde_json::json!({
+                                            "task_id": task_id,
+                                            "status": shared_types::DelegatedTaskStatus::Running,
+                                            "phase": progress.phase,
+                                            "message": progress.message,
+                                            "reasoning": progress.reasoning,
+                                            "command": progress.command,
+                                            "output_excerpt": progress.output_excerpt,
+                                            "exit_code": progress.exit_code,
+                                            "step_index": progress.step_index,
+                                            "step_total": progress.step_total,
+                                            "elapsed_ms": elapsed_ms,
+                                            "timestamp": progress.timestamp,
+                                        }),
+                                        correlation_id.clone(),
+                                        actor_id.clone(),
+                                        session_id.clone(),
+                                        thread_id.clone(),
+                                    );
+                                }
+                                _ = tokio::time::sleep_until(hard_deadline) => {
+                                    Self::publish_worker_event(
+                        event_store.clone(),
+                        event_bus,
+                                        shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                        EventType::WorkerFailed,
+                                        serde_json::json!({
+                                            "task_id": task_id,
+                                            "status": shared_types::DelegatedTaskStatus::Failed,
+                                            "error": format!("terminal agent did not return within {}ms", timeout_ms.saturating_add(20_000)),
+                                            "finished_at": chrono::Utc::now().to_rfc3339(),
+                                        }),
+                                        correlation_id,
+                                        actor_id.clone(),
+                                        session_id.clone(),
+                                        thread_id.clone(),
+                                    );
+                                    return;
+                                }
+                                result = &mut result_rx => {
+                                    match result {
+                                        Ok(Ok(Ok(result))) => {
+                                            if !result.success {
+                                                Self::publish_worker_event(
+                        event_store.clone(),
+                        event_bus,
+                                                    shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                                    EventType::WorkerFailed,
+                                                    serde_json::json!({
+                                                        "task_id": task_id,
+                                                        "status": shared_types::DelegatedTaskStatus::Failed,
+                                                        "error": match result.exit_code {
+                                                            Some(code) => format!("terminal command exited with status {code}"),
+                                                            None => "terminal agent task failed".to_string(),
+                                                        },
+                                                        "output": result.summary,
+                                                        "reasoning": result.reasoning,
+                                                        "model_used": result.model_used,
+                                                        "executed_commands": result.executed_commands,
+                                                        "steps": result.steps,
+                                                        "finished_at": chrono::Utc::now().to_rfc3339(),
+                                                    }),
+                                                    correlation_id,
+                                                    actor_id.clone(),
+                                                    session_id.clone(),
+                                                    thread_id.clone(),
+                                                );
+                                                return;
+                                            }
                                             Self::publish_worker_event(
-                                                event_bus,
-                                                shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
-                                                EventType::WorkerFailed,
+                        event_store.clone(),
+                        event_bus,
+                                                shared_types::EVENT_TOPIC_WORKER_TASK_COMPLETED,
+                                                EventType::WorkerComplete,
                                                 serde_json::json!({
                                                     "task_id": task_id,
-                                                    "status": shared_types::DelegatedTaskStatus::Failed,
-                                                    "error": match result.exit_code {
-                                                        Some(code) => format!("terminal command exited with status {code}"),
-                                                        None => "terminal agent task failed".to_string(),
-                                                    },
+                                                    "status": shared_types::DelegatedTaskStatus::Completed,
                                                     "output": result.summary,
                                                     "reasoning": result.reasoning,
+                                                    "model_used": result.model_used,
                                                     "executed_commands": result.executed_commands,
                                                     "steps": result.steps,
                                                     "finished_at": chrono::Utc::now().to_rfc3339(),
@@ -948,89 +1087,73 @@ impl Actor for ApplicationSupervisor {
                                             );
                                             return;
                                         }
-                                        Self::publish_worker_event(
-                                            event_bus,
-                                            shared_types::EVENT_TOPIC_WORKER_TASK_COMPLETED,
-                                            EventType::WorkerComplete,
-                                            serde_json::json!({
-                                                "task_id": task_id,
-                                                "status": shared_types::DelegatedTaskStatus::Completed,
-                                                "output": result.summary,
-                                                "reasoning": result.reasoning,
-                                                "executed_commands": result.executed_commands,
-                                                "steps": result.steps,
-                                                "finished_at": chrono::Utc::now().to_rfc3339(),
-                                            }),
-                                            correlation_id,
-                                            actor_id.clone(),
-                                            session_id.clone(),
-                                            thread_id.clone(),
-                                        );
-                                        return;
-                                    }
-                                    Ok(Ok(Err(e))) => {
-                                        Self::publish_worker_event(
-                                            event_bus,
-                                            shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
-                                            EventType::WorkerFailed,
-                                            serde_json::json!({
-                                                "task_id": task_id,
-                                                "status": shared_types::DelegatedTaskStatus::Failed,
-                                                "error": e.to_string(),
-                                                "finished_at": chrono::Utc::now().to_rfc3339(),
-                                            }),
-                                            correlation_id,
-                                            actor_id.clone(),
-                                            session_id.clone(),
-                                            thread_id.clone(),
-                                        );
-                                        return;
-                                    }
-                                    Ok(Err(e)) => {
-                                        Self::publish_worker_event(
-                                            event_bus,
-                                            shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
-                                            EventType::WorkerFailed,
-                                            serde_json::json!({
-                                                "task_id": task_id,
-                                                "status": shared_types::DelegatedTaskStatus::Failed,
-                                                "error": e.to_string(),
-                                                "finished_at": chrono::Utc::now().to_rfc3339(),
-                                            }),
-                                            correlation_id,
-                                            actor_id.clone(),
-                                            session_id.clone(),
-                                            thread_id.clone(),
-                                        );
-                                        return;
-                                    }
-                                    Err(_) => {
-                                        Self::publish_worker_event(
-                                            event_bus,
-                                            shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
-                                            EventType::WorkerFailed,
-                                            serde_json::json!({
-                                                "task_id": task_id,
-                                                "status": shared_types::DelegatedTaskStatus::Failed,
-                                                "error": "terminal agent result channel closed".to_string(),
-                                                "finished_at": chrono::Utc::now().to_rfc3339(),
-                                            }),
-                                            correlation_id,
-                                            actor_id.clone(),
-                                            session_id.clone(),
-                                            thread_id.clone(),
-                                        );
-                                        return;
+                                        Ok(Ok(Err(e))) => {
+                                            Self::publish_worker_event(
+                        event_store.clone(),
+                        event_bus,
+                                                shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                                EventType::WorkerFailed,
+                                                serde_json::json!({
+                                                    "task_id": task_id,
+                                                    "status": shared_types::DelegatedTaskStatus::Failed,
+                                                    "error": e.to_string(),
+                                                    "finished_at": chrono::Utc::now().to_rfc3339(),
+                                                }),
+                                                correlation_id,
+                                                actor_id.clone(),
+                                                session_id.clone(),
+                                                thread_id.clone(),
+                                            );
+                                            return;
+                                        }
+                                        Ok(Err(e)) => {
+                                            Self::publish_worker_event(
+                        event_store.clone(),
+                        event_bus,
+                                                shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                                EventType::WorkerFailed,
+                                                serde_json::json!({
+                                                    "task_id": task_id,
+                                                    "status": shared_types::DelegatedTaskStatus::Failed,
+                                                    "error": e.to_string(),
+                                                    "finished_at": chrono::Utc::now().to_rfc3339(),
+                                                }),
+                                                correlation_id,
+                                                actor_id.clone(),
+                                                session_id.clone(),
+                                                thread_id.clone(),
+                                            );
+                                            return;
+                                        }
+                                        Err(_) => {
+                                            Self::publish_worker_event(
+                        event_store.clone(),
+                        event_bus,
+                                                shared_types::EVENT_TOPIC_WORKER_TASK_FAILED,
+                                                EventType::WorkerFailed,
+                                                serde_json::json!({
+                                                    "task_id": task_id,
+                                                    "status": shared_types::DelegatedTaskStatus::Failed,
+                                                    "error": "terminal agent result channel closed".to_string(),
+                                                    "finished_at": chrono::Utc::now().to_rfc3339(),
+                                                }),
+                                                correlation_id,
+                                                actor_id.clone(),
+                                                session_id.clone(),
+                                                thread_id.clone(),
+                                            );
+                                            return;
+                                        }
                                     }
                                 }
                             }
-                        }
                     }
                 });
             }
             ApplicationSupervisorMsg::GetHealth { reply } => {
                 let _ = reply.send(ApplicationSupervisorHealth {
                     event_bus_healthy: state.event_bus.is_some(),
+                    event_relay_healthy: state.event_relay.is_some(),
                     session_supervisor_healthy: state.session_supervisor.is_some(),
                     supervision_event_counts: state.supervision_event_counts.clone(),
                     last_supervision_failure: state.last_supervision_failure.clone(),
@@ -1052,7 +1175,50 @@ impl Actor for ApplicationSupervisor {
 }
 
 impl ApplicationSupervisor {
-    fn emit_request_event(
+    fn extract_task_id(payload: &serde_json::Value) -> Option<String> {
+        if let Some(task_id) = payload.get("task_id").and_then(|v| v.as_str()) {
+            return Some(task_id.to_string());
+        }
+        payload
+            .get("task")
+            .and_then(|v| v.get("task_id"))
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string)
+    }
+
+    fn with_observability_metadata(
+        payload: serde_json::Value,
+        correlation_id: &str,
+        interface_kind: &str,
+        task_id: Option<&str>,
+    ) -> serde_json::Value {
+        let span_id = ulid::Ulid::new().to_string();
+
+        match payload {
+            serde_json::Value::Object(mut obj) => {
+                obj.entry("trace_id".to_string())
+                    .or_insert(serde_json::Value::String(correlation_id.to_string()));
+                obj.entry("span_id".to_string())
+                    .or_insert(serde_json::Value::String(span_id));
+                obj.entry("interface_kind".to_string())
+                    .or_insert(serde_json::Value::String(interface_kind.to_string()));
+                if let Some(task_id) = task_id {
+                    obj.entry("task_id".to_string())
+                        .or_insert(serde_json::Value::String(task_id.to_string()));
+                }
+                serde_json::Value::Object(obj)
+            }
+            other => serde_json::json!({
+                "value": other,
+                "trace_id": correlation_id,
+                "span_id": span_id,
+                "interface_kind": interface_kind,
+                "task_id": task_id,
+            }),
+        }
+    }
+
+    async fn emit_request_event(
         &self,
         state: &ApplicationState,
         topic: &str,
@@ -1060,9 +1226,8 @@ impl ApplicationSupervisor {
         payload: serde_json::Value,
         correlation_id: String,
     ) {
-        let Some(event_bus) = &state.event_bus else {
-            return;
-        };
+        let payload =
+            Self::with_observability_metadata(payload, &correlation_id, "uactor_actor", None);
 
         let event = match Event::new(event_type, topic, payload, "application_supervisor")
             .map(|evt| evt.with_correlation_id(correlation_id))
@@ -1074,19 +1239,36 @@ impl ApplicationSupervisor {
             }
         };
 
-        if let Err(e) = ractor::cast!(
-            event_bus,
-            EventBusMsg::Publish {
-                event,
-                persist: true,
+        // Canonical write path: EventStore first.
+        let append_result = ractor::call!(state.event_store, |reply| EventStoreMsg::Append {
+            event: crate::actors::AppendEvent {
+                event_type: topic.to_string(),
+                payload: event.payload.clone(),
+                actor_id: event.source.clone(),
+                user_id: "system".to_string(),
+            },
+            reply
+        });
+
+        match append_result {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => {
+                tracing::warn!(error = %e, topic, "Failed to persist supervisor event");
+                return;
             }
-        ) {
-            tracing::warn!(error = %e, topic, "Failed to publish supervisor event");
+            Err(e) => {
+                tracing::warn!(error = %e, topic, "EventStore RPC failed for supervisor event");
+                return;
+            }
         }
+
+        // Fanout happens via EventRelayActor from committed EventStore rows (ADR-0001).
+        let _ = event;
     }
 
     fn publish_worker_event(
-        event_bus: Option<ActorRef<EventBusMsg>>,
+        event_store: ActorRef<EventStoreMsg>,
+        _event_bus: Option<ActorRef<EventBusMsg>>,
         topic: &str,
         event_type: EventType,
         payload: serde_json::Value,
@@ -1095,10 +1277,6 @@ impl ApplicationSupervisor {
         session_id: Option<String>,
         thread_id: Option<String>,
     ) {
-        let Some(event_bus) = event_bus else {
-            return;
-        };
-
         let payload_with_correlation = match payload {
             serde_json::Value::Object(mut obj) => {
                 obj.insert(
@@ -1112,8 +1290,15 @@ impl ApplicationSupervisor {
                 "correlation_id": correlation_id,
             }),
         };
+        let task_id = Self::extract_task_id(&payload_with_correlation);
+        let payload_with_observability = Self::with_observability_metadata(
+            payload_with_correlation,
+            &correlation_id,
+            "appactor_toolactor",
+            task_id.as_deref(),
+        );
         let event_payload =
-            shared_types::with_scope(payload_with_correlation, session_id, thread_id);
+            shared_types::with_scope(payload_with_observability, session_id, thread_id);
         let event = match Event::new(event_type, topic, event_payload, source_actor_id)
             .map(|evt| evt.with_correlation_id(correlation_id))
         {
@@ -1124,14 +1309,33 @@ impl ApplicationSupervisor {
             }
         };
 
-        if let Err(e) = ractor::cast!(
-            event_bus,
-            EventBusMsg::Publish {
-                event,
-                persist: true,
+        let topic = topic.to_string();
+        tokio::spawn(async move {
+            // Canonical write path: EventStore first.
+            let append_result = ractor::call!(event_store, |reply| EventStoreMsg::Append {
+                event: crate::actors::AppendEvent {
+                    event_type: topic.clone(),
+                    payload: event.payload.clone(),
+                    actor_id: event.source.clone(),
+                    user_id: "system".to_string(),
+                },
+                reply
+            });
+
+            match append_result {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => {
+                    tracing::warn!(error = %e, topic, "Failed to persist worker event");
+                    return;
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, topic, "EventStore RPC failed for worker event");
+                    return;
+                }
             }
-        ) {
-            tracing::warn!(error = %e, topic, "Failed to publish worker event");
-        }
+
+            // Fanout happens via EventRelayActor from committed EventStore rows (ADR-0001).
+            let _ = event;
+        });
     }
 }

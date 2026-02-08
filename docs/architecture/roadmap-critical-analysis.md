@@ -3,6 +3,25 @@
 **Date:** 2026-02-06
 **Status:** Critical Assessment with Gaps Identified
 
+## Update Addendum (2026-02-08)
+
+Execution lane is now explicitly narrowed to:
+
+1. Logging
+2. Watcher
+3. Researcher
+
+Why this reset:
+- Multiagent progress needs stronger observability before adding more behavior.
+- Research is only valuable if we can inspect and trust the process in real time.
+- Existing EventStore/libSQL foundation should be extended first, not bypassed.
+
+Immediate implications:
+- Logging architecture moves from design doc to implementation baseline now.
+- Watcher is deterministic first (rule-based), agentic policy deferred.
+- Researcher implementation must emit rich lifecycle/citation events from day one.
+- Other roadmap branches are temporarily deprioritized unless they unblock this lane.
+
 ## Update Addendum (2026-02-07)
 
 Progress since this assessment:

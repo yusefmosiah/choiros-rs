@@ -59,12 +59,39 @@ impl TypeBuilder {
         )
     }
 
+    /// Access the `AgentToolArgs` class builder.
+    pub fn AgentToolArgs(&self) -> AgentToolArgsClassBuilder {
+        AgentToolArgsClassBuilder::new(
+            self.inner
+                .get_class("AgentToolArgs")
+                .expect("class AgentToolArgs is defined in schema"),
+        )
+    }
+
     /// Access the `AgentToolCall` class builder.
     pub fn AgentToolCall(&self) -> AgentToolCallClassBuilder {
         AgentToolCallClassBuilder::new(
             self.inner
                 .get_class("AgentToolCall")
                 .expect("class AgentToolCall is defined in schema"),
+        )
+    }
+
+    /// Access the `BashToolArgs` class builder.
+    pub fn BashToolArgs(&self) -> BashToolArgsClassBuilder {
+        BashToolArgsClassBuilder::new(
+            self.inner
+                .get_class("BashToolArgs")
+                .expect("class BashToolArgs is defined in schema"),
+        )
+    }
+
+    /// Access the `ListFilesToolArgs` class builder.
+    pub fn ListFilesToolArgs(&self) -> ListFilesToolArgsClassBuilder {
+        ListFilesToolArgsClassBuilder::new(
+            self.inner
+                .get_class("ListFilesToolArgs")
+                .expect("class ListFilesToolArgs is defined in schema"),
         )
     }
 
@@ -77,12 +104,30 @@ impl TypeBuilder {
         )
     }
 
+    /// Access the `ReadFileToolArgs` class builder.
+    pub fn ReadFileToolArgs(&self) -> ReadFileToolArgsClassBuilder {
+        ReadFileToolArgsClassBuilder::new(
+            self.inner
+                .get_class("ReadFileToolArgs")
+                .expect("class ReadFileToolArgs is defined in schema"),
+        )
+    }
+
     /// Access the `Resume` class builder.
     pub fn Resume(&self) -> ResumeClassBuilder {
         ResumeClassBuilder::new(
             self.inner
                 .get_class("Resume")
                 .expect("class Resume is defined in schema"),
+        )
+    }
+
+    /// Access the `SearchFilesToolArgs` class builder.
+    pub fn SearchFilesToolArgs(&self) -> SearchFilesToolArgsClassBuilder {
+        SearchFilesToolArgsClassBuilder::new(
+            self.inner
+                .get_class("SearchFilesToolArgs")
+                .expect("class SearchFilesToolArgs is defined in schema"),
         )
     }
 
@@ -101,6 +146,15 @@ impl TypeBuilder {
             self.inner
                 .get_class("ToolResult")
                 .expect("class ToolResult is defined in schema"),
+        )
+    }
+
+    /// Access the `WriteFileToolArgs` class builder.
+    pub fn WriteFileToolArgs(&self) -> WriteFileToolArgsClassBuilder {
+        WriteFileToolArgsClassBuilder::new(
+            self.inner
+                .get_class("WriteFileToolArgs")
+                .expect("class WriteFileToolArgs is defined in schema"),
         )
     }
 

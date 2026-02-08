@@ -9,7 +9,9 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::prelude::*;
 use web_sys::{CloseEvent, ErrorEvent, Event, MessageEvent, WebSocket};
 
-use crate::api::{fetch_messages, fetch_windows, focus_window, send_chat_message};
+use crate::api::{
+    fetch_logs_events, fetch_messages, fetch_windows, focus_window, send_chat_message, LogsEvent,
+};
 
 const TOOL_CALL_PREFIX: &str = "__tool_call__:";
 const TOOL_RESULT_PREFIX: &str = "__tool_result__:";
@@ -823,6 +825,122 @@ pub fn LoadingIndicator() -> Element {
                     span {}
                     span {}
                 }
+            }
+        }
+    }
+}
+
+#[component]
+pub fn LogsView(desktop_id: String, window_id: String) -> Element {
+    let mut events = use_signal(Vec::<LogsEvent>::new);
+    let mut since_seq = use_signal(|| 0_i64);
+    let mut connected = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    let pump_alive = use_hook(|| Rc::new(Cell::new(true)));
+
+    {
+        let pump_alive = pump_alive.clone();
+        use_drop(move || {
+            pump_alive.set(false);
+        });
+    }
+
+    use_effect(move || {
+        let pump_alive = pump_alive.clone();
+        spawn(async move {
+            while pump_alive.get() {
+                match fetch_logs_events(since_seq(), 200, Some("watcher.alert")).await {
+                    Ok(mut fresh) => {
+                        connected.set(true);
+                        error.set(None);
+                        if !fresh.is_empty() {
+                            fresh.sort_by_key(|e| e.seq);
+                            if let Some(last) = fresh.last() {
+                                since_seq.set(last.seq);
+                            }
+                            let mut list = events.write();
+                            list.extend(fresh.into_iter());
+                            if list.len() > 300 {
+                                let trim = list.len() - 300;
+                                list.drain(0..trim);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        connected.set(false);
+                        error.set(Some(e));
+                    }
+                }
+                TimeoutFuture::new(700).await;
+            }
+        });
+    });
+
+    let status_label = if connected() {
+        "Live"
+    } else {
+        "Reconnecting"
+    };
+    let snapshot = events.read().clone();
+    let mut reversed = snapshot.into_iter().collect::<Vec<_>>();
+    reversed.reverse();
+
+    rsx! {
+        div {
+            class: "chat-container",
+            style: "padding: 0.75rem; overflow: auto;",
+            div {
+                class: "chat-header",
+                h3 { "Watcher Logs" }
+                span {
+                    class: "chat-status",
+                    style: if connected() {
+                        "color: #16a34a;"
+                    } else {
+                        "color: #f59e0b;"
+                    },
+                    "{status_label}"
+                }
+            }
+            if let Some(message) = error() {
+                div {
+                    class: "message-bubble system-bubble",
+                    "Log stream error: {message}"
+                }
+            }
+            if reversed.is_empty() {
+                div {
+                    class: "empty-state",
+                    div { class: "empty-icon", "📡" }
+                    p { "No watcher alerts yet" }
+                    span { "This window updates automatically from /logs/events" }
+                }
+            } else {
+                div {
+                    class: "messages-list",
+                    for event in reversed {
+                        details {
+                            class: "tool-details",
+                            summary {
+                                class: "tool-summary",
+                                "{event.event_type} #{event.seq}"
+                            }
+                            div {
+                                class: "tool-body",
+                                p { class: "tool-meta", "Actor: {event.actor_id}" }
+                                p { class: "tool-meta", "Time: {event.timestamp}" }
+                                pre {
+                                    class: "tool-pre",
+                                    "{serde_json::to_string_pretty(&event.payload).unwrap_or_else(|_| event.payload.to_string())}"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            div {
+                class: "input-hint",
+                "Desktop: {desktop_id} | Window: {window_id}"
             }
         }
     }

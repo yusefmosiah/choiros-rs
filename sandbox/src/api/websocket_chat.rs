@@ -613,7 +613,14 @@ async fn emit_tool_events_since(
                     },
                 );
             }
-            "worker_spawned" | "worker_progress" | "worker_complete" | "worker_failed" => {
+            "worker_spawned"
+            | "worker_progress"
+            | "worker_complete"
+            | "worker_failed"
+            | shared_types::EVENT_TOPIC_WORKER_TASK_STARTED
+            | shared_types::EVENT_TOPIC_WORKER_TASK_PROGRESS
+            | shared_types::EVENT_TOPIC_WORKER_TASK_COMPLETED
+            | shared_types::EVENT_TOPIC_WORKER_TASK_FAILED => {
                 let payload_with_event_type = match event.payload {
                     serde_json::Value::Object(mut obj) => {
                         obj.insert(

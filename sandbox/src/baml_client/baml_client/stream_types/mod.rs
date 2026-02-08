@@ -21,15 +21,27 @@ pub enum StreamTypes {
 
     AgentPlan(AgentPlan),
 
+    AgentToolArgs(AgentToolArgs),
+
     AgentToolCall(AgentToolCall),
+
+    BashToolArgs(BashToolArgs),
+
+    ListFilesToolArgs(ListFilesToolArgs),
 
     Message(Message),
 
+    ReadFileToolArgs(ReadFileToolArgs),
+
     Resume(Resume),
+
+    SearchFilesToolArgs(SearchFilesToolArgs),
 
     StreamChunk(StreamChunk),
 
     ToolResult(ToolResult),
+
+    WriteFileToolArgs(WriteFileToolArgs),
 
 
 }
@@ -44,15 +56,27 @@ impl baml::KnownTypes for StreamTypes {
 
             StreamTypes::AgentPlan(_) => "AgentPlan",
 
+            StreamTypes::AgentToolArgs(_) => "AgentToolArgs",
+
             StreamTypes::AgentToolCall(_) => "AgentToolCall",
+
+            StreamTypes::BashToolArgs(_) => "BashToolArgs",
+
+            StreamTypes::ListFilesToolArgs(_) => "ListFilesToolArgs",
 
             StreamTypes::Message(_) => "Message",
 
+            StreamTypes::ReadFileToolArgs(_) => "ReadFileToolArgs",
+
             StreamTypes::Resume(_) => "Resume",
+
+            StreamTypes::SearchFilesToolArgs(_) => "SearchFilesToolArgs",
 
             StreamTypes::StreamChunk(_) => "StreamChunk",
 
             StreamTypes::ToolResult(_) => "ToolResult",
+
+            StreamTypes::WriteFileToolArgs(_) => "WriteFileToolArgs",
 
 
 

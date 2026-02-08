@@ -32,16 +32,98 @@ impl AsRef<AgentPlan> for AgentPlan {
 
 #[derive(Debug, Clone, Default, BamlDecode)]
 
+pub struct AgentToolArgs {
+    pub bash: Option<BashToolArgs>,
+
+    pub read_file: Option<ReadFileToolArgs>,
+
+    pub write_file: Option<WriteFileToolArgs>,
+
+    pub list_files: Option<ListFilesToolArgs>,
+
+    pub search_files: Option<SearchFilesToolArgs>,
+
+    pub command: Option<String>,
+
+    pub cmd: Option<String>,
+
+    pub cwd: Option<String>,
+
+    pub reasoning: Option<String>,
+
+    pub timeout_ms: Option<i64>,
+
+    pub model: Option<String>,
+
+    pub path: Option<String>,
+
+    pub content: Option<String>,
+
+    pub pattern: Option<String>,
+
+    pub file_pattern: Option<String>,
+
+    pub recursive: Option<bool>,
+
+    pub limit: Option<i64>,
+
+    pub offset: Option<i64>,
+}
+
+impl AsRef<AgentToolArgs> for AgentToolArgs {
+    fn as_ref(&self) -> &AgentToolArgs {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct AgentToolCall {
     pub tool_name: Option<String>,
 
-    pub tool_args: Option<String>,
+    pub tool_args: Option<AgentToolArgs>,
 
     pub reasoning: Option<String>,
 }
 
 impl AsRef<AgentToolCall> for AgentToolCall {
     fn as_ref(&self) -> &AgentToolCall {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct BashToolArgs {
+    pub command: Option<String>,
+
+    pub cmd: Option<String>,
+
+    pub cwd: Option<String>,
+
+    pub reasoning: Option<String>,
+
+    pub timeout_ms: Option<i64>,
+
+    pub model: Option<String>,
+}
+
+impl AsRef<BashToolArgs> for BashToolArgs {
+    fn as_ref(&self) -> &BashToolArgs {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct ListFilesToolArgs {
+    pub path: Option<String>,
+
+    pub recursive: Option<bool>,
+}
+
+impl AsRef<ListFilesToolArgs> for ListFilesToolArgs {
+    fn as_ref(&self) -> &ListFilesToolArgs {
         self
     }
 }
@@ -62,6 +144,22 @@ impl AsRef<Message> for Message {
 
 #[derive(Debug, Clone, Default, BamlDecode)]
 
+pub struct ReadFileToolArgs {
+    pub path: Option<String>,
+
+    pub limit: Option<i64>,
+
+    pub offset: Option<i64>,
+}
+
+impl AsRef<ReadFileToolArgs> for ReadFileToolArgs {
+    fn as_ref(&self) -> &ReadFileToolArgs {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct Resume {
     pub name: Option<String>,
 
@@ -74,6 +172,22 @@ pub struct Resume {
 
 impl AsRef<Resume> for Resume {
     fn as_ref(&self) -> &Resume {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct SearchFilesToolArgs {
+    pub pattern: Option<String>,
+
+    pub path: Option<String>,
+
+    pub file_pattern: Option<String>,
+}
+
+impl AsRef<SearchFilesToolArgs> for SearchFilesToolArgs {
+    fn as_ref(&self) -> &SearchFilesToolArgs {
         self
     }
 }
@@ -106,6 +220,20 @@ pub struct ToolResult {
 
 impl AsRef<ToolResult> for ToolResult {
     fn as_ref(&self) -> &ToolResult {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct WriteFileToolArgs {
+    pub path: Option<String>,
+
+    pub content: Option<String>,
+}
+
+impl AsRef<WriteFileToolArgs> for WriteFileToolArgs {
+    fn as_ref(&self) -> &WriteFileToolArgs {
         self
     }
 }

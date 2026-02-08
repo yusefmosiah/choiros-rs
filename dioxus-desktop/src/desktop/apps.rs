@@ -34,6 +34,14 @@ pub fn core_apps() -> Vec<AppDefinition> {
             default_width: 700,
             default_height: 500,
         },
+        AppDefinition {
+            id: "logs".to_string(),
+            name: "Logs".to_string(),
+            icon: "📡".to_string(),
+            component_code: "LogsApp".to_string(),
+            default_width: 780,
+            default_height: 520,
+        },
     ]
 }
 
@@ -43,6 +51,7 @@ pub fn get_app_icon(app_id: &str) -> &'static str {
         "writer" => "📝",
         "terminal" => "🖥️",
         "files" => "📁",
+        "logs" => "📡",
         _ => "📱",
     }
 }

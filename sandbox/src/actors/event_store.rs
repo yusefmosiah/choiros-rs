@@ -82,6 +82,15 @@ pub enum EventStoreMsg {
         since_seq: i64,
         reply: RpcReplyPort<Result<Vec<shared_types::Event>, EventStoreError>>,
     },
+    /// Get recent events with optional filters for logging/observability views.
+    GetRecentEvents {
+        since_seq: i64,
+        limit: i64,
+        event_type_prefix: Option<String>,
+        actor_id: Option<String>,
+        user_id: Option<String>,
+        reply: RpcReplyPort<Result<Vec<shared_types::Event>, EventStoreError>>,
+    },
     /// Get a single event by its sequence number
     GetEventBySeq {
         seq: i64,
@@ -261,6 +270,26 @@ impl Actor for EventStoreActor {
                 let result = self
                     .handle_get_events_for_actor_with_scope(
                         actor_id, session_id, thread_id, since_seq, state,
+                    )
+                    .await;
+                let _ = reply.send(result);
+            }
+            EventStoreMsg::GetRecentEvents {
+                since_seq,
+                limit,
+                event_type_prefix,
+                actor_id,
+                user_id,
+                reply,
+            } => {
+                let result = self
+                    .handle_get_recent_events(
+                        since_seq,
+                        limit,
+                        event_type_prefix,
+                        actor_id,
+                        user_id,
+                        state,
                     )
                     .await;
                 let _ = reply.send(result);
@@ -528,6 +557,55 @@ impl EventStoreActor {
         Ok(events)
     }
 
+    async fn handle_get_recent_events(
+        &self,
+        since_seq: i64,
+        limit: i64,
+        event_type_prefix: Option<String>,
+        actor_id: Option<String>,
+        user_id: Option<String>,
+        state: &mut EventStoreState,
+    ) -> Result<Vec<shared_types::Event>, EventStoreError> {
+        let conn = &state.conn;
+        let safe_limit = limit.clamp(1, 1000);
+
+        let mut rows = conn
+            .query(
+                r#"
+                SELECT seq, event_id, timestamp, event_type, payload, actor_id, user_id
+                FROM events
+                WHERE seq > ?1
+                  AND (?2 IS NULL OR event_type LIKE (?2 || '%'))
+                  AND (?3 IS NULL OR actor_id = ?3)
+                  AND (?4 IS NULL OR user_id = ?4)
+                ORDER BY seq ASC
+                LIMIT ?5
+                "#,
+                libsql::params![since_seq, event_type_prefix, actor_id, user_id, safe_limit],
+            )
+            .await?;
+
+        let mut events = Vec::new();
+        while let Some(row) = rows.next().await? {
+            let timestamp_str: String = row.get(2)?;
+            let naive_dt =
+                chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
+                    .map_err(|e| EventStoreError::InvalidTimestamp(e.to_string()))?;
+
+            events.push(shared_types::Event {
+                seq: row.get(0)?,
+                event_id: row.get(1)?,
+                timestamp: chrono::DateTime::from_naive_utc_and_offset(naive_dt, chrono::Utc),
+                event_type: row.get(3)?,
+                payload: serde_json::from_str(&row.get::<String>(4)?)?,
+                actor_id: shared_types::ActorId(row.get(5)?),
+                user_id: row.get(6)?,
+            });
+        }
+
+        Ok(events)
+    }
+
     async fn handle_get_event_by_seq(
         &self,
         seq: i64,
@@ -608,6 +686,25 @@ pub async fn get_events_for_actor_with_scope(
         session_id: session_id.into(),
         thread_id: thread_id.into(),
         since_seq,
+        reply,
+    })
+}
+
+/// Convenience function to get recent events with optional filters.
+pub async fn get_recent_events(
+    store: &ActorRef<EventStoreMsg>,
+    since_seq: i64,
+    limit: i64,
+    event_type_prefix: Option<String>,
+    actor_id: Option<String>,
+    user_id: Option<String>,
+) -> Result<Result<Vec<shared_types::Event>, EventStoreError>, ractor::RactorErr<EventStoreMsg>> {
+    ractor::call!(store, |reply| EventStoreMsg::GetRecentEvents {
+        since_seq,
+        limit,
+        event_type_prefix,
+        actor_id,
+        user_id,
         reply,
     })
 }
@@ -806,6 +903,72 @@ mod tests {
             shared_types::parse_chat_user_text(&scoped[0].payload).as_deref(),
             Some("msg-in-scope")
         );
+
+        store_ref.stop(None);
+    }
+
+    #[tokio::test]
+    async fn test_get_recent_events_with_filters() {
+        let (store_ref, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
+
+        append_event(
+            &store_ref,
+            AppendEvent {
+                event_type: "worker.task.started".to_string(),
+                payload: serde_json::json!({"task_id": "t1"}),
+                actor_id: "supervisor-1".to_string(),
+                user_id: "user-1".to_string(),
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        append_event(
+            &store_ref,
+            AppendEvent {
+                event_type: "chat.user_msg".to_string(),
+                payload: serde_json::json!({"text": "hello"}),
+                actor_id: "chat-1".to_string(),
+                user_id: "user-1".to_string(),
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        append_event(
+            &store_ref,
+            AppendEvent {
+                event_type: "worker.task.completed".to_string(),
+                payload: serde_json::json!({"task_id": "t1"}),
+                actor_id: "supervisor-1".to_string(),
+                user_id: "user-2".to_string(),
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        let filtered = get_recent_events(
+            &store_ref,
+            0,
+            10,
+            Some("worker.task".to_string()),
+            Some("supervisor-1".to_string()),
+            Some("user-1".to_string()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].event_type, "worker.task.started");
+        assert_eq!(filtered[0].actor_id.0, "supervisor-1");
+        assert_eq!(filtered[0].user_id, "user-1");
 
         store_ref.stop(None);
     }

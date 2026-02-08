@@ -13,11 +13,13 @@ use std::sync::Arc;
 
 pub mod chat;
 pub mod desktop;
+pub mod logs;
 pub mod terminal;
 pub mod user;
 pub mod viewer;
 pub mod websocket;
 pub mod websocket_chat;
+pub mod websocket_logs;
 
 use crate::api::websocket::WsSessions;
 use crate::app_state::AppState;
@@ -33,9 +35,13 @@ pub fn router() -> Router<ApiState> {
     Router::new()
         .route("/health", get(health_check))
         .route("/ws", get(websocket::ws_handler))
+        .route("/ws/logs/events", get(websocket_logs::logs_websocket))
         // Chat routes
         .route("/chat/send", post(chat::send_message))
         .route("/chat/{actor_id}/messages", get(chat::get_messages))
+        // Logs routes
+        .route("/logs/events", get(logs::get_events))
+        .route("/logs/events.jsonl", get(logs::export_events_jsonl))
         // User preference routes
         .route(
             "/user/{user_id}/preferences",

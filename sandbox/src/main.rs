@@ -3,6 +3,7 @@ use ractor::Actor;
 use sandbox::actors::event_store::{
     AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg,
 };
+use sandbox::actors::{WatcherActor, WatcherArguments};
 use sandbox::api;
 use sandbox::app_state::AppState;
 use std::collections::HashMap;
@@ -66,6 +67,56 @@ async fn main() -> std::io::Result<()> {
         .ensure_supervisor()
         .await
         .expect("Failed to spawn ApplicationSupervisor");
+
+    let watcher_enabled = std::env::var("WATCHER_ENABLED")
+        .ok()
+        .map(|v| v != "0" && v.to_lowercase() != "false")
+        .unwrap_or(true);
+    if watcher_enabled {
+        let poll_ms = std::env::var("WATCHER_POLL_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(1500);
+        let failure_spike_threshold = std::env::var("WATCHER_FAILURE_SPIKE_THRESHOLD")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(3);
+        let timeout_spike_threshold = std::env::var("WATCHER_TIMEOUT_SPIKE_THRESHOLD")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(2);
+        let retry_storm_threshold = std::env::var("WATCHER_RETRY_STORM_THRESHOLD")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(3);
+        let stalled_task_timeout_ms = std::env::var("WATCHER_STALLED_TASK_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(90_000);
+        let _ = Actor::spawn(
+            Some("watcher.default".to_string()),
+            WatcherActor,
+            WatcherArguments {
+                event_store: event_store.clone(),
+                watcher_id: "watcher:default".to_string(),
+                poll_interval_ms: poll_ms,
+                failure_spike_threshold,
+                timeout_spike_threshold,
+                retry_storm_threshold,
+                stalled_task_timeout_ms,
+            },
+        )
+        .await
+        .expect("Failed to spawn WatcherActor");
+        tracing::info!(
+            poll_ms,
+            failure_spike_threshold,
+            timeout_spike_threshold,
+            retry_storm_threshold,
+            stalled_task_timeout_ms,
+            "WatcherActor started"
+        );
+    }
 
     tracing::info!("Starting HTTP server on http://0.0.0.0:8080");
 

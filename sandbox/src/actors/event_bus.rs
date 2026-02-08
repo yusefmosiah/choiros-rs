@@ -211,7 +211,10 @@ pub struct EventBusConfig {
     /// Maximum events to buffer per slow subscriber
     pub max_buffer_size: usize,
 
-    /// Whether to persist all events by default
+    /// Whether to persist events from EventBus publishes.
+    ///
+    /// ADR-0001: EventStore is canonical source of truth and EventBus is delivery-only.
+    /// Keep this disabled by default.
     pub default_persist: bool,
 
     /// Topics to exclude from persistence
@@ -222,7 +225,7 @@ impl Default for EventBusConfig {
     fn default() -> Self {
         Self {
             max_buffer_size: 1000,
-            default_persist: true,
+            default_persist: false,
             no_persist_topics: HashSet::new(),
         }
     }
@@ -351,6 +354,13 @@ impl EventBusActor {
         let should_persist = persist
             && state.config.default_persist
             && !state.config.no_persist_topics.contains(&event.topic);
+
+        if persist && !state.config.default_persist {
+            tracing::warn!(
+                topic = %event.topic,
+                "EventBus persistence requested but disabled by config (ADR-0001 delivery-only default)"
+            );
+        }
 
         if should_persist {
             if let Some(ref store_ref) = state.event_store {

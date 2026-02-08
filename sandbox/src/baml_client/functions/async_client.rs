@@ -68,12 +68,6 @@ macro_rules! baml_function_async {
             pub(crate) options: FunctionOptions,
         }
 
-        impl Default for $name {
-            fn default() -> Self {
-                Self::new()
-            }
-        }
-
         impl $name {
             pub const fn new() -> Self {
                 Self { options: FunctionOptions::new() }
@@ -137,12 +131,6 @@ pub struct BamlAsyncClient {
     pub QuickResponse: QuickResponse,
 
     pub SynthesizeResponse: SynthesizeResponse,
-}
-
-impl Default for BamlAsyncClient {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl BamlAsyncClient {

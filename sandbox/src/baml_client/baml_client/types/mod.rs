@@ -26,15 +26,27 @@ pub enum Types {
 
     AgentPlan(AgentPlan),
 
+    AgentToolArgs(AgentToolArgs),
+
     AgentToolCall(AgentToolCall),
+
+    BashToolArgs(BashToolArgs),
+
+    ListFilesToolArgs(ListFilesToolArgs),
 
     Message(Message),
 
+    ReadFileToolArgs(ReadFileToolArgs),
+
     Resume(Resume),
+
+    SearchFilesToolArgs(SearchFilesToolArgs),
 
     StreamChunk(StreamChunk),
 
     ToolResult(ToolResult),
+
+    WriteFileToolArgs(WriteFileToolArgs),
 
 
 
@@ -50,15 +62,27 @@ impl baml::KnownTypes for Types {
 
             Types::AgentPlan(_) => "AgentPlan",
 
+            Types::AgentToolArgs(_) => "AgentToolArgs",
+
             Types::AgentToolCall(_) => "AgentToolCall",
+
+            Types::BashToolArgs(_) => "BashToolArgs",
+
+            Types::ListFilesToolArgs(_) => "ListFilesToolArgs",
 
             Types::Message(_) => "Message",
 
+            Types::ReadFileToolArgs(_) => "ReadFileToolArgs",
+
             Types::Resume(_) => "Resume",
+
+            Types::SearchFilesToolArgs(_) => "SearchFilesToolArgs",
 
             Types::StreamChunk(_) => "StreamChunk",
 
             Types::ToolResult(_) => "ToolResult",
+
+            Types::WriteFileToolArgs(_) => "WriteFileToolArgs",
 
 
 

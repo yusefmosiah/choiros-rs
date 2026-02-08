@@ -5,6 +5,157 @@ Source roadmap:
 - `docs/architecture/roadmap-dependency-tree.md`
 - `docs/architecture/roadmap-critical-analysis.md`
 
+## Current Execution Lane (2026-02-08)
+
+Active order:
+1. Logging
+2. Watcher
+3. Researcher
+
+Now:
+- Pre-Researcher gate closeout:
+  - finalize remaining Logging checklist items
+  - finalize remaining Watcher checklist items
+  - confirm observability UI path is wired for watcher alerts
+
+Next:
+- Start Researcher milestone implementation.
+
+Later:
+- Implement ResearcherActor with full lifecycle + citation event streaming.
+
+Blocked:
+- None.
+
+## Pre-Researcher Gate Update (2026-02-08, latest pass)
+
+Completed:
+- Logging envelope metadata now attached on supervisor/worker persisted payloads:
+  - `trace_id` (mapped from correlation)
+  - `span_id`
+  - `interface_kind` (`uactor_actor` / `appactor_toolactor`)
+  - normalized `task_id` where applicable
+- Added JSONL export path:
+  - `GET /logs/events.jsonl`
+  - NDJSON output for eval/export portability
+- Added watcher retry-storm rule:
+  - `watcher.alert.retry_storm`
+  - configurable via `WATCHER_RETRY_STORM_THRESHOLD`
+- Added supervisor auto-recovery wiring for EventBus/EventRelay child termination:
+  - EventBus respawn on termination
+  - EventRelay receives automatic `SetEventBus` rebind
+  - EventRelay respawn if terminated while EventBus is available
+- Added logs/watcher UI integration path in desktop app:
+  - new `Logs` app window
+  - live watcher alert display via `/logs/events` polling
+
+Validation:
+- `cargo fmt --all`
+- `cargo test -p sandbox --test logs_api_test -- --nocapture` (3 passed)
+- `cargo test -p sandbox --test logs_ws_test -- --nocapture` (2 passed)
+- `cargo test -p sandbox --lib actors::watcher::tests:: -- --nocapture` (4 passed)
+- `cargo test -p sandbox --lib actors::event_relay::tests:: -- --nocapture` (3 passed)
+- `cargo check -p sandbox`
+- `cargo check --manifest-path dioxus-desktop/Cargo.toml`
+
+What To Do Next:
+- Begin ResearcherActor implementation with provider-isolated tool surface.
+- Keep event contracts/citations first-class from day one.
+
+## Logging MVP Update (2026-02-08)
+
+Completed in this pass:
+- Added EventStore filtered recent-event query for observability:
+  - `EventStoreMsg::GetRecentEvents { since_seq, limit, event_type_prefix, actor_id, user_id }`
+  - hard cap `limit <= 1000`
+  - deterministic ordering by `seq ASC`
+- Added backend logs API endpoint:
+  - `GET /logs/events`
+  - query params: `since_seq`, `limit`, `event_type_prefix`, `actor_id`, `user_id`
+- Added EventStore coverage:
+  - `test_get_recent_events_with_filters`
+
+Files:
+- `sandbox/src/actors/event_store.rs`
+- `sandbox/src/api/logs.rs`
+- `sandbox/src/api/mod.rs`
+
+Validation:
+- `cargo fmt`
+- `cargo check -p sandbox`
+- `cargo test -p sandbox test_get_recent_events_with_filters -- --nocapture`
+
+Next up (Watcher milestone start):
+- Add WatcherActor deterministic rule loop over `GetRecentEvents`.
+- Emit `watcher.alert.*` events into EventStore.
+- Surface watcher alerts in logs query/UI stream.
+
+## Watcher MVP Update (2026-02-08)
+
+Completed in this pass:
+- Added deterministic `WatcherActor` with periodic scan loop over EventStore recent events.
+- Implemented first watcher rule:
+  - if `worker.task.failed` count in scan window >= 3, emit `watcher.alert.failure_spike`.
+- Added watcher dedup memory window to suppress duplicate alerts.
+- Wired watcher startup in `sandbox` server:
+  - env toggle: `WATCHER_ENABLED` (default on)
+  - poll interval: `WATCHER_POLL_MS` (default `1500`)
+- Added watcher unit test:
+  - `test_watcher_emits_failure_spike_alert`
+
+Files:
+- `sandbox/src/actors/watcher.rs`
+- `sandbox/src/actors/mod.rs`
+- `sandbox/src/main.rs`
+
+Validation:
+- `cargo fmt`
+- `cargo check -p sandbox`
+- `cargo test -p sandbox test_watcher_emits_failure_spike_alert -- --nocapture`
+
+Immediate next:
+- Approve ADR-0001 and enforce single-write/event relay model.
+- Then add watcher rules for timeout/retry/missing completion.
+- Then add logs UI consumption path for `watcher.alert.*` event types.
+
+## ADR-0001 Rollout Update (2026-02-08)
+
+Completed (phase-1):
+- Approved architecture direction in ADR:
+  - `docs/architecture/adr-0001-eventstore-eventbus-reconciliation.md`
+- Enforced EventStore-first persistence on supervisor request/worker events.
+- Switched supervisor EventBus publishes to delivery-only (`persist: false`).
+- Set EventBus default persistence to disabled (`default_persist: false`).
+- Updated websocket actor-call stream matching to include canonical `worker.task.*` event names.
+
+Validation:
+- `cargo check -p sandbox`
+- `cargo test -p sandbox --test supervision_test -- --nocapture`
+- `cargo test -p sandbox --test websocket_chat_test -- --nocapture`
+
+Remaining (phase-2):
+- Complete follow-on outage/recovery invariants that include resumed relay after EventBus restore.
+
+## ADR-0001 Phase-2 Update (2026-02-08)
+
+Completed:
+- Added committed relay actor:
+  - `sandbox/src/actors/event_relay.rs`
+  - polls `EventStore` with cursor and publishes committed events to `EventBus`
+  - adds `committed_event` metadata to relayed payloads
+- Wired relay into supervision tree:
+  - `ApplicationSupervisor` now spawns/supervises `EventRelayActor`
+  - health now includes `event_relay_healthy`
+- Removed duplicate-delivery risk:
+  - supervisor helper path no longer directly fans out events to EventBus
+  - relay is now the delivery path from committed events
+
+Validation:
+- `cargo check -p sandbox`
+- `cargo test -p sandbox test_event_relay_publishes_committed_events -- --nocapture`
+- `cargo test -p sandbox --test supervision_test -- --nocapture`
+- `cargo test -p sandbox --test websocket_chat_test test_websocket_streams_actor_call_for_delegated_terminal_task -- --nocapture`
+
 Execution mode update (2026-02-08):
 - `docs/architecture/roadmap-dependency-tree.md` is now a linear checklist (authoritative order).
 - We no longer treat parallel feature-track execution as default roadmap strategy.
@@ -119,6 +270,61 @@ Files:
 - `sandbox/src/supervisor/mod.rs`
 - `sandbox/src/app_state.rs`
 - `sandbox/tests/supervision_test.rs`
+
+### 5) Logging/Watcher Hardening: Deterministic Rules + Outage Safety
+
+Completed:
+- Confirmed relay cursor safety invariant with explicit outage test:
+  - `test_event_relay_does_not_advance_cursor_when_bus_unavailable`
+- Expanded watcher deterministic rules:
+  - `watcher.alert.failure_spike` (existing, threshold-configurable)
+  - `watcher.alert.timeout_spike` (new)
+  - `watcher.alert.stalled_task` (new; task started without completion/failure past timeout)
+- Added watcher runtime configuration via env:
+  - `WATCHER_FAILURE_SPIKE_THRESHOLD`
+  - `WATCHER_TIMEOUT_SPIKE_THRESHOLD`
+  - `WATCHER_STALLED_TASK_TIMEOUT_MS`
+- Ensured stalled-task rule evaluates every scan tick, including empty-delta scans.
+
+Files:
+- `sandbox/src/actors/watcher.rs`
+- `sandbox/src/main.rs`
+
+Validation:
+- `cargo fmt --all`
+- `cargo test -p sandbox --lib watcher::tests:: -- --nocapture` (3 passed)
+- `cargo test -p sandbox --lib actors::event_relay::tests::test_event_relay_does_not_advance_cursor_when_bus_unavailable -- --nocapture` (1 passed)
+- WebSocket regression target was started but manually terminated in this pass (signal 15) after hang during integration run.
+
+### 6) Observability Transport: Live Logs WS + Relay Rebind Invariant
+
+Completed:
+- Added live logs websocket stream endpoint:
+  - `GET /ws/logs/events`
+  - filter params: `since_seq`, `limit`, `event_type_prefix`, `actor_id`, `user_id`, `poll_ms`
+  - stream payload includes committed EventStore rows (`seq`, `event_id`, `event_type`, `payload`, actor/user, timestamp)
+- Added EventRelay bus rebind message:
+  - `EventRelayMsg::SetEventBus { event_bus }`
+  - enables relay continuation after EventBus replacement without cursor loss.
+- Added resumed-delivery invariant coverage:
+  - outage on original bus does not advance cursor
+  - rebind to replacement bus + tick delivers previously committed event
+
+Files:
+- `sandbox/src/api/websocket_logs.rs`
+- `sandbox/src/api/mod.rs`
+- `sandbox/src/actors/event_relay.rs`
+- `sandbox/tests/logs_ws_test.rs`
+
+Validation:
+- `cargo fmt --all`
+- `cargo test -p sandbox --test logs_ws_test -- --nocapture` (2 passed)
+- `cargo test -p sandbox --lib actors::event_relay::tests:: -- --nocapture` (3 passed)
+- `cargo test -p sandbox --lib watcher::tests:: -- --nocapture` (3 passed)
+
+Remaining:
+- Wire logs WS stream into Dioxus logs/watcher UI pane (frontend consumption).
+- Add automatic relay rebind in supervisor path when EventBus is replaced by supervision.
 
 ### 5) Phase B Observability: Live Terminal-Agent Progress + UI Actor Timeline
 - Added structured terminal-agent progress payloads:
