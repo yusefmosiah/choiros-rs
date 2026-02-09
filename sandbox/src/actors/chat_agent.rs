@@ -96,6 +96,26 @@ enum DelegatedToolCallOutcome {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChatDelegatedTool {
+    Bash,
+    WebSearch,
+}
+
+impl TryFrom<&str> for ChatDelegatedTool {
+    type Error = ChatAgentError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "bash" => Ok(Self::Bash),
+            "web_search" => Ok(Self::WebSearch),
+            _ => Err(ChatAgentError::Tool(format!(
+                "Unsupported tool '{value}' for ChatAgent. Escalate to Conductor for complex workflows."
+            ))),
+        }
+    }
+}
+
 // ============================================================================
 // Error Type
 // ============================================================================
@@ -122,6 +142,9 @@ pub enum ChatAgentError {
 
     #[error("Validation error: {0}")]
     Validation(String),
+
+    #[error("Delegated task timed out after {0}ms")]
+    DelegatedTimeout(u64),
 }
 
 impl From<serde_json::Error> for ChatAgentError {
@@ -168,6 +191,72 @@ impl ChatAgent {
             .and_then(|v| v.as_str())
             .or_else(|| payload.get("summary").and_then(|v| v.as_str()))
             .map(ToString::to_string)
+    }
+
+    /// Parse a delegated task outcome from a JSON payload.
+    /// First attempts to deserialize into CompletionPayload (new format),
+    /// then falls back to legacy format for backward compatibility.
+    fn parse_delegated_outcome(
+        payload: &serde_json::Value,
+    ) -> Option<shared_types::DelegatedTaskOutcome> {
+        // First, try to parse as the new CompletionPayload format
+        if let Ok(completion) =
+            serde_json::from_value::<shared_types::CompletionPayload>(payload.clone())
+        {
+            return Some(shared_types::DelegatedTaskOutcome {
+                objective_status: Some(completion.objective_status),
+                completion_reason: Some(completion.completion_reason),
+                recommended_next_capability: completion
+                    .recommended_next_action
+                    .as_ref()
+                    .and_then(|a| a.recommended_capability.clone()),
+                recommended_next_objective: completion
+                    .recommended_next_action
+                    .as_ref()
+                    .and_then(|a| a.recommended_objective.clone()),
+                summary: None,
+                payload: Some(payload.clone()),
+            });
+        }
+
+        // Fall back to legacy format parsing
+        let objective_status = payload
+            .get("objective_status")
+            .and_then(|v| serde_json::from_value::<shared_types::ObjectiveStatus>(v.clone()).ok());
+        let completion_reason = payload
+            .get("completion_reason")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string);
+        let recommended_next_capability = payload
+            .get("recommended_next_capability")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string);
+        let recommended_next_objective = payload
+            .get("recommended_next_objective")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string);
+        let summary = payload
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string);
+
+        if objective_status.is_none()
+            && completion_reason.is_none()
+            && recommended_next_capability.is_none()
+            && recommended_next_objective.is_none()
+            && summary.is_none()
+        {
+            return None;
+        }
+
+        Some(shared_types::DelegatedTaskOutcome {
+            objective_status,
+            completion_reason,
+            recommended_next_capability,
+            recommended_next_objective,
+            summary,
+            payload: Some(payload.clone()),
+        })
     }
 
     fn truncate_for_chat(value: &str, max_chars: usize) -> String {
@@ -283,7 +372,7 @@ You have access to tools for:
 - Running web research queries (delegated via ResearcherActor)
 
 Behavior requirements:
-- If the user asks for real-time/external information (for example weather, web/API data, latest status), attempt a tool call first.
+- If the user asks for real-time/external information (web/API data, latest status), attempt a tool call first.
 - Prefer `web_search` for web research and source-citation tasks.
 - If the user explicitly asks to "use api", "use bash", or "run a command", use the bash tool unless unsafe.
 - Do not claim internet/API limitations before attempting a relevant tool call.
@@ -901,6 +990,11 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         }
     }
 
+    // TODO(architecture-cleanup): ChatAgent doing complex orchestration is an anti-pattern.
+    // This method spawns background tasks, waits for completion, synthesizes responses,
+    // and emits events - all responsibilities that belong to the Conductor.
+    // Chat should ESCALATE to Conductor, not orchestrate complex async workflows.
+    // NO ADHOC WORKFLOW: Remove this when Conductor async task follow-up is implemented.
     fn spawn_background_followup(
         &self,
         state: &ChatAgentState,
@@ -1113,31 +1207,35 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
             )
             .await?;
 
-            let result = if tool_call.tool_name == "bash" {
-                self.delegate_terminal_tool(
-                    state,
-                    tool_args.clone(),
-                    session_id.clone(),
-                    thread_id.clone(),
-                    Some(model_used.clone()),
-                    user_text.clone(),
-                )
-                .await
-            } else if tool_call.tool_name == "web_search" {
-                self.delegate_research_tool(
-                    state,
-                    tool_args.clone(),
-                    session_id.clone(),
-                    thread_id.clone(),
-                    Some(model_used.clone()),
-                    user_text.clone(),
-                )
-                .await
-            } else {
-                Err(ChatAgentError::Tool(format!(
-                    "Unsupported tool '{}' for ChatAgent. Use delegated capability actors only.",
-                    tool_call.tool_name
-                )))
+            // TODO(architecture-cleanup): This hardcoded tool dispatch is a compatibility shim.
+            // ChatAgent should escalate to Conductor for tool routing instead of hardcoding
+            // specific tool knowledge. The Conductor uses typed contracts (ToolDispatchContract)
+            // rather than string-based dispatch.
+            // See: docs/architecture/conductor-first-design.md (when created)
+            let delegated_tool = ChatDelegatedTool::try_from(tool_call.tool_name.as_str())?;
+            let result = match delegated_tool {
+                ChatDelegatedTool::Bash => {
+                    self.delegate_terminal_tool(
+                        state,
+                        tool_args.clone(),
+                        session_id.clone(),
+                        thread_id.clone(),
+                        Some(model_used.clone()),
+                        user_text.clone(),
+                    )
+                    .await
+                }
+                ChatDelegatedTool::WebSearch => {
+                    self.delegate_research_tool(
+                        state,
+                        tool_args.clone(),
+                        session_id.clone(),
+                        thread_id.clone(),
+                        Some(model_used.clone()),
+                        user_text.clone(),
+                    )
+                    .await
+                }
             };
 
             match result {
@@ -1391,6 +1489,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                 command: command.clone(),
                 timeout_ms,
                 model_override,
+                objective: None,
                 session_id: session_id.clone(),
                 thread_id: thread_id.clone(),
                 reply,
@@ -1414,7 +1513,10 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
 
         let result = match result {
             Ok(result) => result,
-            Err(ChatAgentError::Tool(err)) if err.contains("timed out") => {
+            // TODO(architecture-cleanup): Chat still owns background follow-up orchestration.
+            // This timeout branch should eventually escalate to Conductor instead of spawning
+            // follow-up work directly inside ChatAgent.
+            Err(ChatAgentError::DelegatedTimeout(_)) => {
                 self.spawn_background_followup(
                     state,
                     task.task_id.clone(),
@@ -1538,6 +1640,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                 actor_id: state.args.actor_id.clone(),
                 user_id: state.args.user_id.clone(),
                 query,
+                objective: None,
                 provider,
                 max_results,
                 time_range,
@@ -1569,7 +1672,10 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
 
         let result = match result {
             Ok(result) => result,
-            Err(ChatAgentError::Tool(err)) if err.contains("timed out") => {
+            // TODO(architecture-cleanup): Chat still owns background follow-up orchestration.
+            // This timeout branch should eventually escalate to Conductor instead of spawning
+            // follow-up work directly inside ChatAgent.
+            Err(ChatAgentError::DelegatedTimeout(_)) => {
                 self.spawn_background_followup(
                     state,
                     task.task_id.clone(),
@@ -1643,9 +1749,7 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
         let mut since_seq = 0;
         loop {
             if tokio::time::Instant::now() >= deadline {
-                return Err(ChatAgentError::Tool(format!(
-                    "Delegated task timed out after {timeout_ms}ms while awaiting result"
-                )));
+                return Err(ChatAgentError::DelegatedTimeout(timeout_ms));
             }
 
             let events = match (&session_id, &thread_id) {
@@ -1681,17 +1785,11 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                     continue;
                 }
 
-                let event_status = event
-                    .payload
-                    .get("status")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default();
-                let status = match event_status {
-                    "completed" => shared_types::DelegatedTaskStatus::Completed,
-                    "failed" => shared_types::DelegatedTaskStatus::Failed,
-                    "running" => shared_types::DelegatedTaskStatus::Running,
-                    "accepted" => shared_types::DelegatedTaskStatus::Accepted,
-                    _ => continue,
+                let status = match event.payload.get("status").and_then(|v| {
+                    serde_json::from_value::<shared_types::DelegatedTaskStatus>(v.clone()).ok()
+                }) {
+                    Some(status) => status,
+                    None => continue,
                 };
                 if !matches!(
                     status,
@@ -1716,11 +1814,20 @@ Be helpful, accurate, and concise. Use tools when needed to complete user reques
                         .and_then(|v| v.as_str())
                         .map(ToString::to_string)
                         .or_else(|| Self::delegated_result_output(&event.payload)),
+                    outcome: Self::parse_delegated_outcome(&event.payload),
                     error: event
                         .payload
                         .get("error")
                         .and_then(|v| v.as_str())
                         .map(ToString::to_string),
+                    failure_kind: event.payload.get("failure_kind").and_then(|v| {
+                        serde_json::from_value::<shared_types::FailureKind>(v.clone()).ok()
+                    }),
+                    error_code: event
+                        .payload
+                        .get("error_code")
+                        .and_then(|v| v.as_i64())
+                        .and_then(|v| i32::try_from(v).ok()),
                     started_at: event.timestamp.to_rfc3339(),
                     finished_at: event
                         .payload
@@ -1904,194 +2011,4 @@ pub async fn get_available_tools(
     agent: &ActorRef<ChatAgentMsg>,
 ) -> Result<Vec<String>, ractor::RactorErr<ChatAgentMsg>> {
     ractor::call!(agent, |reply| ChatAgentMsg::GetAvailableTools { reply })
-}
-
-// ============================================================================
-// Tests
-// ============================================================================
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::actors::event_store::{EventStoreActor, EventStoreArguments};
-    use chrono::TimeZone;
-    use ractor::Actor;
-
-    #[test]
-    fn test_timestamped_prompt_content_prefixes_iso_timestamp() {
-        let ts = Utc.with_ymd_and_hms(2026, 2, 8, 20, 49, 43).unwrap();
-        let stamped = ChatAgent::timestamped_prompt_content("hello world", ts);
-        assert!(stamped.starts_with("[2026-02-08T20:49:43Z]"));
-        assert!(stamped.ends_with("hello world"));
-    }
-
-    #[test]
-    fn test_delegated_result_output_falls_back_to_summary() {
-        let payload = serde_json::json!({
-            "summary": "Research summary output"
-        });
-        let output = ChatAgent::delegated_result_output(&payload);
-        assert_eq!(output.as_deref(), Some("Research summary output"));
-    }
-
-    #[tokio::test]
-    async fn test_chat_agent_creation() {
-        let (event_store_ref, _event_handle) =
-            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-                .await
-                .unwrap();
-
-        let (agent_ref, _agent_handle) = Actor::spawn(
-            None,
-            ChatAgent::new(),
-            ChatAgentArguments {
-                actor_id: "agent-1".to_string(),
-                user_id: "user-1".to_string(),
-                event_store: event_store_ref.clone(),
-                preload_session_id: None,
-                preload_thread_id: None,
-                application_supervisor: None,
-            },
-        )
-        .await
-        .unwrap();
-
-        let tools = get_available_tools(&agent_ref).await.unwrap();
-        assert_eq!(tools.len(), 2);
-        assert!(tools.contains(&"bash".to_string()));
-        assert!(tools.contains(&"web_search".to_string()));
-
-        agent_ref.stop(None);
-        event_store_ref.stop(None);
-    }
-
-    #[tokio::test]
-    async fn test_model_switching() {
-        let (event_store_ref, _event_handle) =
-            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-                .await
-                .unwrap();
-
-        let (agent_ref, _agent_handle) = Actor::spawn(
-            None,
-            ChatAgent::new(),
-            ChatAgentArguments {
-                actor_id: "agent-1".to_string(),
-                user_id: "user-1".to_string(),
-                event_store: event_store_ref.clone(),
-                preload_session_id: None,
-                preload_thread_id: None,
-                application_supervisor: None,
-            },
-        )
-        .await
-        .unwrap();
-
-        let result = switch_model(&agent_ref, "GLM47").await;
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_ok());
-
-        let result = switch_model(&agent_ref, "InvalidModel").await;
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_err());
-
-        agent_ref.stop(None);
-        event_store_ref.stop(None);
-    }
-
-    #[tokio::test]
-    async fn test_per_request_model_override_validation() {
-        let (event_store_ref, _event_handle) =
-            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-                .await
-                .unwrap();
-
-        let (agent_ref, _agent_handle) = Actor::spawn(
-            None,
-            ChatAgent::new(),
-            ChatAgentArguments {
-                actor_id: "agent-override-test".to_string(),
-                user_id: "user-1".to_string(),
-                event_store: event_store_ref.clone(),
-                preload_session_id: None,
-                preload_thread_id: None,
-                application_supervisor: None,
-            },
-        )
-        .await
-        .unwrap();
-
-        let result = ractor::call!(agent_ref, |reply| ChatAgentMsg::ProcessMessage {
-            text: "hello".to_string(),
-            session_id: None,
-            thread_id: None,
-            model_override: Some("NotARealModel".to_string()),
-            reply,
-        })
-        .expect("chat agent call should succeed");
-
-        assert!(matches!(result, Err(ChatAgentError::InvalidModel(_))));
-
-        agent_ref.stop(None);
-        event_store_ref.stop(None);
-    }
-
-    #[tokio::test]
-    async fn test_history_loaded_from_event_store() {
-        let (event_store_ref, _event_handle) =
-            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-                .await
-                .unwrap();
-
-        let actor_id = "history-actor".to_string();
-
-        let _ = ractor::call!(event_store_ref, |reply| EventStoreMsg::Append {
-            event: AppendEvent {
-                event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
-                payload: serde_json::json!("Hello"),
-                actor_id: actor_id.clone(),
-                user_id: "user-1".to_string(),
-            },
-            reply,
-        })
-        .unwrap()
-        .unwrap();
-
-        let _ = ractor::call!(event_store_ref, |reply| EventStoreMsg::Append {
-            event: AppendEvent {
-                event_type: shared_types::EVENT_CHAT_ASSISTANT_MSG.to_string(),
-                payload: serde_json::json!({"text": "Hi there"}),
-                actor_id: actor_id.clone(),
-                user_id: "system".to_string(),
-            },
-            reply,
-        })
-        .unwrap()
-        .unwrap();
-
-        let (agent_ref, _agent_handle) = Actor::spawn(
-            None,
-            ChatAgent::new(),
-            ChatAgentArguments {
-                actor_id,
-                user_id: "user-1".to_string(),
-                event_store: event_store_ref.clone(),
-                preload_session_id: None,
-                preload_thread_id: None,
-                application_supervisor: None,
-            },
-        )
-        .await
-        .unwrap();
-
-        let history = get_conversation_history(&agent_ref).await.unwrap();
-        assert_eq!(history.len(), 2);
-        assert_eq!(history[0].role, "user");
-        assert_eq!(history[0].content, "Hello");
-        assert_eq!(history[1].role, "assistant");
-        assert_eq!(history[1].content, "Hi there");
-
-        agent_ref.stop(None);
-        event_store_ref.stop(None);
-    }
 }

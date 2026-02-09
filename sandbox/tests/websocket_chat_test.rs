@@ -635,6 +635,7 @@ async fn test_websocket_streams_actor_call_for_delegated_terminal_task() {
             "sleep 6 && echo ws_actor_call_ready".to_string(),
             Some(15_000),
             None,
+            None,
             Some(format!("session:{actor_id}")),
             Some(format!("thread:{actor_id}")),
         )
@@ -785,6 +786,7 @@ async fn test_websocket_streams_actor_call_for_varied_prompts() {
                 ".".to_string(),
                 format!("sleep 4 && echo ws_actor_call_ready_{idx}"),
                 Some(12_000),
+                None,
                 None,
                 Some(format!("session:{actor_id}")),
                 Some(format!("thread:{actor_id}")),

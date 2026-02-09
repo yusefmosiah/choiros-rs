@@ -18,6 +18,10 @@ ChoirOS has **significant architectural drift** between documented intent and co
 
 4. **Observability Gaps:** Supervision events not persisted, EventRelay cursor issues, and hardcoded event type strings causing watcher/log panels to appear empty.
 
+**Execution Direction (2026-02-09):** Per AGENTS.md, the primary orchestration path is **Prompt Bar -> Conductor**. Chat is a compatibility surface that escalates multi-step planning to Conductor. The findings in this document describe the **legacy** chat-first architecture; fixes must align with conductor-first, not reinforce chat-centric workflows.
+
+**NO ADHOC WORKFLOW Policy:** All workflow state transitions must use typed protocol fields (BAML/shared-types), not natural-language string matching.
+
 **Recommendation:** Pick messaging model **Option B** (separate contracts for uActor→Actor vs AppActor→ToolActor) with immediate fixes for capability boundaries.
 
 ---
@@ -33,12 +37,16 @@ Current Implementation (as of 2026-02-08):
 ApplicationSupervisor (one_for_one)
 └── SessionSupervisor (one_for_one)
     ├── DesktopSupervisor ──► DesktopActor(s)
-    ├── ChatSupervisor ─────► ChatActor(s) ──► ChatAgent(s) [LOCAL TOOL REGISTRY!]
+    ├── ChatSupervisor ─────► ChatActor(s) ──► ChatAgent(s) [COMPATIBILITY LAYER]
+    │                                                    ↓ (escalates multi-step planning)
+    │                                             ConductorActor [PRIMARY ORCHESTRATION]
     └── TerminalSupervisor ─► TerminalActor(s)
 
 Event Flow:
   ChatAgent/Workers ──► EventStore ──► EventRelay ──► EventBus ──► WebSocket/UI
   SupervisionEvents ──► EventBus ONLY (not persisted)
+
+**Note (2026-02-09):** ChatAgent is a compatibility surface per AGENTS.md Execution Direction. Multi-step planning/orchestration belongs in Conductor.
 ```
 
 ### 2.2 Key Components Inventory

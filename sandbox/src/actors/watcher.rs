@@ -78,6 +78,18 @@ struct WatcherAlertPayload {
     generated_at: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+enum WorkerLifecycleEventType {
+    #[serde(rename = "worker.task.started")]
+    Started,
+    #[serde(rename = "worker.task.progress")]
+    Progress,
+    #[serde(rename = "worker.task.completed")]
+    Completed,
+    #[serde(rename = "worker.task.failed")]
+    Failed,
+}
+
 #[derive(Debug, Default)]
 pub struct WatcherActor;
 
@@ -161,8 +173,9 @@ impl WatcherActor {
             for event in &recent {
                 max_seq = max_seq.max(event.seq);
                 let task_id = Self::extract_task_id(&event.payload);
+                let lifecycle_event = Self::parse_worker_lifecycle_type(&event.event_type);
 
-                if event.event_type == "worker.task.started" {
+                if matches!(lifecycle_event, Some(WorkerLifecycleEventType::Started)) {
                     let bootstrap_cutoff = state.watcher_started_at - chrono::TimeDelta::seconds(2);
                     if event.timestamp < bootstrap_cutoff {
                         continue;
@@ -179,15 +192,15 @@ impl WatcherActor {
                 }
 
                 if matches!(
-                    event.event_type.as_str(),
-                    "worker.task.completed" | "worker.task.failed"
+                    lifecycle_event,
+                    Some(WorkerLifecycleEventType::Completed | WorkerLifecycleEventType::Failed)
                 ) {
                     if let Some(task_id) = &task_id {
                         state.pending_tasks.remove(task_id);
                     }
                 }
 
-                if event.event_type == "worker.task.failed" {
+                if matches!(lifecycle_event, Some(WorkerLifecycleEventType::Failed)) {
                     failed_events.push(event.seq);
                     if Self::is_timeout_failure(&event.payload) {
                         timeout_failures.push(event.seq);
@@ -197,7 +210,7 @@ impl WatcherActor {
                     }
                 }
 
-                if event.event_type == "worker.task.progress"
+                if matches!(lifecycle_event, Some(WorkerLifecycleEventType::Progress))
                     && Self::is_retry_progress(&event.payload)
                 {
                     retry_events.push(event.seq);
@@ -376,71 +389,44 @@ impl WatcherActor {
     }
 
     fn is_timeout_failure(payload: &serde_json::Value) -> bool {
-        if payload
-            .get("failure_kind")
-            .and_then(|v| v.as_str())
-            .is_some_and(|kind| kind.eq_ignore_ascii_case("timeout"))
-        {
-            return true;
-        }
-        let error = payload
-            .get("error")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        error.contains("timeout")
-            || error.contains("timed out")
-            || error.contains("deadline")
-            || error.contains("did not return within")
+        matches!(
+            Self::extract_failure_kind(payload),
+            Some(shared_types::FailureKind::Timeout)
+        )
     }
 
     fn is_retry_progress(payload: &serde_json::Value) -> bool {
-        let phase = payload
-            .get("phase")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        let status = payload
-            .get("status")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        let message = payload
-            .get("message")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        phase.contains("retry") || status.contains("retry") || message.contains("retry")
+        payload
+            .get("retry")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
     }
 
     fn is_network_failure(payload: &serde_json::Value) -> bool {
-        if payload
-            .get("failure_kind")
-            .and_then(|v| v.as_str())
-            .is_some_and(|kind| kind.eq_ignore_ascii_case("network"))
-        {
+        if matches!(
+            Self::extract_failure_kind(payload),
+            Some(shared_types::FailureKind::Network)
+        ) {
             return true;
         }
 
-        if payload
+        payload
             .get("error_code")
             .and_then(|v| v.as_i64())
             .is_some_and(|code| matches!(code, 6 | 7 | 28 | 35 | 52 | 56))
-        {
-            return true;
-        }
+    }
 
-        let error = payload
-            .get("error")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        error.contains("could not resolve host")
-            || error.contains("couldn't connect")
-            || error.contains("failed to connect")
-            || error.contains("empty reply")
-            || error.contains("connection reset")
-            || error.contains("network")
+    fn extract_failure_kind(payload: &serde_json::Value) -> Option<shared_types::FailureKind> {
+        payload
+            .get("failure_kind")
+            .and_then(|v| serde_json::from_value::<shared_types::FailureKind>(v.clone()).ok())
+    }
+
+    fn parse_worker_lifecycle_type(event_type: &str) -> Option<WorkerLifecycleEventType> {
+        serde_json::from_value::<WorkerLifecycleEventType>(serde_json::Value::String(
+            event_type.to_string(),
+        ))
+        .ok()
     }
 
     fn should_emit_alert(&self, state: &mut WatcherState, key: &str) -> bool {
@@ -547,6 +533,7 @@ mod tests {
                     event_type: "worker.task.failed".to_string(),
                     payload: serde_json::json!({
                         "task_id": format!("t-timeout-{idx}"),
+                        "failure_kind": shared_types::FailureKind::Timeout,
                         "error": "terminal agent did not return within 40000ms"
                     }),
                     actor_id: "supervisor:test".to_string(),
@@ -671,6 +658,7 @@ mod tests {
                     event_type: "worker.task.progress".to_string(),
                     payload: serde_json::json!({
                         "task_id": format!("t-retry-{idx}"),
+                        "retry": true,
                         "phase": "retry_attempt",
                         "message": "retrying step"
                     }),
@@ -735,7 +723,7 @@ mod tests {
                     event_type: "worker.task.failed".to_string(),
                     payload: serde_json::json!({
                         "task_id": format!("t-network-{idx}"),
-                        "failure_kind": "network",
+                        "failure_kind": shared_types::FailureKind::Network,
                         "error_code": 52,
                         "error": "terminal command exited with status 52"
                     }),

@@ -213,3 +213,50 @@ async fn test_patch_viewer_content_appends_event_with_required_payload() {
     assert!(saved.payload["mime"].as_str().unwrap().starts_with("text/"));
     assert!(!saved.payload["content_hash"].as_str().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn test_get_viewer_content_supports_sandbox_uri() {
+    let (app, _event_store, _temp_dir) = setup_test_app().await;
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/viewer/content?uri=sandbox://Cargo.toml")
+        .body(Body::empty())
+        .unwrap();
+
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["success"], true);
+    assert_eq!(body["mime"], "text/plain");
+    assert!(
+        body["content"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("[package]"),
+        "expected Cargo.toml content from sandbox root"
+    );
+}
+
+#[tokio::test]
+async fn test_get_viewer_content_directory_listing_is_markdown_and_readonly() {
+    let (app, _event_store, _temp_dir) = setup_test_app().await;
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/viewer/content?uri=sandbox://")
+        .body(Body::empty())
+        .unwrap();
+
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["success"], true);
+    assert_eq!(body["mime"], "text/markdown");
+    assert_eq!(body["readonly"], true);
+    assert!(
+        body["content"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("# Files"),
+        "expected markdown directory listing"
+    );
+}

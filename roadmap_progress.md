@@ -1,23 +1,160 @@
 # Roadmap Progress
 
-Date: 2026-02-08
+Date: 2026-02-09
 Source roadmap:
 - `docs/architecture/roadmap-dependency-tree.md`
 - `docs/architecture/roadmap-critical-analysis.md`
 - `docs/architecture/2026-02-08-architecture-reconciliation-review.md`
 
-## Current Execution Lane (2026-02-08)
+## Narrative Summary (1-minute read)
 
-Active order:
+Execution order is explicitly reset to avoid architecture drift: ship real desktop file apps first (`Files` + `Writer` in one sandbox-root universe), then finish `Prompt Bar -> Conductor` orchestration, then move Chat to conductor escalation + identity UX. Chat remains a compatibility interface during this transition.
+
+## What Changed (2026-02-09, latest)
+
+- Pathway reset decisions:
+  - Prioritize product-legible desktop behavior over deeper chat orchestration hacks.
+  - `Files` and `Writer` must stop behaving like generic markdown/viewer shells.
+  - Conductor is the orchestration authority; app actors are capability endpoints.
+  - App prompt bars route intent to Conductor; they do not bypass orchestration.
+- Current state:
+  - `Files` and `Writer` share sandbox scope and open sandbox-root resources.
+  - Transitional viewer-shell controls are still visible and tracked as technical debt.
+  - Chat-to-conductor escalation refactor is queued behind prompt-bar/conductor stabilization.
+
+## Current Execution Lane (2026-02-09, authoritative)
+
+1. `Files` app: real explorer behavior in sandbox scope
+2. `Writer` app: real editor behavior + markdown mode
+3. `Prompt Bar -> Conductor` primary orchestration path
+4. Chat compatibility escalation into conductor (no app-level orchestration)
+5. Resume watcher/signal/model-policy hardening in conductor-centric flow
+
+## What To Do Next
+
+1. Convert `Files` from viewer shell to true explorer UX (navigate, select, open).
+2. Convert `Writer` to focused editor UX with save-first flow and optional markdown preview mode.
+3. Remove generic viewer-shell controls from `Files` and `Writer`.
+4. Complete prompt-bar conductor routing for app-scoped intents.
+5. Migrate unresolved Chat requests to Conductor after prompt-bar flow is stable.
+
+## Historical Execution Lane (2026-02-08, archived)
+
 1. Logging
 2. Watcher
 3. Model Policy
 4. Worker Signal Contract
 5. Researcher
 
-## Narrative Summary (1-minute read)
+## RLM Alignment Slice (2026-02-09)
+
+Objective:
+- Align current harness work with `RLM_INTEGRATION_REPORT.md` and `state_index_addendum.md` so Prompt Bar + Conductor can scale without context drift.
+
+Now:
+- Keep EventStore as canonical memory while introducing bounded-loop semantics in capability actors.
+- Make delegated research async-first by default (`chat` returns early, final answer arrives as async follow-up).
+- Prevent stale in-progress language once delegated outputs are already available.
+
+Next:
+1. Add `StateIndexActor` scaffold with frame IDs, frame stack projection, and token budget structs.
+2. Add `ContextPack` assembly boundary for chat/research follow-up loops (bounded slices + priority compaction).
+3. Route completion wake-up policy through Conductor path for cross-actor continuations.
+4. Keep appactor output clean: no raw provider dumps as final user-facing assistant messages.
+
+## Objective Propagation Update (2026-02-09, latest)
+
+Now:
+- Chat planner contract now carries explicit objective fields (`objective_status`, `completion_reason`) instead of relying on response-text inference.
+- Objective contract context is propagated through delegated chat capability calls.
+- Chat loop completion is objective-driven with compatibility fallback when a model omits status fields.
+- Added evidence-first guard so verifiable/time-sensitive asks do not complete without attempted evidence gathering.
+
+Validated:
+- `cargo check -p sandbox`
+- `cargo test -p sandbox chat_agent::tests:: -- --nocapture`
+- `cargo test -p sandbox --test supervision_test -- --nocapture`
+- `cargo test -p sandbox --test websocket_chat_test -- --nocapture`
+
+Urgent:
+- Live Superbowl matrix currently regressed in this branch (`non_blocking=false`, `signal_to_answer=false`, `web_search=false` in fast run), indicating planner/delegation failure before expected async flow.
+
+Next:
+1. Add explicit error-path event emission for failed chat planning turns so matrix can classify failure root-cause.
+2. Recover delegated `web_search` path in no-hint matrix.
+3. Re-run full matrix and refresh strict-pass report row before merge.
+
+## Narrative Summary (Legacy Observability Slice)
 
 Logging + Watcher + Model Policy are now at a strong foundation level for operations, and Researcher moved from design-only to live delegated execution for chat `web_search`. We now have run-scoped observability (not just raw event tails), markdown run projection, structured worker failure telemetry, deterministic watcher rules (including network-spike detection), and timestamped prompt context to improve model temporal awareness. The current highest-value next build target is Researcher hardening + Worker Signal quality, with Prompt Bar + Conductor as the next orchestration layer once researcher lifecycle and signals are stable.
+
+## Matrix Eval Update (2026-02-08, async researcher flow)
+
+- Completed live matrix run:
+  - `5 models x 4 providers = 20` executed cases
+  - strict passes: `6` (`model honored + non-blocking + signal->answer + final quality`)
+- Result distribution:
+  - strongest: `KimiK25`, `ZaiGLM47`
+  - weak in this harness/run: `ClaudeBedrockOpus46`, `ClaudeBedrockSonnet45`, `ZaiGLM47Flash`
+- Provider notes:
+  - `brave` underperformed this query class in strict quality
+  - `tavily/exa/all` produced comparable strict pass counts
+- Report file:
+  - `docs/architecture/chat-superbowl-live-matrix-report-2026-02-08.md`
+- Immediate implication:
+  - prioritize orchestration fixes (deferred-tool short-circuit + completion-signal synthesis) over raw provider adapter changes.
+
+## Matrix Eval Update (2026-02-08, no-hint prompt, latest)
+
+- Re-ran live matrix with no tool/provider hinting in user prompt:
+  - prompt: `As of today, whats the weather for the superbowl?`
+  - models: `KimiK25`, `ZaiGLM47`
+  - providers: `auto,tavily,brave,exa,all`
+  - executed: `10`
+  - strict passes: `8`
+  - polluted follow-ups: `0`
+  - `web_search -> bash` chain count: `0`
+- Provider routing change:
+  - `Researcher provider=auto` now defaults to parallel fanout across available providers (configurable via `CHOIR_RESEARCHER_AUTO_PROVIDER_MODE`).
+- Bedrock note:
+  - Expanded Bedrock-inclusive run hit a local `hyper-rustls` platform cert panic in this environment and was split out from stable subset metrics.
+
+Implication:
+- Async orchestration is mostly healthy.
+- Autonomous multi-tool chaining remains the primary behavior gap before Prompt Bar + Conductor can rely on fully self-directed capability escalation.
+
+## Matrix Eval Update (2026-02-09, refreshed + chat-loop hardening)
+
+- Chat deferred path was hardened before rerun:
+  - per-turn scoped history reload,
+  - deferred-status tagging with prompt-history exclusion,
+  - stale post-completion assistant status removal.
+- Mixed matrix rerun:
+  - `6 models x 5 providers = 30` executed,
+  - summary: `strict_passes=8`, `polluted_count=0`, `search_then_bash=true`.
+- Clean non-Bedrock rerun:
+  - models: `KimiK25,ZaiGLM47,ZaiGLM47Flash`
+  - providers: `auto,tavily,brave,exa,all`
+  - summary: `executed=15 strict_passes=8 polluted_count=0 search_then_bash=false`.
+- Isolated Bedrock probes:
+  - `ClaudeBedrockOpus46`: pass,
+  - `ClaudeBedrockSonnet45`: pass,
+  - `ClaudeBedrockOpus45`: fails in this harness run (model unresolved/no tool flow).
+- Targeted post-bootstrap rerun:
+  - models: `ClaudeBedrockOpus46,ClaudeBedrockSonnet45,KimiK25,ZaiGLM47`,
+  - providers: `auto,exa,all`,
+  - summary: `executed=12 strict_passes=12 polluted_count=0 search_then_bash=false`.
+- Async-first research delegation rerun:
+  - summary: `executed=15 strict_passes=11 polluted_count=0 non_blocking=true signal_to_answer=true search_then_bash=false`.
+- Bedrock TLS stabilization:
+  - centralized cert bootstrap (`runtime_env::ensure_tls_cert_env`) now runs before
+    live provider calls and app startup,
+  - Bedrock matrix/provider tests preflight CA bundle availability to prevent
+    `hyper-rustls` platform-cert panic -> `LazyLock poisoned` cascade behavior.
+
+Implication:
+- Non-blocking background->signal->answer flow is now reliable enough for continued researcher hardening.
+- Main remaining eval gap is autonomous multi-tool escalation (`web_search -> bash`) without object-level prompt hints.
 
 ## What Changed (Latest)
 
@@ -51,18 +188,22 @@ Logging + Watcher + Model Policy are now at a strong foundation level for operat
 
 ## What To Do Next (Priority Order)
 
-1. Researcher v1:
+1. Shared harness extraction:
+   - unify chat/terminal/researcher loop semantics into one `agentic_harness` abstraction.
+2. Multi-tool continuation policy:
+   - add loop-level guidance + guardrails for discovery -> measurement escalation (`web_search` then `bash` when required).
+3. Researcher v1 hardening:
    - finish Brave + Exa live-provider hardening and failure-path observability,
-   - tune provider fanout defaults (`auto` vs `all`) and run-level summarization quality,
+   - tune parallel fanout quality/reranking for low-signal result suppression,
    - verify websocket ordering and run-level replay under parallel provider calls.
-2. Worker Signal Contract implementation:
+4. Worker Signal Contract implementation:
    - typed turn report ingestion, validation, anti-spam gates,
    - escalation signaling semantics into Conductor control plane.
-3. Prompt Bar + Conductor:
+5. Prompt Bar + Conductor:
    - route universal input to actors (not chat-only),
    - maintain directives/checklist state at a glance,
    - preserve run/log traceability for every routed action.
-4. Model Policy UX hardening:
+6. Model Policy UX hardening:
    - keep document-first settings flow,
    - ensure policy edits emit model-change events with actor attribution.
 
@@ -686,6 +827,39 @@ Deferred planning item added:
 
 ### Step 6: Phase B Gate Test (Next)
 - [x] Add integration test: supervisor delegation -> terminal execution -> persisted trace.
+
+## 2026-02-09 Update (Single-Loop Simplification)
+
+- [x] Removed chat `plan -> separate synthesis` split; chat now runs a single autonomous loop and emits final response from loop state.
+- [x] Added deterministic final-response fallback from gathered tool results when model omits a final response.
+- [x] Preserved non-blocking async delegated research flow under websocket/API tests.
+- [x] Re-ran live Superbowl matrix (no object-level tool hints in prompt):
+  - `executed=15`
+  - `strict_passes=8`
+  - `non_blocking=true`
+  - `signal_to_answer=true`
+  - `polluted_count=0`
+  - `search_then_bash=false`
+
+Next checklist focus:
+- [ ] Unify `chat`, `terminal`, `researcher` on one shared autonomous loop harness abstraction.
+- [ ] Add continuation policy for capability escalation (`search -> terminal`) when evidence is incomplete.
+- [ ] Improve provider quality controls (ranking/filtering) so noisy search hits do not leak into final user-facing answer.
+
+## 2026-02-09 Capability Policy Milestone
+
+- [x] Documented capability escalation contract in
+  `docs/architecture/capability-escalation-policy.md`.
+- [x] Researcher now emits objective-completion metadata:
+  - `objective_status` (`complete|incomplete|blocked`)
+  - `completion_reason`
+  - `recommended_next_capability`
+  - `recommended_next_objective`
+- [x] Supervisor now enforces policy-driven escalation from research -> terminal when allowed.
+- [x] Added policy controls:
+  - `CHOIR_RESEARCH_ENABLE_TERMINAL_ESCALATION`
+  - `CHOIR_RESEARCH_TERMINAL_ESCALATION_TIMEOUT_MS`
+  - `CHOIR_RESEARCH_TERMINAL_ESCALATION_MAX_STEPS`
 
 ## Phase B Progress Update (Steps 3-5)
 

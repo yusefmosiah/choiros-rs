@@ -206,6 +206,9 @@ pub enum TerminalError {
     #[error("IO error: {0}")]
     Io(String),
 
+    #[error("Terminal command timed out after {0}ms")]
+    Timeout(u64),
+
     #[error("Invalid input: {0}")]
     InvalidInput(String),
 
@@ -888,7 +891,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                 .output(),
         )
         .await
-        .map_err(|_| TerminalError::Io(format!("Terminal command timed out after {timeout_ms}ms")))?
+        .map_err(|_| TerminalError::Timeout(timeout_ms))?
         .map_err(|e| TerminalError::Io(format!("Failed to execute terminal command: {e}")))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -1627,13 +1630,8 @@ mod tests {
 
         match run_result {
             Ok(result) => panic!("expected timeout error, got success: {result:?}"),
-            Err(e) => {
-                let msg = e.to_string();
-                assert!(
-                    msg.contains("timed out"),
-                    "expected timeout message, got: {msg}"
-                );
-            }
+            Err(TerminalError::Timeout(ms)) => assert!(ms >= 1_000, "unexpected timeout ms: {ms}"),
+            Err(e) => panic!("expected timeout error variant, got: {e:?}"),
         }
 
         let stop_result =

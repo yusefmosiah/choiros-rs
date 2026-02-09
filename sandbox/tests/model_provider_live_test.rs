@@ -6,6 +6,7 @@ use sandbox::actors::{
 };
 use sandbox::baml_client::types::Message as BamlMessage;
 use sandbox::baml_client::B;
+use sandbox::runtime_env::ensure_tls_cert_env;
 use sandbox::supervisor::ApplicationSupervisor;
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,25 +28,21 @@ fn bedrock_auth_present() -> bool {
         || (env_present("AWS_ACCESS_KEY_ID") && env_present("AWS_SECRET_ACCESS_KEY"))
 }
 
-fn ensure_tls_cert_env() {
-    if std::env::var("SSL_CERT_FILE").is_err() {
-        let cert_path = "/etc/ssl/cert.pem";
-        if std::path::Path::new(cert_path).exists() {
-            std::env::set_var("SSL_CERT_FILE", cert_path);
-        }
-    }
-}
-
 fn missing_env_for_provider(provider: &ProviderConfig) -> Vec<String> {
     match provider {
         ProviderConfig::AwsBedrock { .. } => {
-            if bedrock_auth_present() {
+            let tls_ready = ensure_tls_cert_env().is_some();
+            if bedrock_auth_present() && tls_ready {
                 Vec::new()
             } else {
-                vec![
+                let mut missing = vec![
                     "AWS_BEARER_TOKEN_BEDROCK or AWS_PROFILE or AWS_ACCESS_KEY_ID+AWS_SECRET_ACCESS_KEY"
                         .to_string(),
-                ]
+                ];
+                if !tls_ready {
+                    missing.push("SSL_CERT_FILE (or NIX_SSL_CERT_FILE)".to_string());
+                }
+                missing
             }
         }
         ProviderConfig::AnthropicCompatible { api_key_env, .. }

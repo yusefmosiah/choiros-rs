@@ -420,6 +420,7 @@ async fn test_logs_run_markdown_export_asserts_real_delegated_run() {
             "echo RUN_EXPORT_OK".to_string(),
             Some(10_000),
             None,
+            None,
             Some(session_id.clone()),
             Some(thread_id.clone()),
         )
@@ -482,6 +483,7 @@ async fn test_logs_run_markdown_export_asserts_real_delegated_research_run() {
             actor_id.clone(),
             "user-1".to_string(),
             "latest rust async runtime changes".to_string(),
+            None,
             Some("tavily".to_string()),
             Some(3),
             None,
@@ -558,6 +560,7 @@ async fn test_research_parallel_provider_calls_are_logged_for_all_requested_engi
             actor_id.clone(),
             "user-1".to_string(),
             "latest tokyo weather report".to_string(),
+            None,
             Some("all".to_string()),
             Some(3),
             None,

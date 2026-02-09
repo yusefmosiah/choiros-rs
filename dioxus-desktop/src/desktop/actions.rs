@@ -37,18 +37,18 @@ fn viewer_props_for_app(app_id: &str) -> Option<serde_json::Value> {
             "viewer": {
                 "kind": "text",
                 "resource": {
-                    "uri": "file:///workspace/README.md",
-                    "mime": "text/markdown"
+                    "uri": "sandbox://Cargo.toml",
+                    "mime": "text/plain"
                 },
                 "capabilities": { "readonly": false }
             }
         })),
         "files" => Some(serde_json::json!({
             "viewer": {
-                "kind": "image",
+                "kind": "text",
                 "resource": {
-                    "uri": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI3MjAiIGhlaWdodD0iNDAwIj48cmVjdCB3aWR0aD0iNzIwIiBoZWlnaHQ9IjQwMCIgZmlsbD0iIzBkMTcyYSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmaWxsPSIjZTVlN2ViIiBmb250LXNpemU9IjMyIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5DaG9pciBWaWV3ZXIgTVZQPC90ZXh0Pjwvc3ZnPg==",
-                    "mime": "image/svg+xml"
+                    "uri": "sandbox://",
+                    "mime": "text/markdown"
                 },
                 "capabilities": { "readonly": true }
             }

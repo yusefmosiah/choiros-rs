@@ -21,6 +21,12 @@ pub struct AgentPlan {
 
     pub final_response: Option<String>,
 
+    pub objective_status: Option<types::ObjectiveStatus>,
+
+    pub plan_mode: Option<types::PlanMode>,
+
+    pub completion_reason: Option<String>,
+
     pub confidence: Option<f64>,
 }
 
@@ -130,6 +136,50 @@ impl AsRef<BashToolArgs> for BashToolArgs {
 
 #[derive(Debug, Clone, Default, BamlDecode)]
 
+pub struct CompletionPayload {
+    pub objective_status: Option<types::ObjectiveStatus>,
+
+    pub objective_fulfilled: Option<bool>,
+
+    pub completion_reason: Option<String>,
+
+    pub evidence: Vec<Evidence>,
+
+    pub unresolved_items: Vec<UnresolvedItem>,
+
+    pub recommended_next_action: Option<NextAction>,
+}
+
+impl AsRef<CompletionPayload> for CompletionPayload {
+    fn as_ref(&self) -> &CompletionPayload {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct Evidence {
+    pub evidence_id: Option<String>,
+
+    pub evidence_type: Option<types::EvidenceType>,
+
+    pub source: Option<String>,
+
+    pub content: Option<String>,
+
+    pub confidence: Option<f64>,
+
+    pub timestamp: Option<String>,
+}
+
+impl AsRef<Evidence> for Evidence {
+    fn as_ref(&self) -> &Evidence {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct ListFilesToolArgs {
     pub path: Option<String>,
 
@@ -152,6 +202,48 @@ pub struct Message {
 
 impl AsRef<Message> for Message {
     fn as_ref(&self) -> &Message {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct NextAction {
+    pub action_type: Option<types::NextActionType>,
+
+    pub recommended_capability: Option<String>,
+
+    pub recommended_objective: Option<String>,
+
+    pub rationale: Option<String>,
+}
+
+impl AsRef<NextAction> for NextAction {
+    fn as_ref(&self) -> &NextAction {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct ObjectiveContract {
+    pub objective_id: Option<String>,
+
+    pub parent_objective_id: Option<String>,
+
+    pub primary_objective: Option<String>,
+
+    pub success_criteria: Vec<String>,
+
+    pub max_tool_calls: Option<i64>,
+
+    pub timeout_ms: Option<i64>,
+
+    pub attempts_budget: Option<i64>,
+}
+
+impl AsRef<ObjectiveContract> for ObjectiveContract {
+    fn as_ref(&self) -> &ObjectiveContract {
         self
     }
 }
@@ -234,6 +326,22 @@ pub struct ToolResult {
 
 impl AsRef<ToolResult> for ToolResult {
     fn as_ref(&self) -> &ToolResult {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct UnresolvedItem {
+    pub item_id: Option<String>,
+
+    pub description: Option<String>,
+
+    pub reason: Option<String>,
+}
+
+impl AsRef<UnresolvedItem> for UnresolvedItem {
+    fn as_ref(&self) -> &UnresolvedItem {
         self
     }
 }

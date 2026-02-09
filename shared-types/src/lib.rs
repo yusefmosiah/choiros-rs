@@ -341,9 +341,24 @@ pub struct DelegatedTaskResult {
     pub correlation_id: String,
     pub status: DelegatedTaskStatus,
     pub output: Option<String>,
+    pub outcome: Option<DelegatedTaskOutcome>,
     pub error: Option<String>,
+    pub failure_kind: Option<FailureKind>,
+    pub error_code: Option<i32>,
     pub started_at: String,
     pub finished_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct DelegatedTaskOutcome {
+    pub objective_status: Option<ObjectiveStatus>,
+    pub completion_reason: Option<String>,
+    pub recommended_next_capability: Option<String>,
+    pub recommended_next_objective: Option<String>,
+    pub summary: Option<String>,
+    #[ts(type = "unknown")]
+    pub payload: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
@@ -473,6 +488,138 @@ pub struct WorkerTurnReportIngestResult {
     pub rejections: Vec<WorkerSignalRejection>,
 }
 
+/// Status of an objective during agent execution
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum ObjectiveStatus {
+    /// Objective complete, final_response required
+    Satisfied,
+    /// Still working, tool_calls allowed
+    InProgress,
+    /// Cannot proceed, completion_reason required
+    Blocked,
+}
+
+/// Planning mode for agent execution control
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum PlanMode {
+    /// Execute tool calls
+    CallTools,
+    /// Synthesize final response
+    Finalize,
+    /// Escalate to parent/supervisor
+    Escalate,
+}
+
+/// Classification of failure types for error handling and retry logic
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum FailureKind {
+    Timeout,    // Time limit exceeded
+    Network,    // Connectivity issues
+    Auth,       // Authentication/authorization failed
+    RateLimit,  // Rate limit hit
+    Validation, // Input validation failed
+    Provider,   // Upstream provider error
+    Unknown,    // Unclassified failure
+}
+
+/// Contract defining an objective for parent-child delegation
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct ObjectiveContract {
+    pub objective_id: String,                // Unique objective identifier
+    pub parent_objective_id: Option<String>, // Hierarchy linkage
+    pub primary_objective: String,           // What to accomplish
+    pub success_criteria: Vec<String>,       // Measurable completion criteria
+    pub constraints: ObjectiveConstraints,   // Budgets, timeouts, policies
+    pub attempts_budget: u8,                 // Max retry attempts
+    pub evidence_requirements: EvidenceRequirements, // What evidence to collect
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct ObjectiveConstraints {
+    pub max_tool_calls: u32,
+    pub timeout_ms: u64,
+    pub max_subframe_depth: u8,
+    pub allowed_capabilities: Vec<String>, // Capability whitelist
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct EvidenceRequirements {
+    pub requires_citations: bool,
+    pub min_confidence: f64,
+    pub required_source_types: Vec<String>,
+}
+
+/// Payload for child-to-parent completion reporting
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct CompletionPayload {
+    pub objective_status: ObjectiveStatus,
+    pub objective_fulfilled: bool, // Explicit completion boolean
+    pub completion_reason: String, // Why completed/blocked
+    pub evidence: Vec<Evidence>,   // Structured evidence
+    pub unresolved_items: Vec<UnresolvedItem>, // What remains undone
+    pub recommended_next_action: Option<NextAction>, // Suggested continuation
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct Evidence {
+    pub evidence_id: String,
+    pub evidence_type: EvidenceType,
+    pub source: String,
+    pub content: String,
+    pub confidence: f64,
+    pub timestamp: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct UnresolvedItem {
+    pub item_id: String,
+    pub description: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct NextAction {
+    pub action_type: NextActionType, // escalate | continue | complete
+    pub recommended_capability: Option<String>,
+    pub recommended_objective: Option<String>,
+    pub rationale: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum EvidenceType {
+    SearchResult,
+    CodeSnippet,
+    Documentation,
+    TerminalOutput,
+    FileContent,
+    WebPage,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum NextActionType {
+    Escalate,
+    Continue,
+    Complete,
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -484,6 +631,7 @@ pub const EVENT_CHAT_TOOL_CALL: &str = "chat.tool_call";
 pub const EVENT_CHAT_TOOL_RESULT: &str = "chat.tool_result";
 pub const EVENT_MODEL_SELECTION: &str = "model.selection";
 pub const EVENT_MODEL_CHANGED: &str = "model.changed";
+pub const EVENT_MODEL_CONTEXT_TRACE: &str = "model.context.trace";
 
 /// Build a chat user-message payload with optional session/thread scope metadata.
 pub fn chat_user_payload(

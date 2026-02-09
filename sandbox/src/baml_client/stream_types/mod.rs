@@ -26,9 +26,17 @@ pub enum StreamTypes {
 
     BashToolArgs(BashToolArgs),
 
+    CompletionPayload(CompletionPayload),
+
+    Evidence(Evidence),
+
     ListFilesToolArgs(ListFilesToolArgs),
 
     Message(Message),
+
+    NextAction(NextAction),
+
+    ObjectiveContract(ObjectiveContract),
 
     ReadFileToolArgs(ReadFileToolArgs),
 
@@ -39,6 +47,8 @@ pub enum StreamTypes {
     StreamChunk(StreamChunk),
 
     ToolResult(ToolResult),
+
+    UnresolvedItem(UnresolvedItem),
 
     WebSearchToolArgs(WebSearchToolArgs),
 
@@ -60,9 +70,17 @@ impl baml::KnownTypes for StreamTypes {
 
             StreamTypes::BashToolArgs(_) => "BashToolArgs",
 
+            StreamTypes::CompletionPayload(_) => "CompletionPayload",
+
+            StreamTypes::Evidence(_) => "Evidence",
+
             StreamTypes::ListFilesToolArgs(_) => "ListFilesToolArgs",
 
             StreamTypes::Message(_) => "Message",
+
+            StreamTypes::NextAction(_) => "NextAction",
+
+            StreamTypes::ObjectiveContract(_) => "ObjectiveContract",
 
             StreamTypes::ReadFileToolArgs(_) => "ReadFileToolArgs",
 
@@ -73,6 +91,8 @@ impl baml::KnownTypes for StreamTypes {
             StreamTypes::StreamChunk(_) => "StreamChunk",
 
             StreamTypes::ToolResult(_) => "ToolResult",
+
+            StreamTypes::UnresolvedItem(_) => "UnresolvedItem",
 
             StreamTypes::WebSearchToolArgs(_) => "WebSearchToolArgs",
 

@@ -9,7 +9,7 @@ use axum::Json;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::api::logs::{build_run_markdown_from_store, RunLogQuery};
@@ -196,7 +196,7 @@ pub async fn patch_viewer_content(
     let uri = req.uri.clone();
     let mime = infer_mime(&uri);
 
-    if is_readonly_mime(&mime) {
+    if is_readonly_mime(&mime) || is_directory_uri(&uri) {
         return (
             StatusCode::BAD_REQUEST,
             Json(PatchViewerContentResponse {
@@ -339,8 +339,29 @@ fn viewer_actor_id(uri: &str) -> String {
     format!("viewer:{uri}")
 }
 
+fn sandbox_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
+}
+
 fn file_path_from_uri(uri: &str) -> Option<String> {
-    uri.strip_prefix("file://").map(|path| path.to_string())
+    if let Some(path) = uri.strip_prefix("file://") {
+        return Some(path.to_string());
+    }
+
+    if let Some(path) = uri.strip_prefix("sandbox://") {
+        let root = sandbox_root();
+        let relative = path.trim_start_matches('/');
+        return Some(root.join(relative).to_string_lossy().to_string());
+    }
+
+    // Backward-compatible alias while older clients migrate.
+    if let Some(path) = uri.strip_prefix("workspace://") {
+        let root = sandbox_root();
+        let relative = path.trim_start_matches('/');
+        return Some(root.join(relative).to_string_lossy().to_string());
+    }
+
+    None
 }
 
 fn infer_mime(uri: &str) -> String {
@@ -413,6 +434,13 @@ fn is_readonly_mime(mime: &str) -> bool {
     mime.starts_with("image/")
 }
 
+fn is_directory_uri(uri: &str) -> bool {
+    let Some(path) = file_path_from_uri(uri) else {
+        return false;
+    };
+    Path::new(&path).is_dir()
+}
+
 fn hash_content(content: &str) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     std::hash::Hash::hash(&content, &mut hasher);
@@ -445,6 +473,34 @@ fn load_initial_snapshot(uri: &str) -> Result<Option<ViewerSnapshot>, String> {
     let Some(path) = file_path_from_uri(uri) else {
         return Ok(None);
     };
+    let path_buf = PathBuf::from(&path);
+    if path_buf.is_dir() {
+        let mut entries = Vec::new();
+        let read_dir =
+            std::fs::read_dir(&path_buf).map_err(|e| format!("Failed to read directory: {e}"))?;
+        for entry in read_dir {
+            let entry = entry.map_err(|e| format!("Failed to read directory entry: {e}"))?;
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            let entry_path = entry.path();
+            if entry_path.is_dir() {
+                entries.push(format!("- [DIR] `{}/`", file_name));
+            } else {
+                entries.push(format!("- [FILE] `{}`", file_name));
+            }
+        }
+        entries.sort();
+        let listing = format!(
+            "# Files\n\nRoot: `{}`\n\n{}\n",
+            path_buf.display(),
+            entries.join("\n")
+        );
+        return Ok(Some(ViewerSnapshot {
+            mime: "text/markdown".to_string(),
+            content: listing,
+            revision: make_revision(0),
+            readonly: true,
+        }));
+    }
     let mime = infer_mime(uri);
 
     if mime.starts_with("image/") {

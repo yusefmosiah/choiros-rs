@@ -1,6 +1,6 @@
 # ChoirOS Roadmap (Execution Lane)
 
-Date: 2026-02-08  
+Date: 2026-02-09  
 Status: Authoritative immediate order
 
 ## Narrative Summary (1-minute read)
@@ -36,6 +36,24 @@ Researcher baseline is now live through delegated `web_search` runs, with provid
 - Prompt temporal-awareness hardening landed:
   - system prompts now include UTC timestamp metadata,
   - per-message prompt content in chat/terminal planning paths is timestamped.
+- Chat deferred async path hardening landed:
+  - scoped history reload per turn,
+  - deferred-status messages tagged and excluded from prompt-history reconstruction,
+  - stale post-completion “still running” assistant chatter removed.
+- Researcher provider routing update:
+  - `provider=auto` now defaults to parallel fanout across available providers.
+- No-hint live matrix added for async delegated research behavior:
+  - validates background -> completion signal -> final answer flow without tool-hinted prompts.
+- Matrix refresh (2026-02-09):
+  - mixed run (`30` cases) and clean non-Bedrock run (`15` cases) completed with `polluted_count=0`,
+  - isolated Bedrock probes confirm `Opus46` and `Sonnet45` pass; `Opus45` currently fails in harness.
+  - targeted post-bootstrap rerun (`12` cases across Bedrock + non-Bedrock, `auto/exa/all`) achieved `strict_passes=12` with `polluted_count=0`.
+- Bedrock TLS runtime hardening:
+  - centralized cert bootstrap now sets `SSL_CERT_FILE` from known system/Nix paths before provider calls,
+  - startup + live test harnesses now share this bootstrap to avoid intermittent
+    `hyper-rustls` platform-cert panic and `LazyLock poisoned` cascades.
+- New architecture draft added:
+  - `docs/architecture/unified-agentic-loop-harness.md` (chat/terminal/researcher loop unification target).
 
 ## What To Do Next
 
@@ -51,9 +69,32 @@ Researcher baseline is now live through delegated `web_search` runs, with provid
   - validate Brave/Exa in live runs and harden provider fanout defaults,
   - tune finding/learning signal quality and anti-spam behavior,
   - tighten websocket ordering/replay assertions for multi-provider runs.
+- Add shared harness unification step before Prompt Bar/Conductor scale-up:
+  - one loop abstraction across chat, terminal, researcher,
+  - consistent deferred/resume semantics and typed signal emission.
 - Finish worker signal contract runtime enforcement:
   - confidence gating, dedup, cooldowns, and escalation throttles.
-- After Researcher, build Prompt Bar + Conductor orchestration layer.
+- After Researcher, build Prompt Bar + Conductor orchestration layer:
+  - **Primary path**: Prompt Bar -> Conductor for multi-step planning
+  - **Chat role**: compatibility surface that escalates to Conductor, not the canonical planner
+  - **NO ADHOC WORKFLOW**: encode all control flow in typed protocols, never string matching
+
+## RLM + StateIndex Alignment (Added)
+
+Goal:
+- Move from per-actor ad-hoc memory loops to bounded frame/context execution that can scale to Prompt Bar + Conductor routing.
+
+**NO ADHOC WORKFLOW Policy**: This milestone removes string-matching workflow logic and replaces it with typed protocol fields (BAML/shared-types) and actor messages. See AGENTS.md for the authoritative policy.
+
+Checklist:
+- [ ] Add `StateIndexActor` scaffold (`FrameId`, frame stack projection, token budget structs).
+- [ ] Add `ContextPack` assembly boundaries for chat/research follow-up loops.
+- [ ] Add frame-aware resume hooks for deferred background completions.
+- [ ] Keep EventStore as source-of-truth; StateIndex remains projection/cache.
+- [ ] Add integration test proving `deferred -> completion signal -> resumed final answer` with no stale status text.
+
+Gate:
+- Capability loops remain non-blocking, objective-complete, and bounded under repeat delegated workflows.
 
 ## Single Active Lane
 
@@ -170,6 +211,8 @@ Checklist:
 - [x] Implement provider adapters for Tavily + Brave + Exa under researcher capability boundary.
 - [x] Stream lifecycle events (`planning`, `search`, `read`, `synthesis`, `citation_attach`).
 - [x] Persist citations and source metadata in event payloads.
+- [x] Emit objective completion metadata from researcher (`complete|incomplete|blocked`) with recommended next capability.
+- [x] Add policy-driven `research -> terminal` escalation hook in supervisor for incomplete/blocked research outcomes.
 - [~] Add websocket tests for ordered researcher event streaming.
 
 Gate:

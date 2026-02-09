@@ -1,8 +1,29 @@
 # Supervision Cutover Handoff (Complete)
 
-**Date:** 2026-02-06
+**Date:** 2026-02-06 (Updated 2026-02-09)
 **Status:** COMPLETE - Ready for Multiagent Rollout
 **Commit:** (to be added after push)
+
+## Narrative Summary (1-minute read)
+
+The ChoirOS runtime has migrated from ActorManager to ractor supervision trees. All actor lifecycle management now flows through `ApplicationSupervisor -> SessionSupervisor -> {Chat, Terminal, Desktop}Supervisor`. This enables the multiagent rollout with proper failure isolation. Per AGENTS.md Execution Direction (2026-02-09), the primary orchestration path is Prompt Bar -> Conductor, with Chat as a compatibility surface that escalates planning to Conductor.
+
+## What Changed
+
+- Migrated from DashMap-based ActorManager to ractor supervision trees
+- Implemented per-type supervisors: ChatSupervisor, TerminalSupervisor, DesktopSupervisor
+- All actor creation now supervisor-owned via factory patterns
+- Fixed 26 clippy warnings with actual fixes (no suppressions)
+
+## What To Do Next
+
+1. Implement ResearcherActor with full event lifecycle
+2. Implement DocsUpdaterActor with in-memory indexing
+3. Implement detection/alerting actors (not to be confused with Watcher pattern)
+4. Implement VerifierAgent with sandbox isolation
+5. Expand EventBus for cross-supervisor coordination
+6. Build Prompt Bar + Conductor orchestration layer (primary path)
+7. Keep Chat as thin compatibility surface per NO ADHOC WORKFLOW policy
 
 ---
 
@@ -61,10 +82,14 @@ The ChoirOS runtime has been successfully migrated from an ActorManager-based ar
 
 ### Runtime Request Paths
 
-**Chat:**
+**Chat (Compatibility Surface):**
 ```
 API Handler → SessionSupervisor → ChatSupervisor → ChatActor/ChatAgent
+                                 ↓ (escalates multi-step planning)
+                          ConductorActor (primary orchestration)
 ```
+
+_Note: Per AGENTS.md Execution Direction (2026-02-09), Chat is a thin compatibility surface. Multi-step planning and orchestration belong in Conductor._
 
 **Terminal:**
 ```
@@ -398,7 +423,7 @@ With supervision cutover complete, the multiagent rollout can proceed with:
 
 1. **Implement ResearcherActor** with LLM integration
 2. **Implement DocsUpdaterActor** with in-memory indexing
-3. **Implement WatcherActors** (TestFailureWatcher, FlounderingWatcher)
+3. **Implement detection/alerting actors** (TestFailureMonitor, FlounderingDetector) - Note: these are actor implementations, not the Watcher pattern itself. See AGENTS.md Naming Reconciliation for terminology.
 4. **Implement VerifierAgent** with sandbox isolation
 5. **Expand EventBus usage** for cross-supervisor coordination
 6. **Add SupervisorAgent** for orchestrating multiagent workflows

@@ -1,7 +1,26 @@
 # Critical Analysis: ChoirOS Roadmap vs. Codebase & Best Practices
 
-**Date:** 2026-02-06
+**Date:** 2026-02-06 (Updated 2026-02-09)
 **Status:** Critical Assessment with Gaps Identified
+
+## Narrative Summary (1-minute read)
+
+This document provides historical gap analysis for the ChoirOS roadmap. The current architecture direction (2026-02-09) establishes Prompt Bar + Conductor as the primary orchestration path, with Chat as a thin compatibility surface. Key gaps identified include incomplete EventBus integration, missing correlation ID propagation, and the need for typed worker contracts. This analysis remains valid for understanding technical debt but does not override the conductor-first execution policy defined in AGENTS.md.
+
+## What Changed
+
+- **2026-02-09**: Added explicit alignment with AGENTS.md Execution Direction.
+- **2026-02-08**: Narrowed execution lane to Logging → Watcher → Researcher.
+- **2026-02-07**: Documented Phase B implementation progress.
+
+## What To Do Next
+
+1. Complete observability foundations (Logging, Watcher) before expanding behavior.
+2. Implement Researcher with full event lifecycle visibility.
+3. Defer PromptBar/Conductor orchestration until after Researcher baseline.
+4. Apply NO ADHOC WORKFLOW policy: encode control flow in typed protocols, not string matching.
+
+---
 
 ## Update Addendum (2026-02-08)
 
@@ -520,11 +539,13 @@ Roadmap correctly identifies the need for SandboxFS but places it as "later". Ho
 - Write integration tests for delegated workflows
 - Update Phase B status to 80%
 
-**Phase 3: Chat Delegation Refactor v1 (1-2 weeks)**
+**Phase 3: Orchestration Layer Refactor v1 (1-2 weeks)**
 - Implement routing policy (selective delegation)
 - Add timeout/retry/error contracts
-- Integrate ChatAgent as worker
+- Integrate ChatAgent as compatibility surface (escalates multi-step planning to Conductor)
+- Implement Conductor as primary orchestration surface
 - Write tests for graceful degradation
+- Apply NO ADHOC WORKFLOW: encode control flow in typed protocols, not string matching
 - Update Phase C status to 80%
 
 **Phase 4: Context Broker v1 (3-4 weeks)**

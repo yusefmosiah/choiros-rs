@@ -31,9 +31,17 @@ pub enum Types {
 
     BashToolArgs(BashToolArgs),
 
+    CompletionPayload(CompletionPayload),
+
+    Evidence(Evidence),
+
     ListFilesToolArgs(ListFilesToolArgs),
 
     Message(Message),
+
+    NextAction(NextAction),
+
+    ObjectiveContract(ObjectiveContract),
 
     ReadFileToolArgs(ReadFileToolArgs),
 
@@ -45,9 +53,19 @@ pub enum Types {
 
     ToolResult(ToolResult),
 
+    UnresolvedItem(UnresolvedItem),
+
     WebSearchToolArgs(WebSearchToolArgs),
 
     WriteFileToolArgs(WriteFileToolArgs),
+
+    EvidenceType(EvidenceType),
+
+    NextActionType(NextActionType),
+
+    ObjectiveStatus(ObjectiveStatus),
+
+    PlanMode(PlanMode),
 }
 
 impl baml::KnownTypes for Types {
@@ -65,9 +83,17 @@ impl baml::KnownTypes for Types {
 
             Types::BashToolArgs(_) => "BashToolArgs",
 
+            Types::CompletionPayload(_) => "CompletionPayload",
+
+            Types::Evidence(_) => "Evidence",
+
             Types::ListFilesToolArgs(_) => "ListFilesToolArgs",
 
             Types::Message(_) => "Message",
+
+            Types::NextAction(_) => "NextAction",
+
+            Types::ObjectiveContract(_) => "ObjectiveContract",
 
             Types::ReadFileToolArgs(_) => "ReadFileToolArgs",
 
@@ -79,9 +105,19 @@ impl baml::KnownTypes for Types {
 
             Types::ToolResult(_) => "ToolResult",
 
+            Types::UnresolvedItem(_) => "UnresolvedItem",
+
             Types::WebSearchToolArgs(_) => "WebSearchToolArgs",
 
             Types::WriteFileToolArgs(_) => "WriteFileToolArgs",
+
+            Types::EvidenceType(_) => "EvidenceType",
+
+            Types::NextActionType(_) => "NextActionType",
+
+            Types::ObjectiveStatus(_) => "ObjectiveStatus",
+
+            Types::PlanMode(_) => "PlanMode",
         }
     }
 }

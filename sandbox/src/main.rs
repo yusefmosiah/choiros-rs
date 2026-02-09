@@ -59,6 +59,12 @@ async fn main() -> std::io::Result<()> {
     // Search the current directory and ancestors so running from `sandbox/` still
     // picks up repo-root `.env`.
     load_env_file();
+    match sandbox::runtime_env::ensure_tls_cert_env() {
+        Some(path) => tracing::info!(path = %path, "Configured SSL_CERT_FILE for TLS clients"),
+        None => tracing::warn!(
+            "No TLS cert bundle auto-detected; HTTPS provider calls may fail in this environment"
+        ),
+    }
 
     tracing::info!("Starting ChoirOS Sandbox API Server");
 

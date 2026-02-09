@@ -17,12 +17,14 @@ Directives remains the north-star operator surface, but current implementation m
 - Watcher rules now include network-spike detection.
 - Worker lifecycle events now persist `model_requested` and `model_used` on all worker states.
 - Structured failure diagnostics are now emitted for worker failures (`failure_kind`, hints, retriable, origin, duration).
+- Chat planner contract now carries explicit objective state fields (`objective_status`, `completion_reason`) as an initial bridge into directives-style objective execution.
 
 ## What To Do Next
 
 1. Complete ResearcherActor milestone with typed findings/learnings/citations events.
 2. Implement Worker Signal Contract runtime validator/gates before broadening orchestration.
-3. Resume Directives app implementation as the primary cockpit for PromptBar + Conductor.
+3. Stabilize live objective-to-delegation loop behavior in matrix evals after planner contract changes.
+4. Resume Directives app implementation as the primary cockpit for PromptBar + Conductor.
 
 ## North Star Deliverable
 
@@ -35,16 +37,26 @@ This is the primary deliverable, not a sidebar polish task.
 
 ## Hard Delineation (Must Stay True)
 
+### NO ADHOC WORKFLOW (Architecture Policy)
+
+**Hard rule:** Do not implement workflow state transitions via natural-language string matching. Do not add task-specific one-off routing/prompt hacks in chat actors. Encode control flow in typed protocol fields (BAML/shared-types) and actor messages. Phrase matching is allowed only for input normalization or UI text shaping, never control authority.
+
+### Actor Boundaries
+
 - ChatAgent:
   - Can call `bash` tool interface.
   - Cannot execute shell directly.
   - `bash` always delegates through `TerminalActor`.
+  - **Must escalate multi-step planning to Conductor**; chat remains a compatibility surface, not the canonical planner.
 - TerminalActor:
   - Executes commands and owns terminal agentic loop.
   - Emits detailed lifecycle/progress events.
 - PromptBarActor:
   - Orchestrates actors and writes human-legible memos.
   - Cannot call tools directly.
+- Conductor:
+  - Primary orchestration surface for multi-step planning and execution.
+  - Receives escalations from ChatAgent for complex workflows.
 - Supervisor:
   - Owns actor lifecycle supervision (spawn/restart/health).
   - Is not the mandatory hot path for every actor-to-actor call.

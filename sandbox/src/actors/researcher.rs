@@ -53,6 +53,7 @@ pub enum ResearcherMsg {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResearcherWebSearchRequest {
     pub query: String,
+    pub objective: Option<String>,
     pub provider: Option<String>,
     pub max_results: Option<u32>,
     pub time_range: Option<String>,
@@ -97,6 +98,10 @@ pub struct ResearchProviderCall {
 pub struct ResearcherResult {
     pub summary: String,
     pub success: bool,
+    pub objective_status: ResearchObjectiveStatus,
+    pub completion_reason: String,
+    pub recommended_next_capability: Option<String>,
+    pub recommended_next_objective: Option<String>,
     pub provider_used: Option<String>,
     pub model_used: Option<String>,
     pub citations: Vec<ResearchCitation>,
@@ -120,6 +125,14 @@ pub enum ResearcherError {
     AllProvidersFailed,
     #[error("model resolution error: {0}")]
     ModelResolution(String),
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ResearchObjectiveStatus {
+    Complete,
+    Incomplete,
+    Blocked,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -251,6 +264,7 @@ impl Actor for ResearcherActor {
             } => {
                 let request = ResearcherWebSearchRequest {
                     query: objective,
+                    objective: None,
                     provider: Some("auto".to_string()),
                     max_results,
                     time_range: None,
@@ -277,6 +291,131 @@ impl Actor for ResearcherActor {
 }
 
 impl ResearcherActor {
+    fn relevance_tokens(query: &str) -> Vec<String> {
+        // STOP words are generic English words to filter out for relevance scoring.
+        // Note: Domain-specific terms should NOT be added here.
+        const STOP: &[&str] = &[
+            "the", "a", "an", "and", "or", "for", "to", "of", "in", "on", "at", "is", "are", "be",
+            "with", "as", "by", "from", "today", "now", "current", "latest", "what", "whats",
+        ];
+        query
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .filter_map(|part| {
+                let lowered = part.trim().to_ascii_lowercase();
+                if lowered.len() < 3 || STOP.contains(&lowered.as_str()) {
+                    None
+                } else {
+                    Some(lowered)
+                }
+            })
+            .collect()
+    }
+
+    fn assess_objective_completion(
+        query: &str,
+        citations: &[ResearchCitation],
+        provider_calls: &[ResearchProviderCall],
+        success: bool,
+    ) -> (
+        ResearchObjectiveStatus,
+        String,
+        Option<String>,
+        Option<String>,
+    ) {
+        if !success {
+            return (
+                ResearchObjectiveStatus::Blocked,
+                "All providers failed or returned unusable responses.".to_string(),
+                Some("conductor".to_string()),
+                None,
+            );
+        }
+
+        if citations.is_empty() {
+            return (
+                ResearchObjectiveStatus::Incomplete,
+                "No citations were returned, so objective evidence is insufficient.".to_string(),
+                Some("terminal".to_string()),
+                Some(format!(
+                    "Use terminal tools to complete this objective with verifiable, up-to-date evidence: {}",
+                    query
+                )),
+            );
+        }
+
+        let tokens = Self::relevance_tokens(query);
+        let mut matched = 0usize;
+        for token in &tokens {
+            if citations.iter().any(|c| {
+                let haystack = format!(
+                    "{} {} {}",
+                    c.title.to_ascii_lowercase(),
+                    c.snippet.to_ascii_lowercase(),
+                    c.url.to_ascii_lowercase()
+                );
+                haystack.contains(token)
+            }) {
+                matched += 1;
+            }
+        }
+        let coverage = if tokens.is_empty() {
+            1.0
+        } else {
+            matched as f64 / tokens.len() as f64
+        };
+
+        let avg_score = {
+            let scored = citations
+                .iter()
+                .filter_map(|c| c.score)
+                .take(6)
+                .collect::<Vec<_>>();
+            if scored.is_empty() {
+                None
+            } else {
+                Some(scored.iter().sum::<f64>() / scored.len() as f64)
+            }
+        };
+
+        let provider_successes = provider_calls.iter().filter(|c| c.succeeded).count();
+        let low_confidence = avg_score.map(|s| s < 0.35).unwrap_or(false);
+        let weak_coverage = coverage < 0.35;
+
+        if provider_successes == 0 || weak_coverage || low_confidence {
+            return (
+                ResearchObjectiveStatus::Incomplete,
+                format!(
+                    "Research evidence is weak (coverage={:.2}, avg_score={:?}); additional execution needed.",
+                    coverage, avg_score
+                ),
+                Some("terminal".to_string()),
+                Some(format!(
+                    "Use terminal tools to verify and complete this objective with current data: {}",
+                    query
+                )),
+            );
+        }
+
+        (
+            ResearchObjectiveStatus::Complete,
+            "Sufficient citation coverage for objective completion.".to_string(),
+            None,
+            None,
+        )
+    }
+
+    fn auto_provider_parallel_enabled() -> bool {
+        match std::env::var("CHOIR_RESEARCHER_AUTO_PROVIDER_MODE")
+            .unwrap_or_else(|_| "parallel".to_string())
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "sequential" | "seq" | "false" | "0" => false,
+            _ => true,
+        }
+    }
+
     fn map_model_error(error: ModelConfigError) -> ResearcherError {
         match error {
             ModelConfigError::UnknownModel(model_id) => {
@@ -385,6 +524,12 @@ impl ResearcherActor {
         progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
     ) -> Result<ResearcherResult, ResearcherError> {
         let query = request.query.trim().to_string();
+        let objective = request
+            .objective
+            .as_ref()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| query.clone());
         if query.is_empty() {
             return Err(ResearcherError::Validation(
                 "web_search query cannot be empty".to_string(),
@@ -415,7 +560,12 @@ impl ResearcherActor {
             None,
         );
 
-        let selection = Self::parse_provider_selection(request.provider.as_deref());
+        let selection = match Self::parse_provider_selection(request.provider.as_deref()) {
+            ProviderSelection::AutoSequential if Self::auto_provider_parallel_enabled() => {
+                ProviderSelection::Parallel(Self::all_providers())
+            }
+            other => other,
+        };
         let providers: Vec<SearchProvider> = match &selection {
             ProviderSelection::AutoSequential => Self::all_providers(),
             ProviderSelection::Single(provider) => vec![*provider],
@@ -588,9 +738,15 @@ impl ResearcherActor {
         }
 
         if successful_outputs.is_empty() {
+            let (objective_status, completion_reason, next_capability, next_objective) =
+                Self::assess_objective_completion(&objective, &[], &calls, false);
             return Ok(ResearcherResult {
                 summary: "All configured research providers failed for this query.".to_string(),
                 success: false,
+                objective_status,
+                completion_reason,
+                recommended_next_capability: next_capability,
+                recommended_next_objective: next_objective,
                 provider_used: None,
                 model_used: Some(model_used),
                 citations: Vec::new(),
@@ -634,10 +790,19 @@ impl ResearcherActor {
         };
 
         let summary = self.summarize_citations(&query, &provider_used, &citations);
+        let (objective_status, completion_reason, next_capability, next_objective) =
+            Self::assess_objective_completion(&objective, &citations, &calls, true);
         Self::emit_progress(
             &progress_tx,
             "research_task_completed",
-            "researcher completed synthesis",
+            format!(
+                "researcher completed synthesis (objective_status={})",
+                match objective_status {
+                    ResearchObjectiveStatus::Complete => "complete",
+                    ResearchObjectiveStatus::Incomplete => "incomplete",
+                    ResearchObjectiveStatus::Blocked => "blocked",
+                }
+            ),
             Some(provider_used.clone()),
             Some(model_used.clone()),
             Some(citations.len()),
@@ -649,6 +814,10 @@ impl ResearcherActor {
         Ok(ResearcherResult {
             summary,
             success: true,
+            objective_status,
+            completion_reason,
+            recommended_next_capability: next_capability,
+            recommended_next_objective: next_objective,
             provider_used: Some(provider_used),
             model_used: Some(model_used),
             citations,

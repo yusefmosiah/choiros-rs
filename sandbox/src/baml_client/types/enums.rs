@@ -3,4 +3,230 @@
 //
 // Learn more at https://docs.boundaryml.com
 
-// No enums defined
+//! Generated enum types.
+
+use baml::{BamlDecode, BamlEncode};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
+pub enum EvidenceType {
+    SearchResult,
+
+    CodeSnippet,
+
+    Documentation,
+
+    TerminalOutput,
+
+    FileContent,
+
+    WebPage,
+
+    Other,
+}
+
+impl Default for EvidenceType {
+    fn default() -> Self {
+        Self::SearchResult
+    }
+}
+
+impl std::fmt::Display for EvidenceType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SearchResult => write!(f, "SearchResult"),
+
+            Self::CodeSnippet => write!(f, "CodeSnippet"),
+
+            Self::Documentation => write!(f, "Documentation"),
+
+            Self::TerminalOutput => write!(f, "TerminalOutput"),
+
+            Self::FileContent => write!(f, "FileContent"),
+
+            Self::WebPage => write!(f, "WebPage"),
+
+            Self::Other => write!(f, "Other"),
+        }
+    }
+}
+
+impl std::str::FromStr for EvidenceType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "SearchResult" => Ok(Self::SearchResult),
+
+            "CodeSnippet" => Ok(Self::CodeSnippet),
+
+            "Documentation" => Ok(Self::Documentation),
+
+            "TerminalOutput" => Ok(Self::TerminalOutput),
+
+            "FileContent" => Ok(Self::FileContent),
+
+            "WebPage" => Ok(Self::WebPage),
+
+            "Other" => Ok(Self::Other),
+
+            _ => Err(()),
+        }
+    }
+}
+
+impl AsRef<EvidenceType> for EvidenceType {
+    fn as_ref(&self) -> &EvidenceType {
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
+pub enum NextActionType {
+    Escalate,
+
+    Continue,
+
+    Complete,
+}
+
+impl Default for NextActionType {
+    fn default() -> Self {
+        Self::Escalate
+    }
+}
+
+impl std::fmt::Display for NextActionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Escalate => write!(f, "Escalate"),
+
+            Self::Continue => write!(f, "Continue"),
+
+            Self::Complete => write!(f, "Complete"),
+        }
+    }
+}
+
+impl std::str::FromStr for NextActionType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Escalate" => Ok(Self::Escalate),
+
+            "Continue" => Ok(Self::Continue),
+
+            "Complete" => Ok(Self::Complete),
+
+            _ => Err(()),
+        }
+    }
+}
+
+impl AsRef<NextActionType> for NextActionType {
+    fn as_ref(&self) -> &NextActionType {
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
+pub enum ObjectiveStatus {
+    Satisfied,
+
+    InProgress,
+
+    Blocked,
+}
+
+impl Default for ObjectiveStatus {
+    fn default() -> Self {
+        Self::Satisfied
+    }
+}
+
+impl std::fmt::Display for ObjectiveStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Satisfied => write!(f, "Satisfied"),
+
+            Self::InProgress => write!(f, "InProgress"),
+
+            Self::Blocked => write!(f, "Blocked"),
+        }
+    }
+}
+
+impl std::str::FromStr for ObjectiveStatus {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Satisfied" => Ok(Self::Satisfied),
+
+            "InProgress" => Ok(Self::InProgress),
+
+            "Blocked" => Ok(Self::Blocked),
+
+            _ => Err(()),
+        }
+    }
+}
+
+impl AsRef<ObjectiveStatus> for ObjectiveStatus {
+    fn as_ref(&self) -> &ObjectiveStatus {
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
+pub enum PlanMode {
+    CallTools,
+
+    Finalize,
+
+    Escalate,
+}
+
+impl Default for PlanMode {
+    fn default() -> Self {
+        Self::CallTools
+    }
+}
+
+impl std::fmt::Display for PlanMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::CallTools => write!(f, "CallTools"),
+
+            Self::Finalize => write!(f, "Finalize"),
+
+            Self::Escalate => write!(f, "Escalate"),
+        }
+    }
+}
+
+impl std::str::FromStr for PlanMode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "CallTools" => Ok(Self::CallTools),
+
+            "Finalize" => Ok(Self::Finalize),
+
+            "Escalate" => Ok(Self::Escalate),
+
+            _ => Err(()),
+        }
+    }
+}
+
+impl AsRef<PlanMode> for PlanMode {
+    fn as_ref(&self) -> &PlanMode {
+        self
+    }
+}

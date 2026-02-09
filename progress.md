@@ -1,3 +1,211 @@
+# ChoirOS Progress - 2026-02-09 (Pathway Reset: Real Apps First, Conductor Next)
+
+## Summary
+
+Locked a path sanity reset: complete real `Files` + `Writer` app behavior first (same sandbox filesystem universe), then focus on `Prompt Bar -> Conductor` orchestration, and only then refactor Chat escalation/identity UX.
+
+## Narrative Summary (1-minute read)
+
+We confirmed a conceptual mismatch between architecture goals and current desktop UX. `Files` and `Writer` are still operating like generic viewer shells instead of app-specific GUI programs, while orchestration refactors were being pulled into Chat prematurely. The corrected pathway is: (1) make desktop file apps truly usable and bounded to sandbox scope, (2) build/validate conductor-first orchestration through prompt bar, (3) keep Chat as compatibility surface and migrate escalation behavior after conductor flow is stable. This preserves momentum without breaking working chat paths and keeps the operating-system metaphor legible.
+
+## What Changed
+
+- Path decision (explicit):
+  - Do **not** aggressively refactor Chat orchestration first.
+  - Do **not** let app actors own orchestration logic.
+  - Keep Chat stable while conductor path is completed.
+  - Treat app prompt bars as scoped input surfaces that still route through Conductor.
+- Desktop file-universe groundwork:
+  - `sandbox://` URI scheme now resolves to sandbox root (`/Users/wiz/choiros-rs/sandbox`) in viewer API.
+  - `Writer` + `Files` now point at sandbox-root resources instead of placeholder/demo assets.
+  - Directory URIs render readonly listing content (transitional implementation).
+- Gap acknowledged from live UI state:
+  - `Files` and `Writer` still expose generic viewer-shell controls (`Reload`, `Source`, `Expand all`, etc.) that do not belong in final app UX.
+  - `Files` is not yet a true navigable file explorer; `Writer` is not yet a clean text editor with focused markdown mode.
+
+## Validation Highlights
+
+- `cargo check -p sandbox`
+- `cargo test -p sandbox --test viewer_api_test -- --nocapture`
+- `cargo check` (in `/Users/wiz/choiros-rs/dioxus-desktop`)
+
+## What To Do Next
+
+1. Finish `Files` as a real explorer app:
+   - folder navigation, file open, selection model, and sandbox-root boundary.
+   - remove markdown-viewer control surface from Files UX.
+2. Finish `Writer` as a real editor app:
+   - editable text surface, save flow, optional markdown preview mode as a mode (not shell controls).
+   - remove generic viewer controls not aligned with editor workflows.
+3. Build and validate `Prompt Bar -> Conductor` routing as the primary orchestration lane.
+4. After conductor lane is stable, refactor Chat to escalate unresolved asks to conductor and render capability-actor identities (color-coded/typed messages).
+5. Keep `NO ADHOC WORKFLOW` enforced: typed contracts drive control flow, not phrase matching.
+
+---
+
+# ChoirOS Progress - 2026-02-09 (Objective Propagation + Planner Contract Pass)
+
+## Summary
+
+Implemented objective-aware planning contract wiring for chat loops and delegation, removed domain-specific Super Bowl/temperature assumptions, and validated compile + core integration suites. Live Superbowl matrix now shows a regression (no delegated flow observed), which is the immediate blocker before landing.
+
+## Narrative Summary (1-minute read)
+
+We moved completion control from string heuristics toward explicit objective state: planner output now carries `objective_status` + `completion_reason`, chat loops propagate objective contract context into delegated actors, and loop exit criteria now prefer objective satisfaction over ad-hoc phrasing checks. To avoid brittle strictness with mixed model behavior, we added compatibility inference and an evidence-first guard for verifiable/time-sensitive requests. Core unit/integration tests pass, but the live matrix currently fails because cases are not reaching delegated `web_search` flow; this needs immediate diagnostics before final merge.
+
+## What Changed
+
+- BAML planner contract:
+  - `baml_src/types.baml`: added `AgentPlan.objective_status`, `AgentPlan.completion_reason`.
+  - `baml_src/agent.baml`: added objective-state output instructions (`satisfied|in_progress|blocked`) and completion guidance.
+  - Regenerated client artifacts via `baml-cli generate`.
+- Chat runtime objective handling:
+  - `sandbox/src/actors/chat_agent.rs`
+    - objective-aware completion helpers (`objective_status_*`, objective replan hints),
+    - evidence-first replan guard for verifiable/time-sensitive asks,
+    - compatibility bridge when model omits objective status,
+    - delegated objective propagation retained for both terminal/research paths.
+- Objective-driven fallback attempt:
+  - chat loop now attempts a `web_search` bootstrap when a verifiable request has no gathered evidence and no deferred task started.
+- Tests added:
+  - `test_needs_verifiable_evidence_detects_time_sensitive_prompt`
+  - `test_should_force_evidence_attempt_only_without_successful_tools`
+
+## Validation Highlights
+
+- `cargo fmt --all`
+- `cargo check -p sandbox`
+- `cargo test -p sandbox chat_agent::tests:: -- --nocapture`
+- `cargo test -p sandbox --test supervision_test -- --nocapture`
+- `cargo test -p sandbox --test websocket_chat_test -- --nocapture`
+- Live matrix check (fast profile) currently failing:
+  - `cargo test -p sandbox --test chat_superbowl_live_matrix_test -- --nocapture`
+  - observed: `web_search=false`, `non_blocking=false`, `signal_to_answer=false`, empty final answer in case summaries.
+
+## What To Do Next
+
+1. Diagnose planner/live-call failure path in chat loop (likely pre-assistant early failure path) and emit explicit error events for matrix visibility.
+2. Restore delegated research trigger in matrix path and re-run full live matrix.
+3. After matrix recovery, rerun docs/report refresh and finalize landing checklist.
+
+---
+
+# ChoirOS Progress - 2026-02-09 (Async Chat Follow-up Hardening + Live Matrix Refresh)
+
+## Summary
+
+Hardened the chat deferred-tool path so background research no longer pollutes chat context, then re-ran live Superbowl no-hint matrices across provider/model combinations and refreshed architecture/report docs with verified results.
+
+## RLM/StateIndex Alignment Update
+
+- Reviewed:
+  - `/Users/wiz/choiros-rs/docs/architecture/RLM_INTEGRATION_REPORT.md`
+  - `/Users/wiz/choiros-rs/docs/architecture/state_index_addendum.md`
+- Applied immediate harness alignment:
+  - `web_search` delegation is now async-first by default (`CHOIR_RESEARCH_DELEGATE_MODE=async`),
+  - follow-up synthesis now rejects stale status-only language and falls back to concrete tool observations.
+- Confirmed compile health after patch:
+  - `cargo check -p sandbox` passes.
+
+## Narrative Summary (1-minute read)
+
+The async gap was that chat could emit stale “still running” text after delegated research had already completed, and async completions were not consistently reflected in in-memory chat context for subsequent turns. That behavior is now fixed. We validated with live matrix runs: clean non-Bedrock matrix (`15` cases) passed async gates with `0` polluted follow-ups; isolated Bedrock probes show `Opus46` and `Sonnet45` pass, while `Opus45` currently fails in this harness.
+
+## What Changed
+
+- `sandbox/src/actors/chat_agent.rs`
+  - Reload scoped history from EventStore at start of each turn.
+  - Tag deferred status messages (`deferred_status=true`) and exclude them from prompt-history reconstruction.
+  - Remove stale duplicate post-completion assistant status message in deferred path.
+  - Spawn async follow-up from `handle_process_message` after deferred status is emitted (ordering fix).
+- `sandbox/tests/chat_superbowl_live_matrix_test.rs`
+  - Harden non-blocking detection to event ordering semantics.
+  - Exclude tagged deferred-status messages from pollution checks.
+- `docs/architecture/chat-superbowl-live-matrix-report-2026-02-08.md`
+  - Updated with latest mixed run + clean run + isolated Bedrock probe results.
+- TLS bootstrap hardening for Bedrock/live HTTPS stability:
+  - added shared runtime helper: `sandbox/src/runtime_env.rs::ensure_tls_cert_env()`,
+  - wired into server startup (`sandbox/src/main.rs`) and live test harnesses,
+  - Bedrock live tests now preflight both auth and CA bundle presence to avoid
+    `hyper-rustls` LazyLock poisoning cascades when platform cert detection fails.
+
+## Validation Highlights
+
+- `cargo check -p sandbox`
+- `cargo test -p sandbox --test chat_superbowl_live_matrix_test -- --nocapture`
+  - summary: `executed=15 strict_passes=11 polluted_count=0 non_blocking=true signal_to_answer=true`
+- `cargo test -p sandbox --test chat_superbowl_live_matrix_test --no-run`
+- `cargo test -p sandbox --test chat_superbowl_live_matrix_test -- --nocapture`
+  - mixed: `executed=30 strict_passes=8 polluted_count=0`
+  - clean: `executed=15 strict_passes=8 polluted_count=0`
+- `cargo test -p sandbox chat_agent::tests:: -- --nocapture`
+  - `6` passing chat-agent unit tests after history expectation update.
+- Isolated Bedrock probes:
+  - `ClaudeBedrockOpus46`: pass
+  - `ClaudeBedrockSonnet45`: pass
+  - `ClaudeBedrockOpus45`: fail (selected model unresolved in this harness run)
+- Targeted mixed-model rerun after TLS bootstrap:
+  - models: `ClaudeBedrockOpus46,ClaudeBedrockSonnet45,KimiK25,ZaiGLM47`
+  - providers: `auto,exa,all`
+  - summary: `executed=12 strict_passes=12 polluted_count=0 search_then_bash=false`
+
+## What To Do Next
+
+1. Extract shared loop harness across chat/terminal/researcher.
+2. Add explicit continuation policy for `web_search -> bash` escalation.
+3. Add provider quality/ranking filters before final synthesis.
+4. Resolve mixed-run Bedrock cert/LazyLock instability.
+
+---
+
+# ChoirOS Progress - 2026-02-08 (Unified Loop Draft + No-Hint Matrix)
+
+## Summary
+
+Completed a focused architecture+eval pass for non-blocking delegated research answers. The no-hint Superbowl matrix now validates `background -> completion signal -> final answer` flow without prompt-level tool hints, and Researcher `auto` routing no longer defaults to single-provider Tavily.
+
+## Narrative Summary (1-minute read)
+
+The system now performs stable asynchronous research follow-ups in chat for this eval class, with clean post-completion answers and no raw research-dump pollution in final user responses. We also drafted a unified harness architecture so Chat, Terminal, and Researcher can converge on one shared loop model. The main gap remains autonomous `web_search -> bash` chaining: models answered correctly from search alone in most cases, but none independently escalated into terminal calls in this run.
+
+## What Changed
+
+- Researcher provider default changed:
+  - `provider=auto` now runs parallel fanout across available providers (`tavily`, `brave`, `exa`) by default.
+  - Can be forced back to sequential via `CHOIR_RESEARCHER_AUTO_PROVIDER_MODE=sequential`.
+- Chat planning prompt policy updated (BAML) to remove object-level weather hints and emphasize:
+  - time-aware reasoning,
+  - iterative multi-tool continuation,
+  - async-completion finalization discipline.
+- Regenerated BAML client artifacts after prompt update.
+- Matrix harness upgraded:
+  - no tool/provider hints in user prompt,
+  - provider forced at callsite via env isolation (not via prompt text),
+  - explicit async flow and pollution checks,
+  - metrics for `web_search`, `bash`, and `web_search->bash` chain detection.
+- Added architecture draft:
+  - `docs/architecture/unified-agentic-loop-harness.md`
+
+## Validation Highlights
+
+- `cargo check -p sandbox`
+- `cargo test -p sandbox --test chat_superbowl_live_matrix_test --no-run`
+- Live matrix (stable subset):
+  - models: `KimiK25`, `ZaiGLM47`
+  - providers: `auto,tavily,brave,exa,all`
+  - summary: `executed=10 strict_passes=8 polluted_count=0 search_then_bash=false`
+- Live matrix report updated:
+  - `/Users/wiz/choiros-rs/docs/architecture/chat-superbowl-live-matrix-report-2026-02-08.md`
+
+## What To Do Next
+
+1. Implement shared harness extraction (`chat/terminal/researcher`) from duplicated loop logic.
+2. Add explicit multi-tool continuation policy so models can escalate from discovery (`web_search`) to concrete measurement (`bash`) when needed.
+3. Resolve Bedrock cert-loading panic in live matrix environment and rerun full model matrix including Opus/Sonnet.
+4. Keep final-user messages synthesis-first: no raw provider dump as user-facing completion text.
+
+---
+
 # ChoirOS Progress - 2026-02-08 (Observability and Run-Logging Hardening)
 
 ## Summary
@@ -43,6 +251,11 @@ The system moved from event-tail visibility to operator-grade run visibility. Lo
 - Prompt temporal awareness is now explicit:
   - chat and terminal prompt paths stamp UTC timestamp metadata on system prompts and per-message prompt content,
   - synthesis calls now receive timestamped user objective context to reduce date/time ambiguity in model outputs.
+- Async researcher matrix eval completed and documented:
+  - full live matrix: `20` executed cases across `5` models and `4` provider modes,
+  - strict async-quality passes: `6`,
+  - best-performing models in this harness: `KimiK25`, `ZaiGLM47`,
+  - report: `/Users/wiz/choiros-rs/docs/architecture/chat-superbowl-live-matrix-report-2026-02-08.md`.
 
 ## Validation Highlights
 
@@ -613,3 +826,51 @@ The difference: Infrastructure vs Participant. We build the former.
 *Last updated: 2026-02-01 19:35*  
 *Status: Major docs cleanup complete, architecture defined, ready for event bus*  
 *Commits today: 27*
+
+---
+
+## 2026-02-09 Progress Update (Loop Simplification + Live Eval)
+
+### Completed
+- Simplified chat orchestration to a single autonomous loop (removed separate synthesis pass).
+- Preserved non-blocking delegated work pattern (background research + follow-up signaling).
+- Verified websocket chat integration suite still passes:
+  - `cargo test -p sandbox --test websocket_chat_test -- --nocapture`
+  - result: `20 passed, 0 failed`
+- Re-ran live Superbowl no-hint matrix:
+  - `cargo test -p sandbox --test chat_superbowl_live_matrix_test -- --nocapture`
+  - result summary:
+    - `executed=15`
+    - `strict_passes=8`
+    - `non_blocking=true`
+    - `signal_to_answer=true`
+    - `polluted_count=0`
+    - `search_then_bash=false`
+
+### What We Learned
+- The remaining issue is no longer basic async flow.
+- Biggest gap is quality/continuation policy:
+  - some provider/model combinations return noisy search-derived outputs,
+  - autonomous `search -> terminal` escalation is still not discovered reliably.
+
+### Immediate Next Steps
+1. Unify `chat`, `terminal`, and `researcher` on one shared loop harness abstraction.
+2. Add explicit continuation/escalation rules when search evidence is insufficient.
+3. Add provider quality filtering/ranking before final answer emission.
+
+## 2026-02-09 Policy + Control Plane Update
+
+### Implemented
+- Added capability escalation architecture doc:
+  - `/Users/wiz/choiros-rs/docs/architecture/capability-escalation-policy.md`
+- Implemented researcher objective status contract in runtime:
+  - `objective_status`
+  - `completion_reason`
+  - `recommended_next_capability`
+  - `recommended_next_objective`
+- Implemented supervisor policy hook for `research -> terminal` escalation.
+
+### Verification
+- `cargo check -p sandbox` passed
+- `cargo test -p sandbox --test websocket_chat_test -- --nocapture` passed (`20/20`)
+- `BAML_LOG=ERROR CHOIR_SUPERBOWL_MATRIX_MODELS='KimiK25' CHOIR_SUPERBOWL_MATRIX_PROVIDERS='tavily' cargo test -p sandbox --test chat_superbowl_live_matrix_test -- --nocapture` passed (`1/1`)

@@ -24,6 +24,13 @@ Human-first docs entrypoint:
 - Richer UI grouping for actor-call timelines (clean-by-default, deep-inspect on demand)
 - Hypervisor routing for multi-user sandboxes
 
+## Execution Policy (2026-02-09)
+
+- Primary orchestration surface is `Prompt Bar -> Conductor`.
+- Chat is a compatibility surface and should escalate planning/execution to conductor instead of embedding its own workflow.
+- Prefer skills and scripts for repeatable high-accuracy tasks over task-specific chat heuristics.
+- `NO ADHOC WORKFLOW`: do not implement control flow with brittle phrase matching; use typed contracts/protocol fields.
+
 ## Quick Start
 
 ### Local Development Setup
@@ -159,11 +166,16 @@ The Agent Choir sings in the automatic computer. Agency lives in computation.
 
 ## Next Steps
 
-1. **Agent Tools** - Implement bash, file, and code execution tools
-2. **LLM Integration** - Connect BAML for agent reasoning and planning
-3. **Agent Registry** - Dynamic agent discovery and composition
-4. **WebSocket Events** - Real-time agent communication
+1. **Prompt Bar + Conductor Flow** - Conductor is the primary orchestration surface; chat is a thin compatibility layer that escalates planning/execution
+2. **Skill Library Buildout** - Route common tasks to durable skills instead of chat-specific logic
+3. **Chat Surface Simplification** - Keep chat thin and escalation-focused; multi-step planning belongs in Conductor
+4. **Typed Protocol Adoption** - Remove remaining string-matched workflow gates per NO ADHOC WORKFLOW policy
 5. **Hypervisor** - Multi-tenant sandbox orchestration
+
+### Architecture Policy Reminders
+
+- **NO ADHOC WORKFLOW**: Do not implement control flow via natural-language string matching; use typed contracts/protocol fields
+- **Authoritative Terminology**: `Logging` = event capture/persistence/transport; `Watcher` = deterministic detection/alerting over logs; `Summarizer` = human-readable compression over event batches
 
 See `docs/ARCHITECTURE_SPECIFICATION.md` for full specification.
 

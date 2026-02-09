@@ -1,6 +1,6 @@
 # Researcher Search Dual-Interface Runbook
 
-Date: 2026-02-08
+Date: 2026-02-09
 Status: Authoritative implementation + hardening runbook (current architecture aligned)
 
 ## Narrative Summary (1-minute read)
@@ -19,6 +19,9 @@ All researcher execution and signals are EventStore-first, then relayed to Event
 - Status moved from pre-implementation to active hardening:
   - `web_search` delegations now execute through `ResearcherActor`,
   - provider lifecycle events and citations are visible in run logs.
+- `provider=auto` now defaults to parallel provider fanout (Tavily + Brave + Exa), configurable with:
+  - `CHOIR_RESEARCHER_AUTO_PROVIDER_MODE=parallel|sequential`
+- No-hint Superbowl matrix was re-run with callsite provider forcing (not prompt hints) to evaluate orchestration quality.
 
 - Replaced stale EventBus-first guidance with ADR-0001 alignment:
   - EventStore is canonical, EventBus is delivery plane.
@@ -37,6 +40,26 @@ All researcher execution and signals are EventStore-first, then relayed to Event
 3. Expand websocket/run-markdown ordered assertions for multi-provider (`provider=all`) runs.
 4. Align researcher prompt/model policy defaults with temporal-awareness contract (UTC timestamp in prompt context).
 5. Keep provider-specific quirks out of tests; retain provider-agnostic acceptance criteria.
+
+## Latest Validation Snapshot (2026-02-08)
+
+- Live async matrix report added:
+  - `/Users/wiz/choiros-rs/docs/architecture/chat-superbowl-live-matrix-report-2026-02-08.md`
+- Key outcome:
+  - delegation/execution path is functioning across providers and models,
+  - primary remaining gap is autonomous multi-tool chaining (`web_search -> bash`) when search-only results are insufficient.
+  - async flow quality improved: non-blocking + completion-signal-to-answer now passes in most non-Bedrock cases.
+
+## Latest Validation Snapshot (2026-02-09)
+
+- Refreshed no-hint live matrix:
+  - clean non-Bedrock run: `15` executed, `strict_passes=8`, `polluted_count=0`.
+  - mixed run: `30` executed, `strict_passes=8`, `polluted_count=0`.
+- Isolated Bedrock probes:
+  - `ClaudeBedrockOpus46`: pass
+  - `ClaudeBedrockSonnet45`: pass
+  - `ClaudeBedrockOpus45`: fails in current harness run (model unresolved/no tool flow)
+- Chat deferred follow-up path now avoids stale status pollution and reloads scoped history per turn.
 
 ---
 
@@ -164,14 +187,13 @@ If missing, provider is skipped with explicit diagnostic events (not silent fall
 
 For `provider=auto`:
 
-1. Tavily
-2. Brave
-3. Exa
+1. Parallel fanout across available providers (`tavily`, `brave`, `exa`)
+2. Merge + rank normalized results
+3. Synthesize from merged evidence set
 
-Override heuristics:
+Override:
 
-- news/freshness-heavy queries: prefer Tavily or Brave
-- deep semantic/research-heavy queries: allow Exa priority
+- `CHOIR_RESEARCHER_AUTO_PROVIDER_MODE=sequential` reverts to single-provider sequential behavior.
 
 ## 4.3 Normalized result shape
 

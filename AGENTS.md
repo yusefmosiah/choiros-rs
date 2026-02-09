@@ -13,6 +13,19 @@
   - Conductor: `ClaudeBedrockOpus46`
   - Summarizer: `ZaiGLM47Flash`
 
+## Execution Direction (2026-02-09)
+
+- Primary orchestration path is `Prompt Bar -> Conductor`.
+- Chat should remain a thin compatibility surface and escalate multi-step planning to conductor.
+- Build reliability through skills and typed contracts, not chat-special-case logic.
+
+## NO ADHOC WORKFLOW (Hard Rule)
+
+- Do not implement workflow state transitions via natural-language string matching.
+- Do not add task-specific one-off routing/prompt hacks in chat actors.
+- Encode control flow in typed protocol fields (BAML/shared-types) and actor messages.
+- Phrase matching is allowed only for input normalization or UI text shaping, never control authority.
+
 ## Current High-Priority Development Targets
 
 1. Typed worker event schema for actor-call rendering (`spawned/progress/complete/failed`).
@@ -254,6 +267,14 @@ cargo test -p sandbox --test websocket_chat_test -- --nocapture
 
 # Run supervision delegation suite
 cargo test -p sandbox --features supervision_refactor --test supervision_test -- --nocapture
+
+# Important: avoid broad filtered runs when targeting one integration test.
+# `cargo test -p sandbox <filter>` still spins through many test binaries and can be slow.
+# Prefer selecting the exact integration test target:
+cargo test -p sandbox --test chat_superbowl_live_matrix_test -- --nocapture
+
+# Or target one test function inside that integration binary:
+cargo test -p sandbox --test chat_superbowl_live_matrix_test test_chat_superbowl_weather_live_model_provider_matrix -- --nocapture
 ```
 
 ## Key Dependencies

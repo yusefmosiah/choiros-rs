@@ -26,14 +26,14 @@ mod tests {
             "viewer": {
                 "kind": "text",
                 "resource": {
-                    "uri": "file:///workspace/README.md",
-                    "mime": "text/markdown"
+                    "uri": "sandbox://Cargo.toml",
+                    "mime": "text/plain"
                 },
                 "capabilities": { "readonly": false }
             }
         });
         let parsed = parse_viewer_window_props(&props).expect("should parse");
-        assert_eq!(parsed.descriptor.resource.mime, "text/markdown");
+        assert_eq!(parsed.descriptor.resource.mime, "text/plain");
     }
 
     #[test]

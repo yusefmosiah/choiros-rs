@@ -86,6 +86,24 @@ impl TypeBuilder {
         )
     }
 
+    /// Access the `CompletionPayload` class builder.
+    pub fn CompletionPayload(&self) -> CompletionPayloadClassBuilder {
+        CompletionPayloadClassBuilder::new(
+            self.inner
+                .get_class("CompletionPayload")
+                .expect("class CompletionPayload is defined in schema"),
+        )
+    }
+
+    /// Access the `Evidence` class builder.
+    pub fn Evidence(&self) -> EvidenceClassBuilder {
+        EvidenceClassBuilder::new(
+            self.inner
+                .get_class("Evidence")
+                .expect("class Evidence is defined in schema"),
+        )
+    }
+
     /// Access the `ListFilesToolArgs` class builder.
     pub fn ListFilesToolArgs(&self) -> ListFilesToolArgsClassBuilder {
         ListFilesToolArgsClassBuilder::new(
@@ -101,6 +119,24 @@ impl TypeBuilder {
             self.inner
                 .get_class("Message")
                 .expect("class Message is defined in schema"),
+        )
+    }
+
+    /// Access the `NextAction` class builder.
+    pub fn NextAction(&self) -> NextActionClassBuilder {
+        NextActionClassBuilder::new(
+            self.inner
+                .get_class("NextAction")
+                .expect("class NextAction is defined in schema"),
+        )
+    }
+
+    /// Access the `ObjectiveContract` class builder.
+    pub fn ObjectiveContract(&self) -> ObjectiveContractClassBuilder {
+        ObjectiveContractClassBuilder::new(
+            self.inner
+                .get_class("ObjectiveContract")
+                .expect("class ObjectiveContract is defined in schema"),
         )
     }
 
@@ -149,6 +185,15 @@ impl TypeBuilder {
         )
     }
 
+    /// Access the `UnresolvedItem` class builder.
+    pub fn UnresolvedItem(&self) -> UnresolvedItemClassBuilder {
+        UnresolvedItemClassBuilder::new(
+            self.inner
+                .get_class("UnresolvedItem")
+                .expect("class UnresolvedItem is defined in schema"),
+        )
+    }
+
     /// Access the `WebSearchToolArgs` class builder.
     pub fn WebSearchToolArgs(&self) -> WebSearchToolArgsClassBuilder {
         WebSearchToolArgsClassBuilder::new(
@@ -170,6 +215,42 @@ impl TypeBuilder {
     // =========================================================================
     // Schema Enum Accessors (1:1 with schema enum names)
     // =========================================================================
+
+    /// Access the `EvidenceType` enum builder.
+    pub fn EvidenceType(&self) -> EvidenceTypeEnumBuilder {
+        EvidenceTypeEnumBuilder::new(
+            self.inner
+                .get_enum("EvidenceType")
+                .expect("enum EvidenceType is defined in schema"),
+        )
+    }
+
+    /// Access the `NextActionType` enum builder.
+    pub fn NextActionType(&self) -> NextActionTypeEnumBuilder {
+        NextActionTypeEnumBuilder::new(
+            self.inner
+                .get_enum("NextActionType")
+                .expect("enum NextActionType is defined in schema"),
+        )
+    }
+
+    /// Access the `ObjectiveStatus` enum builder.
+    pub fn ObjectiveStatus(&self) -> ObjectiveStatusEnumBuilder {
+        ObjectiveStatusEnumBuilder::new(
+            self.inner
+                .get_enum("ObjectiveStatus")
+                .expect("enum ObjectiveStatus is defined in schema"),
+        )
+    }
+
+    /// Access the `PlanMode` enum builder.
+    pub fn PlanMode(&self) -> PlanModeEnumBuilder {
+        PlanModeEnumBuilder::new(
+            self.inner
+                .get_enum("PlanMode")
+                .expect("enum PlanMode is defined in schema"),
+        )
+    }
 
     // =========================================================================
     // Primitive Types (all infallible)

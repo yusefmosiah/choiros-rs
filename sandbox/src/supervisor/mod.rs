@@ -67,15 +67,20 @@ use crate::actors::event_bus::{
 };
 use crate::actors::event_relay::{EventRelayActor, EventRelayArguments, EventRelayMsg};
 use crate::actors::event_store::EventStoreMsg;
-use crate::actors::researcher::{ResearcherMsg, ResearcherProgress, ResearcherWebSearchRequest};
-use crate::actors::terminal::{TerminalAgentProgress, TerminalMsg};
+use crate::actors::researcher::{
+    ResearchObjectiveStatus, ResearchProviderCall, ResearcherMsg, ResearcherProgress,
+    ResearcherResult, ResearcherWebSearchRequest,
+};
+use crate::actors::terminal::{
+    TerminalAgentProgress, TerminalAgentResult, TerminalError, TerminalMsg,
+};
 
 /// Application supervisor - root of the supervision tree
 #[derive(Debug, Default)]
 pub struct ApplicationSupervisor;
 
 struct FailureClassification {
-    kind: &'static str,
+    kind: shared_types::FailureKind,
     retriable: bool,
     hint: &'static str,
 }
@@ -220,6 +225,7 @@ pub enum ApplicationSupervisorMsg {
         command: String,
         timeout_ms: Option<u64>,
         model_override: Option<String>,
+        objective: Option<String>,
         session_id: Option<String>,
         thread_id: Option<String>,
         reply: RpcReplyPort<Result<shared_types::DelegatedTask, String>>,
@@ -230,6 +236,7 @@ pub enum ApplicationSupervisorMsg {
         actor_id: String,
         user_id: String,
         query: String,
+        objective: Option<String>,
         provider: Option<String>,
         max_results: Option<u32>,
         time_range: Option<String>,
@@ -851,6 +858,7 @@ impl Actor for ApplicationSupervisor {
                 command,
                 timeout_ms,
                 model_override,
+                objective,
                 session_id,
                 thread_id,
                 reply,
@@ -868,6 +876,7 @@ impl Actor for ApplicationSupervisor {
                         "command": command,
                         "shell": shell,
                         "working_dir": working_dir,
+                        "objective": objective.clone(),
                         "user_id": user_id,
                         "timeout_ms": timeout_ms,
                         "model_override": model_override.clone(),
@@ -1056,10 +1065,10 @@ impl Actor for ApplicationSupervisor {
                                     cmd: command_for_task,
                                     timeout_ms: Some(timeout_ms),
                                     model_override: model_override_for_task,
-                                    reasoning: Some(
+                                    reasoning: Some(objective.clone().unwrap_or_else(|| {
                                         "Typed bash delegation from appactor->toolactor contract"
-                                            .to_string(),
-                                    ),
+                                            .to_string()
+                                    })),
                                 },
                                 progress_tx: Some(progress_tx),
                                 reply: agent_reply,
@@ -1120,7 +1129,7 @@ impl Actor for ApplicationSupervisor {
                                             "task_id": task_id,
                                             "status": shared_types::DelegatedTaskStatus::Failed,
                                             "error": format!("terminal agent did not return within {}ms", timeout_ms.saturating_add(20_000)),
-                                            "failure_kind": "timeout",
+                                            "failure_kind": shared_types::FailureKind::Timeout,
                                             "failure_retriable": true,
                                             "failure_hint": "Terminal agent exceeded hard deadline. Check command latency and model/tool timeouts.",
                                             "failure_origin": "application_supervisor",
@@ -1142,10 +1151,8 @@ impl Actor for ApplicationSupervisor {
                                                 .duration_since(start_time)
                                                 .as_millis() as u64;
                                             if !result.success {
-                                                let failure = Self::classify_terminal_failure(
-                                                    result.exit_code,
-                                                    &result.summary,
-                                                );
+                                                let failure =
+                                                    Self::classify_terminal_failure(result.exit_code);
                                                 Self::publish_worker_event(
                         event_store.clone(),
                         event_bus,
@@ -1209,6 +1216,7 @@ impl Actor for ApplicationSupervisor {
                                             let elapsed_ms = tokio::time::Instant::now()
                                                 .duration_since(start_time)
                                                 .as_millis() as u64;
+                                            let failure = Self::classify_terminal_actor_error(&e);
                                             Self::publish_worker_event(
                         event_store.clone(),
                         event_bus,
@@ -1218,9 +1226,9 @@ impl Actor for ApplicationSupervisor {
                                                     "task_id": task_id,
                                                     "status": shared_types::DelegatedTaskStatus::Failed,
                                                     "error": e.to_string(),
-                                                    "failure_kind": "terminal_actor_error",
-                                                    "failure_retriable": false,
-                                                    "failure_hint": "Inspect terminal actor logs and task payload for contract/runtime mismatches.",
+                                                    "failure_kind": failure.kind,
+                                                    "failure_retriable": failure.retriable,
+                                                    "failure_hint": failure.hint,
                                                     "failure_origin": "terminal_actor",
                                                     "emitter_actor": "application_supervisor",
                                                     "duration_ms": elapsed_ms,
@@ -1246,7 +1254,7 @@ impl Actor for ApplicationSupervisor {
                                                     "task_id": task_id,
                                                     "status": shared_types::DelegatedTaskStatus::Failed,
                                                     "error": e.to_string(),
-                                                    "failure_kind": "rpc_error",
+                                                    "failure_kind": shared_types::FailureKind::Unknown,
                                                     "failure_retriable": true,
                                                     "failure_hint": "Check actor RPC path and backpressure; retry may succeed if transient.",
                                                     "failure_origin": "application_supervisor",
@@ -1274,7 +1282,7 @@ impl Actor for ApplicationSupervisor {
                                                     "task_id": task_id,
                                                     "status": shared_types::DelegatedTaskStatus::Failed,
                                                     "error": "terminal agent result channel closed".to_string(),
-                                                    "failure_kind": "result_channel_closed",
+                                                    "failure_kind": shared_types::FailureKind::Unknown,
                                                     "failure_retriable": true,
                                                     "failure_hint": "Terminal task channel closed early; check runtime cancellation and actor lifetimes.",
                                                     "failure_origin": "application_supervisor",
@@ -1300,6 +1308,7 @@ impl Actor for ApplicationSupervisor {
                 actor_id,
                 user_id,
                 query,
+                objective,
                 provider,
                 max_results,
                 time_range,
@@ -1323,6 +1332,7 @@ impl Actor for ApplicationSupervisor {
                     kind: shared_types::DelegatedTaskKind::ResearchQuery,
                     payload: serde_json::json!({
                         "query": query,
+                        "objective": objective,
                         "provider": provider,
                         "max_results": max_results,
                         "time_range": time_range,
@@ -1362,6 +1372,7 @@ impl Actor for ApplicationSupervisor {
                         "task_id": task_id.clone(),
                         "status": "accepted",
                         "query": query,
+                        "objective": objective,
                         "provider": provider,
                         "max_results": max_results,
                         "time_range": time_range,
@@ -1389,7 +1400,7 @@ impl Actor for ApplicationSupervisor {
                                 "task_id": task_id,
                                 "status": shared_types::DelegatedTaskStatus::Failed,
                                 "error": "SessionSupervisor not available",
-                                "failure_kind": "session_supervisor_unavailable",
+                                "failure_kind": shared_types::FailureKind::Unknown,
                                 "failure_retriable": true,
                                 "failure_hint": "SessionSupervisor missing; restart supervisor tree and retry.",
                                 "failure_origin": "application_supervisor",
@@ -1431,7 +1442,7 @@ impl Actor for ApplicationSupervisor {
                                     "task_id": task_id,
                                     "status": shared_types::DelegatedTaskStatus::Failed,
                                     "error": e,
-                                    "failure_kind": "researcher_spawn_failed",
+                                    "failure_kind": shared_types::FailureKind::Provider,
                                     "failure_retriable": true,
                                     "failure_hint": "Researcher actor failed to start; inspect supervisor logs.",
                                     "failure_origin": "session_supervisor",
@@ -1455,7 +1466,7 @@ impl Actor for ApplicationSupervisor {
                                     "task_id": task_id,
                                     "status": shared_types::DelegatedTaskStatus::Failed,
                                     "error": e.to_string(),
-                                    "failure_kind": "rpc_error",
+                                    "failure_kind": shared_types::FailureKind::Unknown,
                                     "failure_retriable": true,
                                     "failure_hint": "Session supervisor RPC failed while acquiring Researcher actor.",
                                     "failure_origin": "application_supervisor",
@@ -1497,6 +1508,7 @@ impl Actor for ApplicationSupervisor {
                         tokio::sync::mpsc::unbounded_channel::<ResearcherProgress>();
                     let researcher_ref_for_task = researcher_ref.clone();
                     let query_for_task = query.clone();
+                    let objective_for_task = objective.clone();
                     let provider_for_task = provider.clone();
                     let time_range_for_task = time_range.clone();
                     let include_domains_for_task = include_domains.clone();
@@ -1510,6 +1522,7 @@ impl Actor for ApplicationSupervisor {
                                 ResearcherMsg::RunWebSearchTool {
                                     request: ResearcherWebSearchRequest {
                                         query: query_for_task,
+                                        objective: objective_for_task,
                                         provider: provider_for_task,
                                         max_results,
                                         time_range: time_range_for_task,
@@ -1660,7 +1673,7 @@ impl Actor for ApplicationSupervisor {
                                         "task_id": task_id,
                                         "status": "failed",
                                         "error": format!("research task did not return within {}ms", timeout_ms.saturating_add(20_000)),
-                                        "failure_kind": "timeout",
+                                        "failure_kind": shared_types::FailureKind::Timeout,
                                         "failure_retriable": true,
                                         "failure_hint": "Research task exceeded hard deadline; inspect provider latency and key health.",
                                         "failure_origin": "application_supervisor",
@@ -1682,7 +1695,7 @@ impl Actor for ApplicationSupervisor {
                                         "task_id": task_id,
                                         "status": shared_types::DelegatedTaskStatus::Failed,
                                         "error": format!("research task did not return within {}ms", timeout_ms.saturating_add(20_000)),
-                                        "failure_kind": "timeout",
+                                        "failure_kind": shared_types::FailureKind::Timeout,
                                         "failure_retriable": true,
                                         "failure_hint": "Research task exceeded hard deadline; inspect provider latency and key health.",
                                         "failure_origin": "application_supervisor",
@@ -1705,7 +1718,149 @@ impl Actor for ApplicationSupervisor {
                                             .duration_since(start_time)
                                             .as_millis() as u64;
 
-                                        if let Some(report) = result.worker_report.clone() {
+                                        let mut final_result = result;
+
+                                        if Self::research_terminal_escalation_enabled()
+                                            && Self::should_escalate_research_result(&final_result)
+                                        {
+                                            let escalation_timeout_ms = Self::research_terminal_escalation_timeout_ms(timeout_ms);
+                                            let escalation_objective = Self::build_research_terminal_objective(&query, &final_result);
+
+                                            Self::publish_worker_event(
+                                                event_store.clone(),
+                                                event_bus.clone(),
+                                                shared_types::EVENT_TOPIC_RESEARCH_TASK_PROGRESS,
+                                                EventType::Custom(shared_types::EVENT_TOPIC_RESEARCH_TASK_PROGRESS.to_string()),
+                                                serde_json::json!({
+                                                    "task_id": task_id,
+                                                    "phase": "research_terminal_escalation_call",
+                                                    "message": "research objective incomplete; escalating to terminal capability",
+                                                    "model_requested": model_override.clone(),
+                                                    "model_used": final_result.model_used.clone(),
+                                                    "objective_status": final_result.objective_status,
+                                                    "completion_reason": final_result.completion_reason,
+                                                    "recommended_next_capability": final_result.recommended_next_capability,
+                                                    "timeout_ms": escalation_timeout_ms,
+                                                    "emitter_actor": "application_supervisor",
+                                                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                                                }),
+                                                correlation_id.clone(),
+                                                actor_id.clone(),
+                                                session_id.clone(),
+                                                thread_id.clone(),
+                                            );
+
+                                            match Self::run_research_terminal_escalation(
+                                                session_supervisor.clone(),
+                                                actor_id.clone(),
+                                                user_id.clone(),
+                                                session_id.clone(),
+                                                thread_id.clone(),
+                                                model_override.clone(),
+                                                escalation_timeout_ms,
+                                                escalation_objective,
+                                            )
+                                            .await
+                                            {
+                                                Ok(terminal_result) => {
+                                                    let escalation_summary = terminal_result.summary.clone();
+                                                    let mut provider_calls = final_result.provider_calls.clone();
+                                                    provider_calls.push(ResearchProviderCall {
+                                                        provider: "terminal_escalation".to_string(),
+                                                        latency_ms: escalation_timeout_ms,
+                                                        result_count: terminal_result.steps.len(),
+                                                        succeeded: terminal_result.success,
+                                                        error: if terminal_result.success {
+                                                            None
+                                                        } else {
+                                                            Some(terminal_result.summary.clone())
+                                                        },
+                                                    });
+
+                                                    final_result.summary = escalation_summary;
+                                                    final_result.provider_used = Some(match final_result.provider_used {
+                                                        Some(existing) => format!("{existing}+terminal"),
+                                                        None => "terminal".to_string(),
+                                                    });
+                                                    final_result.model_used = terminal_result
+                                                        .model_used
+                                                        .clone()
+                                                        .or(final_result.model_used);
+                                                    final_result.provider_calls = provider_calls;
+                                                    final_result.objective_status = if terminal_result.success {
+                                                        ResearchObjectiveStatus::Complete
+                                                    } else {
+                                                        ResearchObjectiveStatus::Incomplete
+                                                    };
+                                                    final_result.completion_reason = if terminal_result.success {
+                                                        "Research completed via terminal escalation.".to_string()
+                                                    } else {
+                                                        "Terminal escalation did not fully complete objective.".to_string()
+                                                    };
+                                                    final_result.recommended_next_capability = if terminal_result.success {
+                                                        None
+                                                    } else {
+                                                        Some("conductor".to_string())
+                                                    };
+                                                    final_result.recommended_next_objective = if terminal_result.success {
+                                                        None
+                                                    } else {
+                                                        Some("Review terminal escalation output and reprompt with tighter constraints.".to_string())
+                                                    };
+
+                                                    Self::publish_worker_event(
+                                                        event_store.clone(),
+                                                        event_bus.clone(),
+                                                        shared_types::EVENT_TOPIC_RESEARCH_TASK_PROGRESS,
+                                                        EventType::Custom(shared_types::EVENT_TOPIC_RESEARCH_TASK_PROGRESS.to_string()),
+                                                        serde_json::json!({
+                                                            "task_id": task_id,
+                                                            "phase": "research_terminal_escalation_result",
+                                                            "message": if terminal_result.success {
+                                                                "terminal escalation completed objective"
+                                                            } else {
+                                                                "terminal escalation returned partial result"
+                                                            },
+                                                            "model_requested": model_override.clone(),
+                                                            "model_used": final_result.model_used.clone(),
+                                                            "objective_status": final_result.objective_status,
+                                                            "completion_reason": final_result.completion_reason,
+                                                            "emitter_actor": "application_supervisor",
+                                                            "timestamp": chrono::Utc::now().to_rfc3339(),
+                                                        }),
+                                                        correlation_id.clone(),
+                                                        actor_id.clone(),
+                                                        session_id.clone(),
+                                                        thread_id.clone(),
+                                                    );
+                                                }
+                                                Err(escalation_error) => {
+                                                    Self::publish_worker_event(
+                                                        event_store.clone(),
+                                                        event_bus.clone(),
+                                                        shared_types::EVENT_TOPIC_RESEARCH_TASK_PROGRESS,
+                                                        EventType::Custom(shared_types::EVENT_TOPIC_RESEARCH_TASK_PROGRESS.to_string()),
+                                                        serde_json::json!({
+                                                            "task_id": task_id,
+                                                            "phase": "research_terminal_escalation_failed",
+                                                            "message": format!("terminal escalation failed: {}", escalation_error),
+                                                            "model_requested": model_override.clone(),
+                                                            "model_used": final_result.model_used.clone(),
+                                                            "objective_status": final_result.objective_status,
+                                                            "completion_reason": final_result.completion_reason,
+                                                            "emitter_actor": "application_supervisor",
+                                                            "timestamp": chrono::Utc::now().to_rfc3339(),
+                                                        }),
+                                                        correlation_id.clone(),
+                                                        actor_id.clone(),
+                                                        session_id.clone(),
+                                                        thread_id.clone(),
+                                                    );
+                                                }
+                                            }
+                                        }
+
+                                        if let Some(report) = final_result.worker_report.clone() {
                                             let _ = ractor::call!(myself_ref.clone(), |ingest_reply| {
                                                 ApplicationSupervisorMsg::IngestWorkerTurnReport {
                                                     actor_id: actor_id.clone(),
@@ -1718,7 +1873,7 @@ impl Actor for ApplicationSupervisor {
                                             });
                                         }
 
-                                        if !result.success {
+                                        if !final_result.success {
                                             Self::publish_worker_event(
                                                 event_store.clone(),
                                                 event_bus.clone(),
@@ -1727,10 +1882,14 @@ impl Actor for ApplicationSupervisor {
                                                 serde_json::json!({
                                                     "task_id": task_id,
                                                     "status": "failed",
-                                                    "error": result.error.clone().unwrap_or_else(|| "research task failed".to_string()),
+                                                    "error": final_result.error.clone().unwrap_or_else(|| "research task failed".to_string()),
                                                     "model_requested": model_override.clone(),
-                                                    "model_used": result.model_used.clone(),
-                                                    "provider_calls": result.provider_calls,
+                                                    "model_used": final_result.model_used.clone(),
+                                                    "provider_calls": final_result.provider_calls,
+                                                    "objective_status": final_result.objective_status,
+                                                    "completion_reason": final_result.completion_reason,
+                                                    "recommended_next_capability": final_result.recommended_next_capability,
+                                                    "recommended_next_objective": final_result.recommended_next_objective,
                                                     "duration_ms": elapsed_ms,
                                                     "emitter_actor": researcher_emitter_actor.clone(),
                                                     "finished_at": chrono::Utc::now().to_rfc3339(),
@@ -1748,14 +1907,18 @@ impl Actor for ApplicationSupervisor {
                                                 serde_json::json!({
                                                     "task_id": task_id,
                                                     "status": shared_types::DelegatedTaskStatus::Failed,
-                                                    "error": result.error.unwrap_or_else(|| "research task failed".to_string()),
-                                                    "failure_kind": "provider_failure",
+                                                    "error": final_result.error.unwrap_or_else(|| "research task failed".to_string()),
+                                                    "failure_kind": shared_types::FailureKind::Provider,
                                                     "failure_retriable": true,
                                                     "failure_hint": "All configured providers failed or returned invalid responses.",
                                                     "failure_origin": "researcher_actor",
                                                     "model_requested": model_override.clone(),
-                                                    "model_used": result.model_used,
-                                                    "provider_calls": result.provider_calls,
+                                                    "model_used": final_result.model_used,
+                                                    "provider_calls": final_result.provider_calls,
+                                                    "objective_status": final_result.objective_status,
+                                                    "completion_reason": final_result.completion_reason,
+                                                    "recommended_next_capability": final_result.recommended_next_capability,
+                                                    "recommended_next_objective": final_result.recommended_next_objective,
                                                     "duration_ms": elapsed_ms,
                                                     "emitter_actor": researcher_emitter_actor.clone(),
                                                     "finished_at": chrono::Utc::now().to_rfc3339(),
@@ -1776,12 +1939,16 @@ impl Actor for ApplicationSupervisor {
                                             serde_json::json!({
                                                 "task_id": task_id,
                                                 "status": "completed",
-                                                "summary": result.summary.clone(),
-                                                "provider_used": result.provider_used.clone(),
-                                                "citations": result.citations.clone(),
+                                                "summary": final_result.summary.clone(),
+                                                "provider_used": final_result.provider_used.clone(),
+                                                "citations": final_result.citations.clone(),
                                                 "model_requested": model_override.clone(),
-                                                "model_used": result.model_used.clone(),
-                                                "provider_calls": result.provider_calls.clone(),
+                                                "model_used": final_result.model_used.clone(),
+                                                "provider_calls": final_result.provider_calls.clone(),
+                                                "objective_status": final_result.objective_status,
+                                                "completion_reason": final_result.completion_reason,
+                                                "recommended_next_capability": final_result.recommended_next_capability,
+                                                "recommended_next_objective": final_result.recommended_next_objective,
                                                 "duration_ms": elapsed_ms,
                                                 "emitter_actor": researcher_emitter_actor.clone(),
                                                 "finished_at": chrono::Utc::now().to_rfc3339(),
@@ -1800,12 +1967,16 @@ impl Actor for ApplicationSupervisor {
                                             serde_json::json!({
                                                 "task_id": task_id,
                                                 "status": shared_types::DelegatedTaskStatus::Completed,
-                                                "output": result.summary,
-                                                "provider_used": result.provider_used,
-                                                "citations": result.citations,
+                                                "output": final_result.summary,
+                                                "provider_used": final_result.provider_used,
+                                                "citations": final_result.citations,
                                                 "model_requested": model_override.clone(),
-                                                "model_used": result.model_used,
-                                                "provider_calls": result.provider_calls,
+                                                "model_used": final_result.model_used,
+                                                "provider_calls": final_result.provider_calls,
+                                                "objective_status": final_result.objective_status,
+                                                "completion_reason": final_result.completion_reason,
+                                                "recommended_next_capability": final_result.recommended_next_capability,
+                                                "recommended_next_objective": final_result.recommended_next_objective,
                                                 "duration_ms": elapsed_ms,
                                                 "emitter_actor": researcher_emitter_actor.clone(),
                                                 "finished_at": chrono::Utc::now().to_rfc3339(),
@@ -1830,7 +2001,7 @@ impl Actor for ApplicationSupervisor {
                                                 "task_id": task_id,
                                                 "status": "failed",
                                                 "error": e.to_string(),
-                                                "failure_kind": "researcher_actor_error",
+                                                "failure_kind": shared_types::FailureKind::Provider,
                                                 "failure_retriable": false,
                                                 "failure_hint": "Researcher actor returned an error while processing web_search.",
                                                 "failure_origin": "researcher_actor",
@@ -1852,7 +2023,7 @@ impl Actor for ApplicationSupervisor {
                                                 "task_id": task_id,
                                                 "status": shared_types::DelegatedTaskStatus::Failed,
                                                 "error": e.to_string(),
-                                                "failure_kind": "researcher_actor_error",
+                                                "failure_kind": shared_types::FailureKind::Provider,
                                                 "failure_retriable": false,
                                                 "failure_hint": "Researcher actor returned an error while processing web_search.",
                                                 "failure_origin": "researcher_actor",
@@ -1880,7 +2051,7 @@ impl Actor for ApplicationSupervisor {
                                                 "task_id": task_id,
                                                 "status": shared_types::DelegatedTaskStatus::Failed,
                                                 "error": e.to_string(),
-                                                "failure_kind": "rpc_error",
+                                                "failure_kind": shared_types::FailureKind::Unknown,
                                                 "failure_retriable": true,
                                                 "failure_hint": "Researcher RPC failed; retry may succeed if transient.",
                                                 "failure_origin": "application_supervisor",
@@ -1908,7 +2079,7 @@ impl Actor for ApplicationSupervisor {
                                                 "task_id": task_id,
                                                 "status": shared_types::DelegatedTaskStatus::Failed,
                                                 "error": "researcher result channel closed".to_string(),
-                                                "failure_kind": "result_channel_closed",
+                                                "failure_kind": shared_types::FailureKind::Unknown,
                                                 "failure_retriable": true,
                                                 "failure_hint": "Researcher result channel closed early; inspect actor lifecycle.",
                                                 "failure_origin": "application_supervisor",
@@ -1995,56 +2166,190 @@ impl Actor for ApplicationSupervisor {
 }
 
 impl ApplicationSupervisor {
-    fn classify_terminal_failure(exit_code: Option<i32>, summary: &str) -> FailureClassification {
-        let lower_summary = summary.to_ascii_lowercase();
-        if lower_summary.contains("timed out") || lower_summary.contains("deadline") {
-            return FailureClassification {
-                kind: "timeout",
-                retriable: true,
-                hint: "Command timed out. Retry with longer timeout or lower-latency endpoint.",
-            };
+    fn research_terminal_escalation_enabled() -> bool {
+        match std::env::var("CHOIR_RESEARCH_ENABLE_TERMINAL_ESCALATION")
+            .unwrap_or_else(|_| "1".to_string())
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "0" | "false" | "off" | "no" => false,
+            _ => true,
         }
+    }
 
+    fn research_terminal_escalation_timeout_ms(default_timeout_ms: u64) -> u64 {
+        let fallback = default_timeout_ms
+            .saturating_add(15_000)
+            .clamp(8_000, 90_000);
+        std::env::var("CHOIR_RESEARCH_TERMINAL_ESCALATION_TIMEOUT_MS")
+            .ok()
+            .and_then(|raw| raw.parse::<u64>().ok())
+            .map(|v| v.clamp(8_000, 120_000))
+            .unwrap_or(fallback)
+    }
+
+    fn research_terminal_escalation_max_steps() -> u8 {
+        std::env::var("CHOIR_RESEARCH_TERMINAL_ESCALATION_MAX_STEPS")
+            .ok()
+            .and_then(|raw| raw.parse::<u8>().ok())
+            .map(|v| v.clamp(1, 8))
+            .unwrap_or(4)
+    }
+
+    fn should_escalate_research_result(result: &ResearcherResult) -> bool {
+        if !result.success {
+            return false;
+        }
+        if result.recommended_next_capability.as_deref() != Some("terminal") {
+            return false;
+        }
+        matches!(
+            result.objective_status,
+            ResearchObjectiveStatus::Incomplete | ResearchObjectiveStatus::Blocked
+        )
+    }
+
+    fn build_research_terminal_objective(query: &str, result: &ResearcherResult) -> String {
+        let citations_preview = result
+            .citations
+            .iter()
+            .take(5)
+            .map(|citation| format!("- {} ({})", citation.title.trim(), citation.url.trim()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let recommended_objective = result
+            .recommended_next_objective
+            .clone()
+            .unwrap_or_else(|| query.to_string());
+
+        format!(
+            "Objective: Complete this user research request with current, verifiable facts.\n\
+             User query: {query}\n\
+             Research status: {:?}\n\
+             Completion reason: {}\n\
+             Prior citations (may be incomplete/noisy):\n{}\n\
+             Follow-up objective: {}\n\
+             Instructions: use minimal safe terminal commands to verify time-sensitive facts and produce a concise final answer with key facts.",
+            result.objective_status,
+            result.completion_reason,
+            citations_preview,
+            recommended_objective
+        )
+    }
+
+    async fn run_research_terminal_escalation(
+        session_supervisor: ActorRef<SessionSupervisorMsg>,
+        actor_id: String,
+        user_id: String,
+        session_id: Option<String>,
+        thread_id: Option<String>,
+        model_override: Option<String>,
+        timeout_ms: u64,
+        objective: String,
+    ) -> Result<TerminalAgentResult, String> {
+        let terminal_id = match (&session_id, &thread_id) {
+            (Some(session_id), Some(thread_id)) => {
+                format!("term:{}:{}:{}", actor_id, session_id, thread_id)
+            }
+            _ => format!("term:{}", actor_id),
+        };
+
+        let terminal_ref = ractor::call!(session_supervisor, |ss_reply| {
+            SessionSupervisorMsg::GetOrCreateTerminal {
+                terminal_id,
+                user_id,
+                shell: "/bin/zsh".to_string(),
+                working_dir: ".".to_string(),
+                reply: ss_reply,
+            }
+        })
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+
+        ractor::call!(terminal_ref, |terminal_reply| TerminalMsg::RunAgenticTask {
+            objective,
+            timeout_ms: Some(timeout_ms),
+            max_steps: Some(Self::research_terminal_escalation_max_steps()),
+            model_override,
+            progress_tx: None,
+            reply: terminal_reply,
+        })
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+    }
+
+    fn classify_terminal_failure(exit_code: Option<i32>) -> FailureClassification {
         match exit_code {
             Some(6) | Some(7) | Some(35) | Some(52) | Some(56) => FailureClassification {
-                kind: "network",
+                kind: shared_types::FailureKind::Network,
                 retriable: true,
                 hint: "Network/API endpoint failure. Retry or switch endpoint/provider.",
             },
             Some(28) => FailureClassification {
-                kind: "timeout",
+                kind: shared_types::FailureKind::Timeout,
                 retriable: true,
                 hint: "Connection timeout. Retry and validate outbound network reachability.",
             },
             Some(126) => FailureClassification {
-                kind: "permission_denied",
+                kind: shared_types::FailureKind::Validation,
                 retriable: false,
                 hint: "Command permission denied. Verify executable permissions and policy.",
             },
             Some(127) => FailureClassification {
-                kind: "command_not_found",
+                kind: shared_types::FailureKind::Validation,
                 retriable: false,
                 hint: "Command not found in runtime PATH.",
             },
             Some(130) => FailureClassification {
-                kind: "interrupted",
+                kind: shared_types::FailureKind::Unknown,
                 retriable: true,
                 hint: "Process interrupted. Retry unless user/system cancellation was intentional.",
             },
             Some(137) => FailureClassification {
-                kind: "killed",
+                kind: shared_types::FailureKind::Unknown,
                 retriable: true,
                 hint: "Process killed (likely resource or signal). Check host limits and retries.",
             },
             Some(_) => FailureClassification {
-                kind: "nonzero_exit",
+                kind: shared_types::FailureKind::Provider,
                 retriable: false,
                 hint: "Command returned non-zero exit. Inspect output and command arguments.",
             },
             None => FailureClassification {
-                kind: "unknown",
+                kind: shared_types::FailureKind::Unknown,
                 retriable: false,
                 hint: "Failure had no exit code. Inspect worker and terminal actor logs.",
+            },
+        }
+    }
+
+    fn classify_terminal_actor_error(error: &TerminalError) -> FailureClassification {
+        match error {
+            TerminalError::Timeout(_) => FailureClassification {
+                kind: shared_types::FailureKind::Timeout,
+                retriable: true,
+                hint: "Terminal command timed out; retry with bounded command or longer timeout.",
+            },
+            TerminalError::InvalidInput(_) | TerminalError::PtyNotSupported => {
+                FailureClassification {
+                    kind: shared_types::FailureKind::Validation,
+                    retriable: false,
+                    hint:
+                        "Invalid terminal request payload or runtime capability for delegated tool.",
+                }
+            }
+            TerminalError::AlreadyRunning
+            | TerminalError::NotRunning
+            | TerminalError::SpawnFailed(_) => FailureClassification {
+                kind: shared_types::FailureKind::Unknown,
+                retriable: true,
+                hint: "Terminal runtime state was not ready; retry after supervisor stabilization.",
+            },
+            TerminalError::Io(_) => FailureClassification {
+                kind: shared_types::FailureKind::Unknown,
+                retriable: true,
+                hint: "Terminal I/O error occurred while executing delegated command.",
             },
         }
     }

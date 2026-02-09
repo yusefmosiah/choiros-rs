@@ -57,6 +57,25 @@ impl AgentPlanClassBuilder {
         )
     }
 
+    /// Access the `objective_status` field builder.
+    pub fn property_objective_status(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("objective_status")
+            .expect("AgentPlan.objective_status is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `plan_mode` field builder.
+    pub fn property_plan_mode(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("plan_mode").expect(
+            "AgentPlan.plan_mode is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `completion_reason` field builder.
+    pub fn property_completion_reason(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("completion_reason")
+            .expect("AgentPlan.completion_reason is statically defined in .baml and should always be present")
+    }
+
     /// Access the `confidence` field builder.
     pub fn property_confidence(&self) -> baml::ClassPropertyBuilder {
         self.inner.get_property("confidence").expect(
@@ -395,6 +414,148 @@ impl BashToolArgsClassBuilder {
     }
 }
 
+/// Wrapper for the `CompletionPayload` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct CompletionPayloadClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl CompletionPayloadClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner.as_type().expect(
+            "CompletionPayload is statically defined in .baml and should always have a type",
+        )
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `objective_status` field builder.
+    pub fn property_objective_status(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("objective_status")
+            .expect("CompletionPayload.objective_status is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `objective_fulfilled` field builder.
+    pub fn property_objective_fulfilled(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("objective_fulfilled")
+            .expect("CompletionPayload.objective_fulfilled is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `completion_reason` field builder.
+    pub fn property_completion_reason(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("completion_reason")
+            .expect("CompletionPayload.completion_reason is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `evidence` field builder.
+    pub fn property_evidence(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("evidence")
+            .expect("CompletionPayload.evidence is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `unresolved_items` field builder.
+    pub fn property_unresolved_items(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("unresolved_items")
+            .expect("CompletionPayload.unresolved_items is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `recommended_next_action` field builder.
+    pub fn property_recommended_next_action(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("recommended_next_action")
+            .expect("CompletionPayload.recommended_next_action is statically defined in .baml and should always be present")
+    }
+}
+
+/// Wrapper for the `Evidence` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct EvidenceClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl EvidenceClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner
+            .as_type()
+            .expect("Evidence is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `evidence_id` field builder.
+    pub fn property_evidence_id(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("evidence_id").expect(
+            "Evidence.evidence_id is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `evidence_type` field builder.
+    pub fn property_evidence_type(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("evidence_type").expect(
+            "Evidence.evidence_type is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `source` field builder.
+    pub fn property_source(&self) -> baml::ClassPropertyBuilder {
+        self.inner
+            .get_property("source")
+            .expect("Evidence.source is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `content` field builder.
+    pub fn property_content(&self) -> baml::ClassPropertyBuilder {
+        self.inner
+            .get_property("content")
+            .expect("Evidence.content is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `confidence` field builder.
+    pub fn property_confidence(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("confidence").expect(
+            "Evidence.confidence is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `timestamp` field builder.
+    pub fn property_timestamp(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("timestamp").expect(
+            "Evidence.timestamp is statically defined in .baml and should always be present",
+        )
+    }
+}
+
 /// Wrapper for the `ListFilesToolArgs` class builder.
 ///
 /// Provides type-safe method access to fields defined in the schema.
@@ -483,6 +644,138 @@ impl MessageClassBuilder {
         self.inner
             .get_property("content")
             .expect("Message.content is statically defined in .baml and should always be present")
+    }
+}
+
+/// Wrapper for the `NextAction` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct NextActionClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl NextActionClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner
+            .as_type()
+            .expect("NextAction is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `action_type` field builder.
+    pub fn property_action_type(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("action_type").expect(
+            "NextAction.action_type is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `recommended_capability` field builder.
+    pub fn property_recommended_capability(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("recommended_capability")
+            .expect("NextAction.recommended_capability is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `recommended_objective` field builder.
+    pub fn property_recommended_objective(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("recommended_objective")
+            .expect("NextAction.recommended_objective is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `rationale` field builder.
+    pub fn property_rationale(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("rationale").expect(
+            "NextAction.rationale is statically defined in .baml and should always be present",
+        )
+    }
+}
+
+/// Wrapper for the `ObjectiveContract` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct ObjectiveContractClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl ObjectiveContractClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner.as_type().expect(
+            "ObjectiveContract is statically defined in .baml and should always have a type",
+        )
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `objective_id` field builder.
+    pub fn property_objective_id(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("objective_id")
+            .expect("ObjectiveContract.objective_id is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `parent_objective_id` field builder.
+    pub fn property_parent_objective_id(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("parent_objective_id")
+            .expect("ObjectiveContract.parent_objective_id is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `primary_objective` field builder.
+    pub fn property_primary_objective(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("primary_objective")
+            .expect("ObjectiveContract.primary_objective is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `success_criteria` field builder.
+    pub fn property_success_criteria(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("success_criteria")
+            .expect("ObjectiveContract.success_criteria is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `max_tool_calls` field builder.
+    pub fn property_max_tool_calls(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("max_tool_calls")
+            .expect("ObjectiveContract.max_tool_calls is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `timeout_ms` field builder.
+    pub fn property_timeout_ms(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("timeout_ms")
+            .expect("ObjectiveContract.timeout_ms is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `attempts_budget` field builder.
+    pub fn property_attempts_budget(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("attempts_budget")
+            .expect("ObjectiveContract.attempts_budget is statically defined in .baml and should always be present")
     }
 }
 
@@ -753,6 +1046,58 @@ impl ToolResultClassBuilder {
         self.inner
             .get_property("error")
             .expect("ToolResult.error is statically defined in .baml and should always be present")
+    }
+}
+
+/// Wrapper for the `UnresolvedItem` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct UnresolvedItemClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl UnresolvedItemClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner
+            .as_type()
+            .expect("UnresolvedItem is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `item_id` field builder.
+    pub fn property_item_id(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("item_id").expect(
+            "UnresolvedItem.item_id is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `description` field builder.
+    pub fn property_description(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("description")
+            .expect("UnresolvedItem.description is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `reason` field builder.
+    pub fn property_reason(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("reason").expect(
+            "UnresolvedItem.reason is statically defined in .baml and should always be present",
+        )
     }
 }
 

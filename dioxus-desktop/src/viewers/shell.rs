@@ -26,13 +26,14 @@ pub fn ViewerShell(window_id: String, desktop_id: String, descriptor: ViewerDesc
         updated_at: String::new(),
     });
     let mut error = use_signal(|| None::<String>);
+    let mut markdown_preview = use_signal(|| true);
 
     let uri = descriptor.resource.uri.clone();
     let mime = descriptor.resource.mime.clone();
     let readonly = descriptor.capabilities.readonly;
     let text_mode = matches!(descriptor.kind, ViewerKind::Text);
     let markdown_mode = text_mode && mime == "text/markdown";
-    let effective_readonly = readonly || text_mode;
+    let effective_readonly = readonly;
 
     let uri_for_initial = uri.clone();
     use_effect(move || {
@@ -46,6 +47,9 @@ pub fn ViewerShell(window_id: String, desktop_id: String, descriptor: ViewerDesc
                     rendered_html.set(resp.rendered_html.clone());
                     saved_content.set(resp.content);
                     revision.set(resp.revision);
+                    if markdown_mode {
+                        markdown_preview.set(true);
+                    }
                     shell_state.set(ViewerShellState::Ready);
                 }
                 Err(e) => {
@@ -68,6 +72,7 @@ pub fn ViewerShell(window_id: String, desktop_id: String, descriptor: ViewerDesc
 
     let save_enabled = matches!(shell_state(), ViewerShellState::Dirty) && !effective_readonly;
     let uri_for_save = uri.clone();
+    let markdown_mode_for_save = markdown_mode;
     let on_save = move |_| {
         if !save_enabled {
             return;
@@ -85,6 +90,20 @@ pub fn ViewerShell(window_id: String, desktop_id: String, descriptor: ViewerDesc
                 Ok(next_revision) => {
                     revision.set(next_revision);
                     saved_content.set(content_to_save);
+                    if markdown_mode_for_save {
+                        match fetch_viewer_content(&uri_inner).await {
+                            Ok(resp) => {
+                                rendered_html.set(resp.rendered_html.clone());
+                                content.set(resp.content.clone());
+                                saved_content.set(resp.content);
+                                revision.set(resp.revision);
+                                markdown_preview.set(true);
+                            }
+                            Err(e) => {
+                                error.set(Some(e));
+                            }
+                        }
+                    }
                     shell_state.set(ViewerShellState::Ready);
                     error.set(None);
                 }
@@ -130,11 +149,23 @@ pub fn ViewerShell(window_id: String, desktop_id: String, descriptor: ViewerDesc
                     style: "display: flex; gap: 8px;",
                     if markdown_mode {
                         button {
+                            onclick: move |_| markdown_preview.set(true),
+                            disabled: markdown_preview(),
+                            "Preview"
+                        }
+                        button {
+                            onclick: move |_| markdown_preview.set(false),
+                            disabled: !markdown_preview(),
+                            "Source"
+                        }
+                        button {
                             onclick: move |_| set_markdown_details_open(true),
+                            disabled: !markdown_preview(),
                             "Expand all"
                         }
                         button {
                             onclick: move |_| set_markdown_details_open(false),
+                            disabled: !markdown_preview(),
                             "Collapse all"
                         }
                         button {
@@ -186,21 +217,28 @@ pub fn ViewerShell(window_id: String, desktop_id: String, descriptor: ViewerDesc
                     match descriptor.kind {
                         ViewerKind::Text => rsx! {
                             if markdown_mode {
-                                if let Some(html) = rendered_html() {
-                                    MarkdownViewer {
-                                        html: html.clone(),
+                                if markdown_preview() {
+                                    if let Some(html) = rendered_html() {
+                                        MarkdownViewer {
+                                            html: html.clone(),
+                                        }
+                                    } else {
+                                        div {
+                                            style: "padding: 12px; color: #94a3b8;",
+                                            "Preview unavailable until content is reloaded or saved."
+                                        }
                                     }
                                 } else {
                                     TextViewer {
                                         content: content(),
-                                        readonly: true,
+                                        readonly: effective_readonly,
                                         on_change: on_text_change,
                                     }
                                 }
                             } else {
                                 TextViewer {
                                     content: content(),
-                                    readonly: true,
+                                    readonly: effective_readonly,
                                     on_change: on_text_change,
                                 }
                             }
