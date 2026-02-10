@@ -6,6 +6,11 @@
 export type ActorId = string;
 
 /**
+ * Status of an agenda item
+ */
+export type AgendaItemStatus = "pending" | "ready" | "running" | "completed" | "failed" | "blocked";
+
+/**
  * App definition for dynamic app registration
  */
 export type AppDefinition = { id: string, name: string, icon: string, component_code: string, default_width: number, default_height: number, };
@@ -16,6 +21,16 @@ export type AppDefinition = { id: string, name: string, icon: string, component_
 export type AppendEvent = { event_type: string, payload: unknown, actor_id: ActorId, user_id: string, };
 
 /**
+ * Kinds of artifacts that can be produced
+ */
+export type ArtifactKind = "report" | "file" | "web_page" | "search_results" | "terminal_output" | "code_snippet" | "json_data" | "other";
+
+/**
+ * Status of a capability call
+ */
+export type CapabilityCallStatus = "pending" | "running" | "completed" | "failed" | "blocked";
+
+/**
  * Chat message for UI display
  */
 export type ChatMessage = { id: string, text: string, sender: Sender, timestamp: string, pending: boolean, };
@@ -24,6 +39,26 @@ export type ChatMessage = { id: string, text: string, sender: Sender, timestamp:
  * Messages that can be sent to ChatActor
  */
 export type ChatMsg = { "UserTyped": { text: string, window_id: string, } } | { "AssistantReply": { text: string, model: string, } } | { "ToolCall": { tool: string, args: unknown, call_id: string, } } | { "ToolResult": { call_id: string, status: ToolStatus, output: unknown, } };
+
+/**
+ * A single item in the conductor's agenda
+ */
+export type ConductorAgendaItem = { item_id: string, capability: string, objective: string, priority: number, depends_on: Array<string>, status: AgendaItemStatus, created_at: string, started_at: string | null, completed_at: string | null, };
+
+/**
+ * A typed artifact produced during execution
+ */
+export type ConductorArtifact = { artifact_id: string, kind: ArtifactKind, reference: string, mime_type: string | null, created_at: string, source_call_id: string, metadata: unknown, };
+
+/**
+ * A tracked capability call in-flight
+ */
+export type ConductorCapabilityCall = { call_id: string, capability: string, objective: string, status: CapabilityCallStatus, started_at: string, completed_at: string | null, parent_call_id: string | null, agenda_item_id: string | null, artifact_ids: Array<string>, error: string | null, };
+
+/**
+ * A decision made by the conductor
+ */
+export type ConductorDecision = { decision_id: string, decision_type: DecisionType, reason: string, timestamp: string, affected_agenda_items: Array<string>, new_agenda_items: Array<string>, };
 
 /**
  * Typed error for Conductor task failures
@@ -38,22 +73,70 @@ export type ConductorExecuteRequest = { objective: string, desktop_id: string, o
 /**
  * Response from Conductor task execution
  */
-export type ConductorExecuteResponse = { task_id: string, status: ConductorTaskStatus, report_path: string | null, writer_window_props: unknown, correlation_id: string, error: ConductorError | null, };
+export type ConductorExecuteResponse = { task_id: string, status: ConductorTaskStatus, report_path: string | null, writer_window_props: unknown, toast: ConductorToastPayload | null, correlation_id: string, error: ConductorError | null, };
 
 /**
  * Output mode for Conductor task execution
  */
-export type ConductorOutputMode = "markdown_report_to_writer";
+export type ConductorOutputMode = "auto" | "markdown_report_to_writer" | "toast_with_report_link";
+
+/**
+ * Full runtime state for a conductor run
+ */
+export type ConductorRunState = { run_id: string, task_id: string, objective: string, status: ConductorRunStatus, created_at: string, updated_at: string, completed_at: string | null, 
+/**
+ * Ordered pending work items
+ */
+agenda: Array<ConductorAgendaItem>, 
+/**
+ * In-flight capability calls
+ */
+active_calls: Array<ConductorCapabilityCall>, 
+/**
+ * Typed output references
+ */
+artifacts: Array<ConductorArtifact>, 
+/**
+ * Typed decisions made during orchestration
+ */
+decision_log: Array<ConductorDecision>, 
+/**
+ * Output mode for final delivery
+ */
+output_mode: ConductorOutputMode, 
+/**
+ * Desktop ID for UI coordination
+ */
+desktop_id: string, 
+/**
+ * Correlation ID for tracing
+ */
+correlation_id: string, };
+
+/**
+ * Status of a conductor run
+ */
+export type ConductorRunStatus = "initializing" | "running" | "waiting_for_calls" | "completing" | "completed" | "failed" | "blocked";
 
 /**
  * State tracking for a Conductor task
  */
-export type ConductorTaskState = { task_id: string, status: ConductorTaskStatus, objective: string, desktop_id: string, output_mode: ConductorOutputMode, correlation_id: string, created_at: string, updated_at: string, completed_at: string | null, report_path: string | null, error: ConductorError | null, };
+export type ConductorTaskState = { task_id: string, status: ConductorTaskStatus, objective: string, desktop_id: string, output_mode: ConductorOutputMode, correlation_id: string, created_at: string, updated_at: string, completed_at: string | null, report_path: string | null, toast: ConductorToastPayload | null, error: ConductorError | null, };
 
 /**
  * Status of a Conductor task
  */
 export type ConductorTaskStatus = "queued" | "running" | "waiting_worker" | "completed" | "failed";
+
+/**
+ * Typed prompt-bar toast payload for Conductor completion.
+ */
+export type ConductorToastPayload = { title: string, message: string, tone: ConductorToastTone, report_path: string | null, };
+
+/**
+ * Visual tone for prompt-bar toast output.
+ */
+export type ConductorToastTone = "info" | "success" | "warning" | "error";
 
 /**
  * One typed worker step in a Conductor execution plan.
@@ -64,6 +147,11 @@ export type ConductorWorkerStep = { worker_type: ConductorWorkerType, objective:
  * Worker types the Conductor can orchestrate.
  */
 export type ConductorWorkerType = "researcher" | "terminal";
+
+/**
+ * Types of decisions the conductor can make
+ */
+export type DecisionType = "dispatch" | "retry" | "spawn_followup" | "complete" | "block" | "continue";
 
 /**
  * Desktop state - all windows and their positions
@@ -105,6 +193,44 @@ payload: unknown,
 user_id: string, };
 
 /**
+ * Importance level for events
+ */
+export type EventImportance = "low" | "normal" | "high";
+
+/**
+ * Event metadata for wake/display lane separation
+ */
+export type EventMetadata = { 
+/**
+ * Wake policy for this event
+ */
+wake_policy: WakePolicy, 
+/**
+ * Importance level
+ */
+importance: EventImportance, 
+/**
+ * Run ID for grouping related work
+ */
+run_id: string | null, 
+/**
+ * Task ID within the run
+ */
+task_id: string | null, 
+/**
+ * Capability call ID
+ */
+call_id: string | null, 
+/**
+ * Which capability produced this event
+ */
+capability: string | null, 
+/**
+ * Execution phase
+ */
+phase: string | null, };
+
+/**
  * Query events for an actor
  */
 export type QueryEvents = { actor_id: ActorId, since_seq: bigint, };
@@ -132,6 +258,11 @@ export type ViewerKind = "text" | "image";
 export type ViewerResource = { uri: string, mime: string, };
 
 export type ViewerRevision = { rev: bigint, updated_at: string, };
+
+/**
+ * Wake policy for events - determines if event should trigger conductor wake
+ */
+export type WakePolicy = "wake" | "display_only";
 
 /**
  * Individual window state

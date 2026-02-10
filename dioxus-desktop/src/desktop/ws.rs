@@ -50,6 +50,14 @@ pub enum WsEvent {
         height: i32,
         maximized: bool,
     },
+    /// Telemetry event for live stream display
+    Telemetry {
+        event_type: String,
+        capability: String,
+        phase: String,
+        importance: String,
+        data: serde_json::Value,
+    },
     Pong,
     Error(String),
 }
@@ -179,6 +187,30 @@ pub fn parse_ws_message(payload: &str) -> Option<WsEvent> {
                     width: width as i32,
                     height: height as i32,
                     maximized,
+                })
+            } else {
+                None
+            }
+        }
+        "telemetry" => {
+            if let (
+                Some(event_type),
+                Some(capability),
+                Some(phase),
+                Some(importance),
+            ) = (
+                json.get("event_type").and_then(|v| v.as_str()),
+                json.get("capability").and_then(|v| v.as_str()),
+                json.get("phase").and_then(|v| v.as_str()),
+                json.get("importance").and_then(|v| v.as_str()),
+            ) {
+                let data = json.get("data").cloned().unwrap_or_default();
+                Some(WsEvent::Telemetry {
+                    event_type: event_type.to_string(),
+                    capability: capability.to_string(),
+                    phase: phase.to_string(),
+                    importance: importance.to_string(),
+                    data,
                 })
             } else {
                 None

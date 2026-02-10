@@ -8,7 +8,7 @@ default:
 # Development commands
 # Run backend API server with local database
 dev-sandbox:
-    export DATABASE_URL="./data/events.db" && cd sandbox && cargo run
+    cd sandbox && DATABASE_URL="../data/events.db" CARGO_INCREMENTAL=0 cargo run
 
 # Run hypervisor component
 dev-hypervisor:

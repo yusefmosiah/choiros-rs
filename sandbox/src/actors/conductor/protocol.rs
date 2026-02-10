@@ -3,27 +3,42 @@
 //! Defines the messages that can be sent to the ConductorActor and
 //! the error types used throughout the conductor system.
 
+use crate::actors::researcher::ResearcherResult;
+use crate::actors::terminal::TerminalAgentResult;
 use ractor::RpcReplyPort;
-use shared_types::{ConductorExecuteRequest, ConductorTaskState};
+use shared_types::{ConductorExecuteRequest, ConductorTaskState, EventMetadata};
 
 /// Messages handled by ConductorActor
 #[derive(Debug)]
 pub enum ConductorMsg {
-    /// Execute a new task
+    /// Execute a new task (legacy, for compatibility)
     ExecuteTask {
         request: ConductorExecuteRequest,
         reply: RpcReplyPort<Result<ConductorTaskState, ConductorError>>,
     },
-    /// Get the current state of a task
+    /// Get the current state of a task (legacy)
     GetTaskState {
         task_id: String,
         reply: RpcReplyPort<Option<ConductorTaskState>>,
     },
-    /// Receive a result from a worker
-    WorkerResult {
-        task_id: String,
-        result: Result<WorkerOutput, ConductorError>,
+    /// Receive a result from a run-scoped capability call
+    CapabilityCallFinished {
+        run_id: String,
+        call_id: String,
+        agenda_item_id: String,
+        capability: String,
+        result: Result<CapabilityWorkerOutput, ConductorError>,
     },
+
+    /// Process an event with wake policy
+    ProcessEvent {
+        run_id: String,
+        event_type: String,
+        payload: serde_json::Value,
+        metadata: EventMetadata,
+    },
+    /// Check and dispatch ready agenda items
+    DispatchReady { run_id: String },
 }
 
 /// Output from a worker task
@@ -33,6 +48,13 @@ pub struct WorkerOutput {
     pub report_content: String,
     /// Citations from research (using ResearcherActor's ResearchCitation)
     pub citations: Vec<crate::actors::researcher::ResearchCitation>,
+}
+
+/// Typed output from a run-scoped capability call.
+#[derive(Debug, Clone)]
+pub enum CapabilityWorkerOutput {
+    Researcher(ResearcherResult),
+    Terminal(TerminalAgentResult),
 }
 
 /// Errors that can occur in ConductorActor
@@ -53,6 +75,9 @@ pub enum ConductorError {
     /// Task already exists
     #[error("task already exists: {0}")]
     DuplicateTask(String),
+    /// Policy decision failed
+    #[error("policy error: {0}")]
+    PolicyError(String),
 }
 
 impl From<ConductorError> for shared_types::ConductorError {
@@ -64,6 +89,7 @@ impl From<ConductorError> for shared_types::ConductorError {
                 ConductorError::WorkerFailed(_) => "WORKER_FAILED",
                 ConductorError::ReportWriteFailed(_) => "REPORT_WRITE_FAILED",
                 ConductorError::DuplicateTask(_) => "DUPLICATE_TASK",
+                ConductorError::PolicyError(_) => "POLICY_ERROR",
             }
             .to_string(),
             message: err.to_string(),
@@ -73,6 +99,7 @@ impl From<ConductorError> for shared_types::ConductorError {
                 ConductorError::WorkerFailed(_) => shared_types::FailureKind::Provider,
                 ConductorError::ReportWriteFailed(_) => shared_types::FailureKind::Unknown,
                 ConductorError::DuplicateTask(_) => shared_types::FailureKind::Validation,
+                ConductorError::PolicyError(_) => shared_types::FailureKind::Provider,
             }),
         }
     }

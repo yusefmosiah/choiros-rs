@@ -1,0 +1,134 @@
+use std::path::Path;
+
+use crate::actors::conductor::actor::{ConductorActor, ConductorState};
+use crate::actors::conductor::{
+    events,
+    output::{
+        build_completion_toast, build_worker_output_from_run, build_writer_window_props,
+        resolve_output_mode,
+    },
+    protocol::ConductorError,
+};
+
+impl ConductorActor {
+    pub(crate) async fn finalize_run_as_completed(
+        &self,
+        state: &mut ConductorState,
+        run_id: &str,
+        completion_reason: Option<String>,
+    ) -> Result<(), ConductorError> {
+        let run = state
+            .tasks
+            .get_run(run_id)
+            .cloned()
+            .ok_or_else(|| ConductorError::NotFound(run_id.to_string()))?;
+
+        let output = build_worker_output_from_run(&run);
+        let report_path = self
+            .write_report(&run.task_id, &output.report_content)
+            .await?;
+        let selected_mode = resolve_output_mode(run.output_mode, &output);
+        let toast = build_completion_toast(selected_mode, &output, &report_path);
+
+        state.tasks.transition_to_completed(
+            &run.task_id,
+            selected_mode,
+            report_path.clone(),
+            toast.clone(),
+        )?;
+
+        let writer_props =
+            if selected_mode == shared_types::ConductorOutputMode::MarkdownReportToWriter {
+                Some(build_writer_window_props(&report_path))
+            } else {
+                None
+            };
+
+        events::emit_task_completed(
+            &state.event_store,
+            &run.task_id,
+            &run.correlation_id,
+            selected_mode,
+            &report_path,
+            writer_props.as_ref(),
+            toast.as_ref(),
+        )
+        .await;
+
+        if let Some(reason) = completion_reason {
+            events::emit_progress(
+                &state.event_store,
+                run_id,
+                &run.task_id,
+                "conductor",
+                &reason,
+                Some(100),
+            )
+            .await;
+        }
+
+        Ok(())
+    }
+
+    pub(crate) async fn finalize_run_as_blocked(
+        &self,
+        state: &mut ConductorState,
+        run_id: &str,
+        reason: Option<String>,
+    ) -> Result<(), ConductorError> {
+        let run = state
+            .tasks
+            .get_run(run_id)
+            .cloned()
+            .ok_or_else(|| ConductorError::NotFound(run_id.to_string()))?;
+        let message = reason.unwrap_or_else(|| "Run blocked by conductor policy".to_string());
+        let shared_error = shared_types::ConductorError {
+            code: "RUN_BLOCKED".to_string(),
+            message: message.clone(),
+            failure_kind: Some(shared_types::FailureKind::Unknown),
+        };
+        state
+            .tasks
+            .transition_to_failed(&run.task_id, shared_error.clone())?;
+        events::emit_task_failed(
+            &state.event_store,
+            &run.task_id,
+            &run.correlation_id,
+            &shared_error.code,
+            &shared_error.message,
+            shared_error.failure_kind,
+        )
+        .await;
+        Ok(())
+    }
+
+    pub(crate) async fn write_report(
+        &self,
+        task_id: &str,
+        content: &str,
+    ) -> Result<String, ConductorError> {
+        let sandbox = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let reports_dir = sandbox.join("reports");
+
+        if let Err(e) = tokio::fs::create_dir_all(&reports_dir).await {
+            return Err(ConductorError::ReportWriteFailed(format!(
+                "Failed to create reports directory: {e}"
+            )));
+        }
+
+        if task_id.contains('/') || task_id.contains('\\') || task_id.contains("..") {
+            return Err(ConductorError::InvalidRequest(
+                "Invalid task_id: contains path separators".to_string(),
+            ));
+        }
+
+        let report_path = reports_dir.join(format!("{task_id}.md"));
+        if let Err(e) = tokio::fs::write(&report_path, content).await {
+            return Err(ConductorError::ReportWriteFailed(format!(
+                "Failed to write report: {e}"
+            )));
+        }
+
+        Ok(format!("reports/{task_id}.md"))
+    }
+}

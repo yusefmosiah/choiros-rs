@@ -93,6 +93,10 @@ pub enum EventStoreMsg {
         user_id: Option<String>,
         reply: RpcReplyPort<Result<Vec<shared_types::Event>, EventStoreError>>,
     },
+    /// Get the latest sequence number currently present in the event log.
+    GetLatestSeq {
+        reply: RpcReplyPort<Result<Option<i64>, EventStoreError>>,
+    },
     /// Get a single event by its sequence number
     GetEventBySeq {
         seq: i64,
@@ -297,6 +301,10 @@ impl Actor for EventStoreActor {
                         state,
                     )
                     .await;
+                let _ = reply.send(result);
+            }
+            EventStoreMsg::GetLatestSeq { reply } => {
+                let result = self.handle_get_latest_seq(state).await;
                 let _ = reply.send(result);
             }
             EventStoreMsg::GetEventBySeq { seq, reply } => {
@@ -651,6 +659,18 @@ impl EventStoreActor {
             None => Ok(None),
         }
     }
+
+    async fn handle_get_latest_seq(
+        &self,
+        state: &mut EventStoreState,
+    ) -> Result<Option<i64>, EventStoreError> {
+        let conn = &state.conn;
+        let mut rows = conn.query("SELECT MAX(seq) FROM events", ()).await?;
+        match rows.next().await? {
+            Some(row) => row.get::<Option<i64>>(0).map_err(EventStoreError::from),
+            None => Ok(None),
+        }
+    }
 }
 
 // ============================================================================
@@ -712,6 +732,13 @@ pub async fn get_recent_events(
         user_id,
         reply,
     })
+}
+
+/// Convenience function to get the latest event sequence number.
+pub async fn get_latest_seq(
+    store: &ActorRef<EventStoreMsg>,
+) -> Result<Result<Option<i64>, EventStoreError>, ractor::RactorErr<EventStoreMsg>> {
+    ractor::call!(store, |reply| EventStoreMsg::GetLatestSeq { reply })
 }
 
 /// Convenience function to get an event by sequence number

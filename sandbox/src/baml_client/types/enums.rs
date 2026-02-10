@@ -9,6 +9,222 @@ use baml::{BamlDecode, BamlEncode};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
+pub enum DecisionType {
+    Dispatch,
+
+    Retry,
+
+    SpawnFollowup,
+
+    Continue,
+
+    Complete,
+
+    Block,
+}
+
+impl Default for DecisionType {
+    fn default() -> Self {
+        Self::Dispatch
+    }
+}
+
+impl std::fmt::Display for DecisionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Dispatch => write!(f, "Dispatch"),
+
+            Self::Retry => write!(f, "Retry"),
+
+            Self::SpawnFollowup => write!(f, "SpawnFollowup"),
+
+            Self::Continue => write!(f, "Continue"),
+
+            Self::Complete => write!(f, "Complete"),
+
+            Self::Block => write!(f, "Block"),
+        }
+    }
+}
+
+impl std::str::FromStr for DecisionType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Dispatch" => Ok(Self::Dispatch),
+
+            "Retry" => Ok(Self::Retry),
+
+            "SpawnFollowup" => Ok(Self::SpawnFollowup),
+
+            "Continue" => Ok(Self::Continue),
+
+            "Complete" => Ok(Self::Complete),
+
+            "Block" => Ok(Self::Block),
+
+            _ => Err(()),
+        }
+    }
+}
+
+impl AsRef<DecisionType> for DecisionType {
+    fn as_ref(&self) -> &DecisionType {
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
+pub enum EscalationAction {
+    NotifyConductor,
+
+    RequestHumanReview,
+
+    AutoRetry,
+
+    ScaleResources,
+
+    TerminateRun,
+
+    ContinueMonitoring,
+
+    EscalateToOnCall,
+}
+
+impl Default for EscalationAction {
+    fn default() -> Self {
+        Self::NotifyConductor
+    }
+}
+
+impl std::fmt::Display for EscalationAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotifyConductor => write!(f, "NotifyConductor"),
+
+            Self::RequestHumanReview => write!(f, "RequestHumanReview"),
+
+            Self::AutoRetry => write!(f, "AutoRetry"),
+
+            Self::ScaleResources => write!(f, "ScaleResources"),
+
+            Self::TerminateRun => write!(f, "TerminateRun"),
+
+            Self::ContinueMonitoring => write!(f, "ContinueMonitoring"),
+
+            Self::EscalateToOnCall => write!(f, "EscalateToOnCall"),
+        }
+    }
+}
+
+impl std::str::FromStr for EscalationAction {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "NotifyConductor" => Ok(Self::NotifyConductor),
+
+            "RequestHumanReview" => Ok(Self::RequestHumanReview),
+
+            "AutoRetry" => Ok(Self::AutoRetry),
+
+            "ScaleResources" => Ok(Self::ScaleResources),
+
+            "TerminateRun" => Ok(Self::TerminateRun),
+
+            "ContinueMonitoring" => Ok(Self::ContinueMonitoring),
+
+            "EscalateToOnCall" => Ok(Self::EscalateToOnCall),
+
+            _ => Err(()),
+        }
+    }
+}
+
+impl AsRef<EscalationAction> for EscalationAction {
+    fn as_ref(&self) -> &EscalationAction {
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
+pub enum EscalationKind {
+    FailureSpike,
+
+    TimeoutPattern,
+
+    ResourceExhaustion,
+
+    SecurityConcern,
+
+    CostAnomaly,
+
+    StalledWorkflow,
+
+    Other,
+}
+
+impl Default for EscalationKind {
+    fn default() -> Self {
+        Self::FailureSpike
+    }
+}
+
+impl std::fmt::Display for EscalationKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::FailureSpike => write!(f, "FailureSpike"),
+
+            Self::TimeoutPattern => write!(f, "TimeoutPattern"),
+
+            Self::ResourceExhaustion => write!(f, "ResourceExhaustion"),
+
+            Self::SecurityConcern => write!(f, "SecurityConcern"),
+
+            Self::CostAnomaly => write!(f, "CostAnomaly"),
+
+            Self::StalledWorkflow => write!(f, "StalledWorkflow"),
+
+            Self::Other => write!(f, "Other"),
+        }
+    }
+}
+
+impl std::str::FromStr for EscalationKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "FailureSpike" => Ok(Self::FailureSpike),
+
+            "TimeoutPattern" => Ok(Self::TimeoutPattern),
+
+            "ResourceExhaustion" => Ok(Self::ResourceExhaustion),
+
+            "SecurityConcern" => Ok(Self::SecurityConcern),
+
+            "CostAnomaly" => Ok(Self::CostAnomaly),
+
+            "StalledWorkflow" => Ok(Self::StalledWorkflow),
+
+            "Other" => Ok(Self::Other),
+
+            _ => Err(()),
+        }
+    }
+}
+
+impl AsRef<EscalationKind> for EscalationKind {
+    fn as_ref(&self) -> &EscalationKind {
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
 pub enum EvidenceType {
     SearchResult,
 
@@ -227,6 +443,230 @@ impl std::str::FromStr for PlanMode {
 
 impl AsRef<PlanMode> for PlanMode {
     fn as_ref(&self) -> &PlanMode {
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
+pub enum ReviewStatus {
+    Clean,
+
+    IssuesDetected,
+
+    Critical,
+
+    Inconclusive,
+}
+
+impl Default for ReviewStatus {
+    fn default() -> Self {
+        Self::Clean
+    }
+}
+
+impl std::fmt::Display for ReviewStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Clean => write!(f, "Clean"),
+
+            Self::IssuesDetected => write!(f, "IssuesDetected"),
+
+            Self::Critical => write!(f, "Critical"),
+
+            Self::Inconclusive => write!(f, "Inconclusive"),
+        }
+    }
+}
+
+impl std::str::FromStr for ReviewStatus {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Clean" => Ok(Self::Clean),
+
+            "IssuesDetected" => Ok(Self::IssuesDetected),
+
+            "Critical" => Ok(Self::Critical),
+
+            "Inconclusive" => Ok(Self::Inconclusive),
+
+            _ => Err(()),
+        }
+    }
+}
+
+impl AsRef<ReviewStatus> for ReviewStatus {
+    fn as_ref(&self) -> &ReviewStatus {
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
+pub enum RiskCategory {
+    Operational,
+
+    Technical,
+
+    Security,
+
+    Cost,
+
+    Compliance,
+}
+
+impl Default for RiskCategory {
+    fn default() -> Self {
+        Self::Operational
+    }
+}
+
+impl std::fmt::Display for RiskCategory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Operational => write!(f, "Operational"),
+
+            Self::Technical => write!(f, "Technical"),
+
+            Self::Security => write!(f, "Security"),
+
+            Self::Cost => write!(f, "Cost"),
+
+            Self::Compliance => write!(f, "Compliance"),
+        }
+    }
+}
+
+impl std::str::FromStr for RiskCategory {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Operational" => Ok(Self::Operational),
+
+            "Technical" => Ok(Self::Technical),
+
+            "Security" => Ok(Self::Security),
+
+            "Cost" => Ok(Self::Cost),
+
+            "Compliance" => Ok(Self::Compliance),
+
+            _ => Err(()),
+        }
+    }
+}
+
+impl AsRef<RiskCategory> for RiskCategory {
+    fn as_ref(&self) -> &RiskCategory {
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
+pub enum TerminalityStatus {
+    Complete,
+
+    Blocked,
+
+    Continue,
+}
+
+impl Default for TerminalityStatus {
+    fn default() -> Self {
+        Self::Complete
+    }
+}
+
+impl std::fmt::Display for TerminalityStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Complete => write!(f, "Complete"),
+
+            Self::Blocked => write!(f, "Blocked"),
+
+            Self::Continue => write!(f, "Continue"),
+        }
+    }
+}
+
+impl std::str::FromStr for TerminalityStatus {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Complete" => Ok(Self::Complete),
+
+            "Blocked" => Ok(Self::Blocked),
+
+            "Continue" => Ok(Self::Continue),
+
+            _ => Err(()),
+        }
+    }
+}
+
+impl AsRef<TerminalityStatus> for TerminalityStatus {
+    fn as_ref(&self) -> &TerminalityStatus {
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
+pub enum UrgencyLevel {
+    Low,
+
+    Medium,
+
+    High,
+
+    Critical,
+}
+
+impl Default for UrgencyLevel {
+    fn default() -> Self {
+        Self::Low
+    }
+}
+
+impl std::fmt::Display for UrgencyLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Low => write!(f, "Low"),
+
+            Self::Medium => write!(f, "Medium"),
+
+            Self::High => write!(f, "High"),
+
+            Self::Critical => write!(f, "Critical"),
+        }
+    }
+}
+
+impl std::str::FromStr for UrgencyLevel {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Low" => Ok(Self::Low),
+
+            "Medium" => Ok(Self::Medium),
+
+            "High" => Ok(Self::High),
+
+            "Critical" => Ok(Self::Critical),
+
+            _ => Err(()),
+        }
+    }
+}
+
+impl AsRef<UrgencyLevel> for UrgencyLevel {
+    fn as_ref(&self) -> &UrgencyLevel {
         self
     }
 }

@@ -9,7 +9,7 @@ use shared_types::DesktopState;
 use crate::desktop::actions;
 use crate::desktop::actions::ShowDesktopSnapshot;
 use crate::desktop::apps::core_apps;
-use crate::desktop::components::prompt_bar::PromptBar;
+use crate::desktop::components::prompt_bar::{PromptBar, TelemetryStreamState};
 use crate::desktop::components::workspace_canvas::WorkspaceCanvas;
 use crate::desktop::effects;
 use crate::desktop::state::apply_ws_event;
@@ -35,6 +35,7 @@ pub fn DesktopShell(desktop_id: String) -> Element {
     let theme_initialized = use_signal(|| false);
     let mut current_theme = use_signal(|| DEFAULT_THEME.to_string());
     let show_desktop_snapshot = use_signal(|| None::<ShowDesktopSnapshot>);
+    let mut telemetry_state = use_signal(|| TelemetryStreamState::new(10)); // Max 10 telemetry lines
 
     {
         let ws_event_pump_alive = ws_event_pump_alive.clone();
@@ -95,7 +96,27 @@ pub fn DesktopShell(desktop_id: String) -> Element {
                     }
 
                     for event in drained {
-                        apply_ws_event(event, &mut desktop_state, &mut ws_connected);
+                        // Handle telemetry events separately
+                        if let WsEvent::Telemetry { event_type, capability, phase, importance, data } = &event {
+                            use shared_types::EventImportance;
+                            let importance_enum = match importance.as_str() {
+                                "high" => EventImportance::High,
+                                "low" => EventImportance::Low,
+                                _ => EventImportance::Normal,
+                            };
+                            let message = crate::desktop::components::prompt_bar::format_telemetry_message(
+                                event_type,
+                                data
+                            );
+                            telemetry_state.write().add_line(
+                                message,
+                                capability.clone(),
+                                phase.clone(),
+                                importance_enum,
+                            );
+                        } else {
+                            apply_ws_event(event, &mut desktop_state, &mut ws_connected);
+                        }
                     }
 
                     TimeoutFuture::new(16).await;
@@ -255,6 +276,7 @@ pub fn DesktopShell(desktop_id: String) -> Element {
                 on_show_desktop: show_desktop_cb,
                 current_theme: current_theme(),
                 on_toggle_theme: toggle_theme,
+                telemetry_state,
             }
         }
     }

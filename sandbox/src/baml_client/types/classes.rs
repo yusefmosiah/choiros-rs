@@ -110,6 +110,24 @@ impl AsRef<AgentToolCall> for AgentToolCall {
 
 #[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
 
+pub struct AlternativeAction {
+    pub action: EscalationAction,
+
+    pub pros: Vec<String>,
+
+    pub cons: Vec<String>,
+
+    pub estimated_success_rate: f64,
+}
+
+impl AsRef<AlternativeAction> for AlternativeAction {
+    fn as_ref(&self) -> &AlternativeAction {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
 pub struct BashToolArgs {
     pub command: Option<String>,
 
@@ -154,6 +172,228 @@ impl AsRef<CompletionPayload> for CompletionPayload {
 
 #[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
 
+pub struct ConductorAgendaItem {
+    pub id: String,
+
+    pub capability: String,
+
+    pub objective: String,
+
+    pub dependencies: Vec<String>,
+
+    pub status: String,
+
+    pub priority: i64,
+}
+
+impl AsRef<ConductorAgendaItem> for ConductorAgendaItem {
+    fn as_ref(&self) -> &ConductorAgendaItem {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct ConductorArtifact {
+    pub artifact_id: String,
+
+    pub name: String,
+
+    pub content_type: String,
+
+    pub summary: String,
+}
+
+impl AsRef<ConductorArtifact> for ConductorArtifact {
+    fn as_ref(&self) -> &ConductorArtifact {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct ConductorCapabilityCall {
+    pub call_id: String,
+
+    pub agenda_item_id: String,
+
+    pub capability: String,
+
+    pub objective: String,
+
+    pub status: String,
+}
+
+impl AsRef<ConductorCapabilityCall> for ConductorCapabilityCall {
+    fn as_ref(&self) -> &ConductorCapabilityCall {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct ConductorDecisionInput {
+    pub run_id: String,
+
+    pub task_id: String,
+
+    pub objective: String,
+
+    pub run_status: String,
+
+    pub agenda: Vec<ConductorAgendaItem>,
+
+    pub active_calls: Vec<ConductorCapabilityCall>,
+
+    pub artifacts: Vec<ConductorArtifact>,
+
+    pub recent_events: Vec<EventSummary>,
+
+    pub worker_outputs: Vec<WorkerOutput>,
+}
+
+impl AsRef<ConductorDecisionInput> for ConductorDecisionInput {
+    fn as_ref(&self) -> &ConductorDecisionInput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct ConductorDecisionOutput {
+    pub decision_type: DecisionType,
+
+    pub target_agenda_item_ids: Vec<String>,
+
+    pub new_agenda_items: Vec<ConductorAgendaItem>,
+
+    pub capability: Option<String>,
+
+    pub objective: Option<String>,
+
+    pub retry_policy: Option<RetryPolicy>,
+
+    pub completion_reason: Option<String>,
+
+    pub confidence: f64,
+
+    pub rationale: String,
+}
+
+impl AsRef<ConductorDecisionOutput> for ConductorDecisionOutput {
+    fn as_ref(&self) -> &ConductorDecisionOutput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct ConductorObjectiveRefineInput {
+    pub raw_objective: String,
+
+    pub context: Vec<WorkerOutput>,
+
+    pub target_capability: String,
+}
+
+impl AsRef<ConductorObjectiveRefineInput> for ConductorObjectiveRefineInput {
+    fn as_ref(&self) -> &ConductorObjectiveRefineInput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct ConductorObjectiveRefineOutput {
+    pub refined_objective: String,
+
+    pub success_criteria: Vec<String>,
+
+    pub estimated_steps: i64,
+
+    pub confidence: f64,
+}
+
+impl AsRef<ConductorObjectiveRefineOutput> for ConductorObjectiveRefineOutput {
+    fn as_ref(&self) -> &ConductorObjectiveRefineOutput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct ConductorTerminalityInput {
+    pub run_id: String,
+
+    pub agenda: Vec<ConductorAgendaItem>,
+
+    pub artifacts: Vec<ConductorArtifact>,
+
+    pub original_objective: String,
+}
+
+impl AsRef<ConductorTerminalityInput> for ConductorTerminalityInput {
+    fn as_ref(&self) -> &ConductorTerminalityInput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct ConductorTerminalityOutput {
+    pub terminality_status: TerminalityStatus,
+
+    pub reason: String,
+
+    pub confidence: f64,
+}
+
+impl AsRef<ConductorTerminalityOutput> for ConductorTerminalityOutput {
+    fn as_ref(&self) -> &ConductorTerminalityOutput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct DetectedAnomaly {
+    pub anomaly_type: String,
+
+    pub severity: String,
+
+    pub description: String,
+
+    pub affected_events: Vec<String>,
+
+    pub pattern_detected: String,
+}
+
+impl AsRef<DetectedAnomaly> for DetectedAnomaly {
+    fn as_ref(&self) -> &DetectedAnomaly {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct EventSummary {
+    pub event_id: String,
+
+    pub event_type: String,
+
+    pub timestamp: String,
+
+    pub payload: String,
+}
+
+impl AsRef<EventSummary> for EventSummary {
+    fn as_ref(&self) -> &EventSummary {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
 pub struct Evidence {
     pub evidence_id: String,
 
@@ -170,6 +410,40 @@ pub struct Evidence {
 
 impl AsRef<Evidence> for Evidence {
     fn as_ref(&self) -> &Evidence {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct FollowupRecommendation {
+    pub capability: String,
+
+    pub objective: String,
+
+    pub priority: i64,
+
+    pub rationale: String,
+}
+
+impl AsRef<FollowupRecommendation> for FollowupRecommendation {
+    fn as_ref(&self) -> &FollowupRecommendation {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct HistoricalResolution {
+    pub pattern: String,
+
+    pub successful_resolution: String,
+
+    pub resolution_type: String,
+}
+
+impl AsRef<HistoricalResolution> for HistoricalResolution {
+    fn as_ref(&self) -> &HistoricalResolution {
         self
     }
 }
@@ -280,6 +554,80 @@ impl AsRef<Resume> for Resume {
 
 #[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
 
+pub struct RetryPolicy {
+    pub max_attempts: i64,
+
+    pub backoff_strategy: String,
+}
+
+impl AsRef<RetryPolicy> for RetryPolicy {
+    fn as_ref(&self) -> &RetryPolicy {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct ReviewScope {
+    pub start_time: String,
+
+    pub end_time: String,
+
+    pub event_types: Vec<String>,
+
+    pub min_level: String,
+}
+
+impl AsRef<ReviewScope> for ReviewScope {
+    fn as_ref(&self) -> &ReviewScope {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct RiskItem {
+    pub risk_id: String,
+
+    pub category: RiskCategory,
+
+    pub likelihood: f64,
+
+    pub impact: f64,
+
+    pub description: String,
+
+    pub mitigating_factors: Vec<String>,
+}
+
+impl AsRef<RiskItem> for RiskItem {
+    fn as_ref(&self) -> &RiskItem {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct RunStateSnapshot {
+    pub run_id: String,
+
+    pub status: String,
+
+    pub active_call_count: i64,
+
+    pub recent_failures: i64,
+
+    pub elapsed_time_ms: i64,
+}
+
+impl AsRef<RunStateSnapshot> for RunStateSnapshot {
+    fn as_ref(&self) -> &RunStateSnapshot {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
 pub struct SearchFilesToolArgs {
     pub pattern: Option<String>,
 
@@ -344,6 +692,146 @@ impl AsRef<UnresolvedItem> for UnresolvedItem {
 
 #[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
 
+pub struct WatcherEscalation {
+    pub escalation_id: String,
+
+    pub run_id: String,
+
+    pub task_id: String,
+
+    pub kind: EscalationKind,
+
+    pub urgency: UrgencyLevel,
+
+    pub affected_calls: Vec<String>,
+
+    pub description: String,
+
+    pub recommended_action: String,
+
+    pub recommended_capability: Option<String>,
+
+    pub recommended_objective: Option<String>,
+}
+
+impl AsRef<WatcherEscalation> for WatcherEscalation {
+    fn as_ref(&self) -> &WatcherEscalation {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct WatcherEvent {
+    pub event_id: String,
+
+    pub timestamp: String,
+
+    pub event_type: String,
+
+    pub level: String,
+
+    pub payload: String,
+
+    pub source: String,
+}
+
+impl AsRef<WatcherEvent> for WatcherEvent {
+    fn as_ref(&self) -> &WatcherEvent {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct WatcherLogWindowInput {
+    pub window_id: String,
+
+    pub run_id: String,
+
+    pub task_id: String,
+
+    pub events: Vec<WatcherEvent>,
+
+    pub scope: ReviewScope,
+
+    pub review_reason: Option<String>,
+}
+
+impl AsRef<WatcherLogWindowInput> for WatcherLogWindowInput {
+    fn as_ref(&self) -> &WatcherLogWindowInput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct WatcherMitigationInput {
+    pub escalation: WatcherEscalation,
+
+    pub run_state: RunStateSnapshot,
+
+    pub available_capabilities: Vec<String>,
+
+    pub historical_resolutions: Vec<HistoricalResolution>,
+}
+
+impl AsRef<WatcherMitigationInput> for WatcherMitigationInput {
+    fn as_ref(&self) -> &WatcherMitigationInput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct WatcherMitigationOutput {
+    pub escalation_action: EscalationAction,
+
+    pub urgency: UrgencyLevel,
+
+    pub recommended_capability: Option<String>,
+
+    pub recommended_objective: Option<String>,
+
+    pub rationale: String,
+
+    pub confidence: f64,
+
+    pub expected_outcome: String,
+
+    pub alternatives: Vec<AlternativeAction>,
+}
+
+impl AsRef<WatcherMitigationOutput> for WatcherMitigationOutput {
+    fn as_ref(&self) -> &WatcherMitigationOutput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct WatcherReviewOutput {
+    pub review_status: ReviewStatus,
+
+    pub escalations: Vec<WatcherEscalation>,
+
+    pub risks: Vec<RiskItem>,
+
+    pub anomalies: Vec<DetectedAnomaly>,
+
+    pub confidence: f64,
+
+    pub rationale: String,
+}
+
+impl AsRef<WatcherReviewOutput> for WatcherReviewOutput {
+    fn as_ref(&self) -> &WatcherReviewOutput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
 pub struct WebSearchToolArgs {
     pub query: Option<String>,
 
@@ -366,6 +854,28 @@ pub struct WebSearchToolArgs {
 
 impl AsRef<WebSearchToolArgs> for WebSearchToolArgs {
     fn as_ref(&self) -> &WebSearchToolArgs {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
+
+pub struct WorkerOutput {
+    pub call_id: String,
+
+    pub agenda_item_id: String,
+
+    pub status: String,
+
+    pub result_summary: String,
+
+    pub artifacts_produced: Vec<ConductorArtifact>,
+
+    pub followup_recommendations: Vec<FollowupRecommendation>,
+}
+
+impl AsRef<WorkerOutput> for WorkerOutput {
+    fn as_ref(&self) -> &WorkerOutput {
         self
     }
 }

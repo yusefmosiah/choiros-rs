@@ -2,6 +2,7 @@ use crate::baml_client::ClientRegistry;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 pub const REQUIRED_BAML_CLIENT_ALIASES: &[&str] = &["ClaudeBedrock", "GLM47"];
 pub const DEFAULT_MODEL_POLICY_PATH: &str = "config/model-policy.toml";
@@ -90,6 +91,7 @@ pub struct ModelPolicy {
     pub conductor_default_model: Option<String>,
     pub researcher_default_model: Option<String>,
     pub summarizer_default_model: Option<String>,
+    pub watcher_default_model: Option<String>,
     pub allow_request_override: Option<bool>,
     pub allowed_models: Option<Vec<String>>,
     pub chat_allowed_models: Option<Vec<String>>,
@@ -97,6 +99,7 @@ pub struct ModelPolicy {
     pub conductor_allowed_models: Option<Vec<String>>,
     pub researcher_allowed_models: Option<Vec<String>>,
     pub summarizer_allowed_models: Option<Vec<String>>,
+    pub watcher_allowed_models: Option<Vec<String>>,
 }
 
 impl ModelRegistry {
@@ -205,6 +208,7 @@ impl ModelRegistry {
             "conductor" => policy.conductor_default_model.clone(),
             "researcher" => policy.researcher_default_model.clone(),
             "summarizer" => policy.summarizer_default_model.clone(),
+            "watcher" => policy.watcher_default_model.clone(),
             _ => None,
         };
 
@@ -250,6 +254,11 @@ impl ModelRegistry {
                     .as_ref()
                     .map(|models| models.iter().any(|m| m == model_id))
                     .unwrap_or(true),
+                "watcher" => policy
+                    .watcher_allowed_models
+                    .as_ref()
+                    .map(|models| models.iter().any(|m| m == model_id))
+                    .unwrap_or(true),
                 _ => true,
             };
             in_global && in_role
@@ -282,15 +291,48 @@ impl Default for ModelRegistry {
 }
 
 pub fn load_model_policy() -> ModelPolicy {
-    let path = std::env::var("CHOIR_MODEL_POLICY_PATH")
+    let explicit_path = std::env::var("CHOIR_MODEL_POLICY_PATH")
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_MODEL_POLICY_PATH.to_string());
+        .map(PathBuf::from);
+
+    let path = explicit_path
+        .or_else(|| find_default_model_policy_path(DEFAULT_MODEL_POLICY_PATH))
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_MODEL_POLICY_PATH));
+
     let content = match std::fs::read_to_string(&path) {
         Ok(content) => content,
-        Err(_) => return ModelPolicy::default(),
+        Err(err) => {
+            tracing::warn!(
+                path = %path.display(),
+                error = %err,
+                "Failed to load model policy file; using defaults"
+            );
+            return ModelPolicy::default();
+        }
     };
-    toml::from_str(&content).unwrap_or_default()
+    toml::from_str(&content).unwrap_or_else(|err| {
+        tracing::warn!(
+            path = %path.display(),
+            error = %err,
+            "Failed to parse model policy TOML; using defaults"
+        );
+        ModelPolicy::default()
+    })
+}
+
+fn find_default_model_policy_path(relative_path: &str) -> Option<PathBuf> {
+    let mut current = std::env::current_dir().ok()?;
+    loop {
+        let candidate = current.join(relative_path);
+        if candidate.exists() && candidate.is_file() {
+            return Some(candidate);
+        }
+        if !current.pop() {
+            break;
+        }
+    }
+    None
 }
 
 pub fn create_client_registry_for_config(
@@ -719,9 +761,11 @@ default_model = "ClaudeBedrockSonnet45"
 conductor_default_model = "ClaudeBedrockOpus46"
 researcher_default_model = "ZaiGLM47"
 summarizer_default_model = "ZaiGLM47Flash"
+watcher_default_model = "ZaiGLM47Flash"
 conductor_allowed_models = ["ClaudeBedrockOpus46"]
 researcher_allowed_models = ["ZaiGLM47"]
 summarizer_allowed_models = ["ZaiGLM47Flash"]
+watcher_allowed_models = ["ZaiGLM47Flash"]
 "#,
         )
         .expect("write policy");
@@ -747,6 +791,51 @@ summarizer_allowed_models = ["ZaiGLM47Flash"]
             .resolve_for_role("summarizer", &ModelResolutionContext::default())
             .expect("resolve summarizer");
         assert_eq!(summarizer.config.id, "ZaiGLM47Flash");
+
+        let watcher = registry
+            .resolve_for_role("watcher", &ModelResolutionContext::default())
+            .expect("resolve watcher");
+        assert_eq!(watcher.config.id, "ZaiGLM47Flash");
+
+        if let Some(value) = previous_policy {
+            std::env::set_var("CHOIR_MODEL_POLICY_PATH", value);
+        } else {
+            std::env::remove_var("CHOIR_MODEL_POLICY_PATH");
+        }
+    }
+
+    #[test]
+    fn test_load_model_policy_discovers_config_in_ancestor_dir() {
+        let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let previous_policy = std::env::var("CHOIR_MODEL_POLICY_PATH").ok();
+        std::env::remove_var("CHOIR_MODEL_POLICY_PATH");
+
+        let original_cwd = std::env::current_dir().expect("cwd");
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let repo_root = temp_dir.path().join("repo");
+        let nested = repo_root.join("sandbox");
+        let config_dir = repo_root.join("config");
+        std::fs::create_dir_all(&nested).expect("create nested dir");
+        std::fs::create_dir_all(&config_dir).expect("create config dir");
+
+        let policy_path = config_dir.join("model-policy.toml");
+        std::fs::write(
+            &policy_path,
+            r#"
+watcher_default_model = "ZaiGLM47Flash"
+watcher_allowed_models = ["ZaiGLM47Flash"]
+"#,
+        )
+        .expect("write policy");
+
+        std::env::set_current_dir(&nested).expect("set nested cwd");
+        let policy = load_model_policy();
+        std::env::set_current_dir(&original_cwd).expect("restore cwd");
+
+        assert_eq!(
+            policy.watcher_default_model.as_deref(),
+            Some("ZaiGLM47Flash")
+        );
 
         if let Some(value) = previous_policy {
             std::env::set_var("CHOIR_MODEL_POLICY_PATH", value);

@@ -108,6 +108,12 @@ macro_rules! baml_function_sync {
 // Generate function structs
 // =============================================================================
 
+baml_function_sync!(ConductorAssessTerminality(input: &types::ConductorTerminalityInput, ) -> (stream_types::ConductorTerminalityOutput, types::ConductorTerminalityOutput));
+
+baml_function_sync!(ConductorDecideNextAction(input: &types::ConductorDecisionInput, ) -> (stream_types::ConductorDecisionOutput, types::ConductorDecisionOutput));
+
+baml_function_sync!(ConductorRefineObjective(input: &types::ConductorObjectiveRefineInput, ) -> (stream_types::ConductorObjectiveRefineOutput, types::ConductorObjectiveRefineOutput));
+
 baml_function_sync!(ExtractResume(resume: impl AsRef<str> + BamlEncode, ) -> (stream_types::Resume, types::Resume));
 
 baml_function_sync!(PlanAction(messages: &[types::Message], system_context: impl AsRef<str> + BamlEncode, available_tools: impl AsRef<str> + BamlEncode, ) -> (stream_types::AgentPlan, types::AgentPlan));
@@ -115,6 +121,10 @@ baml_function_sync!(PlanAction(messages: &[types::Message], system_context: impl
 baml_function_sync!(QuickResponse(user_message: impl AsRef<str> + BamlEncode, conversation_history: impl AsRef<str> + BamlEncode, ) -> (String, String));
 
 baml_function_sync!(SynthesizeResponse(user_prompt: impl AsRef<str> + BamlEncode, tool_results: &[types::ToolResult], conversation_context: impl AsRef<str> + BamlEncode, ) -> (String, String));
+
+baml_function_sync!(WatcherRecommendMitigation(input: &types::WatcherMitigationInput, ) -> (stream_types::WatcherMitigationOutput, types::WatcherMitigationOutput));
+
+baml_function_sync!(WatcherReviewLogWindow(input: &types::WatcherLogWindowInput, ) -> (stream_types::WatcherReviewOutput, types::WatcherReviewOutput));
 
 // =============================================================================
 // Client Struct
@@ -124,6 +134,12 @@ baml_function_sync!(SynthesizeResponse(user_prompt: impl AsRef<str> + BamlEncode
 pub struct BamlSyncClient {
     options: FunctionOptions,
 
+    pub ConductorAssessTerminality: ConductorAssessTerminality,
+
+    pub ConductorDecideNextAction: ConductorDecideNextAction,
+
+    pub ConductorRefineObjective: ConductorRefineObjective,
+
     pub ExtractResume: ExtractResume,
 
     pub PlanAction: PlanAction,
@@ -131,12 +147,22 @@ pub struct BamlSyncClient {
     pub QuickResponse: QuickResponse,
 
     pub SynthesizeResponse: SynthesizeResponse,
+
+    pub WatcherRecommendMitigation: WatcherRecommendMitigation,
+
+    pub WatcherReviewLogWindow: WatcherReviewLogWindow,
 }
 
 impl BamlSyncClient {
     pub const fn new() -> Self {
         Self {
             options: FunctionOptions::new(),
+
+            ConductorAssessTerminality: ConductorAssessTerminality::new(),
+
+            ConductorDecideNextAction: ConductorDecideNextAction::new(),
+
+            ConductorRefineObjective: ConductorRefineObjective::new(),
 
             ExtractResume: ExtractResume::new(),
 
@@ -145,6 +171,10 @@ impl BamlSyncClient {
             QuickResponse: QuickResponse::new(),
 
             SynthesizeResponse: SynthesizeResponse::new(),
+
+            WatcherRecommendMitigation: WatcherRecommendMitigation::new(),
+
+            WatcherReviewLogWindow: WatcherReviewLogWindow::new(),
         }
     }
 
@@ -152,6 +182,18 @@ impl BamlSyncClient {
     pub fn with_options(&self, options: FunctionOptions) -> Self {
         Self {
             options: options.clone(),
+
+            ConductorAssessTerminality: ConductorAssessTerminality {
+                options: options.clone(),
+            },
+
+            ConductorDecideNextAction: ConductorDecideNextAction {
+                options: options.clone(),
+            },
+
+            ConductorRefineObjective: ConductorRefineObjective {
+                options: options.clone(),
+            },
 
             ExtractResume: ExtractResume {
                 options: options.clone(),
@@ -166,6 +208,14 @@ impl BamlSyncClient {
             },
 
             SynthesizeResponse: SynthesizeResponse {
+                options: options.clone(),
+            },
+
+            WatcherRecommendMitigation: WatcherRecommendMitigation {
+                options: options.clone(),
+            },
+
+            WatcherReviewLogWindow: WatcherReviewLogWindow {
                 options: options.clone(),
             },
         }

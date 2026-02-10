@@ -24,11 +24,39 @@ pub enum StreamTypes {
 
     AgentToolCall(AgentToolCall),
 
+    AlternativeAction(AlternativeAction),
+
     BashToolArgs(BashToolArgs),
 
     CompletionPayload(CompletionPayload),
 
+    ConductorAgendaItem(ConductorAgendaItem),
+
+    ConductorArtifact(ConductorArtifact),
+
+    ConductorCapabilityCall(ConductorCapabilityCall),
+
+    ConductorDecisionInput(ConductorDecisionInput),
+
+    ConductorDecisionOutput(ConductorDecisionOutput),
+
+    ConductorObjectiveRefineInput(ConductorObjectiveRefineInput),
+
+    ConductorObjectiveRefineOutput(ConductorObjectiveRefineOutput),
+
+    ConductorTerminalityInput(ConductorTerminalityInput),
+
+    ConductorTerminalityOutput(ConductorTerminalityOutput),
+
+    DetectedAnomaly(DetectedAnomaly),
+
+    EventSummary(EventSummary),
+
     Evidence(Evidence),
+
+    FollowupRecommendation(FollowupRecommendation),
+
+    HistoricalResolution(HistoricalResolution),
 
     ListFilesToolArgs(ListFilesToolArgs),
 
@@ -42,6 +70,14 @@ pub enum StreamTypes {
 
     Resume(Resume),
 
+    RetryPolicy(RetryPolicy),
+
+    ReviewScope(ReviewScope),
+
+    RiskItem(RiskItem),
+
+    RunStateSnapshot(RunStateSnapshot),
+
     SearchFilesToolArgs(SearchFilesToolArgs),
 
     StreamChunk(StreamChunk),
@@ -50,7 +86,21 @@ pub enum StreamTypes {
 
     UnresolvedItem(UnresolvedItem),
 
+    WatcherEscalation(WatcherEscalation),
+
+    WatcherEvent(WatcherEvent),
+
+    WatcherLogWindowInput(WatcherLogWindowInput),
+
+    WatcherMitigationInput(WatcherMitigationInput),
+
+    WatcherMitigationOutput(WatcherMitigationOutput),
+
+    WatcherReviewOutput(WatcherReviewOutput),
+
     WebSearchToolArgs(WebSearchToolArgs),
+
+    WorkerOutput(WorkerOutput),
 
     WriteFileToolArgs(WriteFileToolArgs),
 }
@@ -68,11 +118,39 @@ impl baml::KnownTypes for StreamTypes {
 
             StreamTypes::AgentToolCall(_) => "AgentToolCall",
 
+            StreamTypes::AlternativeAction(_) => "AlternativeAction",
+
             StreamTypes::BashToolArgs(_) => "BashToolArgs",
 
             StreamTypes::CompletionPayload(_) => "CompletionPayload",
 
+            StreamTypes::ConductorAgendaItem(_) => "ConductorAgendaItem",
+
+            StreamTypes::ConductorArtifact(_) => "ConductorArtifact",
+
+            StreamTypes::ConductorCapabilityCall(_) => "ConductorCapabilityCall",
+
+            StreamTypes::ConductorDecisionInput(_) => "ConductorDecisionInput",
+
+            StreamTypes::ConductorDecisionOutput(_) => "ConductorDecisionOutput",
+
+            StreamTypes::ConductorObjectiveRefineInput(_) => "ConductorObjectiveRefineInput",
+
+            StreamTypes::ConductorObjectiveRefineOutput(_) => "ConductorObjectiveRefineOutput",
+
+            StreamTypes::ConductorTerminalityInput(_) => "ConductorTerminalityInput",
+
+            StreamTypes::ConductorTerminalityOutput(_) => "ConductorTerminalityOutput",
+
+            StreamTypes::DetectedAnomaly(_) => "DetectedAnomaly",
+
+            StreamTypes::EventSummary(_) => "EventSummary",
+
             StreamTypes::Evidence(_) => "Evidence",
+
+            StreamTypes::FollowupRecommendation(_) => "FollowupRecommendation",
+
+            StreamTypes::HistoricalResolution(_) => "HistoricalResolution",
 
             StreamTypes::ListFilesToolArgs(_) => "ListFilesToolArgs",
 
@@ -86,6 +164,14 @@ impl baml::KnownTypes for StreamTypes {
 
             StreamTypes::Resume(_) => "Resume",
 
+            StreamTypes::RetryPolicy(_) => "RetryPolicy",
+
+            StreamTypes::ReviewScope(_) => "ReviewScope",
+
+            StreamTypes::RiskItem(_) => "RiskItem",
+
+            StreamTypes::RunStateSnapshot(_) => "RunStateSnapshot",
+
             StreamTypes::SearchFilesToolArgs(_) => "SearchFilesToolArgs",
 
             StreamTypes::StreamChunk(_) => "StreamChunk",
@@ -94,7 +180,21 @@ impl baml::KnownTypes for StreamTypes {
 
             StreamTypes::UnresolvedItem(_) => "UnresolvedItem",
 
+            StreamTypes::WatcherEscalation(_) => "WatcherEscalation",
+
+            StreamTypes::WatcherEvent(_) => "WatcherEvent",
+
+            StreamTypes::WatcherLogWindowInput(_) => "WatcherLogWindowInput",
+
+            StreamTypes::WatcherMitigationInput(_) => "WatcherMitigationInput",
+
+            StreamTypes::WatcherMitigationOutput(_) => "WatcherMitigationOutput",
+
+            StreamTypes::WatcherReviewOutput(_) => "WatcherReviewOutput",
+
             StreamTypes::WebSearchToolArgs(_) => "WebSearchToolArgs",
+
+            StreamTypes::WorkerOutput(_) => "WorkerOutput",
 
             StreamTypes::WriteFileToolArgs(_) => "WriteFileToolArgs",
         }

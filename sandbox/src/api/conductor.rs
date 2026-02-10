@@ -9,10 +9,11 @@ use axum::Json;
 use serde::Serialize;
 
 use crate::actors::conductor::{ConductorError as ActorConductorError, ConductorMsg};
+use crate::api::websocket::{broadcast_event, WsMessage};
 use crate::api::ApiState;
 use shared_types::{
     ConductorError, ConductorExecuteRequest, ConductorExecuteResponse, ConductorTaskState,
-    ConductorTaskStatus,
+    ConductorTaskStatus, EventImportance,
 };
 
 /// Conductor error codes for machine-readable error responses
@@ -124,7 +125,8 @@ fn map_actor_error(err: ActorConductorError) -> (StatusCode, ConductorError) {
         ),
         ActorConductorError::WorkerFailed(msg)
         | ActorConductorError::ReportWriteFailed(msg)
-        | ActorConductorError::DuplicateTask(msg) => (
+        | ActorConductorError::DuplicateTask(msg)
+        | ActorConductorError::PolicyError(msg) => (
             ConductorErrorCode::InternalError.status_code(),
             conductor_error(
                 ConductorErrorCode::InternalError,
@@ -133,6 +135,36 @@ fn map_actor_error(err: ActorConductorError) -> (StatusCode, ConductorError) {
             ),
         ),
     }
+}
+
+/// Broadcast a telemetry event to all WebSocket clients for a desktop
+async fn broadcast_telemetry_event(
+    ws_sessions: &crate::api::websocket::WsSessions,
+    desktop_id: &str,
+    event_type: &str,
+    capability: &str,
+    phase: &str,
+    importance: EventImportance,
+    data: serde_json::Value,
+) {
+    let importance_str = match importance {
+        EventImportance::High => "high",
+        EventImportance::Normal => "normal",
+        EventImportance::Low => "low",
+    };
+
+    broadcast_event(
+        ws_sessions,
+        desktop_id,
+        WsMessage::Telemetry {
+            event_type: event_type.to_string(),
+            capability: capability.to_string(),
+            phase: phase.to_string(),
+            importance: importance_str.to_string(),
+            data,
+        },
+    )
+    .await;
 }
 
 /// POST /conductor/execute - Submit a new Conductor task
@@ -197,6 +229,23 @@ pub async fn execute_task(
         }
     };
 
+    // Broadcast task started telemetry event
+    broadcast_telemetry_event(
+        &state.ws_sessions,
+        &request.desktop_id,
+        "conductor.task.started",
+        "conductor",
+        "initialization",
+        EventImportance::Normal,
+        serde_json::json!({
+            "task_id": &request.objective,
+            "objective": &request.objective,
+        }),
+    )
+    .await;
+
+    let desktop_id = request.desktop_id.clone();
+    let ws_sessions = state.ws_sessions.clone();
     let result: Result<Result<ConductorTaskState, ActorConductorError>, _> =
         ractor::call!(conductor, |reply| ConductorMsg::ExecuteTask {
             request,
@@ -205,6 +254,31 @@ pub async fn execute_task(
 
     match result {
         Ok(Ok(task_state)) => {
+            // Broadcast completion telemetry event
+            let (event_type, phase, importance) = match task_state.status {
+                ConductorTaskStatus::Completed => (
+                    "conductor.task.completed",
+                    "completion",
+                    EventImportance::Normal,
+                ),
+                ConductorTaskStatus::Failed => {
+                    ("conductor.task.failed", "failure", EventImportance::High)
+                }
+                _ => ("conductor.task.progress", "running", EventImportance::Low),
+            };
+            broadcast_telemetry_event(
+                &ws_sessions,
+                &desktop_id,
+                event_type,
+                "conductor",
+                phase,
+                importance,
+                serde_json::json!({
+                    "task_id": &task_state.task_id,
+                    "status": format!("{:?}", task_state.status),
+                }),
+            )
+            .await;
             let status = status_code_for_task(task_state.status);
             let response = task_state_to_execute_response(task_state);
             (status, Json(response)).into_response()

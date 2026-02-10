@@ -117,6 +117,10 @@ pub fn apply_ws_event(
         }
         WsEvent::Pong => {}
         WsEvent::Error(_) => {}
+        WsEvent::Telemetry { .. } => {
+            // Telemetry events are handled separately by the prompt bar
+            // They don't modify desktop state
+        }
     }
 }
 

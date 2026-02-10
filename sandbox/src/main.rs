@@ -123,54 +123,50 @@ async fn main() -> std::io::Result<()> {
         .map(|v| v != "0" && v.to_lowercase() != "false")
         .unwrap_or(true);
     if watcher_enabled {
+        let conductor_actor = match app_state.ensure_conductor().await {
+            Ok(actor) => Some(actor),
+            Err(err) => {
+                tracing::warn!(error = %err, "Watcher starting without conductor actor; escalations will be logged only");
+                None
+            }
+        };
         let poll_ms = std::env::var("WATCHER_POLL_MS")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(1500);
-        let failure_spike_threshold = std::env::var("WATCHER_FAILURE_SPIKE_THRESHOLD")
+        let review_window_size = std::env::var("WATCHER_REVIEW_WINDOW_SIZE")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(3);
-        let timeout_spike_threshold = std::env::var("WATCHER_TIMEOUT_SPIKE_THRESHOLD")
+            .unwrap_or(20);
+        let max_events_per_scan = std::env::var("WATCHER_MAX_EVENTS_PER_SCAN")
             .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(2);
-        let network_spike_threshold = std::env::var("WATCHER_NETWORK_SPIKE_THRESHOLD")
+            .and_then(|v| v.parse::<i64>().ok())
+            .unwrap_or(500);
+        let start_from_latest = std::env::var("WATCHER_START_FROM_LATEST")
             .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(2);
-        let retry_storm_threshold = std::env::var("WATCHER_RETRY_STORM_THRESHOLD")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(3);
-        let stalled_task_timeout_ms = std::env::var("WATCHER_STALLED_TASK_TIMEOUT_MS")
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(90_000);
+            .map(|v| v != "0" && v.to_lowercase() != "false")
+            .unwrap_or(true);
         let _ = Actor::spawn(
             Some("watcher.default".to_string()),
             WatcherActor,
             WatcherArguments {
                 event_store: event_store.clone(),
+                conductor_actor,
                 watcher_id: "watcher:default".to_string(),
                 poll_interval_ms: poll_ms,
-                failure_spike_threshold,
-                timeout_spike_threshold,
-                network_spike_threshold,
-                retry_storm_threshold,
-                stalled_task_timeout_ms,
+                review_window_size,
+                max_events_per_scan,
+                start_from_latest,
             },
         )
         .await
         .expect("Failed to spawn WatcherActor");
         tracing::info!(
             poll_ms,
-            failure_spike_threshold,
-            timeout_spike_threshold,
-            network_spike_threshold,
-            retry_storm_threshold,
-            stalled_task_timeout_ms,
-            "WatcherActor started"
+            review_window_size,
+            max_events_per_scan,
+            start_from_latest,
+            "WatcherActor started (LLM-driven)"
         );
     }
 

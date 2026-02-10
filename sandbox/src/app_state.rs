@@ -265,6 +265,7 @@ impl AppState {
                 event_store: self.inner.event_store.clone(),
                 researcher_actor,
                 terminal_actor,
+                policy: None,
             },
         )
         .await

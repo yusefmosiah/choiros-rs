@@ -621,7 +621,273 @@ pub enum NextActionType {
 }
 
 // ============================================================================
-// Conductor Types
+// Conductor Runtime Types (Phase A: Agentic Readiness)
+// ============================================================================
+
+/// Wake policy for events - determines if event should trigger conductor wake
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum WakePolicy {
+    /// Event should wake the conductor for decision-making
+    Wake,
+    /// Event is display-only telemetry, no wake
+    DisplayOnly,
+}
+
+/// Importance level for events
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum EventImportance {
+    Low,
+    Normal,
+    High,
+}
+
+/// Event metadata for wake/display lane separation
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct EventMetadata {
+    /// Wake policy for this event
+    pub wake_policy: WakePolicy,
+    /// Importance level
+    pub importance: EventImportance,
+    /// Run ID for grouping related work
+    pub run_id: Option<String>,
+    /// Task ID within the run
+    pub task_id: Option<String>,
+    /// Capability call ID
+    pub call_id: Option<String>,
+    /// Which capability produced this event
+    pub capability: Option<String>,
+    /// Execution phase
+    pub phase: Option<String>,
+}
+
+impl Default for EventMetadata {
+    fn default() -> Self {
+        Self {
+            wake_policy: WakePolicy::DisplayOnly,
+            importance: EventImportance::Normal,
+            run_id: None,
+            task_id: None,
+            call_id: None,
+            capability: None,
+            phase: None,
+        }
+    }
+}
+
+impl EventMetadata {
+    /// Create a wake event with high importance
+    pub fn wake() -> Self {
+        Self {
+            wake_policy: WakePolicy::Wake,
+            importance: EventImportance::High,
+            ..Default::default()
+        }
+    }
+
+    /// Create a display-only event with normal importance
+    pub fn display() -> Self {
+        Self {
+            wake_policy: WakePolicy::DisplayOnly,
+            importance: EventImportance::Normal,
+            ..Default::default()
+        }
+    }
+
+    /// Set the run_id
+    pub fn with_run_id(mut self, run_id: impl Into<String>) -> Self {
+        self.run_id = Some(run_id.into());
+        self
+    }
+
+    /// Set the task_id
+    pub fn with_task_id(mut self, task_id: impl Into<String>) -> Self {
+        self.task_id = Some(task_id.into());
+        self
+    }
+
+    /// Set the call_id
+    pub fn with_call_id(mut self, call_id: impl Into<String>) -> Self {
+        self.call_id = Some(call_id.into());
+        self
+    }
+
+    /// Set the capability
+    pub fn with_capability(mut self, capability: impl Into<String>) -> Self {
+        self.capability = Some(capability.into());
+        self
+    }
+
+    /// Set the phase
+    pub fn with_phase(mut self, phase: impl Into<String>) -> Self {
+        self.phase = Some(phase.into());
+        self
+    }
+}
+
+/// Status of a capability call
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum CapabilityCallStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+    Blocked,
+}
+
+/// A single item in the conductor's agenda
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct ConductorAgendaItem {
+    pub item_id: String,
+    pub capability: String,
+    pub objective: String,
+    pub priority: u8,            // 0 = highest
+    pub depends_on: Vec<String>, // item_ids that must complete first
+    pub status: AgendaItemStatus,
+    pub created_at: DateTime<Utc>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+}
+
+/// Status of an agenda item
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum AgendaItemStatus {
+    Pending,
+    Ready, // Dependencies satisfied, ready to run
+    Running,
+    Completed,
+    Failed,
+    Blocked,
+}
+
+/// A tracked capability call in-flight
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct ConductorCapabilityCall {
+    pub call_id: String,
+    pub capability: String,
+    pub objective: String,
+    pub status: CapabilityCallStatus,
+    pub started_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub parent_call_id: Option<String>, // For nested calls
+    pub agenda_item_id: Option<String>, // Link back to agenda
+    pub artifact_ids: Vec<String>,      // Produced artifacts
+    pub error: Option<String>,
+}
+
+/// A typed artifact produced during execution
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct ConductorArtifact {
+    pub artifact_id: String,
+    pub kind: ArtifactKind,
+    pub reference: String, // Path, URL, or content hash
+    pub mime_type: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub source_call_id: String,
+    #[ts(type = "unknown")]
+    pub metadata: Option<serde_json::Value>,
+}
+
+/// Kinds of artifacts that can be produced
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum ArtifactKind {
+    Report,
+    File,
+    WebPage,
+    SearchResults,
+    TerminalOutput,
+    CodeSnippet,
+    JsonData,
+    Other,
+}
+
+/// A decision made by the conductor
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct ConductorDecision {
+    pub decision_id: String,
+    pub decision_type: DecisionType,
+    pub reason: String,
+    pub timestamp: DateTime<Utc>,
+    pub affected_agenda_items: Vec<String>,
+    pub new_agenda_items: Vec<String>,
+}
+
+/// Types of decisions the conductor can make
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum DecisionType {
+    /// Dispatch a capability call
+    Dispatch,
+    /// Retry a failed call
+    Retry,
+    /// Spawn a follow-up task
+    SpawnFollowup,
+    /// Mark run as complete
+    Complete,
+    /// Mark run as blocked
+    Block,
+    /// Continue to next agenda item
+    Continue,
+}
+
+/// Full runtime state for a conductor run
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct ConductorRunState {
+    pub run_id: String,
+    pub task_id: String,
+    pub objective: String,
+    pub status: ConductorRunStatus,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    /// Ordered pending work items
+    pub agenda: Vec<ConductorAgendaItem>,
+    /// In-flight capability calls
+    pub active_calls: Vec<ConductorCapabilityCall>,
+    /// Typed output references
+    pub artifacts: Vec<ConductorArtifact>,
+    /// Typed decisions made during orchestration
+    pub decision_log: Vec<ConductorDecision>,
+    /// Output mode for final delivery
+    pub output_mode: ConductorOutputMode,
+    /// Desktop ID for UI coordination
+    pub desktop_id: String,
+    /// Correlation ID for tracing
+    pub correlation_id: String,
+}
+
+/// Status of a conductor run
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum ConductorRunStatus {
+    Initializing,
+    Running,
+    WaitingForCalls,
+    Completing,
+    Completed,
+    Failed,
+    Blocked,
+}
+
+// ============================================================================
+// Conductor Types (Legacy - keep for compatibility)
 // ============================================================================
 
 /// Output mode for Conductor task execution
@@ -970,5 +1236,19 @@ mod tests {
         ConductorExecuteResponse::export(&config).unwrap();
         ConductorError::export(&config).unwrap();
         ConductorTaskState::export(&config).unwrap();
+        // New runtime types
+        WakePolicy::export(&config).unwrap();
+        EventImportance::export(&config).unwrap();
+        EventMetadata::export(&config).unwrap();
+        CapabilityCallStatus::export(&config).unwrap();
+        ConductorAgendaItem::export(&config).unwrap();
+        AgendaItemStatus::export(&config).unwrap();
+        ConductorCapabilityCall::export(&config).unwrap();
+        ConductorArtifact::export(&config).unwrap();
+        ArtifactKind::export(&config).unwrap();
+        ConductorDecision::export(&config).unwrap();
+        DecisionType::export(&config).unwrap();
+        ConductorRunState::export(&config).unwrap();
+        ConductorRunStatus::export(&config).unwrap();
     }
 }

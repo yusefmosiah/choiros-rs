@@ -2,11 +2,237 @@ use dioxus::prelude::*;
 use gloo_timers::future::TimeoutFuture;
 use shared_types::{
     ConductorError, ConductorExecuteResponse, ConductorOutputMode, ConductorTaskStatus,
-    ConductorToastPayload, WindowState,
+    ConductorToastPayload, EventImportance, WindowState,
 };
 
 use crate::api::{execute_conductor, open_window, poll_conductor_task};
 use crate::desktop::apps::get_app_icon;
+
+// ============================================================================
+// Phase F: Live Telemetry Stream (Star Wars Style Rising Lines)
+// ============================================================================
+
+/// A single telemetry line for display
+#[derive(Clone, Debug)]
+pub struct TelemetryLine {
+    pub id: String,
+    pub message: String,
+    pub capability: String,
+    pub phase: String,
+    pub importance: EventImportance,
+    pub created_at_ms: f64, // JS timestamp in milliseconds
+    pub ttl_ms: u32,
+}
+
+impl TelemetryLine {
+    fn now_ms() -> f64 {
+        // Use JS Date.now() equivalent through wasm-bindgen if available,
+        // otherwise fall back to performance.now approximation
+        #[cfg(target_arch = "wasm32")]
+        {
+            js_sys::Date::now()
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as f64
+        }
+    }
+
+    /// Calculate current opacity based on age (fade out over TTL)
+    pub fn opacity(&self) -> f64 {
+        let age_ms = Self::now_ms() - self.created_at_ms;
+        let ttl = self.ttl_ms as f64;
+        if age_ms >= ttl {
+            0.0
+        } else {
+            1.0 - (age_ms / ttl)
+        }
+    }
+
+    /// Calculate vertical offset (rise up over time)
+    pub fn vertical_offset(&self) -> f64 {
+        let age_ms = Self::now_ms() - self.created_at_ms;
+        let progress = (age_ms / 5000.0).min(1.0); // Full rise over 5s
+        -progress * 60.0 // Rise up by 60px
+    }
+
+    /// Calculate scale (shrink as it rises)
+    pub fn scale(&self) -> f64 {
+        let age_ms = Self::now_ms() - self.created_at_ms;
+        let progress = (age_ms / 5000.0).min(1.0);
+        1.0 - (progress * 0.2) // Shrink to 80%
+    }
+
+    pub fn is_expired(&self) -> bool {
+        (Self::now_ms() - self.created_at_ms) as u32 >= self.ttl_ms
+    }
+}
+
+/// State for the live telemetry stream
+#[derive(Clone, Debug, Default)]
+pub struct TelemetryStreamState {
+    pub lines: Vec<TelemetryLine>,
+    pub max_lines: usize,
+    pub enabled: bool,
+}
+
+impl TelemetryStreamState {
+    pub fn new(max_lines: usize) -> Self {
+        Self {
+            lines: Vec::new(),
+            max_lines,
+            enabled: true,
+        }
+    }
+
+    pub fn add_line(&mut self, message: String, capability: String, phase: String, importance: EventImportance) {
+        let now_ms = TelemetryLine::now_ms();
+        let line = TelemetryLine {
+            id: format!("{}-{}", capability, now_ms),
+            message,
+            capability,
+            phase,
+            importance,
+            created_at_ms: now_ms,
+            ttl_ms: match importance {
+                EventImportance::High => 8000,
+                EventImportance::Normal => 5000,
+                EventImportance::Low => 3000,
+            },
+        };
+        self.lines.push(line);
+        // Keep only the most recent lines
+        if self.lines.len() > self.max_lines {
+            self.lines.remove(0);
+        }
+    }
+
+    pub fn cleanup_expired(&mut self) {
+        self.lines.retain(|line| !line.is_expired());
+    }
+
+    pub fn clear(&mut self) {
+        self.lines.clear();
+    }
+}
+
+/// Props for the telemetry stream component
+#[derive(Props, Clone, PartialEq)]
+pub struct LiveTelemetryStreamProps {
+    pub state: Signal<TelemetryStreamState>,
+    pub is_active: bool,
+}
+
+/// Live telemetry stream component - displays rising animated lines
+#[component]
+pub fn LiveTelemetryStream(props: LiveTelemetryStreamProps) -> Element {
+    // Spawn cleanup task
+    let mut state = props.state;
+    use_effect(move || {
+        spawn(async move {
+            loop {
+                gloo_timers::future::TimeoutFuture::new(100).await; // 100ms cleanup interval
+                state.write().cleanup_expired();
+            }
+        });
+    });
+
+    let state_read = state.read();
+
+    if !state_read.enabled || state_read.lines.is_empty() {
+        return rsx! {};
+    }
+
+    rsx! {
+        div {
+            class: "live-telemetry-stream",
+            style: "position: absolute; bottom: 100%; left: 0; right: 0; height: 200px; overflow: visible; pointer-events: none; z-index: 1500;",
+
+            for line in state_read.lines.iter().rev().enumerate() {
+                div {
+                    key: "{line.1.id}",
+                    class: "telemetry-line",
+                    style: format!(
+                        "position: absolute; bottom: 0; left: 1rem; right: 1rem; padding: 0.25rem 0.5rem; font-size: 0.75rem; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transform: translateY({}px) scale({}); opacity: {}; color: {}; transition: transform 0.1s linear, opacity 0.1s linear;",
+                        line.1.vertical_offset(),
+                        line.1.scale(),
+                        line.1.opacity(),
+                        match line.1.importance {
+                            EventImportance::High => "#f59e0b", // amber
+                            EventImportance::Normal => "#10b981", // emerald
+                            EventImportance::Low => "#6b7280",   // gray
+                        }
+                    ),
+
+                    // Capability indicator
+                    span {
+                        style: "display: inline-block; padding: 0.1rem 0.25rem; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border-radius: 2px; margin-right: 0.5rem; font-size: 0.65rem; text-transform: uppercase;",
+                        "[{line.1.capability}]"
+                    }
+
+                    // Message
+                    span { "{line.1.message}" }
+                }
+            }
+        }
+    }
+}
+
+/// Helper function to format telemetry messages for display
+pub fn format_telemetry_message(event_type: &str, data: &serde_json::Value) -> String {
+    // The actual payload fields are nested under the "data" key
+    let payload = data.get("data").unwrap_or(data);
+
+    match event_type {
+        "conductor.tool.call" => {
+            let tool = payload.get("tool").and_then(|v| v.as_str()).unwrap_or("unknown");
+            format!("Calling {}...", tool)
+        }
+        "conductor.tool.result" => {
+            let tool = payload.get("tool").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let success = payload.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+            if success {
+                format!("{} completed", tool)
+            } else {
+                format!("{} failed", tool)
+            }
+        }
+        "conductor.progress" => {
+            payload
+                .get("message")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .unwrap_or_else(|| "Processing...".to_string())
+        }
+        "conductor.finding" => {
+            let claim = payload
+                .get("claim")
+                .and_then(|v| v.as_str())
+                .unwrap_or("New finding");
+            format!("Found: {}", claim.chars().take(40).collect::<String>())
+        }
+        "conductor.learning" => {
+            let insight = payload
+                .get("insight")
+                .and_then(|v| v.as_str())
+                .unwrap_or("New insight");
+            format!("Learned: {}", insight.chars().take(40).collect::<String>())
+        }
+        "conductor.capability.completed" => {
+            format!("Capability completed")
+        }
+        "conductor.capability.failed" => {
+            format!("Capability failed")
+        }
+        _ => {
+            // Generic message
+            event_type.replace("conductor.", "").replace(".", " ")
+        }
+    }
+}
 
 /// State machine for conductor submission flow
 #[derive(Clone, Debug, PartialEq)]
@@ -121,18 +347,32 @@ fn failure_from_error(error: Option<ConductorError>) -> (String, String) {
     })
 }
 
+#[derive(Props, Clone, PartialEq)]
+pub struct PromptBarProps {
+    pub connected: bool,
+    pub is_mobile: bool,
+    pub windows: Vec<WindowState>,
+    pub active_window: Option<String>,
+    pub desktop_id: String,
+    pub on_focus_window: Callback<String>,
+    pub on_show_desktop: Callback<()>,
+    pub current_theme: String,
+    pub on_toggle_theme: Callback<()>,
+    pub telemetry_state: Signal<TelemetryStreamState>,
+}
+
 #[component]
-pub fn PromptBar(
-    connected: bool,
-    is_mobile: bool,
-    windows: Vec<WindowState>,
-    active_window: Option<String>,
-    desktop_id: String,
-    on_focus_window: Callback<String>,
-    on_show_desktop: Callback<()>,
-    current_theme: String,
-    on_toggle_theme: Callback<()>,
-) -> Element {
+pub fn PromptBar(props: PromptBarProps) -> Element {
+    let connected = props.connected;
+    let is_mobile = props.is_mobile;
+    let windows = props.windows;
+    let active_window = props.active_window;
+    let desktop_id = props.desktop_id;
+    let on_focus_window = props.on_focus_window;
+    let on_show_desktop = props.on_show_desktop;
+    let current_theme = props.current_theme;
+    let on_toggle_theme = props.on_toggle_theme;
+    let telemetry_state = props.telemetry_state;
     let mut input_value = use_signal(String::new);
     let mut mobile_dock_expanded = use_signal(|| false);
     let visible_mobile_icons = 2usize;
@@ -350,6 +590,12 @@ pub fn PromptBar(
     }
 
     rsx! {
+        // Live telemetry stream overlay (Phase F)
+        LiveTelemetryStream {
+            state: telemetry_state,
+            is_active: conductor_state().is_active(),
+        }
+
         div {
             class: "prompt-bar",
             style: "display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1rem; background: var(--promptbar-bg, #111827); border-top: 1px solid var(--border-color, #374151); position: relative; z-index: 2000;",

@@ -4,6 +4,7 @@ terminal_default_model = "KimiK25"
 conductor_default_model = "ClaudeBedrockOpus46"
 researcher_default_model = "ZaiGLM47"
 summarizer_default_model = "ZaiGLM47Flash"
+watcher_default_model = "ZaiGLM47Flash"
 allow_request_override = true
 
 allowed_models = [
@@ -44,5 +45,11 @@ researcher_allowed_models = [
 
 summarizer_allowed_models = [
   "ZaiGLM47Flash",
+  "ClaudeBedrockHaiku45"
+]
+
+watcher_allowed_models = [
+  "ZaiGLM47Flash",
+  "ZaiGLM47Air",
   "ClaudeBedrockHaiku45"
 ]

@@ -29,11 +29,39 @@ pub enum Types {
 
     AgentToolCall(AgentToolCall),
 
+    AlternativeAction(AlternativeAction),
+
     BashToolArgs(BashToolArgs),
 
     CompletionPayload(CompletionPayload),
 
+    ConductorAgendaItem(ConductorAgendaItem),
+
+    ConductorArtifact(ConductorArtifact),
+
+    ConductorCapabilityCall(ConductorCapabilityCall),
+
+    ConductorDecisionInput(ConductorDecisionInput),
+
+    ConductorDecisionOutput(ConductorDecisionOutput),
+
+    ConductorObjectiveRefineInput(ConductorObjectiveRefineInput),
+
+    ConductorObjectiveRefineOutput(ConductorObjectiveRefineOutput),
+
+    ConductorTerminalityInput(ConductorTerminalityInput),
+
+    ConductorTerminalityOutput(ConductorTerminalityOutput),
+
+    DetectedAnomaly(DetectedAnomaly),
+
+    EventSummary(EventSummary),
+
     Evidence(Evidence),
+
+    FollowupRecommendation(FollowupRecommendation),
+
+    HistoricalResolution(HistoricalResolution),
 
     ListFilesToolArgs(ListFilesToolArgs),
 
@@ -47,6 +75,14 @@ pub enum Types {
 
     Resume(Resume),
 
+    RetryPolicy(RetryPolicy),
+
+    ReviewScope(ReviewScope),
+
+    RiskItem(RiskItem),
+
+    RunStateSnapshot(RunStateSnapshot),
+
     SearchFilesToolArgs(SearchFilesToolArgs),
 
     StreamChunk(StreamChunk),
@@ -55,9 +91,29 @@ pub enum Types {
 
     UnresolvedItem(UnresolvedItem),
 
+    WatcherEscalation(WatcherEscalation),
+
+    WatcherEvent(WatcherEvent),
+
+    WatcherLogWindowInput(WatcherLogWindowInput),
+
+    WatcherMitigationInput(WatcherMitigationInput),
+
+    WatcherMitigationOutput(WatcherMitigationOutput),
+
+    WatcherReviewOutput(WatcherReviewOutput),
+
     WebSearchToolArgs(WebSearchToolArgs),
 
+    WorkerOutput(WorkerOutput),
+
     WriteFileToolArgs(WriteFileToolArgs),
+
+    DecisionType(DecisionType),
+
+    EscalationAction(EscalationAction),
+
+    EscalationKind(EscalationKind),
 
     EvidenceType(EvidenceType),
 
@@ -66,6 +122,14 @@ pub enum Types {
     ObjectiveStatus(ObjectiveStatus),
 
     PlanMode(PlanMode),
+
+    ReviewStatus(ReviewStatus),
+
+    RiskCategory(RiskCategory),
+
+    TerminalityStatus(TerminalityStatus),
+
+    UrgencyLevel(UrgencyLevel),
 }
 
 impl baml::KnownTypes for Types {
@@ -81,11 +145,39 @@ impl baml::KnownTypes for Types {
 
             Types::AgentToolCall(_) => "AgentToolCall",
 
+            Types::AlternativeAction(_) => "AlternativeAction",
+
             Types::BashToolArgs(_) => "BashToolArgs",
 
             Types::CompletionPayload(_) => "CompletionPayload",
 
+            Types::ConductorAgendaItem(_) => "ConductorAgendaItem",
+
+            Types::ConductorArtifact(_) => "ConductorArtifact",
+
+            Types::ConductorCapabilityCall(_) => "ConductorCapabilityCall",
+
+            Types::ConductorDecisionInput(_) => "ConductorDecisionInput",
+
+            Types::ConductorDecisionOutput(_) => "ConductorDecisionOutput",
+
+            Types::ConductorObjectiveRefineInput(_) => "ConductorObjectiveRefineInput",
+
+            Types::ConductorObjectiveRefineOutput(_) => "ConductorObjectiveRefineOutput",
+
+            Types::ConductorTerminalityInput(_) => "ConductorTerminalityInput",
+
+            Types::ConductorTerminalityOutput(_) => "ConductorTerminalityOutput",
+
+            Types::DetectedAnomaly(_) => "DetectedAnomaly",
+
+            Types::EventSummary(_) => "EventSummary",
+
             Types::Evidence(_) => "Evidence",
+
+            Types::FollowupRecommendation(_) => "FollowupRecommendation",
+
+            Types::HistoricalResolution(_) => "HistoricalResolution",
 
             Types::ListFilesToolArgs(_) => "ListFilesToolArgs",
 
@@ -99,6 +191,14 @@ impl baml::KnownTypes for Types {
 
             Types::Resume(_) => "Resume",
 
+            Types::RetryPolicy(_) => "RetryPolicy",
+
+            Types::ReviewScope(_) => "ReviewScope",
+
+            Types::RiskItem(_) => "RiskItem",
+
+            Types::RunStateSnapshot(_) => "RunStateSnapshot",
+
             Types::SearchFilesToolArgs(_) => "SearchFilesToolArgs",
 
             Types::StreamChunk(_) => "StreamChunk",
@@ -107,9 +207,29 @@ impl baml::KnownTypes for Types {
 
             Types::UnresolvedItem(_) => "UnresolvedItem",
 
+            Types::WatcherEscalation(_) => "WatcherEscalation",
+
+            Types::WatcherEvent(_) => "WatcherEvent",
+
+            Types::WatcherLogWindowInput(_) => "WatcherLogWindowInput",
+
+            Types::WatcherMitigationInput(_) => "WatcherMitigationInput",
+
+            Types::WatcherMitigationOutput(_) => "WatcherMitigationOutput",
+
+            Types::WatcherReviewOutput(_) => "WatcherReviewOutput",
+
             Types::WebSearchToolArgs(_) => "WebSearchToolArgs",
 
+            Types::WorkerOutput(_) => "WorkerOutput",
+
             Types::WriteFileToolArgs(_) => "WriteFileToolArgs",
+
+            Types::DecisionType(_) => "DecisionType",
+
+            Types::EscalationAction(_) => "EscalationAction",
+
+            Types::EscalationKind(_) => "EscalationKind",
 
             Types::EvidenceType(_) => "EvidenceType",
 
@@ -118,6 +238,14 @@ impl baml::KnownTypes for Types {
             Types::ObjectiveStatus(_) => "ObjectiveStatus",
 
             Types::PlanMode(_) => "PlanMode",
+
+            Types::ReviewStatus(_) => "ReviewStatus",
+
+            Types::RiskCategory(_) => "RiskCategory",
+
+            Types::TerminalityStatus(_) => "TerminalityStatus",
+
+            Types::UrgencyLevel(_) => "UrgencyLevel",
         }
     }
 }

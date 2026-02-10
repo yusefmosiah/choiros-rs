@@ -82,6 +82,15 @@ pub enum WsMessage {
     #[serde(rename = "app_registered")]
     AppRegistered { app: shared_types::AppDefinition },
 
+    #[serde(rename = "telemetry")]
+    Telemetry {
+        event_type: String,
+        capability: String,
+        phase: String,
+        importance: String,
+        data: serde_json::Value,
+    },
+
     #[serde(rename = "error")]
     Error { message: String },
 }
