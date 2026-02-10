@@ -63,11 +63,13 @@ pub struct EventStoreState {
 /// Messages handled by EventStoreActor
 #[derive(Debug)]
 pub enum EventStoreMsg {
-    /// Append a new event to the store
+    /// Append a new event to the store (with reply)
     Append {
         event: AppendEvent,
         reply: RpcReplyPort<Result<shared_types::Event, EventStoreError>>,
     },
+    /// Append a new event to the store (fire-and-forget)
+    AppendAsync { event: AppendEvent },
     /// Get all events for an actor since a specific sequence number
     GetEventsForActor {
         actor_id: String,
@@ -249,6 +251,9 @@ impl Actor for EventStoreActor {
             EventStoreMsg::Append { event, reply } => {
                 let result = self.handle_append(event, state).await;
                 let _ = reply.send(result);
+            }
+            EventStoreMsg::AppendAsync { event } => {
+                let _ = self.handle_append(event, state).await;
             }
             EventStoreMsg::GetEventsForActor {
                 actor_id,

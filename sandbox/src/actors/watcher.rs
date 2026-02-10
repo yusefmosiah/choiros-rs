@@ -81,12 +81,18 @@ struct WatcherAlertPayload {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 enum WorkerLifecycleEventType {
     #[serde(rename = "worker.task.started")]
+    #[serde(alias = "conductor.task.started")]
     Started,
     #[serde(rename = "worker.task.progress")]
+    #[serde(alias = "conductor.task.progress")]
+    #[serde(alias = "conductor.worker.call")]
+    #[serde(alias = "conductor.worker.result")]
     Progress,
     #[serde(rename = "worker.task.completed")]
+    #[serde(alias = "conductor.task.completed")]
     Completed,
     #[serde(rename = "worker.task.failed")]
+    #[serde(alias = "conductor.task.failed")]
     Failed,
 }
 
@@ -458,6 +464,26 @@ mod tests {
     use super::*;
     use crate::actors::event_store::{get_recent_events, EventStoreActor, EventStoreArguments};
     use ractor::Actor;
+
+    #[test]
+    fn test_parse_worker_lifecycle_type_accepts_conductor_aliases() {
+        assert_eq!(
+            WatcherActor::parse_worker_lifecycle_type("conductor.task.started"),
+            Some(WorkerLifecycleEventType::Started)
+        );
+        assert_eq!(
+            WatcherActor::parse_worker_lifecycle_type("conductor.task.progress"),
+            Some(WorkerLifecycleEventType::Progress)
+        );
+        assert_eq!(
+            WatcherActor::parse_worker_lifecycle_type("conductor.task.completed"),
+            Some(WorkerLifecycleEventType::Completed)
+        );
+        assert_eq!(
+            WatcherActor::parse_worker_lifecycle_type("conductor.task.failed"),
+            Some(WorkerLifecycleEventType::Failed)
+        );
+    }
 
     #[tokio::test]
     async fn test_watcher_emits_failure_spike_alert() {

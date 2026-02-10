@@ -621,6 +621,128 @@ pub enum NextActionType {
 }
 
 // ============================================================================
+// Conductor Types
+// ============================================================================
+
+/// Output mode for Conductor task execution
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum ConductorOutputMode {
+    Auto,
+    MarkdownReportToWriter,
+    ToastWithReportLink,
+}
+
+/// Visual tone for prompt-bar toast output.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum ConductorToastTone {
+    Info,
+    Success,
+    Warning,
+    Error,
+}
+
+/// Typed prompt-bar toast payload for Conductor completion.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct ConductorToastPayload {
+    pub title: String,
+    pub message: String,
+    pub tone: ConductorToastTone,
+    pub report_path: Option<String>,
+}
+
+/// Worker types the Conductor can orchestrate.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum ConductorWorkerType {
+    Researcher,
+    Terminal,
+}
+
+/// One typed worker step in a Conductor execution plan.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct ConductorWorkerStep {
+    pub worker_type: ConductorWorkerType,
+    pub objective: Option<String>,
+    pub terminal_command: Option<String>,
+    pub timeout_ms: Option<u64>,
+    pub max_results: Option<u32>,
+    pub max_steps: Option<u8>,
+}
+
+/// Status of a Conductor task
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum ConductorTaskStatus {
+    Queued,
+    Running,
+    WaitingWorker,
+    Completed,
+    Failed,
+}
+
+/// Request to execute a Conductor task
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct ConductorExecuteRequest {
+    pub objective: String,
+    pub desktop_id: String,
+    pub output_mode: ConductorOutputMode,
+    pub worker_plan: Option<Vec<ConductorWorkerStep>>,
+    #[ts(type = "unknown")]
+    pub hints: Option<serde_json::Value>,
+    pub correlation_id: Option<String>,
+}
+
+/// Typed error for Conductor task failures
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct ConductorError {
+    pub code: String,
+    pub message: String,
+    pub failure_kind: Option<FailureKind>,
+}
+
+/// Response from Conductor task execution
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct ConductorExecuteResponse {
+    pub task_id: String,
+    pub status: ConductorTaskStatus,
+    pub report_path: Option<String>,
+    #[ts(type = "unknown")]
+    pub writer_window_props: Option<serde_json::Value>,
+    pub toast: Option<ConductorToastPayload>,
+    pub correlation_id: String,
+    pub error: Option<ConductorError>,
+}
+
+/// State tracking for a Conductor task
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct ConductorTaskState {
+    pub task_id: String,
+    pub status: ConductorTaskStatus,
+    pub objective: String,
+    pub desktop_id: String,
+    pub output_mode: ConductorOutputMode,
+    pub correlation_id: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub report_path: Option<String>,
+    pub toast: Option<ConductorToastPayload>,
+    pub error: Option<ConductorError>,
+}
+
+// ============================================================================
 // Constants
 // ============================================================================
 
@@ -739,6 +861,13 @@ pub const EVENT_TOPIC_RESEARCH_PROVIDER_RESULT: &str = "research.provider.result
 pub const EVENT_TOPIC_RESEARCH_PROVIDER_ERROR: &str = "research.provider.error";
 pub const EVENT_TOPIC_ARTIFACT_CREATED: &str = "artifact.created";
 
+pub const EVENT_TOPIC_CONDUCTOR_TASK_STARTED: &str = "conductor.task.started";
+pub const EVENT_TOPIC_CONDUCTOR_TASK_PROGRESS: &str = "conductor.task.progress";
+pub const EVENT_TOPIC_CONDUCTOR_WORKER_CALL: &str = "conductor.worker.call";
+pub const EVENT_TOPIC_CONDUCTOR_WORKER_RESULT: &str = "conductor.worker.result";
+pub const EVENT_TOPIC_CONDUCTOR_TASK_COMPLETED: &str = "conductor.task.completed";
+pub const EVENT_TOPIC_CONDUCTOR_TASK_FAILED: &str = "conductor.task.failed";
+
 pub const INTERFACE_KIND_UACTOR_ACTOR: &str = "uactor_actor";
 pub const INTERFACE_KIND_APPACTOR_TOOLACTOR: &str = "appactor_toolactor";
 
@@ -831,5 +960,15 @@ mod tests {
         WorkerSignalRejectReason::export(&config).unwrap();
         WorkerSignalRejection::export(&config).unwrap();
         WorkerTurnReportIngestResult::export(&config).unwrap();
+        ConductorOutputMode::export(&config).unwrap();
+        ConductorToastTone::export(&config).unwrap();
+        ConductorToastPayload::export(&config).unwrap();
+        ConductorWorkerType::export(&config).unwrap();
+        ConductorWorkerStep::export(&config).unwrap();
+        ConductorTaskStatus::export(&config).unwrap();
+        ConductorExecuteRequest::export(&config).unwrap();
+        ConductorExecuteResponse::export(&config).unwrap();
+        ConductorError::export(&config).unwrap();
+        ConductorTaskState::export(&config).unwrap();
     }
 }

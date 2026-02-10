@@ -4,8 +4,10 @@ use tokio::sync::Mutex;
 
 use crate::actors::chat::ChatActorMsg;
 use crate::actors::chat_agent::ChatAgentMsg;
+use crate::actors::conductor::{ConductorActor, ConductorArguments, ConductorMsg};
 use crate::actors::desktop::{DesktopActorMsg, DesktopArguments};
 use crate::actors::event_store::EventStoreMsg;
+use crate::actors::researcher::ResearcherMsg;
 use crate::actors::terminal::TerminalMsg;
 use crate::supervisor::{ApplicationSupervisor, ApplicationSupervisorMsg};
 
@@ -17,6 +19,7 @@ pub struct AppState {
 struct AppStateInner {
     event_store: ActorRef<EventStoreMsg>,
     application_supervisor: Mutex<Option<ActorRef<ApplicationSupervisorMsg>>>,
+    conductor_actor: Mutex<Option<ActorRef<ConductorMsg>>>,
 }
 
 impl AppState {
@@ -25,6 +28,7 @@ impl AppState {
             inner: Arc::new(AppStateInner {
                 event_store,
                 application_supervisor: Mutex::new(None),
+                conductor_actor: Mutex::new(None),
             }),
         }
     }
@@ -125,6 +129,22 @@ impl AppState {
         .map_err(|e| e.to_string())
     }
 
+    pub async fn get_or_create_researcher(
+        &self,
+        researcher_id: String,
+        user_id: String,
+    ) -> Result<ActorRef<ResearcherMsg>, String> {
+        let supervisor = self.ensure_supervisor().await?;
+        ractor::call!(supervisor, |reply| {
+            ApplicationSupervisorMsg::GetOrCreateResearcher {
+                researcher_id,
+                user_id,
+                reply,
+            }
+        })
+        .map_err(|e| e.to_string())?
+    }
+
     pub async fn get_or_create_terminal_with_args(
         &self,
         args: crate::actors::terminal::TerminalArguments,
@@ -216,5 +236,41 @@ impl AppState {
             user_id,
             event_store: self.event_store(),
         }
+    }
+
+    pub async fn ensure_conductor(&self) -> Result<ActorRef<ConductorMsg>, String> {
+        let mut guard = self.inner.conductor_actor.lock().await;
+        if let Some(conductor) = guard.as_ref() {
+            return Ok(conductor.clone());
+        }
+
+        let researcher_actor = self
+            .get_or_create_researcher("conductor-researcher".to_string(), "system".to_string())
+            .await
+            .ok();
+        let terminal_actor = self
+            .get_or_create_terminal(
+                "conductor-terminal".to_string(),
+                "system".to_string(),
+                "/bin/zsh".to_string(),
+                env!("CARGO_MANIFEST_DIR").to_string(),
+            )
+            .await
+            .ok();
+
+        let (conductor, _) = Actor::spawn(
+            Some(format!("conductor:{}", ulid::Ulid::new())),
+            ConductorActor,
+            ConductorArguments {
+                event_store: self.inner.event_store.clone(),
+                researcher_actor,
+                terminal_actor,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+        *guard = Some(conductor.clone());
+        Ok(conductor)
     }
 }

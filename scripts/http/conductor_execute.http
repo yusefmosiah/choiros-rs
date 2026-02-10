@@ -1,0 +1,70 @@
+### Submit a Conductor Task (Report -> Writer path)
+POST http://localhost:8080/conductor/execute
+Content-Type: application/json
+
+{
+  "objective": "Generate a short terminal-backed report",
+  "desktop_id": "test-desktop-001",
+  "output_mode": "markdown_report_to_writer",
+  "worker_plan": [
+    {
+      "worker_type": "terminal",
+      "objective": "Print a greeting in terminal",
+      "terminal_command": "echo conductor-http-test",
+      "timeout_ms": 5000,
+      "max_steps": 1
+    }
+  ],
+  "hints": null,
+  "correlation_id": "test-correlation-001"
+}
+
+### Submit a Conductor Task (without correlation_id - auto-generated)
+POST http://localhost:8080/conductor/execute
+Content-Type: application/json
+
+{
+  "objective": "Generate a short terminal-backed report",
+  "desktop_id": "test-desktop-002",
+  "output_mode": "markdown_report_to_writer",
+  "worker_plan": [
+    {
+      "worker_type": "terminal",
+      "objective": "Print a greeting in terminal",
+      "terminal_command": "echo conductor-http-auto-correlation",
+      "timeout_ms": 5000,
+      "max_steps": 1
+    }
+  ]
+}
+
+### Check Task Status (replace {{task_id}} with actual task ID from above)
+GET http://localhost:8080/conductor/tasks/{{task_id}}
+Content-Type: application/json
+
+### Health Check (verify server is running)
+GET http://localhost:8080/health
+
+### Test Validation - Empty Objective (should return 400)
+POST http://localhost:8080/conductor/execute
+Content-Type: application/json
+
+{
+  "objective": "",
+  "desktop_id": "test-desktop-003",
+  "output_mode": "markdown_report_to_writer"
+}
+
+### Test Validation - Empty Desktop ID (should return 400)
+POST http://localhost:8080/conductor/execute
+Content-Type: application/json
+
+{
+  "objective": "Research Rust async patterns",
+  "desktop_id": "",
+  "output_mode": "markdown_report_to_writer"
+}
+
+### Test 404 - Non-existent Task
+GET http://localhost:8080/conductor/tasks/non-existent-task-id-12345
+Content-Type: application/json

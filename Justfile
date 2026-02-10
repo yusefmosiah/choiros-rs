@@ -52,6 +52,16 @@ test-unit:
 test-integration:
     cargo test --test '*' --workspace
 
+# Fast, scoped sandbox test runner (avoids broad filtered test sweeps)
+test-sandbox-lib +ARGS:
+    ./scripts/sandbox-test.sh --lib {{ARGS}}
+
+test-sandbox-itest TEST +ARGS:
+    ./scripts/sandbox-test.sh --test {{TEST}} {{ARGS}}
+
+test-conductor-fast:
+    ./scripts/sandbox-test.sh --conductor
+
 # Code quality
 # Check formatting and linting without making changes
 check:

@@ -191,13 +191,6 @@ pub fn DesktopShell(desktop_id: String) -> Element {
         });
     });
 
-    let handle_prompt_submit = use_callback(move |text: String| {
-        let desktop_id = desktop_id_signal.read().clone();
-        spawn(async move {
-            actions::handle_prompt_submit(desktop_id, text, desktop_state).await;
-        });
-    });
-
     let core_apps = core_apps();
 
     {
@@ -257,7 +250,7 @@ pub fn DesktopShell(desktop_id: String) -> Element {
                 is_mobile: !is_desktop,
                 windows,
                 active_window,
-                on_submit: handle_prompt_submit,
+                desktop_id: desktop_id_signal.read().clone(),
                 on_focus_window: focus_window_cb,
                 on_show_desktop: show_desktop_cb,
                 current_theme: current_theme(),
@@ -384,6 +377,12 @@ body {
 
 .running-app:hover {
     background: var(--hover-bg, rgba(255, 255, 255, 0.1)) !important;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 @media (max-width: 1024px) {

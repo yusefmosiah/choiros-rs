@@ -12,6 +12,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 pub mod chat;
+pub mod conductor;
 pub mod desktop;
 pub mod files;
 pub mod logs;
@@ -43,6 +44,7 @@ pub fn router() -> Router<ApiState> {
         .route("/chat/{actor_id}/messages", get(chat::get_messages))
         // Logs routes
         .route("/logs/events", get(logs::get_events))
+        .route("/logs/latest-seq", get(logs::get_latest_seq))
         .route("/logs/events.jsonl", get(logs::export_events_jsonl))
         .route("/logs/run.md", get(logs::export_run_markdown))
         // User preference routes
@@ -131,6 +133,12 @@ pub fn router() -> Router<ApiState> {
         .route("/writer/open", post(writer::open_document))
         .route("/writer/save", post(writer::save_document))
         .route("/writer/preview", post(writer::preview_markdown))
+        // Conductor API routes
+        .route("/conductor/execute", post(conductor::execute_task))
+        .route(
+            "/conductor/tasks/{task_id}",
+            get(conductor::get_task_status),
+        )
 }
 
 /// Health check endpoint

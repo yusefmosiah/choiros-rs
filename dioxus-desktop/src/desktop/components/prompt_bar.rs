@@ -1,7 +1,125 @@
 use dioxus::prelude::*;
-use shared_types::WindowState;
+use gloo_timers::future::TimeoutFuture;
+use shared_types::{
+    ConductorError, ConductorExecuteResponse, ConductorOutputMode, ConductorTaskStatus,
+    ConductorToastPayload, WindowState,
+};
 
+use crate::api::{execute_conductor, open_window, poll_conductor_task};
 use crate::desktop::apps::get_app_icon;
+
+/// State machine for conductor submission flow
+#[derive(Clone, Debug, PartialEq)]
+pub enum ConductorSubmissionState {
+    /// Idle state - ready for new submission
+    Idle,
+    /// Initial submission in progress
+    Submitting,
+    /// Task is running (queued/running/waiting_worker) with current status
+    Running {
+        task_id: String,
+        status: ConductorTaskStatus,
+    },
+    /// Task completed, opening writer
+    OpeningWriter { task_id: String },
+    /// Task succeeded and writer opened
+    Success { task_id: String },
+    /// Task succeeded with prompt-bar toast output.
+    ToastReady {
+        task_id: String,
+        toast: ConductorToastPayload,
+    },
+    /// Task failed with typed error
+    Failed { code: String, message: String },
+}
+
+impl ConductorSubmissionState {
+    /// Get display text for the current state
+    pub fn display_text(&self) -> Option<&'static str> {
+        match self {
+            ConductorSubmissionState::Idle => None,
+            ConductorSubmissionState::Submitting => Some("Submitting..."),
+            ConductorSubmissionState::Running { status, .. } => match status {
+                ConductorTaskStatus::Queued => Some("Queued..."),
+                ConductorTaskStatus::Running => Some("Running..."),
+                ConductorTaskStatus::WaitingWorker => Some("Waiting for worker..."),
+                _ => Some("Processing..."),
+            },
+            ConductorSubmissionState::OpeningWriter { .. } => Some("Opening Writer..."),
+            ConductorSubmissionState::Success { .. } => None,
+            ConductorSubmissionState::ToastReady { .. } => None,
+            ConductorSubmissionState::Failed { .. } => None,
+        }
+    }
+
+    /// Check if the state represents an active operation
+    pub fn is_active(&self) -> bool {
+        !matches!(
+            self,
+            ConductorSubmissionState::Idle
+                | ConductorSubmissionState::Success { .. }
+                | ConductorSubmissionState::ToastReady { .. }
+                | ConductorSubmissionState::Failed { .. }
+        )
+    }
+
+    /// Get error message if failed
+    pub fn error_message(&self) -> Option<String> {
+        match self {
+            ConductorSubmissionState::Failed { code, message } => {
+                Some(format!("{}: {}", code, message))
+            }
+            _ => None,
+        }
+    }
+
+    /// Get success message if writer opened.
+    pub fn success_message(&self) -> Option<&'static str> {
+        match self {
+            ConductorSubmissionState::Success { .. } => Some("Writer opened"),
+            _ => None,
+        }
+    }
+
+    /// Get toast payload if the run completed with toast output.
+    pub fn toast_payload(&self) -> Option<&ConductorToastPayload> {
+        match self {
+            ConductorSubmissionState::ToastReady { toast, .. } => Some(toast),
+            _ => None,
+        }
+    }
+}
+
+/// Poll interval in milliseconds
+const POLL_INTERVAL_MS: u32 = 1000;
+/// Maximum number of poll attempts before giving up
+const MAX_POLL_ATTEMPTS: u32 = 300; // 5 minutes at 1 second intervals
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TaskLifecycleDecision {
+    InProgress(ConductorTaskStatus),
+    Completed,
+    Failed,
+}
+
+fn classify_task_status(status: ConductorTaskStatus) -> TaskLifecycleDecision {
+    match status {
+        ConductorTaskStatus::Completed => TaskLifecycleDecision::Completed,
+        ConductorTaskStatus::Failed => TaskLifecycleDecision::Failed,
+        ConductorTaskStatus::Queued
+        | ConductorTaskStatus::Running
+        | ConductorTaskStatus::WaitingWorker => TaskLifecycleDecision::InProgress(status),
+    }
+}
+
+fn failure_from_error(error: Option<ConductorError>) -> (String, String) {
+    error.map(|e| (e.code, e.message)).unwrap_or_else(|| {
+        (
+            "TASK_FAILED".to_string(),
+            "Task failed without error details".to_string(),
+        )
+    })
+}
 
 #[component]
 pub fn PromptBar(
@@ -9,7 +127,7 @@ pub fn PromptBar(
     is_mobile: bool,
     windows: Vec<WindowState>,
     active_window: Option<String>,
-    on_submit: Callback<String>,
+    desktop_id: String,
     on_focus_window: Callback<String>,
     on_show_desktop: Callback<()>,
     current_theme: String,
@@ -18,6 +136,218 @@ pub fn PromptBar(
     let mut input_value = use_signal(String::new);
     let mut mobile_dock_expanded = use_signal(|| false);
     let visible_mobile_icons = 2usize;
+    let mut conductor_state = use_signal(|| ConductorSubmissionState::Idle);
+    let desktop_id_signal = use_signal(|| desktop_id.clone());
+
+    // Conductor submission handler
+    let handle_conductor_submit = use_callback(move |objective: String| {
+        let desktop_id = desktop_id_signal.read().clone();
+        let mut state = conductor_state.clone();
+
+        if state().is_active() {
+            return;
+        }
+        state.set(ConductorSubmissionState::Submitting);
+
+        spawn(async move {
+            // Execute conductor task
+            match execute_conductor(
+                &objective,
+                &desktop_id,
+                ConductorOutputMode::Auto,
+                None,
+            )
+            .await
+            {
+                Ok(response) => {
+                    handle_conductor_response(response, state, desktop_id).await;
+                }
+                Err(e) => {
+                    state.set(ConductorSubmissionState::Failed {
+                        code: "EXECUTE_FAILED".to_string(),
+                        message: e,
+                    });
+                }
+            }
+        });
+    });
+
+    // Handle the conductor execute response and start polling if needed
+    async fn handle_conductor_response(
+        response: ConductorExecuteResponse,
+        mut state: Signal<ConductorSubmissionState>,
+        desktop_id: String,
+    ) {
+        match classify_task_status(response.status) {
+            TaskLifecycleDecision::Completed => {
+                if let Some(toast) = response.toast {
+                    state.set(ConductorSubmissionState::ToastReady {
+                        task_id: response.task_id,
+                        toast,
+                    });
+                } else {
+                    // Task completed immediately, open writer.
+                    state.set(ConductorSubmissionState::OpeningWriter {
+                        task_id: response.task_id.clone(),
+                    });
+
+                    if let Err(e) = open_writer_window(
+                        &desktop_id,
+                        response.report_path,
+                        response.writer_window_props,
+                    )
+                    .await
+                    {
+                        state.set(ConductorSubmissionState::Failed {
+                            code: "WINDOW_OPEN_FAILED".to_string(),
+                            message: e,
+                        });
+                    } else {
+                        state.set(ConductorSubmissionState::Success {
+                            task_id: response.task_id,
+                        });
+                    }
+                }
+            }
+            TaskLifecycleDecision::Failed => {
+                // Task failed immediately
+                let (code, message) = failure_from_error(response.error);
+                state.set(ConductorSubmissionState::Failed { code, message });
+            }
+            TaskLifecycleDecision::InProgress(status) => {
+                // Task is in progress, start polling
+                state.set(ConductorSubmissionState::Running {
+                    task_id: response.task_id.clone(),
+                    status,
+                });
+
+                // Start polling loop
+                poll_conductor_task_until_complete(
+                    response.task_id,
+                    state,
+                    desktop_id,
+                    response.writer_window_props,
+                )
+                .await;
+            }
+        }
+    }
+
+    // Poll conductor task until it reaches completed or failed state
+    async fn poll_conductor_task_until_complete(
+        task_id: String,
+        mut state: Signal<ConductorSubmissionState>,
+        desktop_id: String,
+        fallback_writer_window_props: Option<serde_json::Value>,
+    ) {
+        let mut attempts = 0u32;
+
+        loop {
+            if attempts >= MAX_POLL_ATTEMPTS {
+                state.set(ConductorSubmissionState::Failed {
+                    code: "POLL_TIMEOUT".to_string(),
+                    message: format!("Task polling exceeded {} attempts", MAX_POLL_ATTEMPTS),
+                });
+                return;
+            }
+
+            // Wait before polling
+            TimeoutFuture::new(POLL_INTERVAL_MS).await;
+
+            match poll_conductor_task(&task_id).await {
+                Ok(task_state) => {
+                    match classify_task_status(task_state.status) {
+                        TaskLifecycleDecision::Completed => {
+                            if let Some(toast) = task_state.toast {
+                                state.set(ConductorSubmissionState::ToastReady {
+                                    task_id: task_id.clone(),
+                                    toast,
+                                });
+                            } else {
+                                state.set(ConductorSubmissionState::OpeningWriter {
+                                    task_id: task_id.clone(),
+                                });
+
+                                if let Err(e) = open_writer_window(
+                                    &desktop_id,
+                                    task_state.report_path,
+                                    fallback_writer_window_props.clone(),
+                                )
+                                .await
+                                {
+                                    state.set(ConductorSubmissionState::Failed {
+                                        code: "WINDOW_OPEN_FAILED".to_string(),
+                                        message: e,
+                                    });
+                                } else {
+                                    state.set(ConductorSubmissionState::Success {
+                                        task_id: task_id.clone(),
+                                    });
+                                }
+                            }
+                            return;
+                        }
+                        TaskLifecycleDecision::Failed => {
+                            let (code, message) = failure_from_error(task_state.error);
+                            state.set(ConductorSubmissionState::Failed { code, message });
+                            return;
+                        }
+                        TaskLifecycleDecision::InProgress(status) => {
+                            // Update running state with current status
+                            state.set(ConductorSubmissionState::Running {
+                                task_id: task_id.clone(),
+                                status,
+                            });
+                        }
+                    }
+                }
+                Err(e) => {
+                    state.set(ConductorSubmissionState::Failed {
+                        code: "POLL_FAILED".to_string(),
+                        message: e,
+                    });
+                    return;
+                }
+            }
+
+            attempts += 1;
+        }
+    }
+
+    // Open writer window with the report
+    async fn open_writer_window(
+        desktop_id: &str,
+        report_path: Option<String>,
+        writer_window_props: Option<serde_json::Value>,
+    ) -> Result<(), String> {
+        // Normalize writer props to current Writer contract (`path`) while
+        // accepting legacy producer key (`file_path`) for compatibility.
+        let props = if let Some(mut props) = writer_window_props {
+            if let Some(obj) = props.as_object_mut() {
+                if !obj.contains_key("path") {
+                    if let Some(file_path) = obj.get("file_path").cloned() {
+                        obj.insert("path".to_string(), file_path);
+                    }
+                }
+            }
+            props
+        } else if let Some(path) = report_path {
+            serde_json::json!({
+                "path": path,
+                "preview_mode": true,
+            })
+        } else {
+            return Err("No report path or window props provided".to_string());
+        };
+
+        match open_window(desktop_id, "writer", "Writer", Some(props)).await {
+            Ok(_window) => {
+                // Window opened successfully
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to open writer window: {}", e)),
+        }
+    }
 
     rsx! {
         div {
@@ -43,19 +373,102 @@ pub fn PromptBar(
                 }
             }
 
-            input {
-                class: "prompt-input",
-                style: "flex: 1; padding: 0.5rem 1rem; background: var(--input-bg, #1f2937); color: var(--text-primary, white); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); font-size: 0.875rem; outline: none; min-width: 0;",
-                placeholder: "Ask anything, paste URL, or type ? for commands...",
-                value: "{input_value}",
-                oninput: move |e| input_value.set(e.value().clone()),
-                onkeydown: move |e| {
-                    if e.key() == Key::Enter {
-                        let text = input_value.to_string();
-                        if !text.is_empty() {
-                            on_submit.call(text);
-                            input_value.set(String::new());
+            div {
+                class: "prompt-input-container",
+                style: "flex: 1; position: relative; display: flex; align-items: center;",
+
+                input {
+                    class: "prompt-input",
+                    style: "flex: 1; padding: 0.5rem 1rem; background: var(--input-bg, #1f2937); color: var(--text-primary, white); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); font-size: 0.875rem; outline: none; min-width: 0;",
+                    placeholder: "Ask anything, paste URL, or type ? for commands...",
+                    value: "{input_value}",
+                    disabled: conductor_state().is_active(),
+                    oninput: move |e| {
+                        input_value.set(e.value().clone());
+                        if matches!(
+                            conductor_state(),
+                            ConductorSubmissionState::Success { .. }
+                                | ConductorSubmissionState::ToastReady { .. }
+                        ) {
+                            conductor_state.set(ConductorSubmissionState::Idle);
                         }
+                    },
+                    onkeydown: move |e| {
+                        if e.key() == Key::Enter {
+                            let text = input_value.to_string();
+                            if !text.trim().is_empty() {
+                                handle_conductor_submit.call(text);
+                                input_value.set(String::new());
+                            }
+                        }
+                    }
+                }
+
+                // Conductor state indicator overlay
+                if let Some(display_text) = conductor_state().display_text() {
+                    div {
+                        class: "conductor-status-indicator",
+                        style: "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.75rem; background: var(--accent-bg, #3b82f6); color: white; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 500;",
+
+                        // Spinner animation
+                        div {
+                            style: "width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 1s linear infinite;",
+                        }
+
+                        span { "{display_text}" }
+                    }
+                }
+
+                // Error message display
+                if let Some(error_msg) = conductor_state().error_message() {
+                    div {
+                        class: "conductor-error-indicator",
+                        style: "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.75rem; background: var(--danger-bg, #ef4444); color: white; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 500; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;",
+                        title: "{error_msg}",
+
+                        span { "⚠" }
+                        span { "{error_msg}" }
+                    }
+                }
+
+                if let Some(toast) = conductor_state().toast_payload().cloned() {
+                    button {
+                        class: "conductor-toast-indicator",
+                        style: "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; background: #14b8a6; color: #042f2e; border: 1px solid #2dd4bf; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 600; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;",
+                        title: "{toast.message}",
+                        onclick: move |_| {
+                            let toast = toast.clone();
+                            let desktop_id = desktop_id_signal.read().clone();
+                            spawn(async move {
+                                if let Some(report_path) = toast.report_path {
+                                    if let Err(e) = open_writer_window(
+                                        &desktop_id,
+                                        Some(report_path),
+                                        None,
+                                    )
+                                    .await
+                                    {
+                                        dioxus_logger::tracing::error!(
+                                            "Failed to open writer from conductor toast: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                            });
+                        },
+                        span { "✓" }
+                        span { "{toast.title}: {toast.message}" }
+                    }
+                }
+
+                // Success message display
+                if let Some(success_msg) = conductor_state().success_message() {
+                    div {
+                        class: "conductor-success-indicator",
+                        style: "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.75rem; background: var(--success-bg, #10b981); color: white; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 500;",
+
+                        span { "✓" }
+                        span { "{success_msg}" }
                     }
                 }
             }
@@ -146,6 +559,46 @@ pub fn PromptBar(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classify_task_status_maps_all_typed_states() {
+        assert_eq!(
+            classify_task_status(ConductorTaskStatus::Queued),
+            TaskLifecycleDecision::InProgress(ConductorTaskStatus::Queued)
+        );
+        assert_eq!(
+            classify_task_status(ConductorTaskStatus::Running),
+            TaskLifecycleDecision::InProgress(ConductorTaskStatus::Running)
+        );
+        assert_eq!(
+            classify_task_status(ConductorTaskStatus::WaitingWorker),
+            TaskLifecycleDecision::InProgress(ConductorTaskStatus::WaitingWorker)
+        );
+        assert_eq!(
+            classify_task_status(ConductorTaskStatus::Completed),
+            TaskLifecycleDecision::Completed
+        );
+        assert_eq!(
+            classify_task_status(ConductorTaskStatus::Failed),
+            TaskLifecycleDecision::Failed
+        );
+    }
+
+    #[test]
+    fn failure_from_error_uses_typed_backend_error() {
+        let (code, message) = failure_from_error(Some(ConductorError {
+            code: "EXEC_FAIL".to_string(),
+            message: "Typed failure".to_string(),
+            failure_kind: None,
+        }));
+        assert_eq!(code, "EXEC_FAIL");
+        assert_eq!(message, "Typed failure");
     }
 }
 

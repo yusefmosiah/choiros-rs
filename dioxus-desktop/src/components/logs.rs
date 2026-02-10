@@ -7,7 +7,7 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::prelude::*;
 use web_sys::{CloseEvent, ErrorEvent, Event, MessageEvent, WebSocket};
 
-use crate::api::{fetch_logs_events, open_window, LogsEvent};
+use crate::api::{fetch_latest_log_seq, fetch_logs_events, open_window, LogsEvent};
 
 use super::styles::CHAT_STYLES;
 
@@ -77,11 +77,16 @@ pub fn LogsView(desktop_id: String, window_id: String) -> Element {
             preload_started.set(true);
 
             let cursor = since_seq().max(0);
-            let preload_since = cursor.saturating_sub(2_500);
             spawn(async move {
+                let latest_seq = match fetch_latest_log_seq().await {
+                    Ok(seq) => seq,
+                    Err(_) => cursor,
+                };
+                let preload_since = latest_seq.saturating_sub(1_000);
+
                 match fetch_logs_events(preload_since, 1_000, None).await {
                     Ok(events) => {
-                        let mut max_seq = cursor;
+                        let mut max_seq = latest_seq.max(cursor);
                         let mut preload = events
                             .into_iter()
                             .filter(should_display_event)
@@ -189,8 +194,8 @@ pub fn LogsView(desktop_id: String, window_id: String) -> Element {
                                         list.push(LogFeedEntry { event });
                                         list.sort_by_key(|entry| entry.event.seq);
                                         list.dedup_by(|a, b| a.event.event_id == b.event.event_id);
-                                        if list.len() > 400 {
-                                            let trim = list.len() - 400;
+                                        if list.len() > 1200 {
+                                            let trim = list.len() - 1200;
                                             list.drain(0..trim);
                                         }
                                     }
@@ -488,9 +493,13 @@ fn derive_runs(entries: &[LogFeedEntry]) -> Vec<RunListEntry> {
         let actor =
             event_emitter_label(&entry.event).unwrap_or_else(|| entry.event.actor_id.clone());
         let status = match entry.event.event_type.as_str() {
-            "worker.task.failed" => "failed",
-            "worker.task.completed" => "completed",
-            "worker.task.started" | "worker.task.progress" => "running",
+            "worker.task.failed" | "conductor.task.failed" => "failed",
+            "worker.task.completed" | "conductor.task.completed" => "completed",
+            "worker.task.started"
+            | "worker.task.progress"
+            | "conductor.task.started"
+            | "conductor.worker.call"
+            | "conductor.worker.result" => "running",
             _ => "active",
         }
         .to_string();
@@ -574,7 +583,12 @@ fn should_display_event(event: &LogsEvent) -> bool {
         | "model.changed"
         | "worker.task.started"
         | "worker.task.completed"
-        | "worker.task.failed" => true,
+        | "worker.task.failed"
+        | "conductor.task.started"
+        | "conductor.task.completed"
+        | "conductor.task.failed"
+        | "conductor.worker.call"
+        | "conductor.worker.result" => true,
         "worker.task.progress" => {
             let phase = event
                 .payload
@@ -589,6 +603,14 @@ fn should_display_event(event: &LogsEvent) -> bool {
                     | "terminal_agent_fallback"
                     | "terminal_agent_synthesizing"
             )
+        }
+        "conductor.task.progress" => {
+            let phase = event
+                .payload
+                .get("phase")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            matches!(phase, "routing" | "worker_execution")
         }
         other => other.starts_with("watcher.alert"),
     }
@@ -749,6 +771,80 @@ fn event_headline(event: &LogsEvent) -> String {
                     output = soften(&trim_snippet(output_excerpt, 130)),
                 )
             }
+        }
+        "conductor.task.started" => {
+            let objective = payload
+                .get("objective")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            format!(
+                "{actor} conductor task started objective={}",
+                soften(&trim_snippet(objective, 160))
+            )
+        }
+        "conductor.task.progress" => {
+            let status = payload
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("running");
+            let phase = payload
+                .get("phase")
+                .and_then(|v| v.as_str())
+                .unwrap_or("conductor");
+            format!("{actor} conductor progress status={status} phase={phase}")
+        }
+        "conductor.worker.call" => {
+            let worker_type = payload
+                .get("worker_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let objective = payload
+                .get("worker_objective")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            format!(
+                "{actor} conductor called {worker_type} objective={}",
+                soften(&trim_snippet(objective, 140))
+            )
+        }
+        "conductor.worker.result" => {
+            let worker_type = payload
+                .get("worker_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let success = payload
+                .get("success")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let summary = payload
+                .get("result_summary")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            format!(
+                "{actor} conductor {worker_type} result success={success} summary={}",
+                soften(&trim_snippet(summary, 140))
+            )
+        }
+        "conductor.task.completed" => {
+            let report_path = payload
+                .get("report_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            format!("{actor} conductor task completed report={report_path}")
+        }
+        "conductor.task.failed" => {
+            let code = payload
+                .get("error_code")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let message = payload
+                .get("error_message")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            format!(
+                "{actor} conductor task failed code={code} message={}",
+                soften(&trim_snippet(message, 160))
+            )
         }
         event_type if event_type.starts_with("watcher.alert") => {
             let summary = payload

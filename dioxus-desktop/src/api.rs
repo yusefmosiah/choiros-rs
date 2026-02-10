@@ -1,7 +1,11 @@
 use chrono::{DateTime, Utc};
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
-use shared_types::{AppDefinition, ChatMessage, DesktopState, Sender, ViewerRevision, WindowState};
+use shared_types::{
+    AppDefinition, ChatMessage, ConductorExecuteRequest, ConductorExecuteResponse,
+    ConductorOutputMode, ConductorTaskState, ConductorWorkerStep, DesktopState, Sender,
+    ViewerRevision, WindowState,
+};
 use std::sync::OnceLock;
 
 /// Get the API base URL based on current environment
@@ -164,6 +168,27 @@ pub struct LogsEvent {
 #[derive(Debug, Deserialize)]
 pub struct GetLogsEventsResponse {
     pub events: Vec<LogsEvent>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GetLatestLogSeqResponse {
+    pub latest_seq: i64,
+}
+
+pub async fn fetch_latest_log_seq() -> Result<i64, String> {
+    let url = format!("{}/logs/latest-seq", api_base());
+    let response = Request::get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+    if !response.ok() {
+        return Err(describe_http_error(response).await);
+    }
+    let data: GetLatestLogSeqResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
+    Ok(data.latest_seq.max(0))
 }
 
 pub async fn fetch_logs_events(
@@ -1291,6 +1316,70 @@ pub async fn writer_preview(
 
     response
         .json::<PreviewResponse>()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))
+}
+
+// ============================================================================
+// Conductor API Functions
+// ============================================================================
+
+/// Execute a Conductor task
+///
+/// POST /conductor/execute
+/// Returns a task_id that can be used to poll for task status
+pub async fn execute_conductor(
+    objective: &str,
+    desktop_id: &str,
+    output_mode: ConductorOutputMode,
+    worker_plan: Option<Vec<ConductorWorkerStep>>,
+) -> Result<ConductorExecuteResponse, String> {
+    let url = format!("{}/conductor/execute", api_base());
+
+    let request = ConductorExecuteRequest {
+        objective: objective.to_string(),
+        desktop_id: desktop_id.to_string(),
+        output_mode,
+        worker_plan,
+        hints: None,
+        correlation_id: None,
+    };
+
+    let response = Request::post(&url)
+        .json(&request)
+        .map_err(|e| format!("Failed to serialize request: {e}"))?
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    if !response.ok() {
+        return Err(describe_http_error(response).await);
+    }
+
+    response
+        .json::<ConductorExecuteResponse>()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))
+}
+
+/// Poll a Conductor task for its current state
+///
+/// GET /conductor/tasks/:task_id
+/// Returns the full task state including status, report_path, and any errors
+pub async fn poll_conductor_task(task_id: &str) -> Result<ConductorTaskState, String> {
+    let url = format!("{}/conductor/tasks/{}", api_base(), task_id);
+
+    let response = Request::get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    if !response.ok() {
+        return Err(describe_http_error(response).await);
+    }
+
+    response
+        .json::<ConductorTaskState>()
         .await
         .map_err(|e| format!("Failed to parse JSON: {e}"))
 }

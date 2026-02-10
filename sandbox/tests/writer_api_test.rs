@@ -8,7 +8,10 @@ use http_body_util::BodyExt;
 use ractor::Actor;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tower::ServiceExt;
 
 use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};
@@ -53,6 +56,36 @@ async fn json_response(app: &axum::Router, req: Request<Body>) -> (StatusCode, V
     (status, value)
 }
 
+static TEST_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn unique_test_path(prefix: &str, ext: &str) -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock went backwards")
+        .as_nanos();
+    let count = TEST_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{prefix}_{nanos}_{count}.{ext}")
+}
+
+fn revision_sidecar_path(doc_path: &str) -> PathBuf {
+    let safe_name = doc_path.replace('/', "__");
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(".writer_revisions")
+        .join(format!("{safe_name}.rev"))
+}
+
+async fn cleanup_writer_artifacts(app: &axum::Router, path: &str) {
+    let delete_req = json!({"path": path});
+    let req = Request::builder()
+        .method("POST")
+        .uri("/files/delete")
+        .header("content-type", "application/json")
+        .body(Body::from(delete_req.to_string()))
+        .unwrap();
+    let _ = json_response(app, req).await;
+    let _ = tokio::fs::remove_file(revision_sidecar_path(path)).await;
+}
+
 // ============================================================================
 // Open Document Tests
 // ============================================================================
@@ -60,10 +93,11 @@ async fn json_response(app: &axum::Router, req: Request<Body>) -> (StatusCode, V
 #[tokio::test]
 async fn test_open_existing_file() {
     let (app, _temp_dir) = setup_test_app().await;
+    let path = unique_test_path("writer_test_file", "md");
 
     // Create a test file first
     let create_req = json!({
-        "path": "writer_test_file.md",
+        "path": &path,
         "content": "# Test Document\n\nThis is a test."
     });
 
@@ -78,7 +112,7 @@ async fn test_open_existing_file() {
 
     // Open the document via Writer API
     let open_req = json!({
-        "path": "writer_test_file.md"
+        "path": &path
     });
 
     let req = Request::builder()
@@ -90,7 +124,7 @@ async fn test_open_existing_file() {
 
     let (status, body) = json_response(&app, req).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["path"], "writer_test_file.md");
+    assert_eq!(body["path"].as_str(), Some(path.as_str()));
     assert_eq!(body["content"], "# Test Document\n\nThis is a test.");
     assert_eq!(body["mime"], "text/markdown");
     assert!(body["revision"].as_u64().is_some());
@@ -98,22 +132,16 @@ async fn test_open_existing_file() {
     assert_eq!(body["readonly"], false);
 
     // Cleanup
-    let delete_req = json!({"path": "writer_test_file.md"});
-    let req = Request::builder()
-        .method("POST")
-        .uri("/files/delete")
-        .header("content-type", "application/json")
-        .body(Body::from(delete_req.to_string()))
-        .unwrap();
-    let _ = json_response(&app, req).await;
+    cleanup_writer_artifacts(&app, &path).await;
 }
 
 #[tokio::test]
 async fn test_open_not_found() {
     let (app, _temp_dir) = setup_test_app().await;
+    let path = unique_test_path("nonexistent_writer_file", "md");
 
     let open_req = json!({
-        "path": "nonexistent_writer_file.md"
+        "path": &path
     });
 
     let req = Request::builder()
@@ -176,10 +204,11 @@ async fn test_open_path_traversal() {
 #[tokio::test]
 async fn test_save_success() {
     let (app, _temp_dir) = setup_test_app().await;
+    let path = unique_test_path("writer_save_test", "md");
 
     // Create a test file first
     let create_req = json!({
-        "path": "writer_save_test.md",
+        "path": &path,
         "content": "Initial content"
     });
 
@@ -194,7 +223,7 @@ async fn test_save_success() {
 
     // Open to get revision
     let open_req = json!({
-        "path": "writer_save_test.md"
+        "path": &path
     });
 
     let req = Request::builder()
@@ -210,7 +239,7 @@ async fn test_save_success() {
 
     // Save with correct revision
     let save_req = json!({
-        "path": "writer_save_test.md",
+        "path": &path,
         "base_rev": revision,
         "content": "Updated content"
     });
@@ -224,14 +253,14 @@ async fn test_save_success() {
 
     let (status, body) = json_response(&app, req).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["path"], "writer_save_test.md");
+    assert_eq!(body["path"].as_str(), Some(path.as_str()));
     assert_eq!(body["saved"], true);
     assert_eq!(body["revision"], 2); // Revision incremented
 
     // Verify content was saved
     let req = Request::builder()
         .method("GET")
-        .uri("/files/content?path=writer_save_test.md")
+        .uri(format!("/files/content?path={path}"))
         .body(Body::empty())
         .unwrap();
 
@@ -239,23 +268,17 @@ async fn test_save_success() {
     assert_eq!(body["content"], "Updated content");
 
     // Cleanup
-    let delete_req = json!({"path": "writer_save_test.md"});
-    let req = Request::builder()
-        .method("POST")
-        .uri("/files/delete")
-        .header("content-type", "application/json")
-        .body(Body::from(delete_req.to_string()))
-        .unwrap();
-    let _ = json_response(&app, req).await;
+    cleanup_writer_artifacts(&app, &path).await;
 }
 
 #[tokio::test]
 async fn test_save_conflict() {
     let (app, _temp_dir) = setup_test_app().await;
+    let path = unique_test_path("writer_conflict_test", "md");
 
     // Create a test file first
     let create_req = json!({
-        "path": "writer_conflict_test.md",
+        "path": &path,
         "content": "Initial content"
     });
 
@@ -270,7 +293,7 @@ async fn test_save_conflict() {
 
     // Client A opens and saves
     let save_req = json!({
-        "path": "writer_conflict_test.md",
+        "path": &path,
         "base_rev": 1,
         "content": "Client A changes"
     });
@@ -288,7 +311,7 @@ async fn test_save_conflict() {
 
     // Client B tries to save with stale revision
     let save_req = json!({
-        "path": "writer_conflict_test.md",
+        "path": &path,
         "base_rev": 1, // Stale revision
         "content": "Client B changes"
     });
@@ -307,14 +330,49 @@ async fn test_save_conflict() {
     assert_eq!(body["current_content"], "Client A changes");
 
     // Cleanup
-    let delete_req = json!({"path": "writer_conflict_test.md"});
+    cleanup_writer_artifacts(&app, &path).await;
+}
+
+#[tokio::test]
+async fn test_save_new_file_with_base_rev_zero_succeeds() {
+    let (app, _temp_dir) = setup_test_app().await;
+    let path = unique_test_path("writer_save_as_new_file", "md");
+
+    let save_req = json!({
+        "path": &path,
+        "base_rev": 0,
+        "content": "Created via save as"
+    });
+
     let req = Request::builder()
         .method("POST")
-        .uri("/files/delete")
+        .uri("/writer/save")
         .header("content-type", "application/json")
-        .body(Body::from(delete_req.to_string()))
+        .body(Body::from(save_req.to_string()))
         .unwrap();
-    let _ = json_response(&app, req).await;
+
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["saved"], true);
+    assert_eq!(body["revision"], 1);
+
+    // Verify the file can be opened at revision 1
+    let open_req = json!({
+        "path": &path
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/writer/open")
+        .header("content-type", "application/json")
+        .body(Body::from(open_req.to_string()))
+        .unwrap();
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["revision"], 1);
+    assert_eq!(body["content"], "Created via save as");
+
+    // Cleanup
+    cleanup_writer_artifacts(&app, &path).await;
 }
 
 #[tokio::test]
@@ -391,10 +449,11 @@ async fn test_preview_content() {
 #[tokio::test]
 async fn test_preview_path() {
     let (app, _temp_dir) = setup_test_app().await;
+    let path = unique_test_path("preview_test", "md");
 
     // Create a markdown file
     let create_req = json!({
-        "path": "preview_test.md",
+        "path": &path,
         "content": "# Preview Test\n\n- Item 1\n- Item 2"
     });
 
@@ -409,7 +468,7 @@ async fn test_preview_path() {
 
     // Preview by path
     let preview_req = json!({
-        "path": "preview_test.md"
+        "path": &path
     });
 
     let req = Request::builder()
@@ -427,22 +486,16 @@ async fn test_preview_path() {
     assert!(html.contains("<ul>"));
 
     // Cleanup
-    let delete_req = json!({"path": "preview_test.md"});
-    let req = Request::builder()
-        .method("POST")
-        .uri("/files/delete")
-        .header("content-type", "application/json")
-        .body(Body::from(delete_req.to_string()))
-        .unwrap();
-    let _ = json_response(&app, req).await;
+    cleanup_writer_artifacts(&app, &path).await;
 }
 
 #[tokio::test]
 async fn test_preview_path_not_found() {
     let (app, _temp_dir) = setup_test_app().await;
+    let path = unique_test_path("nonexistent_preview", "md");
 
     let preview_req = json!({
-        "path": "nonexistent_preview.md"
+        "path": &path
     });
 
     let req = Request::builder()
@@ -528,10 +581,11 @@ async fn test_sandbox_boundary_save() {
 #[tokio::test]
 async fn test_revision_increments_on_save() {
     let (app, _temp_dir) = setup_test_app().await;
+    let path = unique_test_path("revision_test", "md");
 
     // Create a test file
     let create_req = json!({
-        "path": "revision_test.md",
+        "path": &path,
         "content": "Version 1"
     });
 
@@ -546,7 +600,7 @@ async fn test_revision_increments_on_save() {
 
     // Open to get initial revision
     let open_req = json!({
-        "path": "revision_test.md"
+        "path": &path
     });
 
     let req = Request::builder()
@@ -562,7 +616,7 @@ async fn test_revision_increments_on_save() {
     // Save multiple times, checking revision increments
     for expected_revision in 2..=5 {
         let save_req = json!({
-            "path": "revision_test.md",
+            "path": &path,
             "base_rev": expected_revision - 1,
             "content": format!("Version {}", expected_revision)
         });
@@ -575,28 +629,29 @@ async fn test_revision_increments_on_save() {
             .unwrap();
 
         let (status, body) = json_response(&app, req).await;
-        assert_eq!(status, StatusCode::OK, "Save failed at revision {}", expected_revision - 1);
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "Save failed at revision {}",
+            expected_revision - 1
+        );
         assert_eq!(body["revision"], expected_revision);
     }
 
     // Cleanup
-    let delete_req = json!({"path": "revision_test.md"});
-    let req = Request::builder()
-        .method("POST")
-        .uri("/files/delete")
-        .header("content-type", "application/json")
-        .body(Body::from(delete_req.to_string()))
-        .unwrap();
-    let _ = json_response(&app, req).await;
+    cleanup_writer_artifacts(&app, &path).await;
 }
 
 #[tokio::test]
 async fn test_mime_type_detection() {
     let (app, _temp_dir) = setup_test_app().await;
+    let markdown_path = unique_test_path("test", "md");
+    let text_path = unique_test_path("test", "txt");
+    let rust_path = unique_test_path("test", "rs");
 
     // Test markdown
     let create_req = json!({
-        "path": "test.md",
+        "path": &markdown_path,
         "content": "# Markdown"
     });
 
@@ -609,7 +664,7 @@ async fn test_mime_type_detection() {
 
     let (_status, _body) = json_response(&app, req).await;
 
-    let open_req = json!({"path": "test.md"});
+    let open_req = json!({"path": &markdown_path});
     let req = Request::builder()
         .method("POST")
         .uri("/writer/open")
@@ -622,7 +677,7 @@ async fn test_mime_type_detection() {
 
     // Test plain text
     let create_req = json!({
-        "path": "test.txt",
+        "path": &text_path,
         "content": "Plain text"
     });
 
@@ -635,7 +690,7 @@ async fn test_mime_type_detection() {
 
     let (_status, _body) = json_response(&app, req).await;
 
-    let open_req = json!({"path": "test.txt"});
+    let open_req = json!({"path": &text_path});
     let req = Request::builder()
         .method("POST")
         .uri("/writer/open")
@@ -648,7 +703,7 @@ async fn test_mime_type_detection() {
 
     // Test Rust file
     let create_req = json!({
-        "path": "test.rs",
+        "path": &rust_path,
         "content": "fn main() {}"
     });
 
@@ -661,7 +716,7 @@ async fn test_mime_type_detection() {
 
     let (_status, _body) = json_response(&app, req).await;
 
-    let open_req = json!({"path": "test.rs"});
+    let open_req = json!({"path": &rust_path});
     let req = Request::builder()
         .method("POST")
         .uri("/writer/open")
@@ -673,14 +728,7 @@ async fn test_mime_type_detection() {
     assert_eq!(body["mime"], "text/rust");
 
     // Cleanup
-    for file in ["test.md", "test.txt", "test.rs"] {
-        let delete_req = json!({"path": file});
-        let req = Request::builder()
-            .method("POST")
-            .uri("/files/delete")
-            .header("content-type", "application/json")
-            .body(Body::from(delete_req.to_string()))
-            .unwrap();
-        let _ = json_response(&app, req).await;
+    for file in [&markdown_path, &text_path, &rust_path] {
+        cleanup_writer_artifacts(&app, file).await;
     }
 }

@@ -215,6 +215,14 @@ pub enum ApplicationSupervisorMsg {
         working_dir: String,
         reply: RpcReplyPort<ractor::ActorRef<crate::actors::terminal::TerminalMsg>>,
     },
+    /// Get or create a researcher actor
+    GetOrCreateResearcher {
+        researcher_id: String,
+        user_id: String,
+        reply: RpcReplyPort<
+            Result<ractor::ActorRef<crate::actors::researcher::ResearcherMsg>, String>,
+        >,
+    },
     /// Delegate a terminal command asynchronously via TerminalActor.
     DelegateTerminalTask {
         terminal_id: String,
@@ -847,6 +855,97 @@ impl Actor for ApplicationSupervisor {
                     return Err(ActorProcessingErr::from(std::io::Error::other(
                         "SessionSupervisor not available",
                     )));
+                }
+            }
+            ApplicationSupervisorMsg::GetOrCreateResearcher {
+                researcher_id,
+                user_id,
+                reply,
+            } => {
+                let correlation_id = ulid::Ulid::new().to_string();
+                self.emit_request_event(
+                    state,
+                    "supervisor.researcher.get_or_create.started",
+                    EventType::Custom("supervisor.researcher.get_or_create.started".to_string()),
+                    serde_json::json!({
+                        "researcher_id": researcher_id,
+                        "user_id": user_id,
+                        "supervisor_id": myself.get_id().to_string(),
+                    }),
+                    correlation_id.clone(),
+                )
+                .await;
+
+                if let Some(ref session_supervisor) = state.session_supervisor {
+                    match ractor::call!(session_supervisor, |ss_reply| {
+                        SessionSupervisorMsg::GetOrCreateResearcher {
+                            researcher_id: researcher_id.clone(),
+                            user_id: user_id.clone(),
+                            reply: ss_reply,
+                        }
+                    }) {
+                        Ok(result) => match result {
+                            Ok(actor_ref) => {
+                                self.emit_request_event(
+                                    state,
+                                    "supervisor.researcher.get_or_create.completed",
+                                    EventType::Custom(
+                                        "supervisor.researcher.get_or_create.completed".to_string(),
+                                    ),
+                                    serde_json::json!({
+                                        "researcher_id": researcher_id,
+                                        "user_id": user_id,
+                                        "researcher_ref": actor_ref.get_id().to_string(),
+                                        "supervisor_id": myself.get_id().to_string(),
+                                    }),
+                                    correlation_id,
+                                )
+                                .await;
+                                let _ = reply.send(Ok(actor_ref));
+                            }
+                            Err(e) => {
+                                self.emit_request_event(
+                                    state,
+                                    "supervisor.researcher.get_or_create.failed",
+                                    EventType::Custom(
+                                        "supervisor.researcher.get_or_create.failed".to_string(),
+                                    ),
+                                    serde_json::json!({
+                                        "researcher_id": researcher_id,
+                                        "user_id": user_id,
+                                        "error": e,
+                                        "supervisor_id": myself.get_id().to_string(),
+                                    }),
+                                    correlation_id,
+                                )
+                                .await;
+                                let _ = reply.send(Err(e));
+                                return Ok(());
+                            }
+                        },
+                        Err(e) => {
+                            self.emit_request_event(
+                                state,
+                                "supervisor.researcher.get_or_create.failed",
+                                EventType::Custom(
+                                    "supervisor.researcher.get_or_create.failed".to_string(),
+                                ),
+                                serde_json::json!({
+                                    "researcher_id": researcher_id,
+                                    "user_id": user_id,
+                                    "error": e.to_string(),
+                                    "supervisor_id": myself.get_id().to_string(),
+                                }),
+                                correlation_id,
+                            )
+                            .await;
+                            let _ = reply.send(Err(e.to_string()));
+                            return Ok(());
+                        }
+                    }
+                } else {
+                    let _ = reply.send(Err("SessionSupervisor not available".to_string()));
+                    return Ok(());
                 }
             }
             ApplicationSupervisorMsg::DelegateTerminalTask {
@@ -1525,6 +1624,7 @@ impl Actor for ApplicationSupervisor {
                                         objective: objective_for_task,
                                         provider: provider_for_task,
                                         max_results,
+                                        max_rounds: None,
                                         time_range: time_range_for_task,
                                         include_domains: include_domains_for_task,
                                         exclude_domains: exclude_domains_for_task,

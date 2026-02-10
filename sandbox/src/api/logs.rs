@@ -80,6 +80,76 @@ pub async fn get_events(
     }
 }
 
+#[derive(serde::Serialize)]
+struct LatestSeqResponse {
+    latest_seq: i64,
+}
+
+async fn event_exists_at_seq(
+    event_store: ActorRef<EventStoreMsg>,
+    seq: i64,
+) -> Result<bool, String> {
+    match ractor::call!(event_store, |reply| EventStoreMsg::GetEventBySeq {
+        seq,
+        reply
+    }) {
+        Ok(Ok(Some(_))) => Ok(true),
+        Ok(Ok(None)) => Ok(false),
+        Ok(Err(err)) => Err(format!("EventStore error: {err}")),
+        Err(err) => Err(format!("RPC error: {err}")),
+    }
+}
+
+async fn find_latest_seq(event_store: ActorRef<EventStoreMsg>) -> Result<i64, String> {
+    if !event_exists_at_seq(event_store.clone(), 1).await? {
+        return Ok(0);
+    }
+
+    let mut low = 1_i64;
+    let mut high = 1_i64;
+
+    loop {
+        let next = high.saturating_mul(2);
+        if next <= high {
+            break;
+        }
+        if event_exists_at_seq(event_store.clone(), next).await? {
+            low = next;
+            high = next;
+            continue;
+        }
+        high = next;
+        break;
+    }
+
+    while low + 1 < high {
+        let mid = low + ((high - low) / 2);
+        if event_exists_at_seq(event_store.clone(), mid).await? {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+
+    Ok(low)
+}
+
+/// Get latest committed event sequence number.
+pub async fn get_latest_seq(State(state): State<ApiState>) -> impl IntoResponse {
+    match find_latest_seq(state.app_state.event_store()).await {
+        Ok(latest_seq) => (
+            StatusCode::OK,
+            Json(json!(LatestSeqResponse { latest_seq })),
+        )
+            .into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": err })),
+        )
+            .into_response(),
+    }
+}
+
 /// Export one run as a single markdown transcript.
 ///
 /// Includes user prompts, system/model routing events, tool calls/results, worker lifecycle,
@@ -486,5 +556,51 @@ pub async fn export_events_jsonl(
             json!({ "error": err }).to_string(),
         )
             .into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::actors::event_store::{AppendEvent, EventStoreActor, EventStoreArguments};
+    use ractor::Actor;
+
+    #[tokio::test]
+    async fn test_find_latest_seq_empty_store_returns_zero() {
+        let (store_ref, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
+
+        let latest = find_latest_seq(store_ref.clone()).await.unwrap();
+        assert_eq!(latest, 0);
+
+        store_ref.stop(None);
+    }
+
+    #[tokio::test]
+    async fn test_find_latest_seq_returns_tail_sequence() {
+        let (store_ref, _handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
+
+        for idx in 0..5 {
+            let event = AppendEvent {
+                event_type: "chat.user_msg".to_string(),
+                payload: serde_json::json!({ "idx": idx }),
+                actor_id: "chat:test".to_string(),
+                user_id: "user:test".to_string(),
+            };
+            let appended = ractor::call!(store_ref, |reply| EventStoreMsg::Append { event, reply })
+                .unwrap()
+                .unwrap();
+            assert_eq!(appended.seq, idx + 1);
+        }
+
+        let latest = find_latest_seq(store_ref.clone()).await.unwrap();
+        assert_eq!(latest, 5);
+
+        store_ref.stop(None);
     }
 }

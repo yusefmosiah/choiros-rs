@@ -143,13 +143,3 @@ pub fn focus_window_and_raise_z(state: &mut DesktopState, window_id: &str) {
         window.z_index = max_z + 1;
     }
 }
-
-pub fn find_chat_window_id(state: &Option<DesktopState>) -> Option<String> {
-    state.as_ref().and_then(|desktop| {
-        desktop
-            .windows
-            .iter()
-            .find(|window| window.app_id == "chat")
-            .map(|window| window.id.clone())
-    })
-}

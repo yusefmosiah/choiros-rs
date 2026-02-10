@@ -582,7 +582,13 @@ pub fn FloatingWindow(
                         }
                     },
                     "writer" => {
-                        let initial_path = window.props.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let initial_path = window
+                            .props
+                            .get("path")
+                            .and_then(|v| v.as_str())
+                            .or_else(|| window.props.get("file_path").and_then(|v| v.as_str()))
+                            .unwrap_or("")
+                            .to_string();
                         rsx! {
                             WriterView {
                                 key: "{window.id}",

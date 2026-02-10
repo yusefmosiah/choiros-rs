@@ -1,5 +1,61 @@
 # AGENTS.md - ChoirOS Development Guide
 
+## Current Architecture Snapshot (2026-02-07)
+
+- Runtime is supervision-tree-first:
+  - `ApplicationSupervisor -> SessionSupervisor -> {ChatSupervisor, TerminalSupervisor, DesktopSupervisor}`
+- `bash` tool execution is delegated through TerminalActor paths (no direct ChatAgent shell execution).
+- Terminal work emits worker lifecycle + progress telemetry and streams as websocket `actor_call` chunks.
+- Scope isolation (`session_id`, `thread_id`) is required for chat/tool event retrieval to prevent cross-instance bleed.
+- EventBus/EventStore are the observability backbone for worker/task tracing.
+- Model policy defaults (current):
+  - Chat: `ClaudeBedrockSonnet45`
+  - Conductor: `ClaudeBedrockOpus46`
+  - Summarizer: `ZaiGLM47Flash`
+
+## Execution Direction (2026-02-09)
+
+- Primary orchestration path is `Prompt Bar -> Conductor`.
+- Chat should remain a thin compatibility surface and escalate multi-step planning to conductor.
+- Build reliability through skills and typed contracts, not chat-special-case logic.
+
+## NO ADHOC WORKFLOW (Hard Rule)
+
+- Do not implement workflow state transitions via natural-language string matching.
+- Do not add task-specific one-off routing/prompt hacks in chat actors.
+- Encode control flow in typed protocol fields (BAML/shared-types) and actor messages.
+- Phrase matching is allowed only for input normalization or UI text shaping, never control authority.
+
+## Current High-Priority Development Targets
+
+1. Typed worker event schema for actor-call rendering (`spawned/progress/complete/failed`).
+2. Terminal loop event enrichment (`tool_call`, `tool_result`, durations, retry/error metadata).
+3. WatcherActor prototype for timeout/failure escalation signals to supervisors.
+4. Ordered websocket integration tests for scoped multi-instance streams.
+5. Model policy system before Researcher rollout (policy-resolved model routing + audit events).
+
+## Naming Reconciliation (Authoritative)
+
+- `Logging`: Event capture/persistence/transport only.
+- `Watcher`: Deterministic detection/alerting over logs.
+- `Summarizer`: Human-readable compression over event batches/windows.
+
+Do not overload these terms in docs/code reviews.
+
+## Documentation Readability Rule
+
+Unrendered markdown must still be readable.
+
+For major architecture/roadmap docs, include these top sections:
+- `Narrative Summary (1-minute read)`
+- `What Changed`
+- `What To Do Next`
+
+If a document is long and lacks this summary block, it is incomplete.
+
+Primary human-first index:
+- `docs/architecture/NARRATIVE_INDEX.md`
+
 ## Quick Commands
 
 ```bash
@@ -191,17 +247,31 @@ agent-browser screenshot tests/screenshots/result.png
 - Use Axum router + `tower::ServiceExt::oneshot`
 - Use temp directories for isolated databases
 - Example pattern: `tests/desktop_api_test.rs`
+- For websocket chat flows, prefer `tokio_tungstenite` integration tests over manual curl loops.
+- Assert `actor_call` chunks for delegated terminal tasks when validating multi-agent observability.
+- Keep tests provider-agnostic: do not hardcode assumptions to a single external weather/API service.
 
 **Running Single Tests:**
 ```bash
-# Run specific test file
-cargo test -p sandbox --test desktop_api_test
+# Preferred wrapper (blocks broad filtered runs)
+./scripts/sandbox-test.sh --test desktop_api_test
+./scripts/sandbox-test.sh --test desktop_api_test test_create_desktop
+./scripts/sandbox-test.sh --lib conductor
 
-# Run specific test by name pattern
-cargo test -p sandbox test_create_desktop
+# Run websocket chat integration suite
+cargo test -p sandbox --test websocket_chat_test -- --nocapture
 
-# Run with output visible
-cargo test -p sandbox test_name -- --nocapture
+# Run supervision delegation suite
+cargo test -p sandbox --features supervision_refactor --test supervision_test -- --nocapture
+
+# Important: NEVER use broad filtered runs like this:
+# cargo test -p sandbox <filter>
+# They spin through many test binaries and are slow/noisy.
+# Always select exact target binaries:
+cargo test -p sandbox --test chat_superbowl_live_matrix_test -- --nocapture
+
+# Or target one test function inside that integration binary:
+cargo test -p sandbox --test chat_superbowl_live_matrix_test test_chat_superbowl_weather_live_model_provider_matrix -- --nocapture
 ```
 
 ## Key Dependencies

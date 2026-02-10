@@ -19,9 +19,6 @@ fn sandbox_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
 }
 
-/// Maximum file read size (1MB)
-const MAX_READ_SIZE: usize = 1_048_576;
-
 /// Writer error codes for machine-readable error responses
 #[derive(Debug, Clone)]
 pub enum WriterErrorCode {
@@ -88,11 +85,10 @@ fn writer_error(code: WriterErrorCode, message: impl Into<String>) -> impl IntoR
 fn validate_path(sandbox: &Path, user_path: &str) -> Result<PathBuf, axum::response::Response> {
     // Reject null bytes
     if user_path.contains('\0') {
-        return Err(writer_error(
-            WriterErrorCode::PathTraversal,
-            "Path contains null bytes",
-        )
-        .into_response());
+        return Err(
+            writer_error(WriterErrorCode::PathTraversal, "Path contains null bytes")
+                .into_response(),
+        );
     }
 
     // Reject absolute paths
@@ -282,21 +278,15 @@ pub async fn open_document(
 
     // Check for binary content
     if bytes.contains(&0) {
-        return writer_error(
-            WriterErrorCode::ReadError,
-            "Binary files are not supported",
-        )
-        .into_response();
+        return writer_error(WriterErrorCode::ReadError, "Binary files are not supported")
+            .into_response();
     }
 
     let content = match String::from_utf8(bytes) {
         Ok(s) => s,
         Err(_) => {
-            return writer_error(
-                WriterErrorCode::ReadError,
-                "File contains invalid UTF-8",
-            )
-            .into_response();
+            return writer_error(WriterErrorCode::ReadError, "File contains invalid UTF-8")
+                .into_response();
         }
     };
 
@@ -389,6 +379,32 @@ pub async fn save_document(
                 .into_response();
             }
         };
+    }
+
+    // "Save As" on a new file may use base_rev=0 from the client.
+    // Accept this explicitly and initialize revision to 1 on first write.
+    if !file_exists && (req.base_rev == 0 || req.base_rev == 1) {
+        if let Err(e) = fs::write(&file_path, &req.content).await {
+            return writer_error(
+                WriterErrorCode::WriteError,
+                format!("Failed to write file: {e}"),
+            )
+            .into_response();
+        }
+
+        if let Err(e) = set_revision(&state, &user_path, 1).await {
+            return writer_error(WriterErrorCode::WriteError, e).into_response();
+        }
+
+        return (
+            StatusCode::OK,
+            Json(SaveDocumentResponse {
+                path: user_path,
+                revision: 1,
+                saved: true,
+            }),
+        )
+            .into_response();
     }
 
     // Get current revision
@@ -586,6 +602,12 @@ async fn increment_revision(_state: &ApiState, path: &str) -> Result<u64, String
     increment_revision_in_sidecar(path).await
 }
 
+/// Set a specific revision for a document in sidecar storage.
+async fn set_revision(_state: &ApiState, path: &str, revision: u64) -> Result<(), String> {
+    let path = path.to_string();
+    set_revision_in_sidecar(path, revision).await
+}
+
 /// Sidecar file path for revision tracking
 fn revision_sidecar_path(doc_path: &str) -> PathBuf {
     let sandbox = sandbox_root();
@@ -641,4 +663,22 @@ async fn increment_revision_in_sidecar(path: String) -> Result<u64, String> {
     }
 
     Ok(new_revision)
+}
+
+/// Set revision in sidecar file.
+async fn set_revision_in_sidecar(path: String, revision: u64) -> Result<(), String> {
+    let sidecar = revision_sidecar_path(&path);
+
+    if let Some(parent) = sidecar.parent() {
+        if !parent.exists() {
+            if let Err(e) = fs::create_dir_all(parent).await {
+                return Err(format!("Failed to create revision directory: {e}"));
+            }
+        }
+    }
+
+    if let Err(e) = fs::write(&sidecar, revision.to_string()).await {
+        return Err(format!("Failed to write revision: {e}"));
+    }
+    Ok(())
 }

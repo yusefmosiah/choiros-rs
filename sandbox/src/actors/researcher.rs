@@ -39,6 +39,7 @@ pub enum ResearcherMsg {
         objective: String,
         timeout_ms: Option<u64>,
         max_results: Option<u32>,
+        max_rounds: Option<u8>,
         model_override: Option<String>,
         progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
         reply: RpcReplyPort<Result<ResearcherResult, ResearcherError>>,
@@ -48,6 +49,11 @@ pub enum ResearcherMsg {
         progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
         reply: RpcReplyPort<Result<ResearcherResult, ResearcherError>>,
     },
+    RunFetchUrlTool {
+        request: ResearcherFetchUrlRequest,
+        progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
+        reply: RpcReplyPort<Result<ResearcherFetchUrlResult, ResearcherError>>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,12 +62,20 @@ pub struct ResearcherWebSearchRequest {
     pub objective: Option<String>,
     pub provider: Option<String>,
     pub max_results: Option<u32>,
+    pub max_rounds: Option<u8>,
     pub time_range: Option<String>,
     pub include_domains: Option<Vec<String>>,
     pub exclude_domains: Option<Vec<String>>,
     pub timeout_ms: Option<u64>,
     pub model_override: Option<String>,
     pub reasoning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResearcherFetchUrlRequest {
+    pub url: String,
+    pub timeout_ms: Option<u64>,
+    pub max_chars: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,6 +86,17 @@ pub struct ResearcherProgress {
     pub model_used: Option<String>,
     pub result_count: Option<usize>,
     pub timestamp: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResearcherFetchUrlResult {
+    pub url: String,
+    pub final_url: String,
+    pub status_code: u16,
+    pub content_type: Option<String>,
+    pub content_excerpt: String,
+    pub content_length: usize,
+    pub success: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -222,6 +247,15 @@ mod tests {
             ProviderSelection::Parallel(vec![SearchProvider::Tavily, SearchProvider::Brave])
         );
     }
+
+    #[test]
+    fn extract_text_excerpt_strips_html_and_limits_chars() {
+        let html = "<html><body><h1>Title</h1><script>ignore()</script><p>Hello world from researcher fetch</p></body></html>";
+        let excerpt = ResearcherActor::extract_text_excerpt(html, Some("text/html"), 24);
+        assert!(!excerpt.contains('<'));
+        assert!(excerpt.len() <= 24);
+        assert!(excerpt.to_ascii_lowercase().contains("title"));
+    }
 }
 
 #[async_trait]
@@ -258,6 +292,7 @@ impl Actor for ResearcherActor {
                 objective,
                 timeout_ms,
                 max_results,
+                max_rounds,
                 model_override,
                 progress_tx,
                 reply,
@@ -267,6 +302,7 @@ impl Actor for ResearcherActor {
                     objective: None,
                     provider: Some("auto".to_string()),
                     max_results,
+                    max_rounds,
                     time_range: None,
                     include_domains: None,
                     exclude_domains: None,
@@ -283,6 +319,14 @@ impl Actor for ResearcherActor {
                 reply,
             } => {
                 let result = self.handle_web_search(state, request, progress_tx).await;
+                let _ = reply.send(result);
+            }
+            ResearcherMsg::RunFetchUrlTool {
+                request,
+                progress_tx,
+                reply,
+            } => {
+                let result = self.handle_fetch_url(state, request, progress_tx).await;
                 let _ = reply.send(result);
             }
         }
@@ -402,18 +446,6 @@ impl ResearcherActor {
             None,
             None,
         )
-    }
-
-    fn auto_provider_parallel_enabled() -> bool {
-        match std::env::var("CHOIR_RESEARCHER_AUTO_PROVIDER_MODE")
-            .unwrap_or_else(|_| "parallel".to_string())
-            .trim()
-            .to_ascii_lowercase()
-            .as_str()
-        {
-            "sequential" | "seq" | "false" | "0" => false,
-            _ => true,
-        }
     }
 
     fn map_model_error(error: ModelConfigError) -> ResearcherError {
@@ -560,17 +592,14 @@ impl ResearcherActor {
             None,
         );
 
-        let selection = match Self::parse_provider_selection(request.provider.as_deref()) {
-            ProviderSelection::AutoSequential if Self::auto_provider_parallel_enabled() => {
-                ProviderSelection::Parallel(Self::all_providers())
-            }
-            other => other,
-        };
+        let selection = Self::parse_provider_selection(request.provider.as_deref());
         let providers: Vec<SearchProvider> = match &selection {
             ProviderSelection::AutoSequential => Self::all_providers(),
             ProviderSelection::Single(provider) => vec![*provider],
             ProviderSelection::Parallel(list) => list.clone(),
         };
+        let is_parallel = matches!(&selection, ProviderSelection::Parallel(_));
+        let is_auto_sequential = matches!(&selection, ProviderSelection::AutoSequential);
 
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_millis(timeout_ms))
@@ -582,7 +611,6 @@ impl ResearcherActor {
         let mut calls = Vec::new();
         let mut successful_outputs: Vec<ProviderSearchOutput> = Vec::new();
         let mut errors: Vec<String> = Vec::new();
-        let is_parallel = matches!(&selection, ProviderSelection::Parallel(_));
         match selection {
             ProviderSelection::Parallel(ref parallel_providers) => {
                 for provider in parallel_providers {
@@ -665,74 +693,126 @@ impl ResearcherActor {
                 }
             }
             _ => {
-                for provider in providers {
+                let max_rounds = request.max_rounds.unwrap_or(3).clamp(1, 8) as usize;
+                let mut current_query = query.clone();
+                let provider_sequence = providers.clone();
+                let mut finished = false;
+
+                for round in 1..=max_rounds {
                     Self::emit_progress(
                         &progress_tx,
-                        "research_provider_call",
-                        format!("calling {} search provider", provider.as_str()),
-                        Some(provider.as_str().to_string()),
+                        "research_round_started",
+                        format!("round {}/{} query='{}'", round, max_rounds, current_query),
+                        None,
                         Some(model_used.clone()),
                         None,
                     );
-                    let started = tokio::time::Instant::now();
-                    let result = self
-                        .run_provider_search(
-                            provider,
-                            &http,
-                            &query,
-                            max_results,
-                            request.time_range.as_deref(),
-                            request.include_domains.as_deref(),
-                            request.exclude_domains.as_deref(),
-                        )
-                        .await;
-                    let elapsed = started.elapsed().as_millis() as u64;
 
-                    match result {
-                        Ok(mut output) => {
-                            output.latency_ms = elapsed;
-                            calls.push(ResearchProviderCall {
-                                provider: provider.as_str().to_string(),
-                                latency_ms: elapsed,
-                                result_count: output.citations.len(),
-                                succeeded: true,
-                                error: None,
-                            });
-                            Self::emit_progress(
-                                &progress_tx,
-                                "research_provider_result",
-                                format!(
-                                    "{} provider returned {} results",
-                                    provider.as_str(),
-                                    output.citations.len()
-                                ),
-                                Some(provider.as_str().to_string()),
-                                Some(model_used.clone()),
-                                Some(output.citations.len()),
-                            );
-                            successful_outputs.push(output);
-                            break;
-                        }
-                        Err(err) => {
-                            let err_text = err.to_string();
-                            errors.push(format!("{}: {}", provider.as_str(), err_text));
-                            calls.push(ResearchProviderCall {
-                                provider: provider.as_str().to_string(),
-                                latency_ms: elapsed,
-                                result_count: 0,
-                                succeeded: false,
-                                error: Some(err_text.clone()),
-                            });
-                            Self::emit_progress(
-                                &progress_tx,
-                                "research_provider_error",
-                                format!("{} provider failed: {}", provider.as_str(), err_text),
-                                Some(provider.as_str().to_string()),
-                                Some(model_used.clone()),
-                                None,
-                            );
+                    for provider in provider_sequence.iter().copied() {
+                        Self::emit_progress(
+                            &progress_tx,
+                            "research_provider_call",
+                            format!("calling {} search provider", provider.as_str()),
+                            Some(provider.as_str().to_string()),
+                            Some(model_used.clone()),
+                            None,
+                        );
+                        let started = tokio::time::Instant::now();
+                        let result = self
+                            .run_provider_search(
+                                provider,
+                                &http,
+                                &current_query,
+                                max_results,
+                                request.time_range.as_deref(),
+                                request.include_domains.as_deref(),
+                                request.exclude_domains.as_deref(),
+                            )
+                            .await;
+                        let elapsed = started.elapsed().as_millis() as u64;
+
+                        match result {
+                            Ok(mut output) => {
+                                output.latency_ms = elapsed;
+                                calls.push(ResearchProviderCall {
+                                    provider: provider.as_str().to_string(),
+                                    latency_ms: elapsed,
+                                    result_count: output.citations.len(),
+                                    succeeded: true,
+                                    error: None,
+                                });
+                                Self::emit_progress(
+                                    &progress_tx,
+                                    "research_provider_result",
+                                    format!(
+                                        "{} provider returned {} results",
+                                        provider.as_str(),
+                                        output.citations.len()
+                                    ),
+                                    Some(provider.as_str().to_string()),
+                                    Some(model_used.clone()),
+                                    Some(output.citations.len()),
+                                );
+                                successful_outputs.push(output);
+
+                                if !is_auto_sequential {
+                                    finished = true;
+                                    break;
+                                }
+                            }
+                            Err(err) => {
+                                let err_text = err.to_string();
+                                errors.push(format!("{}: {}", provider.as_str(), err_text));
+                                calls.push(ResearchProviderCall {
+                                    provider: provider.as_str().to_string(),
+                                    latency_ms: elapsed,
+                                    result_count: 0,
+                                    succeeded: false,
+                                    error: Some(err_text.clone()),
+                                });
+                                Self::emit_progress(
+                                    &progress_tx,
+                                    "research_provider_error",
+                                    format!("{} provider failed: {}", provider.as_str(), err_text),
+                                    Some(provider.as_str().to_string()),
+                                    Some(model_used.clone()),
+                                    None,
+                                );
+                            }
                         }
                     }
+
+                    let merged = Self::merge_citations(&successful_outputs);
+                    let (objective_status, _, _, _) =
+                        Self::assess_objective_completion(&objective, &merged, &calls, true);
+                    if objective_status == ResearchObjectiveStatus::Complete {
+                        Self::emit_progress(
+                            &progress_tx,
+                            "research_objective_complete",
+                            format!("objective completed in round {}", round),
+                            None,
+                            Some(model_used.clone()),
+                            Some(merged.len()),
+                        );
+                        break;
+                    }
+
+                    if finished || !is_auto_sequential || round == max_rounds {
+                        break;
+                    }
+
+                    current_query = Self::build_followup_query(&objective, &merged, round + 1);
+                    Self::emit_progress(
+                        &progress_tx,
+                        "research_round_refine_query",
+                        format!(
+                            "objective incomplete, refining query to '{}'",
+                            current_query
+                        ),
+                        None,
+                        Some(model_used.clone()),
+                        Some(merged.len()),
+                    );
                 }
             }
         }
@@ -763,31 +843,21 @@ impl ResearcherActor {
                 .map(|output| output.provider.as_str().to_string())
                 .collect::<Vec<_>>();
             format!("parallel:{}", successful.join(","))
+        } else if is_auto_sequential {
+            let successful = successful_outputs
+                .iter()
+                .map(|output| output.provider.as_str().to_string())
+                .collect::<Vec<_>>();
+            format!("sequential:{}", successful.join("->"))
         } else {
             successful_outputs[0].provider.as_str().to_string()
         };
 
-        let (citations, raw_results_count) = if is_parallel {
-            let mut seen_urls = HashSet::<String>::new();
-            let mut merged = Vec::new();
-            let mut raw_count = 0usize;
-            for output in successful_outputs {
-                raw_count += output.raw_results_count;
-                for citation in output.citations {
-                    if seen_urls.insert(citation.url.clone()) {
-                        merged.push(citation);
-                    }
-                }
-            }
-            (merged, raw_count)
-        } else {
-            let mut iter = successful_outputs.into_iter();
-            if let Some(output) = iter.next() {
-                (output.citations, output.raw_results_count)
-            } else {
-                (Vec::new(), 0)
-            }
-        };
+        let citations = Self::merge_citations(&successful_outputs);
+        let raw_results_count = successful_outputs
+            .iter()
+            .map(|output| output.raw_results_count)
+            .sum::<usize>();
 
         let summary = self.summarize_citations(&query, &provider_used, &citations);
         let (objective_status, completion_reason, next_capability, next_objective) =
@@ -826,6 +896,178 @@ impl ResearcherActor {
             error: None,
             worker_report: Some(worker_report),
         })
+    }
+
+    fn merge_citations(outputs: &[ProviderSearchOutput]) -> Vec<ResearchCitation> {
+        let mut seen_urls = HashSet::<String>::new();
+        let mut merged = Vec::new();
+        for output in outputs {
+            for citation in &output.citations {
+                if seen_urls.insert(citation.url.clone()) {
+                    merged.push(citation.clone());
+                }
+            }
+        }
+        merged
+    }
+
+    fn build_followup_query(
+        objective: &str,
+        citations: &[ResearchCitation],
+        round: usize,
+    ) -> String {
+        let mut domain_terms = citations
+            .iter()
+            .filter_map(|c| {
+                let host = c
+                    .url
+                    .split("//")
+                    .nth(1)
+                    .unwrap_or(c.url.as_str())
+                    .split('/')
+                    .next()
+                    .unwrap_or_default()
+                    .to_ascii_lowercase();
+                if host.is_empty() {
+                    None
+                } else {
+                    Some(host)
+                }
+            })
+            .collect::<Vec<_>>();
+        domain_terms.sort();
+        domain_terms.dedup();
+        if domain_terms.is_empty() {
+            return objective.to_string();
+        }
+        let domain_hint = domain_terms
+            .into_iter()
+            .take(4)
+            .collect::<Vec<_>>()
+            .join(" OR ");
+        format!(
+            "{} (round {} broaden coverage beyond: {})",
+            objective, round, domain_hint
+        )
+    }
+
+    async fn handle_fetch_url(
+        &self,
+        _state: &mut ResearcherState,
+        request: ResearcherFetchUrlRequest,
+        progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
+    ) -> Result<ResearcherFetchUrlResult, ResearcherError> {
+        let url = request.url.trim();
+        if url.is_empty() {
+            return Err(ResearcherError::Validation(
+                "fetch_url url cannot be empty".to_string(),
+            ));
+        }
+        if !url.starts_with("http://") && !url.starts_with("https://") {
+            return Err(ResearcherError::Validation(
+                "fetch_url url must start with http:// or https://".to_string(),
+            ));
+        }
+
+        let timeout_ms = request.timeout_ms.unwrap_or(30_000).clamp(3_000, 120_000);
+        let max_chars = request.max_chars.unwrap_or(8_000).clamp(500, 64_000);
+
+        Self::emit_progress(
+            &progress_tx,
+            "research_fetch_call",
+            format!("fetching {}", url),
+            None,
+            None,
+            None,
+        );
+
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(timeout_ms))
+            .build()
+            .map_err(|e| {
+                ResearcherError::ProviderRequest("http_client".to_string(), e.to_string())
+            })?;
+
+        let response = http
+            .get(url)
+            .header(
+                reqwest::header::USER_AGENT,
+                "ChoirOS-Researcher/0.1 (+fetch_url)",
+            )
+            .send()
+            .await
+            .map_err(|e| {
+                ResearcherError::ProviderRequest("fetch_url".to_string(), e.to_string())
+            })?;
+
+        let status = response.status();
+        let final_url = response.url().to_string();
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|h| h.to_str().ok())
+            .map(ToString::to_string);
+
+        let body = response.text().await.map_err(|e| {
+            ResearcherError::ProviderRequest("fetch_url".to_string(), e.to_string())
+        })?;
+
+        let excerpt = Self::extract_text_excerpt(&body, content_type.as_deref(), max_chars);
+        let result = ResearcherFetchUrlResult {
+            url: url.to_string(),
+            final_url,
+            status_code: status.as_u16(),
+            content_type,
+            content_excerpt: excerpt.clone(),
+            content_length: body.len(),
+            success: status.is_success(),
+        };
+
+        Self::emit_progress(
+            &progress_tx,
+            "research_fetch_result",
+            format!(
+                "fetched {} status={} chars={}",
+                result.url,
+                result.status_code,
+                result.content_excerpt.len()
+            ),
+            None,
+            None,
+            Some(result.content_excerpt.len()),
+        );
+
+        Ok(result)
+    }
+
+    fn extract_text_excerpt(body: &str, content_type: Option<&str>, max_chars: usize) -> String {
+        let looks_html = content_type
+            .map(|ct| ct.to_ascii_lowercase().contains("html"))
+            .unwrap_or_else(|| body.contains("<html") || body.contains("<body"));
+
+        let normalized = if looks_html {
+            let script_re = regex::Regex::new(r"(?is)<script[^>]*>.*?</script>").ok();
+            let style_re = regex::Regex::new(r"(?is)<style[^>]*>.*?</style>").ok();
+            let tag_re = regex::Regex::new(r"(?is)<[^>]+>").ok();
+
+            let no_script = script_re
+                .as_ref()
+                .map(|re| re.replace_all(body, " ").to_string())
+                .unwrap_or_else(|| body.to_string());
+            let no_style = style_re
+                .as_ref()
+                .map(|re| re.replace_all(&no_script, " ").to_string())
+                .unwrap_or(no_script);
+            tag_re
+                .as_ref()
+                .map(|re| re.replace_all(&no_style, " ").to_string())
+                .unwrap_or(no_style)
+        } else {
+            body.to_string()
+        };
+
+        let compact = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+        compact.chars().take(max_chars).collect::<String>()
     }
 
     async fn run_provider_search(

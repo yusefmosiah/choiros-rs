@@ -3,11 +3,10 @@ use shared_types::{AppDefinition, DesktopState};
 
 use crate::api::{
     close_window, focus_window, maximize_window, minimize_window, move_window, open_window,
-    resize_window, restore_window, send_chat_message, MaximizeWindowRequest,
+    resize_window, restore_window, MaximizeWindowRequest,
 };
 use crate::desktop::state::{
-    find_chat_window_id, focus_window_and_raise_z, push_window_and_activate,
-    remove_window_and_reselect_active,
+    focus_window_and_raise_z, push_window_and_activate, remove_window_and_reselect_active,
 };
 use crate::interop::get_window_canvas_size;
 
@@ -261,32 +260,5 @@ pub async fn maximize_window_action(
 pub async fn restore_window_action(desktop_id: String, window_id: String) {
     if let Err(e) = restore_window(&desktop_id, &window_id).await {
         dioxus_logger::tracing::error!("Failed to restore window: {}", e);
-    }
-}
-
-pub async fn handle_prompt_submit(
-    desktop_id: String,
-    text: String,
-    mut desktop_state: Signal<Option<DesktopState>>,
-) {
-    let chat_window_id = find_chat_window_id(&desktop_state.read());
-
-    if let Some(window_id) = chat_window_id {
-        let _ = focus_window(&desktop_id, &window_id).await;
-        let _ = send_chat_message(&window_id, "user-1", &text).await;
-        return;
-    }
-
-    match open_window(&desktop_id, "chat", "Chat", None).await {
-        Ok(window) => {
-            let window_id = window.id.clone();
-            if let Some(state) = desktop_state.write().as_mut() {
-                push_window_and_activate(state, window);
-            }
-            let _ = send_chat_message(&window_id, "user-1", &text).await;
-        }
-        Err(e) => {
-            dioxus_logger::tracing::error!("Failed to open chat window: {}", e);
-        }
     }
 }

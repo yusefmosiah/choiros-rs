@@ -26,6 +26,46 @@ export type ChatMessage = { id: string, text: string, sender: Sender, timestamp:
 export type ChatMsg = { "UserTyped": { text: string, window_id: string, } } | { "AssistantReply": { text: string, model: string, } } | { "ToolCall": { tool: string, args: unknown, call_id: string, } } | { "ToolResult": { call_id: string, status: ToolStatus, output: unknown, } };
 
 /**
+ * Typed error for Conductor task failures
+ */
+export type ConductorError = { code: string, message: string, failure_kind: FailureKind | null, };
+
+/**
+ * Request to execute a Conductor task
+ */
+export type ConductorExecuteRequest = { objective: string, desktop_id: string, output_mode: ConductorOutputMode, worker_plan: Array<ConductorWorkerStep> | null, hints: unknown, correlation_id: string | null, };
+
+/**
+ * Response from Conductor task execution
+ */
+export type ConductorExecuteResponse = { task_id: string, status: ConductorTaskStatus, report_path: string | null, writer_window_props: unknown, correlation_id: string, error: ConductorError | null, };
+
+/**
+ * Output mode for Conductor task execution
+ */
+export type ConductorOutputMode = "markdown_report_to_writer";
+
+/**
+ * State tracking for a Conductor task
+ */
+export type ConductorTaskState = { task_id: string, status: ConductorTaskStatus, objective: string, desktop_id: string, output_mode: ConductorOutputMode, correlation_id: string, created_at: string, updated_at: string, completed_at: string | null, report_path: string | null, error: ConductorError | null, };
+
+/**
+ * Status of a Conductor task
+ */
+export type ConductorTaskStatus = "queued" | "running" | "waiting_worker" | "completed" | "failed";
+
+/**
+ * One typed worker step in a Conductor execution plan.
+ */
+export type ConductorWorkerStep = { worker_type: ConductorWorkerType, objective: string | null, terminal_command: string | null, timeout_ms: bigint | null, max_results: number | null, max_steps: number | null, };
+
+/**
+ * Worker types the Conductor can orchestrate.
+ */
+export type ConductorWorkerType = "researcher" | "terminal";
+
+/**
  * Desktop state - all windows and their positions
  */
 export type DesktopState = { windows: Array<WindowState>, active_window: string | null, apps: Array<AppDefinition>, };

@@ -253,14 +253,10 @@ agent-browser screenshot tests/screenshots/result.png
 
 **Running Single Tests:**
 ```bash
-# Run specific test file
-cargo test -p sandbox --test desktop_api_test
-
-# Run specific test by name pattern
-cargo test -p sandbox test_create_desktop
-
-# Run with output visible
-cargo test -p sandbox test_name -- --nocapture
+# Preferred wrapper (blocks broad filtered runs)
+./scripts/sandbox-test.sh --test desktop_api_test
+./scripts/sandbox-test.sh --test desktop_api_test test_create_desktop
+./scripts/sandbox-test.sh --lib conductor
 
 # Run websocket chat integration suite
 cargo test -p sandbox --test websocket_chat_test -- --nocapture
@@ -268,9 +264,10 @@ cargo test -p sandbox --test websocket_chat_test -- --nocapture
 # Run supervision delegation suite
 cargo test -p sandbox --features supervision_refactor --test supervision_test -- --nocapture
 
-# Important: avoid broad filtered runs when targeting one integration test.
-# `cargo test -p sandbox <filter>` still spins through many test binaries and can be slow.
-# Prefer selecting the exact integration test target:
+# Important: NEVER use broad filtered runs like this:
+# cargo test -p sandbox <filter>
+# They spin through many test binaries and are slow/noisy.
+# Always select exact target binaries:
 cargo test -p sandbox --test chat_superbowl_live_matrix_test -- --nocapture
 
 # Or target one test function inside that integration binary:

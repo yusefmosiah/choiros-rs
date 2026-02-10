@@ -1,5 +1,6 @@
 pub mod chat;
 pub mod chat_agent;
+pub mod conductor;
 pub mod desktop;
 pub mod event_bus;
 #[cfg(test)]
@@ -13,6 +14,7 @@ pub mod watcher;
 
 pub use chat::ChatActor;
 pub use chat_agent::ChatAgent;
+pub use conductor::{ConductorActor, ConductorArguments, ConductorMsg};
 pub use desktop::DesktopActor;
 pub use event_bus::{Event, EventBusActor, EventBusMsg, EventType};
 pub use event_relay::{EventRelayActor, EventRelayArguments, EventRelayMsg};
