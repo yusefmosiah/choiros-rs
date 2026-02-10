@@ -855,7 +855,7 @@ pub mod files_api {
     use super::*;
 
     /// Directory entry in a listing
-    #[derive(Debug, Clone, Deserialize)]
+    #[derive(Debug, Clone, Deserialize, PartialEq)]
     pub struct DirectoryEntry {
         pub name: String,
         pub path: String,
@@ -1012,7 +1012,10 @@ pub mod files_api {
     }
 
     /// Create a new file
-    pub async fn create_file(path: &str, content: Option<String>) -> Result<CreateFileResponse, String> {
+    pub async fn create_file(
+        path: &str,
+        content: Option<String>,
+    ) -> Result<CreateFileResponse, String> {
         let url = format!("{}/files/create", api_base());
         let request = CreateFileRequest {
             path: path.to_string(),
@@ -1132,4 +1135,162 @@ pub mod files_api {
             .await
             .map_err(|e| format!("Failed to parse JSON: {e}"))
     }
+}
+
+// ============================================================================
+// Writer API Functions
+// ============================================================================
+
+/// Open document response
+#[derive(Debug, Clone, Deserialize)]
+pub struct OpenDocumentResponse {
+    pub path: String,
+    pub content: String,
+    pub mime: String,
+    pub revision: u64,
+    pub readonly: bool,
+}
+
+/// Save document response
+#[derive(Debug, Clone, Deserialize)]
+pub struct SaveDocumentResponse {
+    pub path: String,
+    pub revision: u64,
+    pub saved: bool,
+}
+
+/// Preview response
+#[derive(Debug, Clone, Deserialize)]
+pub struct PreviewResponse {
+    pub html: String,
+}
+
+/// Writer error detail
+#[derive(Debug, Clone, Deserialize)]
+pub struct WriterErrorDetail {
+    pub code: String,
+    pub message: String,
+}
+
+/// Writer error response
+#[derive(Debug, Clone, Deserialize)]
+pub struct WriterErrorResponse {
+    pub error: WriterErrorDetail,
+}
+
+/// Conflict response from server
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConflictResponse {
+    pub error: WriterErrorDetail,
+    pub path: String,
+    pub current_revision: u64,
+    pub current_content: String,
+}
+
+/// Open a document for editing
+pub async fn writer_open(path: &str) -> Result<OpenDocumentResponse, String> {
+    let url = format!("{}/writer/open", api_base());
+    let request = serde_json::json!({ "path": path });
+
+    let response = Request::post(&url)
+        .json(&request)
+        .map_err(|e| format!("Failed to serialize request: {e}"))?
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    if !response.ok() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        if let Ok(err) = serde_json::from_str::<WriterErrorResponse>(&body) {
+            return Err(format!("{}: {}", err.error.code, err.error.message));
+        }
+        return Err(format!("HTTP error: {status}"));
+    }
+
+    response
+        .json::<OpenDocumentResponse>()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))
+}
+
+/// Save document with optimistic concurrency control
+pub async fn writer_save(
+    path: &str,
+    base_rev: u64,
+    content: &str,
+) -> Result<SaveDocumentResponse, String> {
+    let url = format!("{}/writer/save", api_base());
+    let request = serde_json::json!({
+        "path": path,
+        "base_rev": base_rev,
+        "content": content
+    });
+
+    let response = Request::post(&url)
+        .json(&request)
+        .map_err(|e| format!("Failed to serialize request: {e}"))?
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    let status = response.status();
+
+    // Handle 409 Conflict specially
+    if status == 409 {
+        let body = response.text().await.unwrap_or_default();
+        if let Ok(conflict) = serde_json::from_str::<ConflictResponse>(&body) {
+            return Err(format!(
+                "CONFLICT:{}:{}",
+                conflict.current_revision, conflict.current_content
+            ));
+        }
+        return Err("CONFLICT".to_string());
+    }
+
+    if !response.ok() {
+        let body = response.text().await.unwrap_or_default();
+        if let Ok(err) = serde_json::from_str::<WriterErrorResponse>(&body) {
+            return Err(format!("{}: {}", err.error.code, err.error.message));
+        }
+        return Err(format!("HTTP error: {status}"));
+    }
+
+    response
+        .json::<SaveDocumentResponse>()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))
+}
+
+/// Preview markdown content
+pub async fn writer_preview(
+    content: Option<&str>,
+    path: Option<&str>,
+) -> Result<PreviewResponse, String> {
+    let url = format!("{}/writer/preview", api_base());
+    let request = serde_json::json!({
+        "content": content,
+        "path": path
+    });
+
+    let response = Request::post(&url)
+        .json(&request)
+        .map_err(|e| format!("Failed to serialize request: {e}"))?
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    if !response.ok() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        if let Ok(err) = serde_json::from_str::<WriterErrorResponse>(&body) {
+            return Err(format!("{}: {}", err.error.code, err.error.message));
+        }
+        return Err(format!("HTTP error: {status}"));
+    }
+
+    response
+        .json::<PreviewResponse>()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))
 }

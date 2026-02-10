@@ -1,3 +1,91 @@
+# ChoirOS Progress - 2026-02-09 (Writer App Implementation Complete)
+
+## Summary
+
+Completed full Writer app implementation with typed REST API endpoints, deterministic revision/conflict handling, markdown preview, comprehensive integration tests (16 tests), HTTP test suites, and Dioxus frontend with editor UX. All verification gates passing.
+
+## Writer App Implementation
+
+### What Was Implemented
+
+**Backend API (`sandbox/src/api/writer.rs`):**
+- 3 REST endpoints for document editing with optimistic concurrency control:
+  1. `POST /writer/open` - Open document (returns content + revision)
+  2. `POST /writer/save` - Save with conflict detection (409 on stale revision)
+  3. `POST /writer/preview` - Render markdown to HTML
+
+**Security Features:**
+- Path traversal protection (rejects `../`, absolute paths)
+- Sandbox boundary enforcement (all operations confined to `/Users/wiz/choiros-rs/sandbox`)
+- Typed error responses (403 PATH_TRAVERSAL, 404 NOT_FOUND, 409 CONFLICT)
+
+**Revision Semantics:**
+- Monotonic u64 revision counter per document
+- Optimistic concurrency: save requires matching `base_rev`
+- 409 CONFLICT response includes current server content for merge resolution
+- Sidecar file storage for revision tracking
+
+**Integration Tests (`sandbox/tests/writer_api_test.rs`):**
+- 16 comprehensive tests covering:
+  - Open/save/preview happy paths
+  - Conflict detection and resolution flow
+  - Path traversal protection
+  - Sandbox boundary validation
+  - MIME type detection
+  - Sequential revision increments
+
+**HTTP Test Scripts:**
+- `scripts/http/writer_api_smoke.sh` - Basic functionality tests
+- `scripts/http/writer_api_conflict.sh` - Concurrency/conflict tests
+
+**Frontend (`dioxus-desktop/src/components/writer.rs`):**
+- Document editor with text area
+- Save button with state machine (Clean/Dirty/Saving/Saved/Conflict/Error)
+- Conflict resolution UI (Reload Latest / Overwrite)
+- Markdown mode toggle (Edit/Preview) for .md files
+- Keyboard shortcut: Ctrl+S to save
+- Status indicators for all save states
+
+**API Client (`dioxus-desktop/src/api.rs`):**
+- `writer_open()` - Open document
+- `writer_save()` - Save with conflict handling
+- `writer_preview()` - Render markdown to HTML
+
+### Files Changed
+
+**Created:**
+- `/Users/wiz/choiros-rs/docs/architecture/writer-api-contract.md` - API specification
+- `/Users/wiz/choiros-rs/sandbox/src/api/writer.rs` - Backend implementation
+- `/Users/wiz/choiros-rs/sandbox/tests/writer_api_test.rs` - Integration tests
+- `/Users/wiz/choiros-rs/sandbox/migrations/20250209000000_document_revisions.sql` - DB migration
+- `/Users/wiz/choiros-rs/scripts/http/writer_api_smoke.sh` - Smoke tests
+- `/Users/wiz/choiros-rs/scripts/http/writer_api_conflict.sh` - Conflict tests
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/components/writer.rs` - Frontend component
+
+**Modified:**
+- `/Users/wiz/choiros-rs/sandbox/src/api/mod.rs` - Added writer module and routes
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/api.rs` - Added Writer API client functions
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/components.rs` - Exported WriterView
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop_window.rs` - Wired writer app rendering
+
+### Test Results
+
+| Test Suite | Passed | Failed | Status |
+|------------|--------|--------|--------|
+| Backend Integration Tests | 16 | 0 | PASS |
+| Backend Compilation | - | - | PASS |
+| Frontend Compilation | - | - | PASS |
+
+### Architecture Compliance
+
+- ✅ **No ad-hoc workflow**: Typed endpoints drive all behavior
+- ✅ **Capability surface**: Writer is an app, not orchestration
+- ✅ **Sandbox scope**: All file operations bounded to sandbox root
+- ✅ **Editor-first UX**: No generic viewer-shell controls exposed
+- ✅ **Typed conflict handling**: Deterministic 409 CONFLICT with structured payload
+
+---
+
 # ChoirOS Progress - 2026-02-09 (Files App Implementation Complete)
 
 ## Summary

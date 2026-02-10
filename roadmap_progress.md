@@ -19,8 +19,9 @@ Execution order is explicitly reset to avoid architecture drift: ship real deskt
   - App prompt bars route intent to Conductor; they do not bypass orchestration.
 - Current state:
   - `Files` app implementation COMPLETE with 9 REST API endpoints, 43 integration tests, 31 HTTP tests, and Dioxus frontend.
+  - `Writer` app implementation COMPLETE with 3 REST API endpoints, revision-based conflict handling, 16 integration tests, and Dioxus frontend with editor UX.
   - `Files` and `Writer` share sandbox scope and open sandbox-root resources.
-  - Transitional viewer-shell controls are still visible and tracked as technical debt.
+  - Both apps now have app-specific UX (not generic viewer shells).
   - Chat-to-conductor escalation refactor is queued behind prompt-bar/conductor stabilization.
 
 ## Files App Implementation Status (2026-02-09) - COMPLETE
@@ -44,15 +45,38 @@ Execution order is explicitly reset to avoid architecture drift: ship real deskt
 - Dialog system for create/rename/delete
 
 **Known Gaps:**
-- File editor is read-only (need writable editor with save)
 - No drag-and-drop file upload
 - No file search functionality
 - No bulk operations
 
+---
+
+## Writer App Implementation Status (2026-02-09) - COMPLETE
+
+**Backend API:**
+- 3 REST endpoints: open, save (with conflict detection), preview
+- Revision-based optimistic concurrency control
+- Path traversal protection and sandbox boundary enforcement
+- Typed error responses (403 PATH_TRAVERSAL, 404 NOT_FOUND, 409 CONFLICT)
+
+**Testing:**
+- 16 Rust integration tests (all passing)
+- HTTP smoke tests (writer_api_smoke.sh)
+- HTTP conflict tests (writer_api_conflict.sh)
+- Total: 16+ automated tests
+
+**Frontend:**
+- Dioxus component with editor UX
+- Editable text area with save functionality
+- State machine: Clean/Dirty/Saving/Saved/Conflict/Error
+- Conflict resolution UI (Reload Latest / Overwrite)
+- Markdown mode toggle (Edit/Preview)
+- Ctrl+S keyboard shortcut
+
 ## Current Execution Lane (2026-02-09, authoritative)
 
 1. ~~`Files` app: real explorer behavior in sandbox scope~~ - COMPLETE
-2. `Writer` app: real editor behavior + markdown mode
+2. ~~`Writer` app: real editor behavior + markdown mode~~ - COMPLETE
 3. `Prompt Bar -> Conductor` primary orchestration path
 4. Chat compatibility escalation into conductor (no app-level orchestration)
 5. Resume watcher/signal/model-policy hardening in conductor-centric flow
@@ -60,10 +84,10 @@ Execution order is explicitly reset to avoid architecture drift: ship real deskt
 ## What To Do Next
 
 1. ~~Convert `Files` from viewer shell to true explorer UX (navigate, select, open).~~ - COMPLETE
-2. Convert `Writer` to focused editor UX with save-first flow and optional markdown preview mode.
-3. Remove generic viewer-shell controls from `Files` and `Writer`.
-4. Complete prompt-bar conductor routing for app-scoped intents.
-5. Migrate unresolved Chat requests to Conductor after prompt-bar flow is stable.
+2. ~~Convert `Writer` to focused editor UX with save-first flow and optional markdown preview mode.~~ - COMPLETE
+3. Complete prompt-bar conductor routing for app-scoped intents.
+4. Migrate unresolved Chat requests to Conductor after prompt-bar flow is stable.
+5. Resume watcher/signal/model-policy hardening in conductor-centric flow.
 
 ## Historical Execution Lane (2026-02-08, archived)
 

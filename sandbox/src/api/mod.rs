@@ -21,6 +21,7 @@ pub mod viewer;
 pub mod websocket;
 pub mod websocket_chat;
 pub mod websocket_logs;
+pub mod writer;
 
 use crate::api::websocket::WsSessions;
 use crate::app_state::AppState;
@@ -126,6 +127,10 @@ pub fn router() -> Router<ApiState> {
         .route("/files/rename", post(files::rename_file))
         .route("/files/delete", post(files::delete_file))
         .route("/files/copy", post(files::copy_file))
+        // Writer API routes
+        .route("/writer/open", post(writer::open_document))
+        .route("/writer/save", post(writer::save_document))
+        .route("/writer/preview", post(writer::preview_markdown))
 }
 
 /// Health check endpoint

@@ -1,16 +1,9 @@
 use dioxus::prelude::*;
 
 use crate::api::files_api::{
-    create_directory, create_file, delete_file, list_directory, read_file_content, rename_file,
-    DirectoryEntry,
+    create_directory, create_file, delete_file, list_directory, rename_file, DirectoryEntry,
 };
-
-/// View mode for the Files app
-#[derive(Debug, Clone, PartialEq)]
-enum ViewMode {
-    Browser,
-    Editor { path: String, content: String },
-}
+use crate::api::open_window;
 
 /// Dialog state
 #[derive(Debug, Clone, PartialEq)]
@@ -18,8 +11,15 @@ enum DialogState {
     None,
     CreateFolder,
     CreateFile,
-    Rename { path: String, name: String },
-    Delete { path: String, name: String, is_dir: bool },
+    Rename {
+        path: String,
+        name: String,
+    },
+    Delete {
+        path: String,
+        name: String,
+        is_dir: bool,
+    },
 }
 
 #[component]
@@ -32,7 +32,6 @@ pub fn FilesView(
     let mut current_path = use_signal(|| initial_path.clone());
     let mut entries = use_signal(|| Vec::new());
     let mut selected_entry = use_signal(|| None::<DirectoryEntry>);
-    let mut view_mode = use_signal(|| ViewMode::Browser);
     let mut loading = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
     let mut dialog = use_signal(|| DialogState::None);
@@ -113,46 +112,123 @@ pub fn FilesView(
         selected_entry.set(None);
     };
 
-    // Open a file for editing
-    let open_file = move |path: String| {
+    // Check if a file should open in Writer (text files)
+    let is_text_file = |path: &str| -> bool {
+        let text_extensions = [
+            ".txt",
+            ".md",
+            ".markdown",
+            ".rs",
+            ".toml",
+            ".yaml",
+            ".yml",
+            ".json",
+            ".js",
+            ".ts",
+            ".jsx",
+            ".tsx",
+            ".html",
+            ".css",
+            ".scss",
+            ".sass",
+            ".py",
+            ".rb",
+            ".go",
+            ".java",
+            ".kt",
+            ".swift",
+            ".c",
+            ".cpp",
+            ".h",
+            ".hpp",
+            ".sh",
+            ".bash",
+            ".zsh",
+            ".fish",
+            ".ps1",
+            ".bat",
+            ".cmd",
+            ".Dockerfile",
+            ".dockerfile",
+            ".Makefile",
+            ".makefile",
+            ".cmake",
+            ".xml",
+            ".svg",
+            ".sql",
+            ".graphql",
+            ".gql",
+            ".vue",
+            ".svelte",
+            ".lua",
+            ".r",
+            ".pl",
+            ".pm",
+            ".t",
+            ".php",
+            ".phtml",
+            "Dockerfile",
+            "Makefile",
+            "Justfile",
+            ".env",
+            ".gitignore",
+            ".gitattributes",
+        ];
+        let path_lower = path.to_lowercase();
+        text_extensions.iter().any(|ext| path_lower.ends_with(ext)) || !path_lower.contains('.')
+        // Files without extension are often text
+    };
+
+    // Open a file in Writer app (for text files)
+    let open_file_in_writer = move |path: String| {
+        let desktop_id_clone = desktop_id.clone();
         spawn(async move {
-            loading.set(true);
-            error.set(None);
-            match read_file_content(&path).await {
-                Ok(response) => {
-                    view_mode.set(ViewMode::Editor {
-                        path: response.path,
-                        content: response.content,
-                    });
-                    loading.set(false);
+            // Extract filename for window title
+            let filename = path.rsplit_once('/').map(|(_, name)| name).unwrap_or(&path);
+
+            // Open Writer window with the file path
+            let props = serde_json::json!({
+                "path": path
+            });
+
+            match open_window(&desktop_id_clone, "writer", filename, Some(props)).await {
+                Ok(_) => {
+                    // Window opened successfully
                 }
                 Err(e) => {
-                    error.set(Some(e));
-                    loading.set(false);
+                    error.set(Some(format!("Failed to open Writer: {}", e)));
                 }
             }
         });
     };
 
+    // Open a file for viewing (legacy - now redirects to Writer for text files)
+    let open_file = use_callback(move |path: String| {
+        if is_text_file(&path) {
+            open_file_in_writer(path);
+        } else {
+            // For non-text files, could show a preview or open with system app
+            // For now, just show an error
+            error.set(Some(format!(
+                "Binary files cannot be opened in Writer: {}",
+                path
+            )));
+        }
+    });
+
     // Handle entry click (select)
-    let mut select_entry = move |entry: DirectoryEntry| {
+    let select_entry = use_callback(move |entry: DirectoryEntry| {
         selected_entry.set(Some(entry));
-    };
+    });
 
     // Handle entry double-click (open/navigate)
-    let mut activate_entry = move |entry: DirectoryEntry| {
+    let activate_entry = use_callback(move |entry: DirectoryEntry| {
         if entry.is_dir {
             navigate_to(entry.path);
         } else {
-            open_file(entry.path);
+            open_file.call(entry.path);
         }
-    };
-
-    // Go back to browser from editor
-    let back_to_browser = move |_| {
-        view_mode.set(ViewMode::Browser);
-        selected_entry.set(None);
-    };
+    });
 
     // Breadcrumb navigation
     let breadcrumb_navigate = move |index: usize| {
@@ -403,128 +479,96 @@ pub fn FilesView(
                 }
             }
 
-            // Main content
-            match view_mode() {
-                ViewMode::Browser => rsx! {
+            // Main content - Browser view
+            div {
+                style: "flex: 1; overflow: auto; padding: 0.5rem;",
+
+                // File list header
+                div {
+                    style: "display: grid; grid-template-columns: 2rem 1fr 6rem 8rem; gap: 0.75rem; padding: 0.5rem 0.75rem; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary, #94a3b8); border-bottom: 1px solid var(--border-color, #374151); position: sticky; top: 0; background: var(--window-bg, #1f2937);",
+                    div { "" }
+                    div { "Name" }
+                    div { "Size" }
+                    div { "Modified" }
+                }
+
+                // File list
+                if entries().is_empty() {
                     div {
-                        style: "flex: 1; overflow: auto; padding: 0.5rem;",
-
-                        // File list header
+                        style: "display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3rem; color: var(--text-muted, #6b7280);",
+                        div { style: "font-size: 3rem; margin-bottom: 1rem;", "📂" }
+                        "This folder is empty"
+                    }
+                } else {
+                    for entry in entries() {
                         div {
-                            style: "display: grid; grid-template-columns: 2rem 1fr 6rem 8rem; gap: 0.75rem; padding: 0.5rem 0.75rem; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary, #94a3b8); border-bottom: 1px solid var(--border-color, #374151); position: sticky; top: 0; background: var(--window-bg, #1f2937);",
-                            div { "" }
-                            div { "Name" }
-                            div { "Size" }
-                            div { "Modified" }
-                        }
-
-                        // File list
-                        if entries().is_empty() {
-                            div {
-                                style: "display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3rem; color: var(--text-muted, #6b7280);",
-                                div { style: "font-size: 3rem; margin-bottom: 1rem;", "📂" }
-                                "This folder is empty"
+                            key: "{entry.path}",
+                            style: if selected_entry().as_ref().map(|e| e.path == entry.path).unwrap_or(false) {
+                                "display: grid; grid-template-columns: 2rem 1fr 6rem 8rem; gap: 0.75rem; padding: 0.5rem 0.75rem; font-size: 0.875rem; cursor: pointer; background: var(--accent-bg, #3b82f6); color: white; border-radius: 0.375rem; margin-bottom: 0.125rem;"
+                            } else {
+                                "display: grid; grid-template-columns: 2rem 1fr 6rem 8rem; gap: 0.75rem; padding: 0.5rem 0.75rem; font-size: 0.875rem; cursor: pointer; hover:background: var(--bg-secondary, #374151); border-radius: 0.375rem; margin-bottom: 0.125rem;"
+                            },
+                            onclick: {
+                                let entry_clone = entry.clone();
+                                move |_| select_entry(entry_clone.clone())
+                            },
+                            ondoubleclick: {
+                                let entry_clone = entry.clone();
+                                move |_| activate_entry(entry_clone.clone())
+                            },
+                            div { "{get_file_icon(&entry)}" }
+                            div { "{entry.name}" }
+                            div { style: "color: var(--text-secondary, #94a3b8);",
+                                if entry.is_dir { "—" } else { "{format_size(entry.size)}" }
                             }
+                            div { style: "color: var(--text-secondary, #94a3b8); font-size: 0.75rem;",
+                                {format_timestamp(&entry.modified_at)}
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Context panel for selected item
+            if let Some(entry) = selected_entry() {
+                div {
+                    style: "padding: 0.75rem 1rem; background: var(--titlebar-bg, #111827); border-top: 1px solid var(--border-color, #374151); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;",
+                    div {
+                        style: "display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem;",
+                        "{get_file_icon(&entry)}"
+                        span { style: "font-weight: 500;", "{entry.name}" }
+                        if entry.is_dir {
+                            span { style: "color: var(--text-secondary, #94a3b8);", "(folder)" }
                         } else {
-                            for entry in entries() {
-                                div {
-                                    key: "{entry.path}",
-                                    style: if selected_entry().as_ref().map(|e| e.path == entry.path).unwrap_or(false) {
-                                        "display: grid; grid-template-columns: 2rem 1fr 6rem 8rem; gap: 0.75rem; padding: 0.5rem 0.75rem; font-size: 0.875rem; cursor: pointer; background: var(--accent-bg, #3b82f6); color: white; border-radius: 0.375rem; margin-bottom: 0.125rem;"
-                                    } else {
-                                        "display: grid; grid-template-columns: 2rem 1fr 6rem 8rem; gap: 0.75rem; padding: 0.5rem 0.75rem; font-size: 0.875rem; cursor: pointer; hover:background: var(--bg-secondary, #374151); border-radius: 0.375rem; margin-bottom: 0.125rem;"
-                                    },
-                                    onclick: {
-                                        let entry_clone = entry.clone();
-                                        move |_| select_entry(entry_clone.clone())
-                                    },
-                                    ondoubleclick: {
-                                        let entry_clone = entry.clone();
-                                        move |_| activate_entry(entry_clone.clone())
-                                    },
-                                    div { "{get_file_icon(&entry)}" }
-                                    div { "{entry.name}" }
-                                    div { style: "color: var(--text-secondary, #94a3b8);",
-                                        if entry.is_dir { "—" } else { "{format_size(entry.size)}" }
-                                    }
-                                    div { style: "color: var(--text-secondary, #94a3b8); font-size: 0.75rem;",
-                                        {format_timestamp(&entry.modified_at)}
-                                    }
-                                }
-                            }
+                            span { style: "color: var(--text-secondary, #94a3b8);", "({format_size(entry.size)})" }
                         }
                     }
-
-                    // Context panel for selected item
-                    if let Some(entry) = selected_entry() {
-                        div {
-                            style: "padding: 0.75rem 1rem; background: var(--titlebar-bg, #111827); border-top: 1px solid var(--border-color, #374151); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;",
-                            div {
-                                style: "display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem;",
-                                "{get_file_icon(&entry)}"
-                                span { style: "font-weight: 500;", "{entry.name}" }
-                                if entry.is_dir {
-                                    span { style: "color: var(--text-secondary, #94a3b8);", "(folder)" }
-                                } else {
-                                    span { style: "color: var(--text-secondary, #94a3b8);", "({format_size(entry.size)})" }
-                                }
-                            }
-                            div {
-                                style: "display: flex; align-items: center; gap: 0.5rem;",
-                                button {
-                                    style: "background: transparent; border: 1px solid var(--border-color, #374151); color: var(--text-secondary, #94a3b8); cursor: pointer; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem;",
-                                    onclick: {
-                                        let entry_clone = entry.clone();
-                                        move |_| show_rename(entry_clone.clone())
-                                    },
-                                    "Rename"
-                                }
-                                button {
-                                    style: "background: transparent; border: 1px solid #991b1b; color: #fca5a5; cursor: pointer; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem;",
-                                    onclick: {
-                                        let entry_clone = entry.clone();
-                                        move |_| show_delete(entry_clone.clone())
-                                    },
-                                    "Delete"
-                                }
-                                if entry.is_file {
-                                    button {
-                                        style: "background: var(--accent-bg, #3b82f6); border: none; color: white; cursor: pointer; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem;",
-                                        onclick: {
-                                            let path = entry.path.clone();
-                                            move |_| open_file(path.clone())
-                                        },
-                                        "Open"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                ViewMode::Editor { path, content } => rsx! {
                     div {
-                        style: "flex: 1; display: flex; flex-direction: column; overflow: hidden;",
-
-                        // Editor toolbar
-                        div {
-                            style: "display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 1rem; background: var(--titlebar-bg, #111827); border-bottom: 1px solid var(--border-color, #374151); flex-shrink: 0;",
-                            div {
-                                style: "display: flex; align-items: center; gap: 0.5rem;",
-                                button {
-                                    style: "background: transparent; border: 1px solid var(--border-color, #374151); color: var(--text-secondary, #94a3b8); cursor: pointer; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem;",
-                                    onclick: back_to_browser,
-                                    "← Back"
-                                }
-                                span { style: "font-size: 0.875rem; color: var(--text-secondary, #94a3b8);", "{path}" }
-                            }
+                        style: "display: flex; align-items: center; gap: 0.5rem;",
+                        button {
+                            style: "background: transparent; border: 1px solid var(--border-color, #374151); color: var(--text-secondary, #94a3b8); cursor: pointer; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem;",
+                            onclick: {
+                                let entry_clone = entry.clone();
+                                move |_| show_rename(entry_clone.clone())
+                            },
+                            "Rename"
                         }
-
-                        // Editor content
-                        div {
-                            style: "flex: 1; overflow: auto; padding: 1rem;",
-                            pre {
-                                style: "margin: 0; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, monospace; font-size: 0.875rem; line-height: 1.5; color: var(--text-primary, #f8fafc);",
-                                "{content}"
+                        button {
+                            style: "background: transparent; border: 1px solid #991b1b; color: #fca5a5; cursor: pointer; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem;",
+                            onclick: {
+                                let entry_clone = entry.clone();
+                                move |_| show_delete(entry_clone.clone())
+                            },
+                            "Delete"
+                        }
+                        if entry.is_file {
+                            button {
+                                style: "background: var(--accent-bg, #3b82f6); border: none; color: white; cursor: pointer; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem;",
+                                onclick: {
+                                    let path = entry.path.clone();
+                                    move |_| open_file(path.clone())
+                                },
+                                "Open in Writer"
                             }
                         }
                     }

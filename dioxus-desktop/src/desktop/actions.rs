@@ -33,16 +33,6 @@ fn error_indicates_minimized_window(message: &str) -> bool {
 
 fn viewer_props_for_app(app_id: &str) -> Option<serde_json::Value> {
     match app_id {
-        "writer" => Some(serde_json::json!({
-            "viewer": {
-                "kind": "text",
-                "resource": {
-                    "uri": "sandbox://Cargo.toml",
-                    "mime": "text/plain"
-                },
-                "capabilities": { "readonly": false }
-            }
-        })),
         _ => None,
     }
 }

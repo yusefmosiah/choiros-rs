@@ -36,9 +36,11 @@ Researcher baseline is now live via delegated `web_search`, and run-level logs n
    - Canonical researcher rollout spec: dual interface, provider isolation, and observability contracts.
 6. `/Users/wiz/choiros-rs/docs/architecture/model-provider-agnostic-runbook.md`
    - Model/provider matrix and validation plan.
-7. `/Users/wiz/choiros-rs/docs/architecture/pdf-app-implementation-guide.md`
+7. `/Users/wiz/choiros-rs/docs/architecture/backend-authoritative-ui-state-pattern.md`
+   - Canonical policy for backend-synced app/window state (no browser-local authority).
+8. `/Users/wiz/choiros-rs/docs/architecture/pdf-app-implementation-guide.md`
    - Deferred guide-only milestone (no build yet).
-8. `/Users/wiz/choiros-rs/docs/architecture/roadmap-critical-analysis.md`
+9. `/Users/wiz/choiros-rs/docs/architecture/roadmap-critical-analysis.md`
    - Historical gap analysis and risks (use as reference, not current ordering authority).
 
 ## Current Decisions (Explicit)
@@ -48,6 +50,7 @@ Researcher baseline is now live via delegated `web_search`, and run-level logs n
 - Directives app is prioritized over PDF app implementation.
 - Policy actor is not first-line routing.
 - Agentic policy is deferred to hardening/post-deployment.
+- Backend is canonical for app/window UI state; browser localStorage is non-authoritative.
 
 ## One-Line Summary Per Core Doc
 
@@ -59,6 +62,7 @@ Researcher baseline is now live via delegated `web_search`, and run-level logs n
 - `worker-signal-contract.md`: "How workers decide what to signal, without spamming."
 - `pdf-app-implementation-guide.md`: "What PDF should become later, without building it now."
 - `roadmap-critical-analysis.md`: "Where the earlier plan overestimated readiness."
+- `backend-authoritative-ui-state-pattern.md`: "How app/window state stays synced across browsers without localStorage authority."
 
 ## Doc Readability Rule (Human-First)
 
