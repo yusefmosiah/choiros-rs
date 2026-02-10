@@ -846,3 +846,290 @@ pub async fn patch_viewer_content(
         PatchViewerContentError::Message("missing revision in save response".to_string())
     })
 }
+
+// ============================================================================
+// Files API Functions
+// ============================================================================
+
+pub mod files_api {
+    use super::*;
+
+    /// Directory entry in a listing
+    #[derive(Debug, Clone, Deserialize)]
+    pub struct DirectoryEntry {
+        pub name: String,
+        pub path: String,
+        pub is_file: bool,
+        pub is_dir: bool,
+        pub size: u64,
+        pub modified_at: String,
+    }
+
+    /// List directory response
+    #[derive(Debug, Clone, Deserialize)]
+    pub struct ListDirectoryResponse {
+        pub path: String,
+        pub entries: Vec<DirectoryEntry>,
+        pub total_count: usize,
+    }
+
+    /// File content response
+    #[derive(Debug, Clone, Deserialize)]
+    pub struct FileContentResponse {
+        pub path: String,
+        pub content: String,
+        pub size: usize,
+        pub is_truncated: bool,
+        pub encoding: String,
+    }
+
+    /// Create file request
+    #[derive(Debug, Serialize)]
+    struct CreateFileRequest {
+        path: String,
+        content: Option<String>,
+        overwrite: Option<bool>,
+    }
+
+    /// Create file response
+    #[derive(Debug, Deserialize)]
+    pub struct CreateFileResponse {
+        pub path: String,
+        pub created: bool,
+        pub size: u64,
+    }
+
+    /// Create directory request
+    #[derive(Debug, Serialize)]
+    struct CreateDirectoryRequest {
+        path: String,
+        recursive: Option<bool>,
+    }
+
+    /// Create directory response
+    #[derive(Debug, Deserialize)]
+    pub struct CreateDirectoryResponse {
+        pub path: String,
+        pub created: bool,
+    }
+
+    /// Rename request
+    #[derive(Debug, Serialize)]
+    struct RenameRequest {
+        source: String,
+        target: String,
+        overwrite: Option<bool>,
+    }
+
+    /// Rename response
+    #[derive(Debug, Deserialize)]
+    pub struct RenameResponse {
+        pub source: String,
+        pub target: String,
+        pub renamed: bool,
+    }
+
+    /// Delete request
+    #[derive(Debug, Serialize)]
+    struct DeleteRequest {
+        path: String,
+        recursive: Option<bool>,
+    }
+
+    /// Delete response
+    #[derive(Debug, Deserialize)]
+    pub struct DeleteResponse {
+        pub path: String,
+        pub deleted: bool,
+        #[serde(rename = "type")]
+        pub entry_type: String,
+    }
+
+    /// Error response
+    #[derive(Debug, Deserialize)]
+    struct ErrorResponse {
+        pub error: ErrorDetail,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct ErrorDetail {
+        pub code: String,
+        pub message: String,
+    }
+
+    /// List directory contents
+    pub async fn list_directory(path: &str) -> Result<ListDirectoryResponse, String> {
+        let encoded_path = js_sys::encode_uri_component(path)
+            .as_string()
+            .unwrap_or_else(|| path.to_string());
+        let url = format!("{}/files/list?path={}", api_base(), encoded_path);
+
+        let response = Request::get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {e}"))?;
+
+        if !response.ok() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            if let Ok(err) = serde_json::from_str::<ErrorResponse>(&body) {
+                return Err(format!("{}: {}", err.error.code, err.error.message));
+            }
+            return Err(format!("HTTP error: {status}"));
+        }
+
+        response
+            .json::<ListDirectoryResponse>()
+            .await
+            .map_err(|e| format!("Failed to parse JSON: {e}"))
+    }
+
+    /// Read file content
+    pub async fn read_file_content(path: &str) -> Result<FileContentResponse, String> {
+        let encoded_path = js_sys::encode_uri_component(path)
+            .as_string()
+            .unwrap_or_else(|| path.to_string());
+        let url = format!("{}/files/content?path={}", api_base(), encoded_path);
+
+        let response = Request::get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {e}"))?;
+
+        if !response.ok() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            if let Ok(err) = serde_json::from_str::<ErrorResponse>(&body) {
+                return Err(format!("{}: {}", err.error.code, err.error.message));
+            }
+            return Err(format!("HTTP error: {status}"));
+        }
+
+        response
+            .json::<FileContentResponse>()
+            .await
+            .map_err(|e| format!("Failed to parse JSON: {e}"))
+    }
+
+    /// Create a new file
+    pub async fn create_file(path: &str, content: Option<String>) -> Result<CreateFileResponse, String> {
+        let url = format!("{}/files/create", api_base());
+        let request = CreateFileRequest {
+            path: path.to_string(),
+            content,
+            overwrite: Some(false),
+        };
+
+        let response = Request::post(&url)
+            .json(&request)
+            .map_err(|e| format!("Failed to serialize request: {e}"))?
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {e}"))?;
+
+        if !response.ok() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            if let Ok(err) = serde_json::from_str::<ErrorResponse>(&body) {
+                return Err(format!("{}: {}", err.error.code, err.error.message));
+            }
+            return Err(format!("HTTP error: {status}"));
+        }
+
+        response
+            .json::<CreateFileResponse>()
+            .await
+            .map_err(|e| format!("Failed to parse JSON: {e}"))
+    }
+
+    /// Create a new directory
+    pub async fn create_directory(path: &str) -> Result<CreateDirectoryResponse, String> {
+        let url = format!("{}/files/mkdir", api_base());
+        let request = CreateDirectoryRequest {
+            path: path.to_string(),
+            recursive: Some(true),
+        };
+
+        let response = Request::post(&url)
+            .json(&request)
+            .map_err(|e| format!("Failed to serialize request: {e}"))?
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {e}"))?;
+
+        if !response.ok() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            if let Ok(err) = serde_json::from_str::<ErrorResponse>(&body) {
+                return Err(format!("{}: {}", err.error.code, err.error.message));
+            }
+            return Err(format!("HTTP error: {status}"));
+        }
+
+        response
+            .json::<CreateDirectoryResponse>()
+            .await
+            .map_err(|e| format!("Failed to parse JSON: {e}"))
+    }
+
+    /// Rename/move a file or directory
+    pub async fn rename_file(source: &str, target: &str) -> Result<RenameResponse, String> {
+        let url = format!("{}/files/rename", api_base());
+        let request = RenameRequest {
+            source: source.to_string(),
+            target: target.to_string(),
+            overwrite: Some(false),
+        };
+
+        let response = Request::post(&url)
+            .json(&request)
+            .map_err(|e| format!("Failed to serialize request: {e}"))?
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {e}"))?;
+
+        if !response.ok() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            if let Ok(err) = serde_json::from_str::<ErrorResponse>(&body) {
+                return Err(format!("{}: {}", err.error.code, err.error.message));
+            }
+            return Err(format!("HTTP error: {status}"));
+        }
+
+        response
+            .json::<RenameResponse>()
+            .await
+            .map_err(|e| format!("Failed to parse JSON: {e}"))
+    }
+
+    /// Delete a file or directory
+    pub async fn delete_file(path: &str, is_dir: bool) -> Result<DeleteResponse, String> {
+        let url = format!("{}/files/delete", api_base());
+        let request = DeleteRequest {
+            path: path.to_string(),
+            recursive: Some(is_dir),
+        };
+
+        let response = Request::post(&url)
+            .json(&request)
+            .map_err(|e| format!("Failed to serialize request: {e}"))?
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {e}"))?;
+
+        if !response.ok() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            if let Ok(err) = serde_json::from_str::<ErrorResponse>(&body) {
+                return Err(format!("{}: {}", err.error.code, err.error.message));
+            }
+            return Err(format!("HTTP error: {status}"));
+        }
+
+        response
+            .json::<DeleteResponse>()
+            .await
+            .map_err(|e| format!("Failed to parse JSON: {e}"))
+    }
+}

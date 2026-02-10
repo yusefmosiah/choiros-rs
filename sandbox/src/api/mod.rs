@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 pub mod chat;
 pub mod desktop;
+pub mod files;
 pub mod logs;
 pub mod terminal;
 pub mod user;
@@ -115,6 +116,16 @@ pub fn router() -> Router<ApiState> {
             "/ws/chat/{actor_id}/{user_id}",
             get(websocket_chat::chat_websocket_with_user),
         )
+        // Files API routes
+        .route("/files/list", get(files::list_directory))
+        .route("/files/metadata", get(files::get_metadata))
+        .route("/files/content", get(files::get_content))
+        .route("/files/create", post(files::create_file))
+        .route("/files/write", post(files::write_file))
+        .route("/files/mkdir", post(files::create_directory))
+        .route("/files/rename", post(files::rename_file))
+        .route("/files/delete", post(files::delete_file))
+        .route("/files/copy", post(files::copy_file))
 }
 
 /// Health check endpoint

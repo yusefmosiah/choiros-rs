@@ -4,7 +4,7 @@ use gloo_timers::future::TimeoutFuture;
 use shared_types::WindowState;
 use wasm_bindgen::JsCast;
 
-use crate::components::{ChatView, LogsView, SettingsView};
+use crate::components::{load_files_path, ChatView, FilesView, LogsView, SettingsView};
 use crate::terminal::TerminalView;
 use crate::viewers::{parse_viewer_window_props, ViewerShell};
 
@@ -563,6 +563,17 @@ pub fn FloatingWindow(
                             window_id: window.id.clone(),
                         }
                     },
+                    "files" => {
+                        let initial_path = load_files_path(&desktop_id, &window.id);
+                        rsx! {
+                            FilesView {
+                                key: "{window.id}",
+                                desktop_id: desktop_id.clone(),
+                                window_id: window.id.clone(),
+                                initial_path,
+                            }
+                        }
+                    }
                     "settings" => rsx! {
                         SettingsView {
                             key: "{window.id}",

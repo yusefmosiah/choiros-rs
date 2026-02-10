@@ -18,13 +18,40 @@ Execution order is explicitly reset to avoid architecture drift: ship real deskt
   - Conductor is the orchestration authority; app actors are capability endpoints.
   - App prompt bars route intent to Conductor; they do not bypass orchestration.
 - Current state:
+  - `Files` app implementation COMPLETE with 9 REST API endpoints, 43 integration tests, 31 HTTP tests, and Dioxus frontend.
   - `Files` and `Writer` share sandbox scope and open sandbox-root resources.
   - Transitional viewer-shell controls are still visible and tracked as technical debt.
   - Chat-to-conductor escalation refactor is queued behind prompt-bar/conductor stabilization.
 
+## Files App Implementation Status (2026-02-09) - COMPLETE
+
+**Backend API:**
+- 9 REST endpoints: list, metadata, content, create, write, mkdir, rename, delete, copy
+- Path traversal protection and sandbox boundary enforcement
+- Comprehensive error handling (403, 404, 409 status codes)
+
+**Testing:**
+- 43 Rust integration tests (all passing)
+- 11 HTTP smoke tests (all passing)
+- 20 HTTP negative tests (all passing)
+- Total: 74 automated tests
+
+**Frontend:**
+- Dioxus component with file browser UI
+- Directory navigation, breadcrumb, toolbar actions
+- File listing with icons, sizes, dates
+- Context actions (rename, delete, open)
+- Dialog system for create/rename/delete
+
+**Known Gaps:**
+- File editor is read-only (need writable editor with save)
+- No drag-and-drop file upload
+- No file search functionality
+- No bulk operations
+
 ## Current Execution Lane (2026-02-09, authoritative)
 
-1. `Files` app: real explorer behavior in sandbox scope
+1. ~~`Files` app: real explorer behavior in sandbox scope~~ - COMPLETE
 2. `Writer` app: real editor behavior + markdown mode
 3. `Prompt Bar -> Conductor` primary orchestration path
 4. Chat compatibility escalation into conductor (no app-level orchestration)
@@ -32,7 +59,7 @@ Execution order is explicitly reset to avoid architecture drift: ship real deskt
 
 ## What To Do Next
 
-1. Convert `Files` from viewer shell to true explorer UX (navigate, select, open).
+1. ~~Convert `Files` from viewer shell to true explorer UX (navigate, select, open).~~ - COMPLETE
 2. Convert `Writer` to focused editor UX with save-first flow and optional markdown preview mode.
 3. Remove generic viewer-shell controls from `Files` and `Writer`.
 4. Complete prompt-bar conductor routing for app-scoped intents.

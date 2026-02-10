@@ -1,3 +1,89 @@
+# ChoirOS Progress - 2026-02-09 (Files App Implementation Complete)
+
+## Summary
+
+Completed full Files app implementation with 9 REST API endpoints, comprehensive integration tests (43 tests), HTTP smoke/negative test suites (31 total tests), and Dioxus frontend with file browser UI. All verification gates passing.
+
+## Files App Implementation
+
+### What Was Implemented
+
+**Backend API (`sandbox/src/api/files.rs`):**
+- 9 REST endpoints for file system operations within sandbox boundary:
+  1. `GET /files/list` - List directory contents with metadata
+  2. `GET /files/metadata` - Get file/directory metadata
+  3. `GET /files/content` - Read file content (with optional offset/limit)
+  4. `POST /files/create` - Create new file
+  5. `POST /files/write` - Write/append to file
+  6. `POST /files/mkdir` - Create directory (recursive support)
+  7. `POST /files/rename` - Rename/move files
+  8. `POST /files/delete` - Delete files/directories (recursive support)
+  9. `POST /files/copy` - Copy files
+
+**Security Features:**
+- Path traversal protection (rejects `../`, absolute paths)
+- Sandbox boundary enforcement (all operations confined to `/Users/wiz/choiros-rs/sandbox`)
+- Proper error codes (403 PATH_TRAVERSAL, 404 NOT_FOUND, 409 ALREADY_EXISTS)
+
+**Integration Tests (`sandbox/tests/files_api_test.rs`):**
+- 43 comprehensive tests covering:
+  - All 9 API endpoints (happy path)
+  - Error cases (not found, already exists, type mismatches)
+  - Path traversal attacks (absolute paths, parent directory escapes)
+  - Sandbox boundary validation
+
+**HTTP Test Scripts:**
+- `scripts/http/files_api_smoke.sh` - 11 happy path tests
+- `scripts/http/files_api_negative.sh` - 20 negative/error case tests
+- All tests passing against running server
+
+**Frontend (`dioxus-desktop/src/components/files.rs`):**
+- File browser UI with directory navigation
+- File listing with icons, sizes, modification dates
+- Breadcrumb navigation
+- Toolbar actions (up, refresh, new folder, new file)
+- Context actions for selected items (rename, delete, open)
+- Dialog system for create/rename/delete operations
+- File viewer (read-only) for text files
+- Integration with Files API client (`dioxus-desktop/src/api.rs`)
+
+### Files Changed
+
+**Created:**
+- `/Users/wiz/choiros-rs/docs/architecture/files-api-contract.md` - API specification
+- `/Users/wiz/choiros-rs/sandbox/src/api/files.rs` - Backend implementation
+- `/Users/wiz/choiros-rs/sandbox/tests/files_api_test.rs` - Integration tests
+- `/Users/wiz/choiros-rs/scripts/http/files_api_smoke.sh` - Smoke tests
+- `/Users/wiz/choiros-rs/scripts/http/files_api_negative.sh` - Negative tests
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/components/files.rs` - Frontend component
+
+**Modified:**
+- `/Users/wiz/choiros-rs/sandbox/src/api/mod.rs` - Added files module and routes
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/api.rs` - Added Files API client functions
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/components/mod.rs` - Exported FilesView
+
+### Test Results
+
+| Test Suite | Passed | Failed | Status |
+|------------|--------|--------|--------|
+| Backend Integration Tests | 43 | 0 | PASS |
+| HTTP Smoke Tests | 11 | 0 | PASS |
+| HTTP Negative Tests | 20 | 0 | PASS |
+| Backend Compilation | - | - | PASS |
+| Frontend Compilation | - | - | PASS |
+
+### Known Gaps / Future Work
+
+1. **File Editor**: Currently files open in read-only viewer; need writable editor with save functionality
+2. **File Upload**: No drag-and-drop or file upload from host system
+3. **Search**: No file content or name search within the Files app
+4. **File Permissions**: No chmod/chown operations exposed
+5. **Bulk Operations**: No multi-select for delete/move/copy
+6. **Sorting**: Directory listing is not sortable by column
+7. **Path Bar**: No editable path bar for direct path entry
+
+---
+
 # ChoirOS Progress - 2026-02-09 (Pathway Reset: Real Apps First, Conductor Next)
 
 ## Summary

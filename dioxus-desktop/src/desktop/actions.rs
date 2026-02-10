@@ -43,16 +43,6 @@ fn viewer_props_for_app(app_id: &str) -> Option<serde_json::Value> {
                 "capabilities": { "readonly": false }
             }
         })),
-        "files" => Some(serde_json::json!({
-            "viewer": {
-                "kind": "text",
-                "resource": {
-                    "uri": "sandbox://",
-                    "mime": "text/markdown"
-                },
-                "capabilities": { "readonly": true }
-            }
-        })),
         _ => None,
     }
 }
