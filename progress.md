@@ -1,3 +1,47 @@
+# ChoirOS Progress - 2026-02-09 (Pathway Normalization: Conductor-First)
+
+## Narrative Summary (1-minute read)
+
+Files v0 and Writer v0 are complete. The project has shifted to Conductor-first orchestration: Prompt Bar routes intent to Conductor, which coordinates capability actors to generate markdown reports and open them in Writer preview mode. Chat remains a compatibility surface and does not own multi-step planning. All workflow control is encoded in typed protocols (NO ADHOC WORKFLOW).
+
+## Doc Consistency Diff
+
+### What Changed (Since Last Major Update)
+- Files app: **COMPLETE** - 9 REST endpoints, 74 tests, Dioxus frontend with real explorer UX
+- Writer app: **COMPLETE** - 3 REST endpoints, revision-based conflict handling, 16 tests, editor UX with markdown preview
+- Logging/Watcher/Model Policy: **FOUNDATION COMPLETE** - moved from active milestones to operational infrastructure
+- Researcher: **BASELINE LIVE** - delegated web_search through ResearcherActor is active
+- Chat role: **COMPATIBILITY SURFACE** - no longer primary orchestration; escalates to Conductor
+- Execution lane: **Prompt Bar -> Conductor** is now the primary orchestration path
+
+### What Is Stale (Do Not Follow)
+- Any roadmap suggesting Chat is the primary planner/orchestrator
+- Historical execution lanes prioritizing Logging/Watcher/Model Policy as active work (they are complete)
+- References to Files/Writer as "in progress" or "viewer shells"
+
+### What To Do Next (Authoritative)
+1. **Milestone A**: Conductor backend MVP for report generation
+   - ConductorActor with capability dispatch to actors
+   - Markdown report generation endpoint
+   - Strict typed protocol enforcement (NO ADHOC WORKFLOW)
+2. **Milestone B**: Prompt bar routing to Conductor
+   - Prompt Bar captures universal input and routes to Conductor
+   - Chat available as compatibility fallback only
+3. **Milestone C**: Writer auto-open in markdown preview
+   - Conductor-generated reports auto-open in Writer
+   - Writer launches in preview mode for markdown files
+   - Backend-driven UI state per `backend-authoritative-ui-state-pattern.md`
+
+### Architecture Principles
+- **NO ADHOC WORKFLOW**: Encode all control flow in typed protocol fields (BAML/shared-types) and actor messages. Never use natural-language string matching for workflow state transitions.
+- **Chat is compatibility; Conductor is orchestrator**: Chat can answer simple queries but escalates multi-step planning to Conductor.
+
+---
+
+## Historical Progress Archives (Non-Authoritative)
+
+The sections below document completed implementation work. They are preserved for reference but no longer reflect current execution priorities. See "What To Do Next" above for authoritative current direction.
+
 # ChoirOS Progress - 2026-02-09 (Writer App Implementation Complete)
 
 ## Summary
@@ -283,7 +327,7 @@ Hardened the chat deferred-tool path so background research no longer pollutes c
 
 ## Narrative Summary (1-minute read)
 
-The async gap was that chat could emit stale “still running” text after delegated research had already completed, and async completions were not consistently reflected in in-memory chat context for subsequent turns. That behavior is now fixed. We validated with live matrix runs: clean non-Bedrock matrix (`15` cases) passed async gates with `0` polluted follow-ups; isolated Bedrock probes show `Opus46` and `Sonnet45` pass, while `Opus45` currently fails in this harness.
+The async gap was that chat could emit stale "still running" text after delegated research had already completed, and async completions were not consistently reflected in in-memory chat context for subsequent turns. That behavior is now fixed. We validated with live matrix runs: clean non-Bedrock matrix (`15` cases) passed async gates with `0` polluted follow-ups; isolated Bedrock probes show `Opus46` and `Sonnet45` pass, while `Opus45` currently fails in this harness.
 
 ## What Changed
 
@@ -513,7 +557,7 @@ Commits in window (16):
    - Implemented/refined terminal delegation API, terminal-agent progress telemetry, websocket actor-call streaming, and UI observability wiring.
    - Added integration tests proving actor-call stream visibility over `/ws/chat`.
 
-## Changed Areas (from today’s commits)
+## Changed Areas (from today's commits)
 
 - `sandbox/src/actors/terminal.rs`
 - `sandbox/src/supervisor/mod.rs`
@@ -913,7 +957,7 @@ Commits in window (16):
 
 ### ✅ NixOS Research Complete
 - 3/5 initial workers succeeded
-- Merge → Web Critique → Final Report all completed
+- Merge → Web Conqitque → Final Report all completed
 - Comprehensive research docs in `docs/research/nixos-research-2026-02-01/`
 
 ## What's Working

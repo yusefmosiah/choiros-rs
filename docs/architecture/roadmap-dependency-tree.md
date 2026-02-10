@@ -57,27 +57,30 @@ Researcher baseline is now live through delegated `web_search` runs, with provid
 
 ## What To Do Next
 
-- Close reconciliation gate:
-  - remove direct ChatAgent tool execution path
-  - enforce AppActor->ToolActor typed delegation boundary
-  - fix logs/watcher visibility gaps end-to-end
-- Close worker signal contract gate:
-  - typed turn report envelope for worker outputs
-  - control-plane escalation vs observability event split
-  - anti-spam validation/dedup/cooldown semantics
-- Harden Researcher v1 now that baseline is live:
-  - validate Brave/Exa in live runs and harden provider fanout defaults,
-  - tune finding/learning signal quality and anti-spam behavior,
-  - tighten websocket ordering/replay assertions for multi-provider runs.
-- Add shared harness unification step before Prompt Bar/Conductor scale-up:
-  - one loop abstraction across chat, terminal, researcher,
-  - consistent deferred/resume semantics and typed signal emission.
-- Finish worker signal contract runtime enforcement:
-  - confidence gating, dedup, cooldowns, and escalation throttles.
-- After Researcher, build Prompt Bar + Conductor orchestration layer:
-  - **Primary path**: Prompt Bar -> Conductor for multi-step planning
-  - **Chat role**: compatibility surface that escalates to Conductor, not the canonical planner
-  - **NO ADHOC WORKFLOW**: encode all control flow in typed protocols, never string matching
+**Immediate Next Execution Lane: Prompt Bar -> Conductor**
+
+1. **Conductor backend MVP for report generation**
+   - ConductorActor with capability dispatch to actors
+   - Markdown report generation endpoint  
+   - Integration with Files/Writer for output delivery
+   - NO ADHOC WORKFLOW: all routing via typed protocol fields
+
+2. **Prompt bar routing to Conductor**
+   - Prompt Bar captures universal input
+   - Routes to Conductor (not Chat) for multi-step planning
+   - Chat remains available as compatibility fallback
+
+3. **Writer auto-open in markdown preview**
+   - Conductor-generated reports auto-open in Writer
+   - Writer launches in preview mode for .md files
+   - Backend-driven UI state per `backend-authoritative-ui-state-pattern.md`
+
+**Architecture Principle**: **Chat is compatibility; Conductor is orchestrator.**
+
+**Background work (ongoing but not primary lane)**:
+- Harden Researcher v1 (provider quality, anti-spam, websocket tests)
+- Finish worker signal contract runtime enforcement
+- Shared harness unification (chat/terminal/researcher loop abstraction)
 
 ## RLM + StateIndex Alignment (Added)
 
@@ -98,15 +101,26 @@ Gate:
 
 ## Single Active Lane
 
-We are running one primary lane only:
+**Current execution lane: Prompt Bar -> Conductor orchestration**
 
-1. `Logging`
-2. `Watcher`
-3. `Model Policy`
-4. `Worker Signal Contract`
-5. `Researcher`
+Previous foundations now operational:
+- ✅ Logging (complete - available for use)
+- ✅ Watcher (complete - available for use)  
+- ✅ Model Policy (complete - available for use)
+- ✅ Worker Signal Contract (baseline complete)
+- ✅ Researcher (baseline live - delegated web_search active)
+
+Active milestones:
+1. **Milestone A**: Conductor backend MVP for report generation
+2. **Milestone B**: Prompt bar routing to Conductor
+3. **Milestone C**: Writer auto-open in markdown preview mode
 
 Everything else is parked unless it unblocks this lane.
+
+## Core Architecture Principles
+
+- **NO ADHOC WORKFLOW**: Encode all control flow in typed protocol fields (BAML/shared-types) and actor messages. Never use natural-language string matching for workflow state transitions.
+- **Chat is compatibility; Conductor is orchestrator**: Chat can answer simple queries but escalates multi-step planning to Conductor.
 
 ## Reconciliation Gate (Blocking Before Researcher)
 

@@ -6,6 +6,48 @@ Source roadmap:
 - `docs/architecture/roadmap-critical-analysis.md`
 - `docs/architecture/2026-02-08-architecture-reconciliation-review.md`
 
+## Doc Consistency Diff (2026-02-09)
+
+This section tracks intentional corrections to roadmap documentation to maintain alignment with implementation reality.
+
+### What Is Now Authoritative
+
+| Item | Previous State | Current State |
+|------|---------------|---------------|
+| Files v0 | In progress | **COMPLETE** - 9 REST endpoints, 74 tests, Dioxus frontend |
+| Writer v0 | In progress | **COMPLETE** - 3 REST endpoints, revision-based conflicts, 16 tests |
+| Logging/Watcher/Model Policy | Active execution lane | **FOUNDATION COMPLETE** - available for use |
+| Researcher | Blocked on model policy | **BASELINE LIVE** - delegated web_search active |
+| Prompt Bar -> Conductor | Listed as future item | **CURRENT EXECUTION LANE** - primary orchestration path |
+| Chat | Primary orchestration surface | **COMPATIBILITY SURFACE ONLY** - escalates to Conductor |
+
+### What Is Stale/Archived
+- "Historical Execution Lane (2026-02-08)" — Logging/Watcher/Model Policy are no longer active milestones; they are operational foundations
+- Any language suggesting Chat is the primary planner/orchestrator
+- References to Files/Writer as "in progress" or "viewer shells"
+
+### Explicit Next 3 Milestones
+
+1. **Milestone A: Conductor Backend MVP for Report Generation**
+   - Typed Conductor actor with capability routing
+   - Markdown report generation endpoint
+   - Integration with Files/Writer for output delivery
+   - NO ADHOC WORKFLOW: all routing via typed protocol fields
+
+2. **Milestone B: Prompt Bar Routing to Conductor**
+   - Prompt Bar captures universal input
+   - Routes to Conductor (not Chat) for multi-step planning
+   - Chat remains available as compatibility fallback
+
+3. **Milestone C: Writer Auto-Open in Markdown Preview**
+   - Conductor-generated reports auto-open in Writer
+   - Writer launches in preview mode for .md files
+   - Backend-driven UI state (not browser localStorage)
+
+### Architecture Principles Enforced
+- **NO ADHOC WORKFLOW**: Encode control flow in typed protocols, never string matching
+- **Chat is compatibility; Conductor is orchestrator**
+
 ## Narrative Summary (1-minute read)
 
 Execution order is explicitly reset to avoid architecture drift: ship real desktop file apps first (`Files` + `Writer` in one sandbox-root universe), then finish `Prompt Bar -> Conductor` orchestration, then move Chat to conductor escalation + identity UX. Chat remains a compatibility interface during this transition.
@@ -75,19 +117,30 @@ Execution order is explicitly reset to avoid architecture drift: ship real deskt
 
 ## Current Execution Lane (2026-02-09, authoritative)
 
-1. ~~`Files` app: real explorer behavior in sandbox scope~~ - COMPLETE
-2. ~~`Writer` app: real editor behavior + markdown mode~~ - COMPLETE
-3. `Prompt Bar -> Conductor` primary orchestration path
-4. Chat compatibility escalation into conductor (no app-level orchestration)
-5. Resume watcher/signal/model-policy hardening in conductor-centric flow
+**Primary orchestration path: Prompt Bar -> Conductor**
+
+1. ~~`Files` app: real explorer behavior in sandbox scope~~ - **COMPLETE**
+2. ~~`Writer` app: real editor behavior + markdown mode~~ - **COMPLETE**
+3. **Milestone A**: Conductor backend MVP for report generation
+4. **Milestone B**: Prompt bar routing to Conductor
+5. **Milestone C**: Writer auto-open in markdown preview mode
+6. Chat compatibility escalation into conductor (post-conductor stabilization)
 
 ## What To Do Next
 
-1. ~~Convert `Files` from viewer shell to true explorer UX (navigate, select, open).~~ - COMPLETE
-2. ~~Convert `Writer` to focused editor UX with save-first flow and optional markdown preview mode.~~ - COMPLETE
-3. Complete prompt-bar conductor routing for app-scoped intents.
-4. Migrate unresolved Chat requests to Conductor after prompt-bar flow is stable.
-5. Resume watcher/signal/model-policy hardening in conductor-centric flow.
+1. ~~Convert `Files` from viewer shell to true explorer UX~~ - **COMPLETE**
+2. ~~Convert `Writer` to focused editor UX with save-first flow~~ - **COMPLETE**
+3. **Implement Milestone A**: Conductor backend MVP
+   - ConductorActor with capability dispatch
+   - Markdown report generation
+   - Typed protocol for actor routing (NO ADHOC WORKFLOW)
+4. **Implement Milestone B**: Prompt bar routes to Conductor
+   - Universal input capture
+   - Conductor-first orchestration
+   - Chat as compatibility fallback only
+5. **Implement Milestone C**: Writer auto-open in preview
+   - Backend-driven file open
+   - Preview mode for generated reports
 
 ## Historical Execution Lane (2026-02-08, archived)
 
@@ -96,6 +149,8 @@ Execution order is explicitly reset to avoid architecture drift: ship real deskt
 3. Model Policy
 4. Worker Signal Contract
 5. Researcher
+
+**Note**: Logging, Watcher, Model Policy, and Researcher baseline are now **operational foundations**, not active milestones. They are available for use by the Prompt Bar -> Conductor execution lane.
 
 ## RLM Alignment Slice (2026-02-09)
 
@@ -108,10 +163,17 @@ Now:
 - Prevent stale in-progress language once delegated outputs are already available.
 
 Next:
-1. Add `StateIndexActor` scaffold with frame IDs, frame stack projection, and token budget structs.
-2. Add `ContextPack` assembly boundary for chat/research follow-up loops (bounded slices + priority compaction).
-3. Route completion wake-up policy through Conductor path for cross-actor continuations.
-4. Keep appactor output clean: no raw provider dumps as final user-facing assistant messages.
+1. Conductor routing for multi-step planning (Milestone A/B)
+2. Add `StateIndexActor` scaffold with frame IDs, frame stack projection, and token budget structs.
+3. Add `ContextPack` assembly boundary for chat/research follow-up loops (bounded slices + priority compaction).
+4. Route completion wake-up policy through Conductor path for cross-actor continuations.
+5. Keep appactor output clean: no raw provider dumps as final user-facing assistant messages.
+
+---
+
+## Archived Historical Updates (Non-Authoritative)
+
+The following sections document prior implementation work. They are preserved for reference but do not reflect current execution priorities.
 
 ## Objective Propagation Update (2026-02-09, latest)
 
