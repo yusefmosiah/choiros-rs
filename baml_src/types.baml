@@ -80,6 +80,9 @@ class AgentToolArgs {
   time_range string?
   include_domains string[]?
   exclude_domains string[]?
+  // File edit fields
+  old_text string?
+  new_text string?
 }
 
 class AgentToolCall {

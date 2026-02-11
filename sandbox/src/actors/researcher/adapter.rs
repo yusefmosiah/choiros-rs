@@ -2,9 +2,17 @@
 //!
 //! This adapter bridges the ResearcherActor to the unified agent harness,
 //! providing researcher-specific tool execution and event emission.
+//!
+//! Tools available:
+//! - web_search: Search the web
+//! - fetch_url: Fetch specific URLs
+//! - file_read: Read local files
+//! - file_write: Write/create files
+//! - file_edit: Edit existing files
 
 use async_trait::async_trait;
 use tokio::sync::mpsc;
+use std::path::{Path, PathBuf};
 
 use crate::actors::agent_harness::{
     AgentAdapter, AgentProgress, ExecutionContext, HarnessError, ToolExecution,
@@ -17,6 +25,37 @@ use super::{
     providers, ResearcherFetchUrlRequest, ResearcherProgress, ResearcherState,
     ResearcherWebSearchRequest,
 };
+
+/// Sandbox root for file operations
+fn sandbox_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
+}
+
+/// Validate path is within sandbox
+fn validate_sandbox_path(user_path: &str) -> Result<PathBuf, String> {
+    // Reject absolute paths
+    if user_path.starts_with('/') || user_path.starts_with('\\') || user_path.contains(':') {
+        return Err("Absolute paths not allowed".to_string());
+    }
+
+    // Reject path traversal
+    if user_path.contains("..") {
+        return Err("Path traversal not allowed".to_string());
+    }
+
+    let sandbox = sandbox_root();
+    let full_path = sandbox.join(user_path);
+
+    // Ensure it's still within sandbox
+    let canonical = full_path.canonicalize().unwrap_or(full_path.clone());
+    let sandbox_canonical = sandbox.canonicalize().unwrap_or(sandbox.clone());
+
+    if !canonical.starts_with(&sandbox_canonical) {
+        return Err("Path escapes sandbox".to_string());
+    }
+
+    Ok(full_path)
+}
 
 /// Adapter that connects ResearcherActor to the unified agent harness
 pub struct ResearcherAdapter {
@@ -78,6 +117,19 @@ impl ResearcherAdapter {
             .event_store
             .send_message(EventStoreMsg::AppendAsync { event });
     }
+
+    /// Emit document update event for live streaming
+    fn emit_document_update(&self, task_id: &str, path: &str, content_excerpt: &str) {
+        let payload = serde_json::json!({
+            "task_id": task_id,
+            "worker_id": self.state.researcher_id,
+            "phase": "document_update",
+            "path": path,
+            "content_excerpt": content_excerpt.chars().take(500).collect::<String>(),
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        });
+        self.emit_event("worker.task.document_update", payload);
+    }
 }
 
 #[async_trait]
@@ -92,34 +144,54 @@ impl AgentAdapter for ResearcherAdapter {
 1. web_search - Search the web for information
    Args:
    - query: string (required) - The search query
-   - provider: string (optional) - Provider to use: "tavily", "brave", "exa", "auto"
-   - max_results: number (optional) - Max results to return (1-20, default: 6)
-   - time_range: string (optional) - Time filter: "day", "week", "month", "year"
+   - provider: string (optional) - Provider: "tavily", "brave", "exa", "auto"
+   - max_results: number (optional) - Max results (1-20, default: 6)
+   - time_range: string (optional) - Filter: "day", "week", "month", "year"
    - include_domains: string[] (optional) - Domains to include
    - exclude_domains: string[] (optional) - Domains to exclude
 
 2. fetch_url - Fetch and extract content from a URL
    Args:
    - url: string (required) - The URL to fetch
-   - max_chars: number (optional) - Max characters to extract (default: 8000)
+   - max_chars: number (optional) - Max chars to extract (default: 8000)
+
+3. file_read - Read a local file within the sandbox
+   Args:
+   - path: string (required) - Relative path from sandbox root
+
+4. file_write - Write or overwrite a file
+   Args:
+   - path: string (required) - Relative path from sandbox root
+   - content: string (required) - Full content to write
+
+5. file_edit - Edit specific text in an existing file
+   Args:
+   - path: string (required) - Relative path from sandbox root
+   - old_text: string (required) - Text to find and replace
+   - new_text: string (required) - Replacement text
 "#
         .to_string()
     }
 
     fn get_system_context(&self, ctx: &ExecutionContext) -> String {
         format!(
-            r#"You are a research agent. Your goal is to gather information to fulfill the objective.
+            r#"You are a research agent. Your goal is to gather information and maintain a working draft document.
 
 Current step: {}/{}
 Model: {}
 Objective: {}
 
 Guidelines:
-- Use web_search to find relevant information
+- Use web_search to find relevant information online
 - Use fetch_url to retrieve detailed content from specific URLs
-- Be thorough but efficient - aim to complete within the step budget
-- Synthesize findings into clear, actionable insights
-- If you cannot find sufficient information, report what you found and note gaps
+- Use file_read to reference existing documents, code, or previous research
+- Use file_write to create your working draft (overwrites existing)
+- Use file_edit to refine specific sections without rewriting everything
+- Maintain your working draft - it should evolve as you learn
+- Write findings immediately - don't wait until the end
+- Cite sources inline as markdown links: [title](url)
+- Put the most important finding first (don't bury the lede)
+- Use freeform markdown - no forced structure
 "#,
             ctx.step_number, ctx.max_steps, ctx.model_used, ctx.objective
         )
@@ -135,7 +207,6 @@ Guidelines:
         match tool_call.tool_name.as_str() {
             "web_search" => {
                 let args = &tool_call.tool_args;
-                // Try to get query from web_search struct first, then fall back to flat fields
                 let query = args
                     .web_search
                     .as_ref()
@@ -143,7 +214,6 @@ Guidelines:
                     .or_else(|| args.query.clone())
                     .ok_or_else(|| HarnessError::ToolExecution("Missing query argument".to_string()))?;
 
-                // Extract provider and other args from web_search or flat fields
                 let provider = args
                     .web_search
                     .as_ref()
@@ -170,16 +240,6 @@ Guidelines:
                     .as_ref()
                     .and_then(|ws| ws.exclude_domains.clone())
                     .or_else(|| args.exclude_domains.clone());
-                let model = args
-                    .web_search
-                    .as_ref()
-                    .and_then(|ws| ws.model.clone())
-                    .or(args.model.clone());
-                let reasoning = args
-                    .web_search
-                    .as_ref()
-                    .and_then(|ws| ws.reasoning.clone())
-                    .or(tool_call.reasoning.clone());
 
                 let request = ResearcherWebSearchRequest {
                     query: query.clone(),
@@ -191,11 +251,10 @@ Guidelines:
                     include_domains,
                     exclude_domains,
                     timeout_ms: Some(30_000),
-                    model_override: model,
-                    reasoning,
+                    model_override: None,
+                    reasoning: tool_call.reasoning.clone(),
                 };
 
-                // Parse provider selection
                 let provider_str = request.provider.as_deref().unwrap_or("auto");
                 let selection = providers::parse_provider_selection(Some(provider_str));
 
@@ -211,7 +270,6 @@ Guidelines:
                     });
                 }
 
-                // Run provider selection
                 let max_results = request.max_results.unwrap_or(6).clamp(1, 20);
                 let (outputs, calls, errors) = providers::run_provider_selection(
                     &self.http_client,
@@ -225,53 +283,8 @@ Guidelines:
                 .await;
 
                 let elapsed = start_time.elapsed().as_millis() as u64;
-
-                // Merge citations for output
                 let citations = providers::merge_citations(&outputs);
                 let success = !citations.is_empty();
-
-                // Emit provider call progress
-                for call in &calls {
-                    let phase = if call.succeeded {
-                        "research_provider_result"
-                    } else {
-                        "research_provider_error"
-                    };
-                    let message = if call.succeeded {
-                        format!("{} provider returned {} results", call.provider, call.result_count)
-                    } else {
-                        format!(
-                            "{} provider failed: {}",
-                            call.provider,
-                            call.error.clone().unwrap_or_default()
-                        )
-                    };
-
-                    if let Some(tx) = &self.progress_tx {
-                        let _ = tx.send(ResearcherProgress {
-                            phase: phase.to_string(),
-                            message: message.clone(),
-                            provider: Some(call.provider.clone()),
-                            model_used: Some(ctx.model_used.clone()),
-                            result_count: Some(call.result_count),
-                            timestamp: chrono::Utc::now().to_rfc3339(),
-                        });
-                    }
-
-                    self.emit_event(
-                        "worker.task.progress",
-                        serde_json::json!({
-                            "task_id": ctx.loop_id,
-                            "worker_id": ctx.worker_id,
-                            "phase": phase,
-                            "message": message,
-                            "provider": call.provider,
-                            "model_used": ctx.model_used,
-                            "result_count": call.result_count,
-                            "timestamp": chrono::Utc::now().to_rfc3339(),
-                        }),
-                    );
-                }
 
                 let output = serde_json::json!({
                     "citations": citations,
@@ -283,22 +296,17 @@ Guidelines:
                     tool_name: tool_call.tool_name.clone(),
                     success,
                     output: output.to_string(),
-                    error: if errors.is_empty() {
-                        None
-                    } else {
-                        Some(errors.join("; "))
-                    },
+                    error: if errors.is_empty() { None } else { Some(errors.join("; ")) },
                     execution_time_ms: elapsed,
                 })
             }
 
             "fetch_url" => {
                 let args = &tool_call.tool_args;
-                // For fetch_url, we use the 'path' field to carry the URL
                 let url = args
                     .path
                     .as_ref()
-                    .ok_or_else(|| HarnessError::ToolExecution("Missing path (url) argument".to_string()))?;
+                    .ok_or_else(|| HarnessError::ToolExecution("Missing url argument".to_string()))?;
 
                 let request = ResearcherFetchUrlRequest {
                     url: url.clone(),
@@ -306,7 +314,6 @@ Guidelines:
                     max_chars: Some(8000),
                 };
 
-                // Emit progress
                 if let Some(tx) = &self.progress_tx {
                     let _ = tx.send(ResearcherProgress {
                         phase: "fetch_url".to_string(),
@@ -321,23 +328,6 @@ Guidelines:
                 match providers::fetch_url(&request).await {
                     Ok(result) => {
                         let elapsed = start_time.elapsed().as_millis() as u64;
-
-                        // Emit progress
-                        if let Some(tx) = &self.progress_tx {
-                            let _ = tx.send(ResearcherProgress {
-                                phase: "fetch_url_result".to_string(),
-                                message: format!(
-                                    "Fetched {} status={} chars={}",
-                                    result.url,
-                                    result.status_code,
-                                    result.content_excerpt.len()
-                                ),
-                                provider: None,
-                                model_used: Some(ctx.model_used.clone()),
-                                result_count: Some(result.content_excerpt.len()),
-                                timestamp: chrono::Utc::now().to_rfc3339(),
-                            });
-                        }
 
                         let output = serde_json::json!({
                             "url": result.url,
@@ -369,6 +359,243 @@ Guidelines:
                 }
             }
 
+            "file_read" => {
+                let args = &tool_call.tool_args;
+                let path = args
+                    .path
+                    .as_ref()
+                    .ok_or_else(|| HarnessError::ToolExecution("Missing path argument".to_string()))?;
+
+                if let Some(tx) = &self.progress_tx {
+                    let _ = tx.send(ResearcherProgress {
+                        phase: "file_read".to_string(),
+                        message: format!("Reading file: {}", path),
+                        provider: None,
+                        model_used: Some(ctx.model_used.clone()),
+                        result_count: None,
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                    });
+                }
+
+                match validate_sandbox_path(path) {
+                    Ok(full_path) => {
+                        match tokio::fs::read_to_string(&full_path).await {
+                            Ok(content) => {
+                                let elapsed = start_time.elapsed().as_millis() as u64;
+                                let output = serde_json::json!({
+                                    "path": path,
+                                    "content": content,
+                                    "size": content.len(),
+                                });
+
+                                Ok(ToolExecution {
+                                    tool_name: tool_call.tool_name.clone(),
+                                    success: true,
+                                    output: output.to_string(),
+                                    error: None,
+                                    execution_time_ms: elapsed,
+                                })
+                            }
+                            Err(e) => {
+                                let elapsed = start_time.elapsed().as_millis() as u64;
+                                Ok(ToolExecution {
+                                    tool_name: tool_call.tool_name.clone(),
+                                    success: false,
+                                    output: String::new(),
+                                    error: Some(format!("Failed to read file: {}", e)),
+                                    execution_time_ms: elapsed,
+                                })
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let elapsed = start_time.elapsed().as_millis() as u64;
+                        Ok(ToolExecution {
+                            tool_name: tool_call.tool_name.clone(),
+                            success: false,
+                            output: String::new(),
+                            error: Some(format!("Invalid path: {}", e)),
+                            execution_time_ms: elapsed,
+                        })
+                    }
+                }
+            }
+
+            "file_write" => {
+                let args = &tool_call.tool_args;
+                let path = args
+                    .path
+                    .as_ref()
+                    .ok_or_else(|| HarnessError::ToolExecution("Missing path argument".to_string()))?;
+                let content = args
+                    .content
+                    .as_ref()
+                    .ok_or_else(|| HarnessError::ToolExecution("Missing content argument".to_string()))?;
+
+                if let Some(tx) = &self.progress_tx {
+                    let _ = tx.send(ResearcherProgress {
+                        phase: "file_write".to_string(),
+                        message: format!("Writing file: {} ({} chars)", path, content.len()),
+                        provider: None,
+                        model_used: Some(ctx.model_used.clone()),
+                        result_count: Some(content.len()),
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                    });
+                }
+
+                match validate_sandbox_path(path) {
+                    Ok(full_path) => {
+                        // Ensure parent directory exists
+                        if let Some(parent) = full_path.parent() {
+                            let _ = tokio::fs::create_dir_all(parent).await;
+                        }
+
+                        match tokio::fs::write(&full_path, content).await {
+                            Ok(_) => {
+                                let elapsed = start_time.elapsed().as_millis() as u64;
+                                let output = serde_json::json!({
+                                    "path": path,
+                                    "size": content.len(),
+                                });
+
+                                // Emit document update for live streaming
+                                self.emit_document_update(&ctx.loop_id, path, content);
+
+                                Ok(ToolExecution {
+                                    tool_name: tool_call.tool_name.clone(),
+                                    success: true,
+                                    output: output.to_string(),
+                                    error: None,
+                                    execution_time_ms: elapsed,
+                                })
+                            }
+                            Err(e) => {
+                                let elapsed = start_time.elapsed().as_millis() as u64;
+                                Ok(ToolExecution {
+                                    tool_name: tool_call.tool_name.clone(),
+                                    success: false,
+                                    output: String::new(),
+                                    error: Some(format!("Failed to write file: {}", e)),
+                                    execution_time_ms: elapsed,
+                                })
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let elapsed = start_time.elapsed().as_millis() as u64;
+                        Ok(ToolExecution {
+                            tool_name: tool_call.tool_name.clone(),
+                            success: false,
+                            output: String::new(),
+                            error: Some(format!("Invalid path: {}", e)),
+                            execution_time_ms: elapsed,
+                        })
+                    }
+                }
+            }
+
+            "file_edit" => {
+                let args = &tool_call.tool_args;
+                let path = args
+                    .path
+                    .as_ref()
+                    .ok_or_else(|| HarnessError::ToolExecution("Missing path argument".to_string()))?;
+                let old_text = args
+                    .old_text
+                    .as_ref()
+                    .ok_or_else(|| HarnessError::ToolExecution("Missing old_text argument".to_string()))?;
+                let new_text = args
+                    .new_text
+                    .as_ref()
+                    .ok_or_else(|| HarnessError::ToolExecution("Missing new_text argument".to_string()))?;
+
+                if let Some(tx) = &self.progress_tx {
+                    let _ = tx.send(ResearcherProgress {
+                        phase: "file_edit".to_string(),
+                        message: format!("Editing file: {}", path),
+                        provider: None,
+                        model_used: Some(ctx.model_used.clone()),
+                        result_count: None,
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                    });
+                }
+
+                match validate_sandbox_path(path) {
+                    Ok(full_path) => {
+                        match tokio::fs::read_to_string(&full_path).await {
+                            Ok(content) => {
+                                // Perform the replacement
+                                let new_content = content.replace(old_text, new_text);
+
+                                if new_content == content {
+                                    // No replacement made
+                                    let elapsed = start_time.elapsed().as_millis() as u64;
+                                    return Ok(ToolExecution {
+                                        tool_name: tool_call.tool_name.clone(),
+                                        success: false,
+                                        output: String::new(),
+                                        error: Some("old_text not found in file".to_string()),
+                                        execution_time_ms: elapsed,
+                                    });
+                                }
+
+                                match tokio::fs::write(&full_path, &new_content).await {
+                                    Ok(_) => {
+                                        let elapsed = start_time.elapsed().as_millis() as u64;
+                                        let output = serde_json::json!({
+                                            "path": path,
+                                            "old_size": content.len(),
+                                            "new_size": new_content.len(),
+                                        });
+
+                                        // Emit document update for live streaming
+                                        self.emit_document_update(&ctx.loop_id, path, &new_content);
+
+                                        Ok(ToolExecution {
+                                            tool_name: tool_call.tool_name.clone(),
+                                            success: true,
+                                            output: output.to_string(),
+                                            error: None,
+                                            execution_time_ms: elapsed,
+                                        })
+                                    }
+                                    Err(e) => {
+                                        let elapsed = start_time.elapsed().as_millis() as u64;
+                                        Ok(ToolExecution {
+                                            tool_name: tool_call.tool_name.clone(),
+                                            success: false,
+                                            output: String::new(),
+                                            error: Some(format!("Failed to write file: {}", e)),
+                                            execution_time_ms: elapsed,
+                                        })
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                let elapsed = start_time.elapsed().as_millis() as u64;
+                                Ok(ToolExecution {
+                                    tool_name: tool_call.tool_name.clone(),
+                                    success: false,
+                                    output: String::new(),
+                                    error: Some(format!("Failed to read file: {}", e)),
+                                    execution_time_ms: elapsed,
+                                })
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let elapsed = start_time.elapsed().as_millis() as u64;
+                        Ok(ToolExecution {
+                            tool_name: tool_call.tool_name.clone(),
+                            success: false,
+                            output: String::new(),
+                            error: Some(format!("Invalid path: {}", e)),
+                            execution_time_ms: elapsed,
+                        })
+                    }
+                }
+            }
+
             _ => Err(HarnessError::ToolExecution(format!(
                 "Unknown tool: {}",
                 tool_call.tool_name
@@ -386,7 +613,6 @@ Guidelines:
         ctx: &ExecutionContext,
         report: shared_types::WorkerTurnReport,
     ) -> Result<(), HarnessError> {
-        // Emit to event store
         let payload = serde_json::json!({
             "task_id": ctx.loop_id,
             "worker_id": ctx.worker_id,
@@ -395,11 +621,10 @@ Guidelines:
         });
         self.emit_event("worker.report.received", payload);
 
-        // Also send via progress channel if available
         if let Some(tx) = &self.progress_tx {
             let _ = tx.send(ResearcherProgress {
                 phase: "worker_report".to_string(),
-                message: format!("Worker report with {} findings", report.findings.len()),
+                message: format!("Research complete with {} findings", report.findings.len()),
                 provider: None,
                 model_used: Some(ctx.model_used.clone()),
                 result_count: Some(report.findings.len()),
@@ -415,13 +640,11 @@ Guidelines:
         ctx: &ExecutionContext,
         progress: AgentProgress,
     ) -> Result<(), HarnessError> {
-        // Send via progress channel
         if let Some(tx) = &self.progress_tx {
             let researcher_progress = self.to_researcher_progress(&progress);
             let _ = tx.send(researcher_progress);
         }
 
-        // Emit to event store
         let payload = serde_json::json!({
             "task_id": ctx.loop_id,
             "worker_id": ctx.worker_id,
@@ -440,15 +663,13 @@ Guidelines:
         ctx: &ExecutionContext,
         finding: shared_types::WorkerFinding,
     ) -> Result<(), HarnessError> {
-        // Emit to event store
+        // Finding is now just a progress event - the document is the source of truth
         let payload = serde_json::json!({
             "task_id": ctx.loop_id,
             "worker_id": ctx.worker_id,
             "phase": "finding",
-            "finding_id": finding.finding_id,
             "claim": finding.claim,
             "confidence": finding.confidence,
-            "evidence_refs": finding.evidence_refs,
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
         self.emit_event("worker.task.finding", payload);
@@ -461,14 +682,12 @@ Guidelines:
         ctx: &ExecutionContext,
         learning: shared_types::WorkerLearning,
     ) -> Result<(), HarnessError> {
-        // Emit to event store
+        // Learning is now just a progress event - the document is the source of truth
         let payload = serde_json::json!({
             "task_id": ctx.loop_id,
             "worker_id": ctx.worker_id,
             "phase": "learning",
-            "learning_id": learning.learning_id,
             "insight": learning.insight,
-            "confidence": learning.confidence,
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
         self.emit_event("worker.task.learning", payload);

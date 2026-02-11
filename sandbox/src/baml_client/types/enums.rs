@@ -587,13 +587,22 @@ impl AsRef<PlanMode> for PlanMode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
-pub enum ResearcherNextAction {
+pub enum ResearchAction {
 
 
     Search,
 
 
     FetchUrl,
+
+
+    FileRead,
+
+
+    FileWrite,
+
+
+    FileEdit,
 
 
     Complete,
@@ -604,7 +613,7 @@ pub enum ResearcherNextAction {
 
 }
 
-impl Default for ResearcherNextAction {
+impl Default for ResearchAction {
     fn default() -> Self {
         
         Self::Search
@@ -612,13 +621,19 @@ impl Default for ResearcherNextAction {
     }
 }
 
-impl std::fmt::Display for ResearcherNextAction {
+impl std::fmt::Display for ResearchAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
 
             Self::Search => write!(f, "Search"),
 
             Self::FetchUrl => write!(f, "FetchUrl"),
+
+            Self::FileRead => write!(f, "FileRead"),
+
+            Self::FileWrite => write!(f, "FileWrite"),
+
+            Self::FileEdit => write!(f, "FileEdit"),
 
             Self::Complete => write!(f, "Complete"),
 
@@ -629,7 +644,7 @@ impl std::fmt::Display for ResearcherNextAction {
     }
 }
 
-impl std::str::FromStr for ResearcherNextAction {
+impl std::str::FromStr for ResearchAction {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -638,6 +653,12 @@ impl std::str::FromStr for ResearcherNextAction {
             "Search" => Ok(Self::Search),
 
             "FetchUrl" => Ok(Self::FetchUrl),
+
+            "FileRead" => Ok(Self::FileRead),
+
+            "FileWrite" => Ok(Self::FileWrite),
+
+            "FileEdit" => Ok(Self::FileEdit),
 
             "Complete" => Ok(Self::Complete),
 
@@ -650,8 +671,8 @@ impl std::str::FromStr for ResearcherNextAction {
     }
 }
 
-impl AsRef<ResearcherNextAction> for ResearcherNextAction {
-    fn as_ref(&self) -> &ResearcherNextAction {
+impl AsRef<ResearchAction> for ResearchAction {
+    fn as_ref(&self) -> &ResearchAction {
         self
     }
 }
@@ -661,13 +682,13 @@ impl AsRef<ResearcherNextAction> for ResearcherNextAction {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
-pub enum ResearcherObjectiveStatus {
+pub enum ResearchStatus {
+
+
+    Ongoing,
 
 
     Complete,
-
-
-    Incomplete,
 
 
     Blocked,
@@ -675,21 +696,21 @@ pub enum ResearcherObjectiveStatus {
 
 }
 
-impl Default for ResearcherObjectiveStatus {
+impl Default for ResearchStatus {
     fn default() -> Self {
         
-        Self::Complete
+        Self::Ongoing
         
     }
 }
 
-impl std::fmt::Display for ResearcherObjectiveStatus {
+impl std::fmt::Display for ResearchStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
 
-            Self::Complete => write!(f, "Complete"),
+            Self::Ongoing => write!(f, "Ongoing"),
 
-            Self::Incomplete => write!(f, "Incomplete"),
+            Self::Complete => write!(f, "Complete"),
 
             Self::Blocked => write!(f, "Blocked"),
 
@@ -698,15 +719,15 @@ impl std::fmt::Display for ResearcherObjectiveStatus {
     }
 }
 
-impl std::str::FromStr for ResearcherObjectiveStatus {
+impl std::str::FromStr for ResearchStatus {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
 
-            "Complete" => Ok(Self::Complete),
+            "Ongoing" => Ok(Self::Ongoing),
 
-            "Incomplete" => Ok(Self::Incomplete),
+            "Complete" => Ok(Self::Complete),
 
             "Blocked" => Ok(Self::Blocked),
 
@@ -717,8 +738,8 @@ impl std::str::FromStr for ResearcherObjectiveStatus {
     }
 }
 
-impl AsRef<ResearcherObjectiveStatus> for ResearcherObjectiveStatus {
-    fn as_ref(&self) -> &ResearcherObjectiveStatus {
+impl AsRef<ResearchStatus> for ResearchStatus {
+    fn as_ref(&self) -> &ResearchStatus {
         self
     }
 }

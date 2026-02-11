@@ -1,160 +1,95 @@
-// ChoirOS Researcher BAML Contracts
-// Agentic planner + synthesis authority for researcher loops.
+// ChoirOS Researcher BAML Contracts - Simplified Living Document Model
+// The researcher maintains a working draft file that evolves as research progresses.
+// No complex structured outputs - the file content IS the output.
 
-enum ResearcherNextAction {
-  Search
-  FetchUrl
-  Complete
-  Block
+// ============================================================================
+// Simple Status Enums
+// ============================================================================
+
+enum ResearchStatus {
+  Ongoing    // Still researching, gathering information
+  Complete   // Satisfied with the answer
+  Blocked    // Cannot proceed (insufficient info, access issues, etc.)
 }
 
-enum ResearcherObjectiveStatus {
-  Complete
-  Incomplete
-  Blocked
-}
-
-class ResearcherProviderCallSummary {
-  provider string
-  latency_ms int
-  result_count int
-  succeeded bool
-  error string?
-}
-
-class ResearcherCitationInput {
-  provider string
-  title string
-  url string
-  snippet string
-  published_at string?
-  score float?
-}
-
-class ResearcherFetchedPageInput {
-  url string
-  status_code int
-  content_excerpt string
-  success bool
-}
+// ============================================================================
+// Minimal Planning Input
+// ============================================================================
 
 class ResearcherPlanInput {
   objective string
   current_query string
   round int
   max_rounds int
-  provider_hint string?
-  max_results_hint int?
+  working_draft_path string  // Path to the current working draft file
   last_error string?
-  provider_calls ResearcherProviderCallSummary[]
-  citations ResearcherCitationInput[]
-  fetched_pages ResearcherFetchedPageInput[]
 }
+
+// ============================================================================
+// Minimal Planning Output - Just status and what to do next
+// ============================================================================
 
 class ResearcherPlanOutput {
-  action ResearcherNextAction
-  query string?
-  provider string?
-  fetch_url string?
-  max_results int?
-  time_range string?
-  rationale string
-  confidence float
-  completion_reason string?
-  recommended_next_capability string?
-  recommended_next_objective string?
+  action ResearchAction        // What to do next
+  query string?                // If searching
+  provider string?             // Search provider hint
+  url string?                  // If fetching
+  file_path string?            // If reading/writing file
+  content string?              // If writing to file
+  old_text string?             // If editing file (text to replace)
+  new_text string?             // If editing file (replacement text)
+  reason string                // Why this action was chosen
+  status ResearchStatus        // Current research status
 }
 
-class ResearcherSynthesisInput {
-  objective string
-  query string
-  provider_label string
-  citations ResearcherCitationInput[]
-  provider_calls ResearcherProviderCallSummary[]
-  fetched_pages ResearcherFetchedPageInput[]
-  raw_results_count int
-  errors string[]
+enum ResearchAction {
+  Search       // Perform web search
+  FetchUrl     // Fetch specific URL
+  FileRead     // Read local file
+  FileWrite    // Write/create file
+  FileEdit     // Edit existing file
+  Complete     // Research is complete
+  Block        // Cannot proceed
 }
 
-class ResearcherSynthesisOutput {
-  summary string
-  objective_status ResearcherObjectiveStatus
-  completion_reason string
-  recommended_next_capability string?
-  recommended_next_objective string?
-  key_findings string[]
-  gaps string[]
-  confidence float
-}
+// ============================================================================
+// Functions
+// ============================================================================
 
 function ResearcherPlanStep(input: ResearcherPlanInput) -> ResearcherPlanOutput {
   client FastResponse
   prompt #"
-    You are the ChoirOS Researcher planner.
-    Your job is to decide the next agentic step for this research run.
+    You are the ChoirOS Researcher. Your job is to gather information and maintain a working draft document.
 
     Objective: {{ input.objective }}
     Current Query: {{ input.current_query }}
     Round: {{ input.round }} / {{ input.max_rounds }}
-    Provider Hint: {{ input.provider_hint }}
-    Max Results Hint: {{ input.max_results_hint }}
+    Working Draft: {{ input.working_draft_path }}
     Last Error: {{ input.last_error }}
 
-    Previous Provider Calls:
-    {{ input.provider_calls }}
+    Available Actions:
+    - Search: Use web_search with query and optional provider (tavily, brave, exa, auto)
+    - FetchUrl: Use fetch_url to retrieve content from a specific URL
+    - FileRead: Read an existing file to reference previous research or context
+    - FileWrite: Create or overwrite a file (usually your working draft)
+    - FileEdit: Modify specific text in an existing file (preserves what you don't change)
+    - Complete: Mark research as done when you have a satisfactory answer
+    - Block: Mark as blocked if you cannot proceed
 
-    Current Citations:
-    {{ input.citations }}
+    Working Document Strategy:
+    - Start by writing an initial draft with your plan
+    - Update the draft as you discover new information
+    - Use FileEdit to refine specific sections without rewriting everything
+    - The draft should evolve from "plan" → "notes" → "findings" → "final answer"
+    - Write in freeform markdown - no forced structure
+    - Put the most important finding first (don't bury the lede)
 
-    Fetched Pages:
-    {{ input.fetched_pages }}
-
-    Decision contract:
-    - Use action=Search when more evidence should be gathered.
-    - Use action=FetchUrl when one or more specific URLs need deeper extraction.
-    - Use action=Complete only when available evidence is sufficient for objective completion.
-    - Use action=Block when the objective cannot progress without another capability/human help.
-    - If action=Search: provide query and provider.
-      provider can be: "auto", "tavily", "brave", "exa", or comma list like "tavily,exa".
-    - If action=FetchUrl: provide fetch_url.
-    - If action=Complete or action=Block: include completion_reason.
-    - For broad objectives (for example "what's the news?"), favor multiple independent sources.
-    - Never ask for deterministic scoring/ranking logic. Use semantic judgment.
-    - Keep rationale concrete and short.
-
-    {{ ctx.output_format }}
-  "#
-}
-
-function ResearcherSummarizeEvidence(input: ResearcherSynthesisInput) -> ResearcherSynthesisOutput {
-  client FastResponse
-  prompt #"
-    You are the ChoirOS Researcher synthesizer.
-    Produce a semantic summary from gathered evidence and decide objective terminality.
-
-    Objective: {{ input.objective }}
-    Query: {{ input.query }}
-    Provider Label: {{ input.provider_label }}
-    Raw Results Count: {{ input.raw_results_count }}
-    Errors: {{ input.errors }}
-
-    Provider Calls:
-    {{ input.provider_calls }}
-
-    Citations:
-    {{ input.citations }}
-
-    Fetched Pages:
-    {{ input.fetched_pages }}
-
-    Output contract:
-    - summary should be an evidence-based briefing, not a raw link list.
-    - objective_status must be Complete, Incomplete, or Blocked.
-    - completion_reason must justify objective_status.
-    - key_findings should include the most meaningful semantic findings.
-    - gaps should list unresolved questions or weak evidence areas.
-    - recommended_next_capability/objective should be present if status is Incomplete or Blocked.
-    - Do not rely on deterministic thresholds in wording; judge semantically.
+    Guidelines:
+    - Be concise in your writing - update the draft frequently
+    - Cite sources inline as markdown links: [title](url)
+    - If a search returns little, try a different query or provider
+    - Read existing files if the objective references local content
+    - When Complete, ensure the working draft contains your final answer
 
     {{ ctx.output_format }}
   "#

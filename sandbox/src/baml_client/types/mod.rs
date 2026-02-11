@@ -78,19 +78,9 @@ pub enum Types {
 
     ReadFileToolArgs(ReadFileToolArgs),
 
-    ResearcherCitationInput(ResearcherCitationInput),
-
-    ResearcherFetchedPageInput(ResearcherFetchedPageInput),
-
     ResearcherPlanInput(ResearcherPlanInput),
 
     ResearcherPlanOutput(ResearcherPlanOutput),
-
-    ResearcherProviderCallSummary(ResearcherProviderCallSummary),
-
-    ResearcherSynthesisInput(ResearcherSynthesisInput),
-
-    ResearcherSynthesisOutput(ResearcherSynthesisOutput),
 
     Resume(Resume),
 
@@ -143,9 +133,9 @@ pub enum Types {
 
     PlanMode(PlanMode),
 
-    ResearcherNextAction(ResearcherNextAction),
+    ResearchAction(ResearchAction),
 
-    ResearcherObjectiveStatus(ResearcherObjectiveStatus),
+    ResearchStatus(ResearchStatus),
 
     ReviewStatus(ReviewStatus),
 
@@ -220,19 +210,9 @@ impl baml::KnownTypes for Types {
 
             Types::ReadFileToolArgs(_) => "ReadFileToolArgs",
 
-            Types::ResearcherCitationInput(_) => "ResearcherCitationInput",
-
-            Types::ResearcherFetchedPageInput(_) => "ResearcherFetchedPageInput",
-
             Types::ResearcherPlanInput(_) => "ResearcherPlanInput",
 
             Types::ResearcherPlanOutput(_) => "ResearcherPlanOutput",
-
-            Types::ResearcherProviderCallSummary(_) => "ResearcherProviderCallSummary",
-
-            Types::ResearcherSynthesisInput(_) => "ResearcherSynthesisInput",
-
-            Types::ResearcherSynthesisOutput(_) => "ResearcherSynthesisOutput",
 
             Types::Resume(_) => "Resume",
 
@@ -285,9 +265,9 @@ impl baml::KnownTypes for Types {
 
             Types::PlanMode(_) => "PlanMode",
 
-            Types::ResearcherNextAction(_) => "ResearcherNextAction",
+            Types::ResearchAction(_) => "ResearchAction",
 
-            Types::ResearcherObjectiveStatus(_) => "ResearcherObjectiveStatus",
+            Types::ResearchStatus(_) => "ResearchStatus",
 
             Types::ReviewStatus(_) => "ReviewStatus",
 

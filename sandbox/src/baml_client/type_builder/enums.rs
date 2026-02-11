@@ -496,16 +496,16 @@ impl PlanModeEnumBuilder {
 }
 
 
-/// Wrapper for the `ResearcherNextAction` enum builder.
+/// Wrapper for the `ResearchAction` enum builder.
 ///
 /// Provides type-safe method access to values defined in the schema.
 /// Access values via methods: `builder.ValueName()`
 
-pub struct ResearcherNextActionEnumBuilder {
+pub struct ResearchActionEnumBuilder {
     inner: baml::EnumBuilder,
 }
 
-impl ResearcherNextActionEnumBuilder {
+impl ResearchActionEnumBuilder {
     /// Create wrapper from runtime EnumBuilder.
     pub(crate) fn new(inner: baml::EnumBuilder) -> Self {
         Self { inner }
@@ -519,7 +519,7 @@ impl ResearcherNextActionEnumBuilder {
     /// Get the enum as a type definition.
     pub fn r#type(&self) -> baml::TypeDef {
         self.inner.as_type()
-            .expect("ResearcherNextAction is statically defined in .baml and should always have a type")
+            .expect("ResearchAction is statically defined in .baml and should always have a type")
     }
 
 
@@ -531,43 +531,64 @@ impl ResearcherNextActionEnumBuilder {
     /// Access the `Search` value builder.
     pub fn value_Search(&self) -> baml::EnumValueBuilder {
         self.inner.get_value("Search")
-            .expect("ResearcherNextAction.Search is statically defined in .baml and should always be present")
+            .expect("ResearchAction.Search is statically defined in .baml and should always be present")
     }
 
 
     /// Access the `FetchUrl` value builder.
     pub fn value_FetchUrl(&self) -> baml::EnumValueBuilder {
         self.inner.get_value("FetchUrl")
-            .expect("ResearcherNextAction.FetchUrl is statically defined in .baml and should always be present")
+            .expect("ResearchAction.FetchUrl is statically defined in .baml and should always be present")
+    }
+
+
+    /// Access the `FileRead` value builder.
+    pub fn value_FileRead(&self) -> baml::EnumValueBuilder {
+        self.inner.get_value("FileRead")
+            .expect("ResearchAction.FileRead is statically defined in .baml and should always be present")
+    }
+
+
+    /// Access the `FileWrite` value builder.
+    pub fn value_FileWrite(&self) -> baml::EnumValueBuilder {
+        self.inner.get_value("FileWrite")
+            .expect("ResearchAction.FileWrite is statically defined in .baml and should always be present")
+    }
+
+
+    /// Access the `FileEdit` value builder.
+    pub fn value_FileEdit(&self) -> baml::EnumValueBuilder {
+        self.inner.get_value("FileEdit")
+            .expect("ResearchAction.FileEdit is statically defined in .baml and should always be present")
     }
 
 
     /// Access the `Complete` value builder.
     pub fn value_Complete(&self) -> baml::EnumValueBuilder {
         self.inner.get_value("Complete")
-            .expect("ResearcherNextAction.Complete is statically defined in .baml and should always be present")
+            .expect("ResearchAction.Complete is statically defined in .baml and should always be present")
     }
 
 
     /// Access the `Block` value builder.
     pub fn value_Block(&self) -> baml::EnumValueBuilder {
         self.inner.get_value("Block")
-            .expect("ResearcherNextAction.Block is statically defined in .baml and should always be present")
+            .expect("ResearchAction.Block is statically defined in .baml and should always be present")
     }
 
 }
 
 
-/// Wrapper for the `ResearcherObjectiveStatus` enum builder.
+/// Wrapper for the `ResearchStatus` enum builder.
 ///
 /// Provides type-safe method access to values defined in the schema.
 /// Access values via methods: `builder.ValueName()`
 
-pub struct ResearcherObjectiveStatusEnumBuilder {
+pub struct ResearchStatusEnumBuilder {
     inner: baml::EnumBuilder,
 }
 
-impl ResearcherObjectiveStatusEnumBuilder {
+impl ResearchStatusEnumBuilder {
     /// Create wrapper from runtime EnumBuilder.
     pub(crate) fn new(inner: baml::EnumBuilder) -> Self {
         Self { inner }
@@ -581,7 +602,7 @@ impl ResearcherObjectiveStatusEnumBuilder {
     /// Get the enum as a type definition.
     pub fn r#type(&self) -> baml::TypeDef {
         self.inner.as_type()
-            .expect("ResearcherObjectiveStatus is statically defined in .baml and should always have a type")
+            .expect("ResearchStatus is statically defined in .baml and should always have a type")
     }
 
 
@@ -590,24 +611,24 @@ impl ResearcherObjectiveStatusEnumBuilder {
     // =========================================================================
 
 
-    /// Access the `Complete` value builder.
-    pub fn value_Complete(&self) -> baml::EnumValueBuilder {
-        self.inner.get_value("Complete")
-            .expect("ResearcherObjectiveStatus.Complete is statically defined in .baml and should always be present")
+    /// Access the `Ongoing` value builder.
+    pub fn value_Ongoing(&self) -> baml::EnumValueBuilder {
+        self.inner.get_value("Ongoing")
+            .expect("ResearchStatus.Ongoing is statically defined in .baml and should always be present")
     }
 
 
-    /// Access the `Incomplete` value builder.
-    pub fn value_Incomplete(&self) -> baml::EnumValueBuilder {
-        self.inner.get_value("Incomplete")
-            .expect("ResearcherObjectiveStatus.Incomplete is statically defined in .baml and should always be present")
+    /// Access the `Complete` value builder.
+    pub fn value_Complete(&self) -> baml::EnumValueBuilder {
+        self.inner.get_value("Complete")
+            .expect("ResearchStatus.Complete is statically defined in .baml and should always be present")
     }
 
 
     /// Access the `Blocked` value builder.
     pub fn value_Blocked(&self) -> baml::EnumValueBuilder {
         self.inner.get_value("Blocked")
-            .expect("ResearcherObjectiveStatus.Blocked is statically defined in .baml and should always be present")
+            .expect("ResearchStatus.Blocked is statically defined in .baml and should always be present")
     }
 
 }

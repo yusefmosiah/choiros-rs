@@ -131,9 +131,6 @@ baml_function_sync!(QuickResponse(user_message: impl AsRef<str> + BamlEncode, co
 baml_function_sync!(ResearcherPlanStep(input: &types::ResearcherPlanInput, ) -> (stream_types::ResearcherPlanOutput, types::ResearcherPlanOutput));
 
 
-baml_function_sync!(ResearcherSummarizeEvidence(input: &types::ResearcherSynthesisInput, ) -> (stream_types::ResearcherSynthesisOutput, types::ResearcherSynthesisOutput));
-
-
 baml_function_sync!(SynthesizeResponse(user_prompt: impl AsRef<str> + BamlEncode, tool_results: &[types::ToolResult], conversation_context: impl AsRef<str> + BamlEncode, ) -> (String, String));
 
 
@@ -167,8 +164,6 @@ pub struct BamlSyncClient {
     
     pub ResearcherPlanStep: ResearcherPlanStep,
     
-    pub ResearcherSummarizeEvidence: ResearcherSummarizeEvidence,
-    
     pub SynthesizeResponse: SynthesizeResponse,
     
     pub WatcherRecommendMitigation: WatcherRecommendMitigation,
@@ -197,8 +192,6 @@ impl BamlSyncClient {
             QuickResponse: QuickResponse::new(),
             
             ResearcherPlanStep: ResearcherPlanStep::new(),
-            
-            ResearcherSummarizeEvidence: ResearcherSummarizeEvidence::new(),
             
             SynthesizeResponse: SynthesizeResponse::new(),
             
@@ -229,8 +222,6 @@ impl BamlSyncClient {
             QuickResponse: QuickResponse { options: options.clone() },
             
             ResearcherPlanStep: ResearcherPlanStep { options: options.clone() },
-            
-            ResearcherSummarizeEvidence: ResearcherSummarizeEvidence { options: options.clone() },
             
             SynthesizeResponse: SynthesizeResponse { options: options.clone() },
             
