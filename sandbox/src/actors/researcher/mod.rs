@@ -1,11 +1,12 @@
-//! ResearcherActor - policy-driven research loop.
+//! ResearcherActor - policy-driven research loop using unified agent harness.
 //!
 //! Runtime shape:
-//! 1) Planner LLM decides next action (`search`, `fetch_url`, `complete`, `block`)
-//! 2) Researcher executes tools (web search providers + fetch_url)
-//! 3) Researcher emits structured progress/finding/learning events
-//! 4) Synthesis LLM decides terminal status and final summary
+//! 1) Harness runs agentic loop with BAML-based planning
+//! 2) ResearcherAdapter executes tools (web search providers + fetch_url)
+//! 3) Adapter emits structured progress/finding/learning events
+//! 4) Harness synthesizes final response and generates WorkerTurnReport
 
+mod adapter;
 mod events;
 mod policy;
 mod providers;
@@ -15,10 +16,11 @@ use ractor::{Actor, ActorProcessingErr, RpcReplyPort};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
+use crate::actors::agent_harness::{AgentHarness, AgentResult, HarnessConfig, ObjectiveStatus};
 use crate::actors::event_store::EventStoreMsg;
-use crate::actors::model_config::{
-    load_model_policy, ModelConfigError, ModelRegistry, ModelResolutionContext,
-};
+use crate::actors::model_config::{load_model_policy, ModelRegistry};
+
+pub use adapter::ResearcherAdapter;
 
 #[derive(Debug, Default)]
 pub struct ResearcherActor;
@@ -157,6 +159,36 @@ pub enum ResearcherError {
     ModelResolution(String),
     #[error("policy error: {0}")]
     Policy(String),
+    #[error("harness error: {0}")]
+    Harness(String),
+}
+
+impl From<crate::actors::agent_harness::HarnessError> for ResearcherError {
+    fn from(e: crate::actors::agent_harness::HarnessError) -> Self {
+        match e {
+            crate::actors::agent_harness::HarnessError::ModelResolution(msg) => {
+                ResearcherError::ModelResolution(msg)
+            }
+            crate::actors::agent_harness::HarnessError::Planning(msg) => {
+                ResearcherError::Policy(format!("Planning failed: {msg}"))
+            }
+            crate::actors::agent_harness::HarnessError::ToolExecution(msg) => {
+                ResearcherError::ProviderRequest("tool".to_string(), msg)
+            }
+            crate::actors::agent_harness::HarnessError::Synthesis(msg) => {
+                ResearcherError::Policy(format!("Synthesis failed: {msg}"))
+            }
+            crate::actors::agent_harness::HarnessError::Timeout(ms) => {
+                ResearcherError::ProviderRequest("timeout".to_string(), format!("{ms}ms"))
+            }
+            crate::actors::agent_harness::HarnessError::Blocked(reason) => {
+                ResearcherError::Policy(format!("Blocked: {reason}"))
+            }
+            crate::actors::agent_harness::HarnessError::Adapter(msg) => {
+                ResearcherError::Harness(msg)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -165,6 +197,16 @@ pub enum ResearchObjectiveStatus {
     Complete,
     Incomplete,
     Blocked,
+}
+
+impl From<ObjectiveStatus> for ResearchObjectiveStatus {
+    fn from(status: ObjectiveStatus) -> Self {
+        match status {
+            ObjectiveStatus::Complete => ResearchObjectiveStatus::Complete,
+            ObjectiveStatus::Incomplete => ResearchObjectiveStatus::Incomplete,
+            ObjectiveStatus::Blocked => ResearchObjectiveStatus::Blocked,
+        }
+    }
 }
 
 #[async_trait]
@@ -201,33 +243,41 @@ impl Actor for ResearcherActor {
             ResearcherMsg::RunAgenticTask {
                 objective,
                 timeout_ms,
-                max_results,
+                max_results: _,
                 max_rounds,
                 model_override,
                 progress_tx,
                 reply,
             } => {
-                let request = ResearcherWebSearchRequest {
-                    query: objective,
-                    objective: None,
-                    provider: Some("auto".to_string()),
-                    max_results,
-                    max_rounds,
-                    time_range: None,
-                    include_domains: None,
-                    exclude_domains: None,
-                    timeout_ms,
-                    model_override,
-                    reasoning: Some("conductor_delegation".to_string()),
-                };
-                let _ = reply.send(self.handle_web_search(state, request, progress_tx).await);
+                let result = self
+                    .run_with_harness(
+                        state,
+                        objective,
+                        timeout_ms,
+                        max_rounds,
+                        model_override,
+                        progress_tx,
+                    )
+                    .await;
+                let _ = reply.send(result);
             }
             ResearcherMsg::RunWebSearchTool {
                 request,
                 progress_tx,
                 reply,
             } => {
-                let _ = reply.send(self.handle_web_search(state, request, progress_tx).await);
+                // For direct tool calls, we still use the harness but with the query as objective
+                let result = self
+                    .run_with_harness(
+                        state,
+                        request.query.clone(),
+                        request.timeout_ms,
+                        request.max_rounds,
+                        request.model_override.clone(),
+                        progress_tx,
+                    )
+                    .await;
+                let _ = reply.send(result);
             }
             ResearcherMsg::RunFetchUrlTool {
                 request,
@@ -271,378 +321,115 @@ impl Actor for ResearcherActor {
 }
 
 impl ResearcherActor {
-    fn map_model_error(error: ModelConfigError) -> ResearcherError {
-        match error {
-            ModelConfigError::UnknownModel(model_id) => {
-                ResearcherError::ModelResolution(format!("unknown model: {model_id}"))
-            }
-            ModelConfigError::MissingApiKey(env_var) => {
-                ResearcherError::ModelResolution(format!("missing API key: {env_var}"))
-            }
-            ModelConfigError::NoFallbackAvailable => {
-                ResearcherError::ModelResolution("no fallback model available".to_string())
-            }
-        }
-    }
-
-    fn build_worker_report(
+    async fn run_with_harness(
         &self,
         state: &ResearcherState,
-        loop_id: &str,
-        provider_label: &str,
-        query: &str,
-        citations: &[ResearchCitation],
-        key_findings: &[String],
-        gaps: &[String],
-        confidence: f64,
-    ) -> shared_types::WorkerTurnReport {
-        let findings = key_findings
-            .iter()
-            .enumerate()
-            .map(|(idx, claim)| {
-                let evidence = citations
-                    .get(idx)
-                    .map(|citation| vec![citation.url.clone()])
-                    .unwrap_or_default();
-                shared_types::WorkerFinding {
-                    finding_id: ulid::Ulid::new().to_string(),
-                    claim: claim.clone(),
-                    confidence,
-                    evidence_refs: evidence,
-                    novel: Some(true),
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let learnings = gaps
-            .iter()
-            .map(|gap| shared_types::WorkerLearning {
-                learning_id: ulid::Ulid::new().to_string(),
-                insight: gap.clone(),
-                confidence,
-                supports: findings.iter().map(|f| f.finding_id.clone()).collect(),
-                changes_plan: Some(true),
-            })
-            .collect::<Vec<_>>();
-
-        shared_types::WorkerTurnReport {
-            turn_id: loop_id.to_string(),
-            worker_id: state.researcher_id.clone(),
-            task_id: loop_id.to_string(),
-            worker_role: Some("researcher".to_string()),
-            status: shared_types::WorkerTurnStatus::Completed,
-            summary: Some(format!(
-                "Research loop used {} for '{}' and produced {} citations",
-                provider_label,
-                query,
-                citations.len()
-            )),
-            findings,
-            learnings,
-            escalations: Vec::new(),
-            artifacts: Vec::new(),
-            created_at: Some(chrono::Utc::now().to_rfc3339()),
-        }
-    }
-
-    async fn handle_web_search(
-        &self,
-        state: &mut ResearcherState,
-        request: ResearcherWebSearchRequest,
+        objective: String,
+        timeout_ms: Option<u64>,
+        max_rounds: Option<u8>,
+        model_override: Option<String>,
         progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
     ) -> Result<ResearcherResult, ResearcherError> {
-        let query = request.query.trim().to_string();
-        if query.is_empty() {
-            return Err(ResearcherError::Validation(
-                "web_search query cannot be empty".to_string(),
-            ));
-        }
-        let objective = request
-            .objective
-            .as_ref()
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| query.clone());
-        let max_results = request.max_results.unwrap_or(6).clamp(1, 20);
-        let max_rounds = request.max_rounds.unwrap_or(3).clamp(1, 8) as usize;
-        let timeout_ms = request.timeout_ms.unwrap_or(30_000).clamp(3_000, 120_000);
+        let timeout = timeout_ms.unwrap_or(30_000).clamp(3_000, 120_000);
+        let max_steps = max_rounds.unwrap_or(3).clamp(1, 8) as usize;
 
-        let resolved_model = state
-            .model_registry
-            .resolve_for_role(
-                "researcher",
-                &ModelResolutionContext {
-                    request_model: request.model_override.clone(),
-                    app_preference: Some(state.current_model.clone()),
-                    user_preference: None,
-                },
+        // Create adapter with a clone of state data
+        let adapter_state = ResearcherState {
+            researcher_id: state.researcher_id.clone(),
+            user_id: state.user_id.clone(),
+            event_store: state.event_store.clone(),
+            current_model: state.current_model.clone(),
+            model_registry: state.model_registry.clone(),
+        };
+
+        let adapter = ResearcherAdapter::new(adapter_state, progress_tx, timeout)?;
+
+        // Create harness with custom config
+        let config = HarnessConfig {
+            timeout_budget_ms: timeout,
+            max_steps,
+            emit_progress: true,
+            emit_structured_signals: true,
+            emit_worker_report: true,
+        };
+
+        let harness = AgentHarness::with_config(adapter, state.model_registry.clone(), config);
+
+        // Run the harness
+        let agent_result: AgentResult = harness
+            .run(
+                state.researcher_id.clone(),
+                state.user_id.clone(),
+                objective,
+                model_override,
+                None, // progress_tx is handled internally by adapter
             )
-            .map_err(Self::map_model_error)?;
-        let model_used = resolved_model.config.id;
-        let loop_id = ulid::Ulid::new().to_string();
+            .await
+            .map_err(ResearcherError::from)?;
 
-        events::emit_started(state, &loop_id, &objective, &model_used);
-        events::emit_progress(
-            state,
-            &progress_tx,
-            &loop_id,
-            "research_task_started",
-            "researcher entered policy loop",
-            None,
-            Some(model_used.clone()),
-            None,
-        );
+        // Convert AgentResult to ResearcherResult
+        // Extract citations and provider calls from tool execution outputs
+        let mut citations = Vec::new();
+        let mut provider_calls = Vec::new();
 
-        let http = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_millis(timeout_ms))
-            .build()
-            .map_err(|e| {
-                ResearcherError::ProviderRequest("http_client".to_string(), e.to_string())
-            })?;
-
-        let mut current_query = query.clone();
-        let mut successful_outputs = Vec::<providers::ProviderSearchOutput>::new();
-        let mut calls = Vec::<ResearchProviderCall>::new();
-        let mut fetched_pages = Vec::<ResearcherFetchUrlResult>::new();
-        let mut errors = Vec::<String>::new();
-        let mut last_error: Option<String> = None;
-
-        for round in 1..=max_rounds {
-            let citations = providers::merge_citations(&successful_outputs);
-            let decision = policy::plan_step(
-                &state.model_registry,
-                &model_used,
-                &objective,
-                &current_query,
-                round,
-                max_rounds,
-                request.provider.as_deref(),
-                request.max_results,
-                last_error.as_deref(),
-                &calls,
-                &citations,
-                &fetched_pages,
-            )
-            .await?;
-
-            events::emit_progress(
-                state,
-                &progress_tx,
-                &loop_id,
-                "research_policy_decision",
-                format!(
-                    "round {}/{} action={} confidence={:.2} rationale={}",
-                    round, max_rounds, decision.action, decision.confidence, decision.rationale
-                ),
-                None,
-                Some(model_used.clone()),
-                Some(citations.len()),
-            );
-
-            match decision.action {
-                crate::baml_client::types::ResearcherNextAction::Search => {
-                    let query_for_round = decision
-                        .query
-                        .as_ref()
-                        .map(|q| q.trim())
-                        .filter(|q| !q.is_empty())
-                        .ok_or_else(|| {
-                            ResearcherError::Policy(
-                                "ResearcherPlanStep returned Search without query".to_string(),
-                            )
-                        })?
-                        .to_string();
-                    let provider_directive = decision
-                        .provider
-                        .as_deref()
-                        .or(request.provider.as_deref())
-                        .unwrap_or("auto");
-                    let selection = providers::parse_provider_selection(Some(provider_directive));
-                    let round_max_results =
-                        decision.max_results.unwrap_or(max_results).clamp(1, 20);
-                    let round_time_range = decision
-                        .time_range
-                        .as_deref()
-                        .or(request.time_range.as_deref());
-                    current_query = query_for_round;
-
-                    let (round_outputs, round_calls, round_errors) =
-                        providers::run_provider_selection(
-                            &http,
-                            selection,
-                            &current_query,
-                            round_max_results,
-                            round_time_range,
-                            request.include_domains.as_deref(),
-                            request.exclude_domains.as_deref(),
-                        )
-                        .await;
-
-                    for call in &round_calls {
-                        let phase = if call.succeeded {
-                            "research_provider_result"
-                        } else {
-                            "research_provider_error"
-                        };
-                        let message = if call.succeeded {
-                            format!(
-                                "{} provider returned {} results",
-                                call.provider, call.result_count
-                            )
-                        } else {
-                            format!(
-                                "{} provider failed: {}",
-                                call.provider,
-                                call.error.clone().unwrap_or_default()
-                            )
-                        };
-                        events::emit_progress(
-                            state,
-                            &progress_tx,
-                            &loop_id,
-                            phase,
-                            message,
-                            Some(call.provider.clone()),
-                            Some(model_used.clone()),
-                            Some(call.result_count),
-                        );
+        for tool_exec in &agent_result.tool_executions {
+            if tool_exec.tool_name == "web_search" {
+                if let Ok(output) = serde_json::from_str::<serde_json::Value>(&tool_exec.output) {
+                    if let Some(cits) = output.get("citations").and_then(|v| v.as_array()) {
+                        for cit in cits {
+                            if let Ok(citation) =
+                                serde_json::from_value::<ResearchCitation>(cit.clone())
+                            {
+                                citations.push(citation);
+                            }
+                        }
                     }
-
-                    last_error = round_errors.last().cloned();
-                    successful_outputs.extend(round_outputs);
-                    calls.extend(round_calls);
-                    errors.extend(round_errors);
-                }
-                crate::baml_client::types::ResearcherNextAction::FetchUrl => {
-                    let url = decision
-                        .fetch_url
-                        .as_ref()
-                        .map(|u| u.trim())
-                        .filter(|u| !u.is_empty())
-                        .ok_or_else(|| {
-                            ResearcherError::Policy(
-                                "ResearcherPlanStep returned FetchUrl without fetch_url"
-                                    .to_string(),
-                            )
-                        })?
-                        .to_string();
-                    let fetch_request = ResearcherFetchUrlRequest {
-                        url: url.clone(),
-                        timeout_ms: request.timeout_ms,
-                        max_chars: Some(8_000),
-                    };
-                    let fetched = providers::fetch_url(&fetch_request).await?;
-                    events::emit_progress(
-                        state,
-                        &progress_tx,
-                        &loop_id,
-                        "research_fetch_result",
-                        format!(
-                            "fetched {} status={} chars={}",
-                            fetched.url,
-                            fetched.status_code,
-                            fetched.content_excerpt.len()
-                        ),
-                        None,
-                        Some(model_used.clone()),
-                        Some(fetched.content_excerpt.len()),
-                    );
-                    fetched_pages.push(fetched);
-                }
-                crate::baml_client::types::ResearcherNextAction::Complete
-                | crate::baml_client::types::ResearcherNextAction::Block => {
-                    break;
+                    if let Some(calls) = output.get("provider_calls").and_then(|v| v.as_array()) {
+                        for call in calls {
+                            if let Ok(provider_call) =
+                                serde_json::from_value::<ResearchProviderCall>(call.clone())
+                            {
+                                provider_calls.push(provider_call);
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        let citations = providers::merge_citations(&successful_outputs);
-        let provider_used = providers::provider_label_from_outputs(&successful_outputs)
-            .unwrap_or_else(|| "none".to_string());
-        let raw_results_count = successful_outputs
-            .iter()
-            .map(|o| o.raw_results_count)
-            .sum::<usize>();
-
-        let synthesis = policy::summarize(
-            &state.model_registry,
-            &model_used,
-            &objective,
-            &current_query,
-            &provider_used,
-            &citations,
-            &calls,
-            &fetched_pages,
-            raw_results_count,
-            &errors,
-        )
-        .await?;
-
-        for finding in &synthesis.key_findings {
-            let finding_id = ulid::Ulid::new().to_string();
-            let evidence = citations
-                .iter()
-                .take(2)
-                .map(|c| c.url.clone())
-                .collect::<Vec<_>>();
-            events::emit_finding(
-                state,
-                &loop_id,
-                &finding_id,
-                finding,
-                synthesis.confidence,
-                &evidence,
-            );
-        }
-        for gap in &synthesis.gaps {
-            events::emit_learning(
-                state,
-                &loop_id,
-                &ulid::Ulid::new().to_string(),
-                gap,
-                synthesis.confidence,
-            );
-        }
-
-        if synthesis.objective_status == ResearchObjectiveStatus::Blocked {
-            events::emit_failed(state, &loop_id, &synthesis.completion_reason);
+        let provider_used = if provider_calls.is_empty() {
+            None
         } else {
-            events::emit_completed(state, &loop_id, &synthesis.summary);
-        }
+            let labels: Vec<String> = provider_calls
+                .iter()
+                .filter(|c| c.succeeded)
+                .map(|c| c.provider.clone())
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+            if labels.is_empty() {
+                None
+            } else {
+                Some(labels.join("->"))
+            }
+        };
 
-        let worker_report = self.build_worker_report(
-            state,
-            &loop_id,
-            &provider_used,
-            &current_query,
-            &citations,
-            &synthesis.key_findings,
-            &synthesis.gaps,
-            synthesis.confidence,
-        );
+        let raw_results_count = citations.len();
 
         Ok(ResearcherResult {
-            summary: synthesis.summary,
-            success: synthesis.objective_status != ResearchObjectiveStatus::Blocked,
-            objective_status: synthesis.objective_status,
-            completion_reason: synthesis.completion_reason,
-            recommended_next_capability: synthesis.recommended_next_capability,
-            recommended_next_objective: synthesis.recommended_next_objective,
-            provider_used: if provider_used == "none" {
-                None
-            } else {
-                Some(provider_used)
-            },
-            model_used: Some(model_used),
+            summary: agent_result.summary,
+            success: agent_result.success,
+            objective_status: agent_result.objective_status.into(),
+            completion_reason: agent_result.completion_reason,
+            recommended_next_capability: None,
+            recommended_next_objective: None,
+            provider_used,
+            model_used: agent_result.model_used,
             citations,
-            provider_calls: calls,
+            provider_calls,
             raw_results_count,
-            error: if errors.is_empty() {
-                None
-            } else {
-                Some(errors.join(" | "))
-            },
-            worker_report: Some(worker_report),
+            error: None,
+            worker_report: agent_result.worker_report,
         })
     }
 }

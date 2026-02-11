@@ -8,8 +8,8 @@
 //! ApplicationSupervisor (one_for_one strategy)
 //! └── SessionSupervisor (one_for_one strategy)
 //!     ├── DesktopSupervisor
-//!     ├── ChatSupervisor
-//!     └── TerminalSupervisor
+//!     ├── TerminalSupervisor
+//!     └── ResearcherSupervisor
 //!
 //! ## Supervision Events
 //!
@@ -22,7 +22,6 @@
 //!
 //! This module is gated by the `supervision_refactor` feature flag.
 
-pub mod chat;
 pub mod desktop;
 pub mod researcher;
 pub mod session;
@@ -43,13 +42,6 @@ pub use desktop::{
 pub use researcher::{
     ResearcherSupervisor, ResearcherSupervisorArgs, ResearcherSupervisorMsg,
     ResearcherSupervisorState,
-};
-
-// Re-export from chat module
-pub use chat::{
-    get_chat, get_chat_agent, get_or_create_chat, get_or_create_chat_agent, remove_chat,
-    remove_chat_agent, ChatInfo, ChatSupervisor, ChatSupervisorArgs, ChatSupervisorMsg,
-    ChatSupervisorState,
 };
 
 // Re-export from terminal module
@@ -191,21 +183,6 @@ pub enum ApplicationSupervisorMsg {
         desktop_id: String,
         user_id: String,
         reply: RpcReplyPort<ractor::ActorRef<crate::actors::desktop::DesktopActorMsg>>,
-    },
-    /// Get or create a chat actor
-    GetOrCreateChat {
-        actor_id: String,
-        user_id: String,
-        reply: RpcReplyPort<ractor::ActorRef<crate::actors::chat::ChatActorMsg>>,
-    },
-    /// Get or create a chat agent
-    GetOrCreateChatAgent {
-        agent_id: String,
-        chat_actor_id: String,
-        user_id: String,
-        preload_session_id: Option<String>,
-        preload_thread_id: Option<String>,
-        reply: RpcReplyPort<ractor::ActorRef<crate::actors::chat_agent::ChatAgentMsg>>,
     },
     /// Get or create a terminal session
     GetOrCreateTerminal {
@@ -576,169 +553,6 @@ impl Actor for ApplicationSupervisor {
                                 desktop_id = %desktop_id,
                                 error = %e,
                                 "Failed to get or create desktop via SessionSupervisor"
-                            );
-                            return Err(ActorProcessingErr::from(e));
-                        }
-                    }
-                } else {
-                    error!("SessionSupervisor not available");
-                    return Err(ActorProcessingErr::from(std::io::Error::other(
-                        "SessionSupervisor not available",
-                    )));
-                }
-            }
-            ApplicationSupervisorMsg::GetOrCreateChat {
-                actor_id,
-                user_id,
-                reply,
-            } => {
-                let correlation_id = ulid::Ulid::new().to_string();
-                self.emit_request_event(
-                    state,
-                    "supervisor.chat.get_or_create.started",
-                    EventType::Custom("supervisor.chat.get_or_create.started".to_string()),
-                    serde_json::json!({
-                        "actor_id": actor_id,
-                        "user_id": user_id,
-                        "supervisor_id": myself.get_id().to_string(),
-                    }),
-                    correlation_id.clone(),
-                )
-                .await;
-
-                if let Some(ref session_supervisor) = state.session_supervisor {
-                    match ractor::call!(session_supervisor, |ss_reply| {
-                        SessionSupervisorMsg::GetOrCreateChat {
-                            actor_id: actor_id.clone(),
-                            user_id: user_id.clone(),
-                            reply: ss_reply,
-                        }
-                    }) {
-                        Ok(actor_ref) => {
-                            self.emit_request_event(
-                                state,
-                                "supervisor.chat.get_or_create.completed",
-                                EventType::Custom(
-                                    "supervisor.chat.get_or_create.completed".to_string(),
-                                ),
-                                serde_json::json!({
-                                    "actor_id": actor_id,
-                                    "user_id": user_id,
-                                    "chat_actor_ref": actor_ref.get_id().to_string(),
-                                    "supervisor_id": myself.get_id().to_string(),
-                                }),
-                                correlation_id,
-                            )
-                            .await;
-                            let _ = reply.send(actor_ref);
-                        }
-                        Err(e) => {
-                            self.emit_request_event(
-                                state,
-                                "supervisor.chat.get_or_create.failed",
-                                EventType::Custom(
-                                    "supervisor.chat.get_or_create.failed".to_string(),
-                                ),
-                                serde_json::json!({
-                                    "actor_id": actor_id,
-                                    "user_id": user_id,
-                                    "error": e.to_string(),
-                                    "supervisor_id": myself.get_id().to_string(),
-                                }),
-                                correlation_id,
-                            )
-                            .await;
-                            error!(
-                                actor_id = %actor_id,
-                                error = %e,
-                                "Failed to get or create chat via SessionSupervisor"
-                            );
-                            return Err(ActorProcessingErr::from(e));
-                        }
-                    }
-                } else {
-                    error!("SessionSupervisor not available");
-                    return Err(ActorProcessingErr::from(std::io::Error::other(
-                        "SessionSupervisor not available",
-                    )));
-                }
-            }
-            ApplicationSupervisorMsg::GetOrCreateChatAgent {
-                agent_id,
-                chat_actor_id,
-                user_id,
-                preload_session_id,
-                preload_thread_id,
-                reply,
-            } => {
-                let correlation_id = ulid::Ulid::new().to_string();
-                self.emit_request_event(
-                    state,
-                    "supervisor.chat_agent.get_or_create.started",
-                    EventType::Custom("supervisor.chat_agent.get_or_create.started".to_string()),
-                    serde_json::json!({
-                        "agent_id": agent_id,
-                        "chat_actor_id": chat_actor_id,
-                        "user_id": user_id,
-                        "preload_session_id": preload_session_id,
-                        "preload_thread_id": preload_thread_id,
-                        "supervisor_id": myself.get_id().to_string(),
-                    }),
-                    correlation_id.clone(),
-                )
-                .await;
-
-                if let Some(ref session_supervisor) = state.session_supervisor {
-                    match ractor::call!(session_supervisor, |ss_reply| {
-                        SessionSupervisorMsg::GetOrCreateChatAgent {
-                            agent_id: agent_id.clone(),
-                            chat_actor_id: chat_actor_id.clone(),
-                            user_id: user_id.clone(),
-                            preload_session_id: preload_session_id.clone(),
-                            preload_thread_id: preload_thread_id.clone(),
-                            reply: ss_reply,
-                        }
-                    }) {
-                        Ok(actor_ref) => {
-                            self.emit_request_event(
-                                state,
-                                "supervisor.chat_agent.get_or_create.completed",
-                                EventType::Custom(
-                                    "supervisor.chat_agent.get_or_create.completed".to_string(),
-                                ),
-                                serde_json::json!({
-                                    "agent_id": agent_id,
-                                    "chat_actor_id": chat_actor_id,
-                                    "user_id": user_id,
-                                    "chat_agent_ref": actor_ref.get_id().to_string(),
-                                    "supervisor_id": myself.get_id().to_string(),
-                                }),
-                                correlation_id,
-                            )
-                            .await;
-                            let _ = reply.send(actor_ref);
-                        }
-                        Err(e) => {
-                            self.emit_request_event(
-                                state,
-                                "supervisor.chat_agent.get_or_create.failed",
-                                EventType::Custom(
-                                    "supervisor.chat_agent.get_or_create.failed".to_string(),
-                                ),
-                                serde_json::json!({
-                                    "agent_id": agent_id,
-                                    "chat_actor_id": chat_actor_id,
-                                    "user_id": user_id,
-                                    "error": e.to_string(),
-                                    "supervisor_id": myself.get_id().to_string(),
-                                }),
-                                correlation_id,
-                            )
-                            .await;
-                            error!(
-                                agent_id = %agent_id,
-                                error = %e,
-                                "Failed to get or create chat agent via SessionSupervisor"
                             );
                             return Err(ActorProcessingErr::from(e));
                         }

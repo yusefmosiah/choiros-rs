@@ -3,18 +3,14 @@
 //! Comprehensive tests for the tool system covering:
 //! - Tool Registry operations
 //! - Individual tool execution (bash, read_file, write_file, list_files, search_files)
-//! - ChatAgent integration with tools
 //! - Security boundary validation
 
-use ractor::Actor;
-use serde_json::json;
 use std::collections::HashSet;
 
-use sandbox::actors::chat_agent::{ChatAgent, ChatAgentArguments, ChatAgentMsg};
-use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};
 use sandbox::tools::{
     BashTool, ListFilesTool, ReadFileTool, SearchFilesTool, Tool, ToolRegistry, WriteFileTool,
 };
+use serde_json::json;
 
 // ============================================================================
 // Test Utilities
@@ -703,10 +699,6 @@ fn test_search_files_missing_pattern() {
 }
 
 // ============================================================================
-// Integration Tests via ChatAgent (delegation boundary)
-// ============================================================================
-
-// ============================================================================
 // Security Boundary Tests
 // ============================================================================
 
@@ -826,35 +818,6 @@ fn test_read_file_tool_parameters_schema() {
     assert!(schema.get("properties").unwrap().get("path").is_some());
     assert!(schema.get("properties").unwrap().get("limit").is_some());
     assert!(schema.get("properties").unwrap().get("offset").is_some());
-}
-
-#[tokio::test]
-async fn test_agent_get_available_tools() {
-    let (event_store, _event_handle) =
-        Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-            .await
-            .unwrap();
-
-    let (agent, _agent_handle) = Actor::spawn(
-        None,
-        ChatAgent::new(),
-        ChatAgentArguments {
-            actor_id: "test-agent-tools".to_string(),
-            user_id: "test-user".to_string(),
-            event_store,
-            preload_session_id: None,
-            preload_thread_id: None,
-            application_supervisor: None,
-        },
-    )
-    .await
-    .unwrap();
-
-    let tools = ractor::call!(agent, |reply| ChatAgentMsg::GetAvailableTools { reply }).unwrap();
-
-    assert_eq!(tools.len(), 2);
-    assert!(tools.contains(&"bash".to_string()));
-    assert!(tools.contains(&"web_search".to_string()));
 }
 
 // ============================================================================

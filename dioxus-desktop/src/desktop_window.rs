@@ -4,7 +4,7 @@ use gloo_timers::future::TimeoutFuture;
 use shared_types::WindowState;
 use wasm_bindgen::JsCast;
 
-use crate::components::{load_files_path, ChatView, FilesView, LogsView, SettingsView, WriterView};
+use crate::components::{load_files_path, FilesView, LogsView, SettingsView, WriterView};
 use crate::terminal::TerminalView;
 use crate::viewers::{parse_viewer_window_props, ViewerShell};
 
@@ -540,14 +540,6 @@ pub fn FloatingWindow(
                     }
                 } else {
                     match window.app_id.as_str() {
-                    "chat" => rsx! {
-                        ChatView {
-                            key: "{window.id}",
-                            actor_id: window.id.clone(),
-                            desktop_id: desktop_id.clone(),
-                            window_id: window.id.clone(),
-                        }
-                    },
                     "terminal" => rsx! {
                         TerminalView {
                             key: "{window.id}",
@@ -734,7 +726,6 @@ fn WindowControls(
 
 fn get_app_icon(app_id: &str) -> &'static str {
     match app_id {
-        "chat" => "💬",
         "writer" => "📝",
         "terminal" => "🖥️",
         "files" => "📁",

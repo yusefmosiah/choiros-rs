@@ -1,38 +1,9 @@
 use ractor::Actor;
-use sandbox::actors::chat_agent::{ChatAgent, ChatAgentArguments, ChatAgentMsg};
 use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments, EventStoreMsg};
 use sandbox::supervisor::{ApplicationSupervisor, ApplicationSupervisorMsg};
 
 #[tokio::test]
-async fn test_chat_agent_exposes_scoped_delegated_tools() {
-    let (event_store, _event_handle) =
-        Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-            .await
-            .expect("spawn event store");
-
-    let (agent, _agent_handle) = Actor::spawn(
-        None,
-        ChatAgent::new(),
-        ChatAgentArguments {
-            actor_id: "capability-tools".to_string(),
-            user_id: "test-user".to_string(),
-            event_store,
-            preload_session_id: None,
-            preload_thread_id: None,
-            application_supervisor: None,
-        },
-    )
-    .await
-    .expect("spawn chat agent");
-
-    let tools = ractor::call!(agent, |reply| ChatAgentMsg::GetAvailableTools { reply })
-        .expect("get tools rpc");
-    assert!(tools.contains(&"bash".to_string()));
-    assert!(tools.contains(&"web_search".to_string()));
-}
-
-#[tokio::test]
-async fn test_chat_bash_delegation_emits_appactor_toolactor_worker_event() {
+async fn test_terminal_delegation_emits_appactor_toolactor_worker_event() {
     let (event_store, _event_handle) =
         Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
             .await
@@ -90,7 +61,7 @@ async fn test_chat_bash_delegation_emits_appactor_toolactor_worker_event() {
 }
 
 #[tokio::test]
-async fn test_chat_web_search_delegation_emits_research_worker_events() {
+async fn test_research_delegation_emits_research_worker_events() {
     let (event_store, _event_handle) =
         Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
             .await

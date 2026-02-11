@@ -3,14 +3,6 @@ use shared_types::AppDefinition;
 pub fn core_apps() -> Vec<AppDefinition> {
     vec![
         AppDefinition {
-            id: "chat".to_string(),
-            name: "Chat".to_string(),
-            icon: "💬".to_string(),
-            component_code: "ChatApp".to_string(),
-            default_width: 600,
-            default_height: 500,
-        },
-        AppDefinition {
             id: "writer".to_string(),
             name: "Writer".to_string(),
             icon: "📝".to_string(),
@@ -55,7 +47,6 @@ pub fn core_apps() -> Vec<AppDefinition> {
 
 pub fn get_app_icon(app_id: &str) -> &'static str {
     match app_id {
-        "chat" => "💬",
         "writer" => "📝",
         "terminal" => "🖥️",
         "files" => "📁",

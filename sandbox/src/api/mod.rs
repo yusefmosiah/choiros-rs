@@ -11,7 +11,6 @@ use axum::{Json, Router};
 use serde_json::json;
 use std::sync::Arc;
 
-pub mod chat;
 pub mod conductor;
 pub mod desktop;
 pub mod files;
@@ -21,7 +20,6 @@ pub mod terminal;
 pub mod user;
 pub mod viewer;
 pub mod websocket;
-pub mod websocket_chat;
 pub mod websocket_logs;
 pub mod writer;
 
@@ -40,9 +38,7 @@ pub fn router() -> Router<ApiState> {
         .route("/health", get(health_check))
         .route("/ws", get(websocket::ws_handler))
         .route("/ws/logs/events", get(websocket_logs::logs_websocket))
-        // Chat routes
-        .route("/chat/send", post(chat::send_message))
-        .route("/chat/{actor_id}/messages", get(chat::get_messages))
+        // Note: Chat backend removed - Prompt Bar routes to Conductor
         // Logs routes
         .route("/logs/events", get(logs::get_events))
         .route("/logs/latest-seq", get(logs::get_latest_seq))
@@ -118,12 +114,7 @@ pub fn router() -> Router<ApiState> {
             "/ws/terminal/{terminal_id}",
             get(terminal::terminal_websocket),
         )
-        // Chat agent WebSocket routes
-        .route("/ws/chat/{actor_id}", get(websocket_chat::chat_websocket))
-        .route(
-            "/ws/chat/{actor_id}/{user_id}",
-            get(websocket_chat::chat_websocket_with_user),
-        )
+        // Note: Chat WebSocket routes removed - use Conductor WebSocket instead
         // Files API routes
         .route("/files/list", get(files::list_directory))
         .route("/files/metadata", get(files::get_metadata))

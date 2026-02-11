@@ -3,13 +3,10 @@
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort, SupervisionEvent};
 use tracing::{error, info};
 
-use crate::actors::chat::ChatActorMsg;
-use crate::actors::chat_agent::ChatAgentMsg;
 use crate::actors::desktop::{DesktopActorMsg, DesktopArguments};
 use crate::actors::event_store::EventStoreMsg;
 use crate::actors::researcher::ResearcherMsg;
 use crate::actors::terminal::TerminalMsg;
-use crate::supervisor::chat::{ChatSupervisor, ChatSupervisorArgs, ChatSupervisorMsg};
 use crate::supervisor::desktop::{DesktopSupervisor, DesktopSupervisorArgs, DesktopSupervisorMsg};
 use crate::supervisor::researcher::{
     ResearcherSupervisor, ResearcherSupervisorArgs, ResearcherSupervisorMsg,
@@ -31,7 +28,6 @@ pub struct SessionSupervisorArgs {
 pub struct SessionSupervisorState {
     pub event_store: ActorRef<EventStoreMsg>,
     pub desktop_supervisor: Option<ActorRef<DesktopSupervisorMsg>>,
-    pub chat_supervisor: Option<ActorRef<ChatSupervisorMsg>>,
     pub terminal_supervisor: Option<ActorRef<TerminalSupervisorMsg>>,
     pub researcher_supervisor: Option<ActorRef<ResearcherSupervisorMsg>>,
 }
@@ -44,19 +40,6 @@ pub enum SessionSupervisorMsg {
         user_id: String,
         args: DesktopArguments,
         reply: RpcReplyPort<ActorRef<DesktopActorMsg>>,
-    },
-    GetOrCreateChat {
-        actor_id: String,
-        user_id: String,
-        reply: RpcReplyPort<ActorRef<ChatActorMsg>>,
-    },
-    GetOrCreateChatAgent {
-        agent_id: String,
-        chat_actor_id: String,
-        user_id: String,
-        preload_session_id: Option<String>,
-        preload_thread_id: Option<String>,
-        reply: RpcReplyPort<ActorRef<ChatAgentMsg>>,
     },
     GetOrCreateTerminal {
         terminal_id: String,
@@ -96,18 +79,6 @@ impl Actor for SessionSupervisor {
         .await
         .map_err(ActorProcessingErr::from)?;
 
-        let (chat_supervisor, _) = Actor::spawn_linked(
-            None,
-            ChatSupervisor,
-            ChatSupervisorArgs {
-                event_store: args.event_store.clone(),
-                application_supervisor: Some(args.application_supervisor.clone()),
-            },
-            myself.get_cell(),
-        )
-        .await
-        .map_err(ActorProcessingErr::from)?;
-
         let (terminal_supervisor, _) = Actor::spawn_linked(
             None,
             TerminalSupervisor,
@@ -133,7 +104,6 @@ impl Actor for SessionSupervisor {
         Ok(SessionSupervisorState {
             event_store: args.event_store,
             desktop_supervisor: Some(desktop_supervisor),
-            chat_supervisor: Some(chat_supervisor),
             terminal_supervisor: Some(terminal_supervisor),
             researcher_supervisor: Some(researcher_supervisor),
         })
@@ -182,60 +152,6 @@ impl Actor for SessionSupervisor {
                 } else {
                     return Err(ActorProcessingErr::from(std::io::Error::other(
                         "DesktopSupervisor not available",
-                    )));
-                }
-            }
-            SessionSupervisorMsg::GetOrCreateChat {
-                actor_id,
-                user_id,
-                reply,
-            } => {
-                if let Some(chat_supervisor) = &state.chat_supervisor {
-                    match ractor::call!(chat_supervisor, |chat_reply| {
-                        ChatSupervisorMsg::GetOrCreateChat {
-                            actor_id: actor_id.clone(),
-                            user_id: user_id.clone(),
-                            reply: chat_reply,
-                        }
-                    }) {
-                        Ok(actor_ref) => {
-                            let _ = reply.send(actor_ref);
-                        }
-                        Err(e) => return Err(ActorProcessingErr::from(e)),
-                    }
-                } else {
-                    return Err(ActorProcessingErr::from(std::io::Error::other(
-                        "ChatSupervisor not available",
-                    )));
-                }
-            }
-            SessionSupervisorMsg::GetOrCreateChatAgent {
-                agent_id,
-                chat_actor_id,
-                user_id,
-                preload_session_id,
-                preload_thread_id,
-                reply,
-            } => {
-                if let Some(chat_supervisor) = &state.chat_supervisor {
-                    match ractor::call!(chat_supervisor, |chat_reply| {
-                        ChatSupervisorMsg::GetOrCreateChatAgent {
-                            agent_id: agent_id.clone(),
-                            chat_actor_id: chat_actor_id.clone(),
-                            user_id: user_id.clone(),
-                            preload_session_id: preload_session_id.clone(),
-                            preload_thread_id: preload_thread_id.clone(),
-                            reply: chat_reply,
-                        }
-                    }) {
-                        Ok(actor_ref) => {
-                            let _ = reply.send(actor_ref);
-                        }
-                        Err(e) => return Err(ActorProcessingErr::from(e)),
-                    }
-                } else {
-                    return Err(ActorProcessingErr::from(std::io::Error::other(
-                        "ChatSupervisor not available",
                     )));
                 }
             }

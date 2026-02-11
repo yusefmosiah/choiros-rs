@@ -17,16 +17,451 @@
 //! - Integration with opencode CLI
 
 use async_trait::async_trait;
-use chrono::{SecondsFormat, Utc};
+use chrono::Utc;
 use portable_pty::{ChildKiller, CommandBuilder, PtySize};
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use std::io::{Read, Write};
 use tokio::sync::{broadcast, mpsc};
 
+use crate::actors::agent_harness::{
+    AgentAdapter, AgentHarness, AgentProgress, ExecutionContext, HarnessConfig, ToolExecution,
+};
 use crate::actors::event_store::EventStoreMsg;
-use crate::actors::model_config::{ModelConfigError, ModelRegistry, ModelResolutionContext};
-use crate::baml_client::types::{Message as BamlMessage, ToolResult as BamlToolResult};
-use crate::baml_client::{ClientRegistry, B};
+use crate::actors::model_config::ModelRegistry;
+use crate::baml_client::types::AgentToolCall;
+
+use shared_types::{
+    WorkerEscalation, WorkerEscalationKind, WorkerEscalationUrgency, WorkerFinding,
+    WorkerLearning, WorkerTurnReport, WorkerTurnStatus,
+};
+
+// ============================================================================
+// TerminalAdapter - AgentHarness implementation for Terminal
+// ============================================================================
+
+/// Adapter for running terminal commands through the unified agent harness
+pub struct TerminalAdapter {
+    terminal_id: String,
+    working_dir: String,
+    shell: String,
+    event_store: Option<ActorRef<EventStoreMsg>>,
+    progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
+}
+
+impl TerminalAdapter {
+    pub fn new(
+        terminal_id: String,
+        working_dir: String,
+        shell: String,
+        event_store: Option<ActorRef<EventStoreMsg>>,
+        progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
+    ) -> Self {
+        Self {
+            terminal_id,
+            working_dir,
+            shell,
+            event_store,
+            progress_tx,
+        }
+    }
+
+    /// Execute a bash command and return the result
+    async fn execute_bash(
+        &self,
+        command: &str,
+        timeout_ms: u64,
+    ) -> Result<(String, i32), TerminalError> {
+        Self::validate_command_policy(command)?;
+        let command = Self::normalize_command_for_runtime(command, timeout_ms);
+
+        let output = tokio::time::timeout(
+            std::time::Duration::from_millis(timeout_ms),
+            tokio::process::Command::new(&self.shell)
+                .arg("-lc")
+                .arg(&command)
+                .current_dir(&self.working_dir)
+                .output(),
+        )
+        .await
+        .map_err(|_| TerminalError::Timeout(timeout_ms))?
+        .map_err(|e| TerminalError::Io(format!("Failed to execute terminal command: {e}")))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let mut combined = String::new();
+        if !stdout.trim().is_empty() {
+            combined.push_str(stdout.trim_end());
+        }
+        if !stderr.trim().is_empty() {
+            if !combined.is_empty() {
+                combined.push('\n');
+            }
+            combined.push_str(stderr.trim_end());
+        }
+
+        Ok((combined, output.status.code().unwrap_or(1)))
+    }
+
+    fn validate_command_policy(command: &str) -> Result<(), TerminalError> {
+        let allowed_prefixes = std::env::var("CHOIR_TERMINAL_ALLOWED_COMMAND_PREFIXES")
+            .ok()
+            .map(|raw| {
+                raw.split(',')
+                    .map(str::trim)
+                    .filter(|part| !part.is_empty())
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if allowed_prefixes.is_empty() {
+            return Ok(());
+        }
+
+        let normalized = command.trim_start();
+        if allowed_prefixes
+            .iter()
+            .any(|prefix| normalized.starts_with(prefix))
+        {
+            return Ok(());
+        }
+
+        Err(TerminalError::InvalidInput(format!(
+            "Command denied by terminal policy. Set CHOIR_TERMINAL_ALLOWED_COMMAND_PREFIXES to include one of: {}",
+            allowed_prefixes.join(", ")
+        )))
+    }
+
+    fn normalize_command_for_runtime(command: &str, timeout_ms: u64) -> String {
+        let trimmed = command.trim();
+        let Some(rest) = trimmed.strip_prefix("curl") else {
+            return command.to_string();
+        };
+        let rest = rest.trim_start();
+        if rest.is_empty() {
+            return command.to_string();
+        }
+
+        let has_connect_timeout = trimmed.contains("--connect-timeout");
+        let has_max_time = trimmed.contains("--max-time");
+        let has_follow_redirects = trimmed.contains(" -L") || trimmed.starts_with("curl -L");
+
+        let max_time_secs = (timeout_ms / 1000).saturating_sub(2).max(5);
+        let mut injected_opts = Vec::new();
+        if !has_follow_redirects {
+            injected_opts.push("-L".to_string());
+        }
+        if !has_connect_timeout {
+            injected_opts.push("--connect-timeout 8".to_string());
+        }
+        if !has_max_time {
+            injected_opts.push(format!("--max-time {max_time_secs}"));
+        }
+        if injected_opts.is_empty() {
+            return command.to_string();
+        }
+
+        format!("curl {} {}", injected_opts.join(" "), rest)
+    }
+
+    fn emit_terminal_progress(
+        &self,
+        phase: &str,
+        message: &str,
+        reasoning: Option<String>,
+        command: Option<String>,
+        model_used: Option<String>,
+        output_excerpt: Option<String>,
+        exit_code: Option<i32>,
+        step_index: Option<usize>,
+        step_total: Option<usize>,
+    ) {
+        let Some(tx) = &self.progress_tx else {
+            return;
+        };
+        let _ = tx.send(TerminalAgentProgress {
+            phase: phase.to_string(),
+            message: message.to_string(),
+            reasoning,
+            command,
+            model_used,
+            output_excerpt,
+            exit_code,
+            step_index,
+            step_total,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        });
+    }
+}
+
+#[async_trait]
+impl AgentAdapter for TerminalAdapter {
+    fn get_model_role(&self) -> &str {
+        "terminal"
+    }
+
+    fn get_tool_description(&self) -> String {
+        r#"Tool: bash
+Description: Execute shell commands in the current terminal.
+Parameters Schema: {"type":"object","properties":{"command":{"type":"string","description":"The shell command to execute"},"timeout_ms":{"type":"integer","description":"Timeout in milliseconds"}},"required":["command"]}"#.to_string()
+    }
+
+    fn get_system_context(&self, _ctx: &ExecutionContext) -> String {
+        format!(
+            "You are ChoirOS Terminal Agent. Use bash tool calls to complete terminal objectives.\n\
+             System Prompt Timestamp (UTC): {}\n\
+             Current UTC Timestamp: {}\n\
+             Terminal ID: {}\n\
+             Working Directory: {}\n\
+             Shell: {}\n\
+             Prefer minimal safe command sequences.",
+            Utc::now().to_rfc3339(),
+            Utc::now().to_rfc3339(),
+            self.terminal_id,
+            self.working_dir,
+            self.shell
+        )
+    }
+
+    async fn execute_tool_call(
+        &self,
+        ctx: &ExecutionContext,
+        tool_call: &AgentToolCall,
+    ) -> Result<ToolExecution, crate::actors::agent_harness::HarnessError> {
+        if tool_call.tool_name != "bash" {
+            return Ok(ToolExecution {
+                tool_name: tool_call.tool_name.clone(),
+                success: false,
+                output: String::new(),
+                error: Some(format!("Unknown tool: {}", tool_call.tool_name)),
+                execution_time_ms: 0,
+            });
+        }
+
+        // Extract command from tool args
+        let bash_args = tool_call.tool_args.bash.as_ref();
+        let command = bash_args
+            .and_then(|args| args.command.as_deref().or(args.cmd.as_deref()))
+            .or(tool_call.tool_args.command.as_deref())
+            .or(tool_call.tool_args.cmd.as_deref())
+            .ok_or_else(|| {
+                crate::actors::agent_harness::HarnessError::ToolExecution(
+                    "Missing command/cmd".to_string(),
+                )
+            })?;
+
+        let timeout_ms = bash_args
+            .and_then(|args| args.timeout_ms)
+            .or(tool_call.tool_args.timeout_ms)
+            .and_then(|value| u64::try_from(value).ok())
+            .unwrap_or(30_000)
+            .clamp(1_000, 120_000);
+
+        let start_time = std::time::Instant::now();
+
+        self.emit_terminal_progress(
+            "terminal_tool_call",
+            "terminal agent requested bash tool execution",
+            tool_call.reasoning.clone(),
+            Some(command.to_string()),
+            Some(ctx.model_used.clone()),
+            None,
+            None,
+            Some(ctx.step_number),
+            Some(ctx.max_steps),
+        );
+
+        match self.execute_bash(command, timeout_ms).await {
+            Ok((output, exit_code)) => {
+                let _execution_time_ms = start_time.elapsed().as_millis() as u64;
+                let success = exit_code == 0;
+
+                self.emit_terminal_progress(
+                    "terminal_tool_result",
+                    "terminal agent received bash tool result",
+                    tool_call.reasoning.clone(),
+                    Some(command.to_string()),
+                    Some(ctx.model_used.clone()),
+                    Some(Self::truncate_excerpt(&output)),
+                    Some(exit_code),
+                    Some(ctx.step_number),
+                    Some(ctx.max_steps),
+                );
+
+                Ok(ToolExecution {
+                    tool_name: "bash".to_string(),
+                    success,
+                    output,
+                    error: if success {
+                        None
+                    } else {
+                        Some(format!("Exit status {exit_code}"))
+                    },
+                    execution_time_ms: 0,
+                })
+            }
+            Err(e) => {
+                let _execution_time_ms = start_time.elapsed().as_millis() as u64;
+                Err(crate::actors::agent_harness::HarnessError::ToolExecution(
+                    e.to_string(),
+                ))
+            }
+        }
+    }
+
+    fn should_defer(&self, _tool_name: &str) -> bool {
+        false
+    }
+
+    async fn emit_worker_report(
+        &self,
+        ctx: &ExecutionContext,
+        report: WorkerTurnReport,
+    ) -> Result<(), crate::actors::agent_harness::HarnessError> {
+        if let Some(event_store) = &self.event_store {
+            let payload = serde_json::json!({
+                "task_id": ctx.loop_id,
+                "worker_id": ctx.worker_id,
+                "report": report,
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+            });
+            let event = crate::actors::event_store::AppendEvent {
+                event_type: "worker.report.received".to_string(),
+                payload,
+                actor_id: ctx.worker_id.clone(),
+                user_id: ctx.user_id.clone(),
+            };
+            let _ = event_store
+                .send_message(crate::actors::event_store::EventStoreMsg::AppendAsync { event });
+        }
+        Ok(())
+    }
+
+    async fn emit_progress(
+        &self,
+        _ctx: &ExecutionContext,
+        progress: AgentProgress,
+    ) -> Result<(), crate::actors::agent_harness::HarnessError> {
+        self.emit_terminal_progress(
+            &progress.phase,
+            &progress.message,
+            None,
+            None,
+            progress.model_used,
+            None,
+            None,
+            progress.step_index,
+            progress.step_total,
+        );
+        Ok(())
+    }
+
+    async fn emit_finding(
+        &self,
+        ctx: &ExecutionContext,
+        finding: WorkerFinding,
+    ) -> Result<(), crate::actors::agent_harness::HarnessError> {
+        if let Some(event_store) = &self.event_store {
+            let payload = serde_json::json!({
+                "task_id": ctx.loop_id,
+                "worker_id": ctx.worker_id,
+                "phase": "finding",
+                "finding_id": finding.finding_id,
+                "claim": finding.claim,
+                "confidence": finding.confidence,
+                "evidence_refs": finding.evidence_refs,
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+            });
+            let event = crate::actors::event_store::AppendEvent {
+                event_type: "worker.task.finding".to_string(),
+                payload,
+                actor_id: ctx.worker_id.clone(),
+                user_id: ctx.user_id.clone(),
+            };
+            let _ = event_store
+                .send_message(crate::actors::event_store::EventStoreMsg::AppendAsync { event });
+        }
+        Ok(())
+    }
+
+    async fn emit_learning(
+        &self,
+        ctx: &ExecutionContext,
+        learning: WorkerLearning,
+    ) -> Result<(), crate::actors::agent_harness::HarnessError> {
+        if let Some(event_store) = &self.event_store {
+            let payload = serde_json::json!({
+                "task_id": ctx.loop_id,
+                "worker_id": ctx.worker_id,
+                "phase": "learning",
+                "learning_id": learning.learning_id,
+                "insight": learning.insight,
+                "confidence": learning.confidence,
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+            });
+            let event = crate::actors::event_store::AppendEvent {
+                event_type: "worker.task.learning".to_string(),
+                payload,
+                actor_id: ctx.worker_id.clone(),
+                user_id: ctx.user_id.clone(),
+            };
+            let _ = event_store
+                .send_message(crate::actors::event_store::EventStoreMsg::AppendAsync { event });
+        }
+        Ok(())
+    }
+
+    fn build_worker_report(
+        &self,
+        ctx: &ExecutionContext,
+        findings: Vec<WorkerFinding>,
+        learnings: Vec<WorkerLearning>,
+        summary: &str,
+        success: bool,
+    ) -> WorkerTurnReport {
+        // Build escalations for blocked commands
+        let mut escalations = Vec::new();
+        if !success {
+            escalations.push(WorkerEscalation {
+                escalation_id: ulid::Ulid::new().to_string(),
+                kind: WorkerEscalationKind::Blocker,
+                reason: format!("Terminal task failed or blocked: {}", summary),
+                urgency: WorkerEscalationUrgency::Medium,
+                options: vec!["retry".to_string(), "escalate".to_string(), "abort".to_string()],
+                recommended_option: Some("retry".to_string()),
+                requires_human: Some(false),
+            });
+        }
+
+        WorkerTurnReport {
+            turn_id: ctx.loop_id.clone(),
+            worker_id: ctx.worker_id.clone(),
+            task_id: ctx.loop_id.clone(),
+            worker_role: Some(self.get_model_role().to_string()),
+            status: if success {
+                WorkerTurnStatus::Completed
+            } else {
+                WorkerTurnStatus::Failed
+            },
+            summary: Some(summary.to_string()),
+            findings,
+            learnings,
+            escalations,
+            artifacts: Vec::new(),
+            created_at: Some(chrono::Utc::now().to_rfc3339()),
+        }
+    }
+}
+
+impl TerminalAdapter {
+    fn truncate_excerpt(text: &str) -> String {
+        let max_len = 1200;
+        let mut excerpt: String = text.chars().take(max_len).collect();
+        if text.chars().count() > max_len {
+            excerpt.push_str("...");
+        }
+        excerpt
+    }
+}
 
 /// Actor that manages terminal sessions
 #[derive(Debug, Default)]
@@ -495,51 +930,6 @@ impl Actor for TerminalActor {
 }
 
 impl TerminalActor {
-    fn map_model_error(error: ModelConfigError) -> TerminalError {
-        match error {
-            ModelConfigError::UnknownModel(model_id) => {
-                TerminalError::InvalidInput(format!("Unknown model: {model_id}"))
-            }
-            ModelConfigError::MissingApiKey(env_var) => TerminalError::InvalidInput(format!(
-                "Missing API key environment variable for selected model: {env_var}"
-            )),
-            ModelConfigError::NoFallbackAvailable => {
-                TerminalError::InvalidInput("No fallback model available".to_string())
-            }
-        }
-    }
-
-    fn resolve_model_registry(
-        model_override: Option<String>,
-    ) -> Result<(ClientRegistry, String), TerminalError> {
-        let registry = ModelRegistry::new();
-        let resolved_model = registry
-            .resolve_for_role(
-                "terminal",
-                &ModelResolutionContext {
-                    request_model: model_override,
-                    app_preference: std::env::var("CHOIR_TERMINAL_MODEL")
-                        .ok()
-                        .filter(|value| !value.trim().is_empty()),
-                    user_preference: None,
-                },
-            )
-            .map_err(Self::map_model_error)?;
-        let model_id = resolved_model.config.id;
-        let client_registry = registry
-            .create_runtime_client_registry_for_model(&model_id)
-            .map_err(Self::map_model_error)?;
-        Ok((client_registry, model_id))
-    }
-
-    fn format_timestamp() -> String {
-        Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
-    }
-
-    fn timestamped_prompt_content(content: &str) -> String {
-        format!("[{}]\n{}", Self::format_timestamp(), content)
-    }
-
     async fn run_agentic_task(
         &self,
         ctx: TerminalExecutionContext,
@@ -549,294 +939,76 @@ impl TerminalActor {
         model_override: Option<String>,
         progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
     ) -> Result<TerminalAgentResult, TerminalError> {
-        let per_step_timeout = timeout_ms.unwrap_or(30_000).clamp(1_000, 120_000);
-        let max_steps = max_steps.unwrap_or(3).clamp(1, 6) as usize;
-        Self::emit_progress(
-            &progress_tx,
-            "terminal_agent_starting",
-            "terminal agent started objective execution",
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some(max_steps),
+        // Create the terminal adapter for the harness
+        let adapter = TerminalAdapter::new(
+            ctx.terminal_id.clone(),
+            ctx.working_dir.clone(),
+            ctx.shell.clone(),
+            None, // event_store - can be added later if needed
+            progress_tx.clone(),
         );
 
-        let mut executed_commands = Vec::new();
-        let mut steps: Vec<TerminalExecutionStep> = Vec::new();
-        let mut tool_results: Vec<BamlToolResult> = Vec::new();
-        let mut messages = vec![BamlMessage {
-            role: "user".to_string(),
-            content: Self::timestamped_prompt_content(&objective),
-        }];
-        let mut latest_reasoning: Option<String> = None;
-        let (client_registry, model_used) = Self::resolve_model_registry(model_override)?;
+        // Configure the harness with provided parameters
+        let config = HarnessConfig {
+            timeout_budget_ms: timeout_ms.unwrap_or(30_000).clamp(1_000, 120_000),
+            max_steps: max_steps.unwrap_or(3).clamp(1, 6) as usize,
+            emit_progress: true,
+            emit_structured_signals: true,
+            emit_worker_report: true,
+        };
 
-        let tools_description = r#"Tool: bash
-Description: Execute shell commands in the current terminal.
-Parameters Schema: {"type":"object","properties":{"command":{"type":"string","description":"The shell command to execute"},"timeout_ms":{"type":"integer","description":"Timeout in milliseconds"}},"required":["command"]}"#;
+        let harness = AgentHarness::with_config(adapter, ModelRegistry::new(), config);
 
-        let system_context = format!(
-            "You are ChoirOS Terminal Agent. Use bash tool calls to complete terminal objectives.\nSystem Prompt Timestamp (UTC): {}\nCurrent UTC Timestamp: {}\nTerminal ID: {}\nWorking Directory: {}\nPrefer minimal safe command sequences.",
-            Self::format_timestamp(),
-            Self::format_timestamp(),
-            ctx.terminal_id,
-            ctx.working_dir
-        );
-        Self::emit_progress(
-            &progress_tx,
-            "terminal_agent_model_selected",
-            "terminal agent selected runtime model",
-            Some(format!("Using model {model_used}")),
-            None,
-            Some(model_used.clone()),
-            None,
-            None,
-            None,
-            Some(max_steps),
-        );
+        // Run the agentic loop through the harness
+        let result = harness
+            .run(
+                ctx.terminal_id.clone(),
+                "system".to_string(), // user_id - can be parameterized later
+                objective.clone(),
+                model_override,
+                None, // progress_tx for harness internal use - we use terminal-specific progress
+            )
+            .await;
 
-        for _ in 0..max_steps {
-            Self::emit_progress(
-                &progress_tx,
-                "terminal_agent_planning",
-                "terminal agent is planning next action",
-                None,
-                None,
-                Some(model_used.clone()),
-                None,
-                None,
-                None,
-                Some(max_steps),
-            );
-            let plan = match B
-                .PlanAction
-                .with_client_registry(&client_registry)
-                .call(&messages, &system_context, tools_description)
-                .await
-            {
-                Ok(plan) => plan,
-                Err(e) => {
-                    let reason = format!("Planning failed: {e}");
-                    Self::emit_progress(
-                        &progress_tx,
-                        "terminal_agent_blocked",
-                        "terminal agent blocked during planning",
-                        Some(reason.clone()),
-                        Some(objective.clone()),
-                        Some(model_used.clone()),
-                        None,
-                        None,
-                        None,
-                        Some(max_steps),
-                    );
-                    return Err(TerminalError::Blocked(reason));
-                }
-            };
-            latest_reasoning = Some(plan.thinking.clone());
-            Self::emit_progress(
-                &progress_tx,
-                "terminal_agent_reasoning",
-                "terminal agent produced reasoning",
-                Some(plan.thinking.clone()),
-                None,
-                Some(model_used.clone()),
-                None,
-                None,
-                None,
-                Some(max_steps),
-            );
+        match result {
+            Ok(agent_result) => {
+                // Convert harness result to TerminalAgentResult
+                let steps: Vec<TerminalExecutionStep> = agent_result
+                    .tool_executions
+                    .iter()
+                    .map(|exec| TerminalExecutionStep {
+                        command: exec.tool_name.clone(),
+                        exit_code: if exec.success { 0 } else { 1 },
+                        output_excerpt: TerminalAdapter::truncate_excerpt(&exec.output),
+                    })
+                    .collect();
 
-            if plan.tool_calls.is_empty() {
-                if let Some(final_response) = plan.final_response {
-                    Self::emit_progress(
-                        &progress_tx,
-                        "terminal_agent_synthesizing",
-                        "terminal agent produced final response without tool calls",
-                        latest_reasoning.clone(),
-                        None,
-                        Some(model_used.clone()),
-                        Some(Self::truncate_excerpt(&final_response)),
-                        None,
-                        Some(steps.len()),
-                        Some(max_steps),
-                    );
-                    return Ok(TerminalAgentResult {
-                        summary: final_response,
-                        reasoning: latest_reasoning.clone(),
-                        success: tool_results.iter().all(|r| r.success),
-                        model_used: Some(model_used.clone()),
-                        exit_code: steps.last().map(|s| s.exit_code),
-                        executed_commands,
-                        steps,
-                    });
-                }
-                break;
+                let executed_commands: Vec<String> = agent_result
+                    .tool_executions
+                    .iter()
+                    .filter(|exec| exec.tool_name == "bash")
+                    .map(|exec| exec.output.clone())
+                    .collect();
+
+                Ok(TerminalAgentResult {
+                    summary: agent_result.summary,
+                    reasoning: None, // Could extract from learnings if needed
+                    success: agent_result.success,
+                    model_used: agent_result.model_used,
+                    exit_code: agent_result
+                        .tool_executions
+                        .last()
+                        .map(|exec| if exec.success { 0 } else { 1 }),
+                    executed_commands,
+                    steps,
+                })
             }
-
-            for tool_call in &plan.tool_calls {
-                if tool_call.tool_name != "bash" {
-                    continue;
-                }
-
-                let bash_args = tool_call.tool_args.bash.as_ref();
-                let command = match bash_args
-                    .and_then(|args| args.command.as_deref().or(args.cmd.as_deref()))
-                    .or(tool_call.tool_args.command.as_deref())
-                    .or(tool_call.tool_args.cmd.as_deref())
-                {
-                    Some(command) if !command.trim().is_empty() => command.to_string(),
-                    _ => {
-                        tool_results.push(BamlToolResult {
-                            tool_name: "bash".to_string(),
-                            success: false,
-                            output: String::new(),
-                            error: Some("Missing command/cmd".to_string()),
-                        });
-                        continue;
-                    }
-                };
-
-                let command_timeout = bash_args
-                    .and_then(|args| args.timeout_ms)
-                    .or(tool_call.tool_args.timeout_ms)
-                    .and_then(|value| u64::try_from(value).ok())
-                    .unwrap_or(per_step_timeout)
-                    .clamp(1_000, 120_000);
-
-                executed_commands.push(command.clone());
-                let step_index = executed_commands.len();
-                Self::emit_progress(
-                    &progress_tx,
-                    "terminal_tool_call",
-                    "terminal agent requested bash tool execution",
-                    tool_call.reasoning.clone(),
-                    Some(command.clone()),
-                    Some(model_used.clone()),
-                    None,
-                    None,
-                    Some(step_index),
-                    Some(max_steps),
-                );
-                let (output, exit_code) = self
-                    .execute_terminal_command(&ctx, &command, command_timeout)
-                    .await?;
-                let output_excerpt = Self::truncate_excerpt(&output);
-                steps.push(TerminalExecutionStep {
-                    command: command.clone(),
-                    exit_code,
-                    output_excerpt: output_excerpt.clone(),
-                });
-                tool_results.push(BamlToolResult {
-                    tool_name: "bash".to_string(),
-                    success: exit_code == 0,
-                    output: output.clone(),
-                    error: if exit_code == 0 {
-                        None
-                    } else {
-                        Some(format!("Exit status {exit_code}"))
-                    },
-                });
-                Self::emit_progress(
-                    &progress_tx,
-                    "terminal_tool_result",
-                    "terminal agent received bash tool result",
-                    tool_call.reasoning.clone(),
-                    Some(command.clone()),
-                    Some(model_used.clone()),
-                    Some(output_excerpt),
-                    Some(exit_code),
-                    Some(step_index),
-                    Some(max_steps),
-                );
-                messages.push(BamlMessage {
-                    role: "assistant".to_string(),
-                    content: Self::timestamped_prompt_content(&format!(
-                        "Executed bash command:\n{}\nOutput:\n{}",
-                        command, output
-                    )),
-                });
+            Err(e) => {
+                // Convert harness error to terminal error
+                let error_msg = e.to_string();
+                Err(TerminalError::Blocked(error_msg))
             }
         }
-
-        let conversation_context = format!(
-            "Generated at UTC {}. Executed {} terminal commands in {}.",
-            Self::format_timestamp(),
-            executed_commands.len(),
-            ctx.working_dir
-        );
-        let synthesis_objective = Self::timestamped_prompt_content(&objective);
-        let summary = B
-            .SynthesizeResponse
-            .with_client_registry(&client_registry)
-            .call(&synthesis_objective, &tool_results, &conversation_context)
-            .await
-            .unwrap_or_else(|_| {
-                tool_results
-                    .last()
-                    .map(|r| r.output.clone())
-                    .unwrap_or_else(|| "No terminal actions were executed.".to_string())
-            });
-        Self::emit_progress(
-            &progress_tx,
-            "terminal_agent_synthesizing",
-            "terminal agent synthesized final response",
-            latest_reasoning.clone(),
-            None,
-            Some(model_used.clone()),
-            Some(Self::truncate_excerpt(&summary)),
-            None,
-            Some(steps.len()),
-            Some(max_steps),
-        );
-
-        Ok(TerminalAgentResult {
-            summary,
-            reasoning: latest_reasoning,
-            success: tool_results.iter().all(|r| r.success),
-            model_used: Some(model_used),
-            exit_code: steps.last().map(|s| s.exit_code),
-            executed_commands,
-            steps,
-        })
-    }
-
-    async fn execute_terminal_command(
-        &self,
-        ctx: &TerminalExecutionContext,
-        command: &str,
-        timeout_ms: u64,
-    ) -> Result<(String, i32), TerminalError> {
-        Self::validate_command_policy(command)?;
-        let command = Self::normalize_command_for_runtime(command, timeout_ms);
-        let output = tokio::time::timeout(
-            std::time::Duration::from_millis(timeout_ms),
-            tokio::process::Command::new(&ctx.shell)
-                .arg("-lc")
-                .arg(&command)
-                .current_dir(&ctx.working_dir)
-                .output(),
-        )
-        .await
-        .map_err(|_| TerminalError::Timeout(timeout_ms))?
-        .map_err(|e| TerminalError::Io(format!("Failed to execute terminal command: {e}")))?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        let mut combined = String::new();
-        if !stdout.trim().is_empty() {
-            combined.push_str(stdout.trim_end());
-        }
-        if !stderr.trim().is_empty() {
-            if !combined.is_empty() {
-                combined.push('\n');
-            }
-            combined.push_str(stderr.trim_end());
-        }
-
-        Ok((combined, output.status.code().unwrap_or(1)))
     }
 
     async fn run_bash_tool_request(
@@ -845,130 +1017,71 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
         request: TerminalBashToolRequest,
         progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
     ) -> Result<TerminalAgentResult, TerminalError> {
+        // For RunBashTool, we use the harness with a single-step objective
         let timeout_ms = request.timeout_ms.unwrap_or(30_000).clamp(1_000, 120_000);
-        Self::emit_progress(
-            &progress_tx,
-            "terminal_tool_dispatch",
-            "terminal actor received typed bash tool request",
-            request.reasoning.clone(),
-            Some(request.cmd.clone()),
-            request.model_override.clone(),
+
+        // Emit initial progress
+        if let Some(ref tx) = progress_tx {
+            let _ = tx.send(TerminalAgentProgress {
+                phase: "terminal_tool_dispatch".to_string(),
+                message: "terminal actor received typed bash tool request".to_string(),
+                reasoning: request.reasoning.clone(),
+                command: Some(request.cmd.clone()),
+                model_used: request.model_override.clone(),
+                output_excerpt: None,
+                exit_code: None,
+                step_index: Some(1),
+                step_total: Some(1),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            });
+        }
+
+        // Use the adapter directly for single command execution
+        let adapter = TerminalAdapter::new(
+            ctx.terminal_id.clone(),
+            ctx.working_dir.clone(),
+            ctx.shell.clone(),
             None,
-            None,
-            Some(1),
-            Some(1),
+            progress_tx.clone(),
         );
 
-        let result = self
-            .run_agentic_task(
-                ctx,
-                request.cmd.clone(),
-                Some(timeout_ms),
-                Some(4),
-                request.model_override.clone(),
-                progress_tx,
-            )
-            .await?;
-        Ok(result)
-    }
+        // Execute the command directly using the adapter
+        match adapter.execute_bash(&request.cmd, timeout_ms).await {
+            Ok((output, exit_code)) => {
+                let success = exit_code == 0;
 
-    fn validate_command_policy(command: &str) -> Result<(), TerminalError> {
-        let allowed_prefixes = std::env::var("CHOIR_TERMINAL_ALLOWED_COMMAND_PREFIXES")
-            .ok()
-            .map(|raw| {
-                raw.split(',')
-                    .map(str::trim)
-                    .filter(|part| !part.is_empty())
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        if allowed_prefixes.is_empty() {
-            return Ok(());
+                // Emit completion progress
+                if let Some(ref tx) = progress_tx {
+                    let _ = tx.send(TerminalAgentProgress {
+                        phase: "terminal_tool_result".to_string(),
+                        message: "terminal agent received bash tool result".to_string(),
+                        reasoning: request.reasoning.clone(),
+                        command: Some(request.cmd.clone()),
+                        model_used: request.model_override.clone(),
+                        output_excerpt: Some(TerminalAdapter::truncate_excerpt(&output)),
+                        exit_code: Some(exit_code),
+                        step_index: Some(1),
+                        step_total: Some(1),
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                    });
+                }
+
+                Ok(TerminalAgentResult {
+                    summary: output.clone(),
+                    reasoning: request.reasoning.clone(),
+                    success,
+                    model_used: request.model_override.clone(),
+                    exit_code: Some(exit_code),
+                    executed_commands: vec![request.cmd.clone()],
+                    steps: vec![TerminalExecutionStep {
+                        command: request.cmd.clone(),
+                        exit_code,
+                        output_excerpt: TerminalAdapter::truncate_excerpt(&output),
+                    }],
+                })
+            }
+            Err(e) => Err(e),
         }
-
-        let normalized = command.trim_start();
-        if allowed_prefixes
-            .iter()
-            .any(|prefix| normalized.starts_with(prefix))
-        {
-            return Ok(());
-        }
-
-        Err(TerminalError::InvalidInput(format!(
-            "Command denied by terminal policy. Set CHOIR_TERMINAL_ALLOWED_COMMAND_PREFIXES to include one of: {}",
-            allowed_prefixes.join(", ")
-        )))
-    }
-
-    fn emit_progress(
-        progress_tx: &Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
-        phase: &str,
-        message: &str,
-        reasoning: Option<String>,
-        command: Option<String>,
-        model_used: Option<String>,
-        output_excerpt: Option<String>,
-        exit_code: Option<i32>,
-        step_index: Option<usize>,
-        step_total: Option<usize>,
-    ) {
-        let Some(tx) = progress_tx else {
-            return;
-        };
-        let _ = tx.send(TerminalAgentProgress {
-            phase: phase.to_string(),
-            message: message.to_string(),
-            reasoning,
-            command,
-            model_used,
-            output_excerpt,
-            exit_code,
-            step_index,
-            step_total,
-            timestamp: chrono::Utc::now().to_rfc3339(),
-        });
-    }
-
-    fn normalize_command_for_runtime(command: &str, timeout_ms: u64) -> String {
-        let trimmed = command.trim();
-        let Some(rest) = trimmed.strip_prefix("curl") else {
-            return command.to_string();
-        };
-        let rest = rest.trim_start();
-        if rest.is_empty() {
-            return command.to_string();
-        }
-
-        let has_connect_timeout = trimmed.contains("--connect-timeout");
-        let has_max_time = trimmed.contains("--max-time");
-        let has_follow_redirects = trimmed.contains(" -L") || trimmed.starts_with("curl -L");
-
-        let max_time_secs = (timeout_ms / 1000).saturating_sub(2).max(5);
-        let mut injected_opts = Vec::new();
-        if !has_follow_redirects {
-            injected_opts.push("-L".to_string());
-        }
-        if !has_connect_timeout {
-            injected_opts.push("--connect-timeout 8".to_string());
-        }
-        if !has_max_time {
-            injected_opts.push(format!("--max-time {max_time_secs}"));
-        }
-        if injected_opts.is_empty() {
-            return command.to_string();
-        }
-
-        format!("curl {} {}", injected_opts.join(" "), rest)
-    }
-
-    fn truncate_excerpt(text: &str) -> String {
-        let max_len = 1200;
-        let mut excerpt: String = text.chars().take(max_len).collect();
-        if text.chars().count() > max_len {
-            excerpt.push_str("...");
-        }
-        excerpt
     }
 }
 
@@ -1131,14 +1244,6 @@ mod tests {
                     .map(|v| !v.trim().is_empty())
                     .unwrap_or(false));
         bedrock_auth && crate::runtime_env::ensure_tls_cert_env().is_some()
-    }
-
-    #[test]
-    fn test_timestamped_prompt_content_prefixes_iso_timestamp() {
-        let stamped = TerminalActor::timestamped_prompt_content("run ls");
-        assert!(stamped.starts_with('['));
-        assert!(stamped.contains("T"));
-        assert!(stamped.contains("Z]\nrun ls"));
     }
 
     #[cfg(unix)]

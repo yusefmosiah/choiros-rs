@@ -1,15 +1,12 @@
-//! Persistence and Conversation History Tests for ChoirOS Chat
+//! Persistence and Event Store Tests for ChoirOS
 //!
-//! Comprehensive tests for event sourcing, conversation history persistence,
-//! and state recovery. These tests verify the event-sourced architecture works
-//! correctly across all components.
+//! Comprehensive tests for event sourcing and persistence.
+//! These tests verify the event-sourced architecture works correctly.
 
 use ractor::{Actor, ActorRef};
 use std::time::Duration;
 use tokio::time::sleep;
 
-use sandbox::actors::chat::{ChatActor, ChatActorArguments, ChatActorMsg};
-use sandbox::actors::chat_agent::{ChatAgent, ChatAgentArguments, ChatAgentMsg};
 use sandbox::actors::event_store::{
     AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg,
 };
@@ -454,473 +451,6 @@ async fn test_event_store_event_types() {
 }
 
 // ============================================================================
-// ChatActor Persistence Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_chat_actor_sync_on_startup() {
-    let (store_ref, _store_handle) =
-        Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-            .await
-            .unwrap();
-
-    let actor_id = test_actor_id();
-    let user_id = test_user_id();
-
-    // Pre-populate event store with events
-    for i in 0..3 {
-        ractor::call!(store_ref, |reply| EventStoreMsg::Append {
-            event: AppendEvent {
-                event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
-                payload: serde_json::json!(format!("Pre-existing message {}", i)),
-                actor_id: actor_id.clone(),
-                user_id: user_id.clone(),
-            },
-            reply,
-        })
-        .unwrap()
-        .unwrap();
-    }
-
-    // Create ChatActor (should sync on startup)
-    let (chat_ref, _chat_handle) = Actor::spawn(
-        None,
-        ChatActor,
-        ChatActorArguments {
-            actor_id: actor_id.clone(),
-            user_id: user_id.clone(),
-            event_store: store_ref,
-        },
-    )
-    .await
-    .unwrap();
-
-    // Allow time for sync to complete
-    sleep(Duration::from_millis(100)).await;
-
-    // Verify messages were synced
-    let messages = ractor::call!(chat_ref, |reply| ChatActorMsg::GetMessages { reply }).unwrap();
-
-    assert_eq!(
-        messages.len(),
-        3,
-        "ChatActor should sync pre-existing events on startup"
-    );
-
-    // Verify correct order
-    for (i, msg) in messages.iter().enumerate() {
-        assert_eq!(msg.text, format!("Pre-existing message {i}"));
-        assert!(!msg.pending, "Synced messages should not be pending");
-    }
-}
-
-#[tokio::test]
-async fn test_chat_actor_project_user_message() {
-    let (store_ref, _store_handle) =
-        Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-            .await
-            .unwrap();
-
-    let actor_id = test_actor_id();
-    let user_id = test_user_id();
-
-    let (chat_ref, _chat_handle) = Actor::spawn(
-        None,
-        ChatActor,
-        ChatActorArguments {
-            actor_id: actor_id.clone(),
-            user_id: user_id.clone(),
-            event_store: store_ref.clone(),
-        },
-    )
-    .await
-    .unwrap();
-
-    // Create and sync a user message event
-    let event = create_user_message_event(1, &actor_id, "Test user message");
-    chat_ref
-        .cast(ChatActorMsg::SyncEvents {
-            events: vec![event],
-        })
-        .unwrap();
-
-    // Allow time for processing
-    sleep(Duration::from_millis(50)).await;
-
-    // Verify projection
-    let messages = ractor::call!(chat_ref, |reply| ChatActorMsg::GetMessages { reply }).unwrap();
-
-    assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].text, "Test user message");
-    assert!(matches!(messages[0].sender, shared_types::Sender::User));
-    assert!(!messages[0].pending);
-}
-
-#[tokio::test]
-async fn test_chat_actor_project_assistant_message() {
-    let (store_ref, _store_handle) =
-        Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-            .await
-            .unwrap();
-
-    let actor_id = test_actor_id();
-    let user_id = test_user_id();
-
-    let (chat_ref, _chat_handle) = Actor::spawn(
-        None,
-        ChatActor,
-        ChatActorArguments {
-            actor_id: actor_id.clone(),
-            user_id: user_id.clone(),
-            event_store: store_ref.clone(),
-        },
-    )
-    .await
-    .unwrap();
-
-    // Create and sync an assistant message event
-    let event = create_assistant_message_event(1, &actor_id, "Test assistant response");
-    chat_ref
-        .cast(ChatActorMsg::SyncEvents {
-            events: vec![event],
-        })
-        .unwrap();
-
-    // Allow time for processing
-    sleep(Duration::from_millis(50)).await;
-
-    // Verify projection
-    let messages = ractor::call!(chat_ref, |reply| ChatActorMsg::GetMessages { reply }).unwrap();
-
-    assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].text, "Test assistant response");
-    assert!(matches!(
-        messages[0].sender,
-        shared_types::Sender::Assistant
-    ));
-}
-
-#[tokio::test]
-async fn test_chat_actor_project_multiple_events() {
-    let (store_ref, _store_handle) =
-        Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-            .await
-            .unwrap();
-
-    let actor_id = test_actor_id();
-    let user_id = test_user_id();
-
-    let (chat_ref, _chat_handle) = Actor::spawn(
-        None,
-        ChatActor,
-        ChatActorArguments {
-            actor_id: actor_id.clone(),
-            user_id: user_id.clone(),
-            event_store: store_ref.clone(),
-        },
-    )
-    .await
-    .unwrap();
-
-    // Create multiple events
-    let events = vec![
-        create_user_message_event(1, &actor_id, "User: Hello"),
-        create_assistant_message_event(2, &actor_id, "Assistant: Hi there!"),
-        create_user_message_event(3, &actor_id, "User: How are you?"),
-        create_assistant_message_event(4, &actor_id, "Assistant: I'm doing great!"),
-    ];
-
-    chat_ref.cast(ChatActorMsg::SyncEvents { events }).unwrap();
-
-    // Allow time for processing
-    sleep(Duration::from_millis(50)).await;
-
-    // Verify all projected in order
-    let messages = ractor::call!(chat_ref, |reply| ChatActorMsg::GetMessages { reply }).unwrap();
-
-    assert_eq!(messages.len(), 4);
-    assert_eq!(messages[0].text, "User: Hello");
-    assert_eq!(messages[1].text, "Assistant: Hi there!");
-    assert_eq!(messages[2].text, "User: How are you?");
-    assert_eq!(messages[3].text, "Assistant: I'm doing great!");
-}
-
-#[tokio::test]
-async fn test_chat_actor_pending_confirmed_combined() {
-    let (store_ref, _store_handle) =
-        Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-            .await
-            .unwrap();
-
-    let actor_id = test_actor_id();
-    let user_id = test_user_id();
-
-    let (chat_ref, _chat_handle) = Actor::spawn(
-        None,
-        ChatActor,
-        ChatActorArguments {
-            actor_id: actor_id.clone(),
-            user_id: user_id.clone(),
-            event_store: store_ref.clone(),
-        },
-    )
-    .await
-    .unwrap();
-
-    // Add a confirmed message via event
-    let confirmed_event = create_user_message_event(1, &actor_id, "Confirmed message");
-    chat_ref
-        .cast(ChatActorMsg::SyncEvents {
-            events: vec![confirmed_event],
-        })
-        .unwrap();
-
-    // Allow time for processing
-    sleep(Duration::from_millis(50)).await;
-
-    // Add a pending message
-    let temp_id = ractor::call!(chat_ref, |reply| ChatActorMsg::SendUserMessage {
-        text: "Pending message".to_string(),
-        reply,
-    })
-    .unwrap()
-    .unwrap();
-
-    // Get combined messages
-    let messages = ractor::call!(chat_ref, |reply| ChatActorMsg::GetMessages { reply }).unwrap();
-
-    assert_eq!(messages.len(), 2);
-
-    // First message is confirmed
-    assert_eq!(messages[0].text, "Confirmed message");
-    assert!(!messages[0].pending);
-
-    // Second message is pending
-    assert_eq!(messages[1].text, "Pending message");
-    assert!(messages[1].pending);
-    assert_eq!(messages[1].id, temp_id);
-}
-
-#[tokio::test]
-async fn test_chat_actor_clear_pending_on_sync() {
-    let (store_ref, _store_handle) =
-        Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-            .await
-            .unwrap();
-
-    let actor_id = test_actor_id();
-    let user_id = test_user_id();
-
-    let (chat_ref, _chat_handle) = Actor::spawn(
-        None,
-        ChatActor,
-        ChatActorArguments {
-            actor_id: actor_id.clone(),
-            user_id: user_id.clone(),
-            event_store: store_ref.clone(),
-        },
-    )
-    .await
-    .unwrap();
-
-    // Add a pending message
-    let temp_id = ractor::call!(chat_ref, |reply| ChatActorMsg::SendUserMessage {
-        text: "Message being sent".to_string(),
-        reply,
-    })
-    .unwrap()
-    .unwrap();
-
-    // Verify pending exists
-    let messages_before =
-        ractor::call!(chat_ref, |reply| ChatActorMsg::GetMessages { reply }).unwrap();
-
-    assert_eq!(messages_before.len(), 1);
-    assert!(messages_before[0].pending);
-
-    // Simulate event confirmation (event stored with same content)
-    let confirmed_event = shared_types::Event {
-        seq: 1,
-        event_id: temp_id.clone(), // Same ID as pending
-        timestamp: chrono::Utc::now(),
-        actor_id: shared_types::ActorId(actor_id.clone()),
-        event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
-        payload: serde_json::json!("Message being sent"),
-        user_id: user_id.clone(),
-    };
-
-    chat_ref
-        .cast(ChatActorMsg::SyncEvents {
-            events: vec![confirmed_event],
-        })
-        .unwrap();
-
-    // Allow time for processing
-    sleep(Duration::from_millis(50)).await;
-
-    // Verify pending was cleared
-    let messages_after =
-        ractor::call!(chat_ref, |reply| ChatActorMsg::GetMessages { reply }).unwrap();
-
-    assert_eq!(messages_after.len(), 1);
-    assert!(
-        !messages_after[0].pending,
-        "Pending should be cleared after sync"
-    );
-}
-
-#[tokio::test]
-async fn test_chat_actor_restart_preserves_state() {
-    let temp_dir = tempfile::tempdir().expect("Failed to create temp directory");
-    let db_path = temp_dir.path().join("test_events.db");
-    let db_path_str = db_path.to_str().expect("Invalid database path");
-    let actor_id = test_actor_id();
-    let user_id = test_user_id();
-
-    // Create first store and add events
-    let (store1_ref, _store1_handle) = Actor::spawn(
-        None,
-        EventStoreActor,
-        EventStoreArguments::File(db_path_str.to_string()),
-    )
-    .await
-    .unwrap();
-
-    for i in 0..5 {
-        ractor::call!(store1_ref, |reply| EventStoreMsg::Append {
-            event: AppendEvent {
-                event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
-                payload: serde_json::json!(format!("Persistent {}", i)),
-                actor_id: actor_id.clone(),
-                user_id: user_id.clone(),
-            },
-            reply,
-        })
-        .unwrap()
-        .unwrap();
-    }
-
-    // Drop first store
-    drop(store1_ref);
-
-    // Create new store from same file
-    let (store2_ref, _store2_handle) = Actor::spawn(
-        None,
-        EventStoreActor,
-        EventStoreArguments::File(db_path_str.to_string()),
-    )
-    .await
-    .unwrap();
-
-    // Create new ChatActor (should recover state)
-    let (chat_ref, _chat_handle) = Actor::spawn(
-        None,
-        ChatActor,
-        ChatActorArguments {
-            actor_id: actor_id.clone(),
-            user_id: user_id.clone(),
-            event_store: store2_ref,
-        },
-    )
-    .await
-    .unwrap();
-
-    // Allow time for sync
-    sleep(Duration::from_millis(100)).await;
-
-    // Verify state recovered
-    let messages = ractor::call!(chat_ref, |reply| ChatActorMsg::GetMessages { reply }).unwrap();
-
-    assert_eq!(messages.len(), 5, "State should be recovered after restart");
-}
-
-#[tokio::test]
-async fn test_chat_actor_different_actors_isolated() {
-    let (store_ref, _store_handle) =
-        Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-            .await
-            .unwrap();
-
-    let actor_id_1 = test_actor_id();
-    let actor_id_2 = test_actor_id();
-    let user_id = test_user_id();
-
-    // Pre-populate events for both actors in store
-    for i in 0..3 {
-        ractor::call!(store_ref, |reply| EventStoreMsg::Append {
-            event: AppendEvent {
-                event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
-                payload: serde_json::json!(format!("Actor 1 message {}", i)),
-                actor_id: actor_id_1.clone(),
-                user_id: user_id.clone(),
-            },
-            reply,
-        })
-        .unwrap()
-        .unwrap();
-
-        ractor::call!(store_ref, |reply| EventStoreMsg::Append {
-            event: AppendEvent {
-                event_type: shared_types::EVENT_CHAT_ASSISTANT_MSG.to_string(),
-                payload: serde_json::json!({"text": format!("Actor 2 message {}", i)}),
-                actor_id: actor_id_2.clone(),
-                user_id: "system".to_string(),
-            },
-            reply,
-        })
-        .unwrap()
-        .unwrap();
-    }
-
-    // Create ChatActor for actor 1
-    let (chat1_ref, _chat1_handle) = Actor::spawn(
-        None,
-        ChatActor,
-        ChatActorArguments {
-            actor_id: actor_id_1.clone(),
-            user_id: user_id.clone(),
-            event_store: store_ref.clone(),
-        },
-    )
-    .await
-    .unwrap();
-
-    // Create ChatActor for actor 2
-    let (chat2_ref, _chat2_handle) = Actor::spawn(
-        None,
-        ChatActor,
-        ChatActorArguments {
-            actor_id: actor_id_2.clone(),
-            user_id: user_id.clone(),
-            event_store: store_ref.clone(),
-        },
-    )
-    .await
-    .unwrap();
-
-    // Allow time for sync
-    sleep(Duration::from_millis(100)).await;
-
-    // Verify isolation
-    let messages1 = ractor::call!(chat1_ref, |reply| ChatActorMsg::GetMessages { reply }).unwrap();
-
-    let messages2 = ractor::call!(chat2_ref, |reply| ChatActorMsg::GetMessages { reply }).unwrap();
-
-    assert_eq!(messages1.len(), 3);
-    assert_eq!(messages2.len(), 3);
-
-    // Actor 1 should only see their messages
-    for msg in &messages1 {
-        assert!(msg.text.contains("Actor 1"));
-    }
-
-    // Actor 2 should only see their messages
-    for msg in &messages2 {
-        assert!(msg.text.contains("Actor 2"));
-    }
-}
-
-// ============================================================================
 // Conversation History Tests
 // ============================================================================
 
@@ -1226,11 +756,11 @@ async fn test_conversation_history_chronological_order() {
 }
 
 // ============================================================================
-// ChatAgent Event Logging Tests
+// Event Logging Tests
 // ============================================================================
 
 #[tokio::test]
-async fn test_agent_logs_user_message() {
+async fn test_event_logs_user_message() {
     let (store_ref, _store_handle) =
         Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
             .await
@@ -1239,31 +769,18 @@ async fn test_agent_logs_user_message() {
     let actor_id = test_actor_id();
     let user_id = test_user_id();
 
-    let (agent_ref, _agent_handle) = Actor::spawn(
-        None,
-        ChatAgent::new(),
-        ChatAgentArguments {
+    // Manually simulate user message logging
+    ractor::call!(store_ref, |reply| EventStoreMsg::Append {
+        event: AppendEvent {
+            event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
+            payload: serde_json::json!("Hello, agent!"),
             actor_id: actor_id.clone(),
             user_id: user_id.clone(),
-            event_store: store_ref.clone(),
-            preload_session_id: None,
-            preload_thread_id: None,
-            application_supervisor: None,
         },
-    )
-    .await
-    .unwrap();
-
-    // Process a message (this logs events asynchronously)
-    // Note: This will fail without BAML credentials, but we can verify logging
-    // by checking the events that would be logged
-    let _result = ractor::call!(agent_ref, |reply| ChatAgentMsg::ProcessMessage {
-        text: "Hello, agent!".to_string(),
-        session_id: None,
-        thread_id: None,
-        model_override: None,
         reply,
-    });
+    })
+    .unwrap()
+    .unwrap();
 
     // Allow async logging to complete
     sleep(Duration::from_millis(200)).await;
@@ -1277,76 +794,49 @@ async fn test_agent_logs_user_message() {
     .unwrap()
     .unwrap();
 
-    // If BAML fails, no events are logged - that's expected behavior
-    // If BAML succeeds, we should see user and assistant messages
-    // This test verifies the logging mechanism exists
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, shared_types::EVENT_CHAT_USER_MSG);
 }
 
 #[tokio::test]
-async fn test_agent_logs_assistant_response() {
+async fn test_event_logs_assistant_response() {
     let (store_ref, _store_handle) =
         Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
             .await
             .unwrap();
 
     let actor_id = test_actor_id();
-    let user_id = test_user_id();
 
-    let (agent_ref, _agent_handle) = Actor::spawn(
-        None,
-        ChatAgent::new(),
-        ChatAgentArguments {
+    // Manually simulate assistant response logging
+    ractor::call!(store_ref, |reply| EventStoreMsg::Append {
+        event: AppendEvent {
+            event_type: shared_types::EVENT_CHAT_ASSISTANT_MSG.to_string(),
+            payload: serde_json::json!({"text": "Yes, I can help!"}),
             actor_id: actor_id.clone(),
-            user_id: user_id.clone(),
-            event_store: store_ref.clone(),
-            preload_session_id: None,
-            preload_thread_id: None,
-            application_supervisor: None,
+            user_id: "system".to_string(),
         },
-    )
-    .await
-    .unwrap();
-
-    // Process a message
-    let result = ractor::call!(agent_ref, |reply| ChatAgentMsg::ProcessMessage {
-        text: "Tell me a joke".to_string(),
-        session_id: None,
-        thread_id: None,
-        model_override: None,
         reply,
-    });
+    })
+    .unwrap()
+    .unwrap();
 
     sleep(Duration::from_millis(200)).await;
 
-    // Verify the agent processed the message (result should be Ok or Err)
-    // The result indicates whether BAML processing succeeded
-    match result {
-        Ok(Ok(response)) => {
-            // BAML succeeded - verify we got a response
-            println!("BAML succeeded with response: {}", response.text);
-            // Note: ChatAgent's in-memory history is maintained separately from
-            // the EventStore persistence. The GetConversationHistory call returns
-            // the current in-memory state which may differ from EventStore events.
-        }
-        Ok(Err(e)) => {
-            // BAML processing returned an error
-            println!("BAML processing error: {}", e);
-        }
-        Err(e) => {
-            // Actor call failed - this is expected without proper credentials
-            println!("Actor call failed (expected without credentials): {}", e);
-        }
-    }
+    // Verify event logged
+    let events = ractor::call!(store_ref, |reply| EventStoreMsg::GetEventsForActor {
+        actor_id: actor_id.clone(),
+        since_seq: 0,
+        reply,
+    })
+    .unwrap()
+    .unwrap();
 
-    // Verify agent can be queried for conversation history
-    // (the history may be empty depending on implementation details)
-    let _history = ractor::call!(agent_ref, |reply| ChatAgentMsg::GetConversationHistory {
-        reply
-    });
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, shared_types::EVENT_CHAT_ASSISTANT_MSG);
 }
 
 #[tokio::test]
-async fn test_agent_logs_tool_calls() {
+async fn test_event_logs_tool_calls() {
     let (store_ref, _store_handle) =
         Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
             .await
@@ -1395,7 +885,7 @@ async fn test_agent_logs_tool_calls() {
 }
 
 #[tokio::test]
-async fn test_agent_logs_multiple_tools() {
+async fn test_event_logs_multiple_tools() {
     let (store_ref, _store_handle) =
         Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
             .await
@@ -1458,335 +948,6 @@ async fn test_agent_logs_multiple_tools() {
     assert!(tools_logged.contains(&"write_file".to_string()));
 }
 
-#[tokio::test]
-async fn test_agent_conversation_recovery() {
-    let temp_dir = tempfile::tempdir().expect("Failed to create temp directory");
-    let db_path = temp_dir.path().join("test_events.db");
-    let db_path_str = db_path.to_str().expect("Invalid database path");
-    let actor_id = test_actor_id();
-    let user_id = test_user_id();
-
-    // Create first agent and store
-    let (store1_ref, _store1_handle) = Actor::spawn(
-        None,
-        EventStoreActor,
-        EventStoreArguments::File(db_path_str.to_string()),
-    )
-    .await
-    .unwrap();
-
-    let (agent1_ref, _agent1_handle) = Actor::spawn(
-        None,
-        ChatAgent::new(),
-        ChatAgentArguments {
-            actor_id: actor_id.clone(),
-            user_id: user_id.clone(),
-            event_store: store1_ref.clone(),
-            preload_session_id: None,
-            preload_thread_id: None,
-            application_supervisor: None,
-        },
-    )
-    .await
-    .unwrap();
-
-    // Simulate conversation
-    let _ = ractor::call!(agent1_ref, |reply| ChatAgentMsg::ProcessMessage {
-        text: "First message".to_string(),
-        session_id: None,
-        thread_id: None,
-        model_override: None,
-        reply,
-    });
-
-    sleep(Duration::from_millis(200)).await;
-
-    // Drop first agent and store
-    drop(agent1_ref);
-    drop(store1_ref);
-
-    // Create second agent from same store
-    let (store2_ref, _store2_handle) = Actor::spawn(
-        None,
-        EventStoreActor,
-        EventStoreArguments::File(db_path_str.to_string()),
-    )
-    .await
-    .unwrap();
-
-    let (agent2_ref, _agent2_handle) = Actor::spawn(
-        None,
-        ChatAgent::new(),
-        ChatAgentArguments {
-            actor_id: actor_id.clone(),
-            user_id: user_id.clone(),
-            event_store: store2_ref.clone(),
-            preload_session_id: None,
-            preload_thread_id: None,
-            application_supervisor: None,
-        },
-    )
-    .await
-    .unwrap();
-
-    // Allow time for any sync
-    sleep(Duration::from_millis(100)).await;
-
-    // Agent2 restores conversation history from EventStore when events are present.
-    let history = ractor::call!(agent2_ref, |reply| ChatAgentMsg::GetConversationHistory {
-        reply
-    })
-    .unwrap();
-
-    // But EventStore should have persisted events
-    let events = ractor::call!(store2_ref, |reply| EventStoreMsg::GetEventsForActor {
-        actor_id: actor_id.clone(),
-        since_seq: 0,
-        reply,
-    })
-    .unwrap()
-    .unwrap();
-
-    if events.is_empty() {
-        assert!(
-            history.is_empty(),
-            "History should be empty when no events were persisted"
-        );
-    } else {
-        assert!(
-            !history.is_empty(),
-            "History should be restored when events are persisted"
-        );
-    }
-
-    // Note: This may be 0 if BAML failed, or 2+ if BAML succeeded
-    // The test verifies the architecture allows recovery
-    println!("Events persisted: {}", events.len());
-}
-
-// ============================================================================
-// Event Projection Edge Cases
-// ============================================================================
-
-#[tokio::test]
-async fn test_projection_invalid_payload() {
-    let (store_ref, _store_handle) =
-        Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-            .await
-            .unwrap();
-
-    let actor_id = test_actor_id();
-    let user_id = test_user_id();
-
-    let (chat_ref, _chat_handle) = Actor::spawn(
-        None,
-        ChatActor,
-        ChatActorArguments {
-            actor_id: actor_id.clone(),
-            user_id: user_id.clone(),
-            event_store: store_ref.clone(),
-        },
-    )
-    .await
-    .unwrap();
-
-    // Event with completely invalid payload for user message (should be string)
-    let invalid_event = shared_types::Event {
-        seq: 1,
-        event_id: test_event_id(),
-        timestamp: chrono::Utc::now(),
-        actor_id: shared_types::ActorId(actor_id.clone()),
-        event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
-        payload: serde_json::json!({"invalid": "format", "nested": {"data": 123}}),
-        user_id: user_id.clone(),
-    };
-
-    // Should not panic, just skip the invalid event
-    chat_ref
-        .cast(ChatActorMsg::SyncEvents {
-            events: vec![invalid_event],
-        })
-        .unwrap();
-
-    // Allow time for processing
-    sleep(Duration::from_millis(50)).await;
-
-    let messages = ractor::call!(chat_ref, |reply| ChatActorMsg::GetMessages { reply }).unwrap();
-
-    assert_eq!(
-        messages.len(),
-        0,
-        "Invalid payload should be skipped gracefully"
-    );
-}
-
-#[tokio::test]
-async fn test_projection_missing_fields() {
-    let (store_ref, _store_handle) =
-        Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-            .await
-            .unwrap();
-
-    let actor_id = test_actor_id();
-    let user_id = test_user_id();
-
-    let (chat_ref, _chat_handle) = Actor::spawn(
-        None,
-        ChatActor,
-        ChatActorArguments {
-            actor_id: actor_id.clone(),
-            user_id: user_id.clone(),
-            event_store: store_ref.clone(),
-        },
-    )
-    .await
-    .unwrap();
-
-    // Assistant event missing "text" field
-    let missing_field_event = shared_types::Event {
-        seq: 1,
-        event_id: test_event_id(),
-        timestamp: chrono::Utc::now(),
-        actor_id: shared_types::ActorId(actor_id.clone()),
-        event_type: shared_types::EVENT_CHAT_ASSISTANT_MSG.to_string(),
-        payload: serde_json::json!({"confidence": 0.9, "model": "test"}), // Missing "text"
-        user_id: "system".to_string(),
-    };
-
-    chat_ref
-        .cast(ChatActorMsg::SyncEvents {
-            events: vec![missing_field_event],
-        })
-        .unwrap();
-
-    // Allow time for processing
-    sleep(Duration::from_millis(50)).await;
-
-    let messages = ractor::call!(chat_ref, |reply| ChatActorMsg::GetMessages { reply }).unwrap();
-
-    assert_eq!(messages.len(), 1);
-    assert_eq!(
-        messages[0].text, "",
-        "Missing text field should result in empty string"
-    );
-}
-
-#[tokio::test]
-async fn test_projection_unknown_event_type() {
-    let (store_ref, _store_handle) =
-        Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-            .await
-            .unwrap();
-
-    let actor_id = test_actor_id();
-    let user_id = test_user_id();
-
-    let (chat_ref, _chat_handle) = Actor::spawn(
-        None,
-        ChatActor,
-        ChatActorArguments {
-            actor_id: actor_id.clone(),
-            user_id: user_id.clone(),
-            event_store: store_ref.clone(),
-        },
-    )
-    .await
-    .unwrap();
-
-    // Mix of known and unknown event types
-    let events = vec![
-        create_user_message_event(1, &actor_id, "User msg"),
-        shared_types::Event {
-            seq: 2,
-            event_id: test_event_id(),
-            timestamp: chrono::Utc::now(),
-            actor_id: shared_types::ActorId(actor_id.clone()),
-            event_type: "unknown.event.type".to_string(),
-            payload: serde_json::json!("Some data"),
-            user_id: user_id.clone(),
-        },
-        create_assistant_message_event(3, &actor_id, "Assistant msg"),
-        shared_types::Event {
-            seq: 4,
-            event_id: test_event_id(),
-            timestamp: chrono::Utc::now(),
-            actor_id: shared_types::ActorId(actor_id.clone()),
-            event_type: "custom.event".to_string(),
-            payload: serde_json::json!({}),
-            user_id: user_id.clone(),
-        },
-    ];
-
-    chat_ref.cast(ChatActorMsg::SyncEvents { events }).unwrap();
-
-    // Allow time for processing
-    sleep(Duration::from_millis(50)).await;
-
-    let messages = ractor::call!(chat_ref, |reply| ChatActorMsg::GetMessages { reply }).unwrap();
-
-    assert_eq!(messages.len(), 2, "Unknown event types should be ignored");
-    assert_eq!(messages[0].text, "User msg");
-    assert_eq!(messages[1].text, "Assistant msg");
-}
-
-#[tokio::test]
-async fn test_projection_duplicate_event_id() {
-    let (store_ref, _store_handle) =
-        Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-            .await
-            .unwrap();
-
-    let actor_id = test_actor_id();
-    let user_id = test_user_id();
-
-    let (chat_ref, _chat_handle) = Actor::spawn(
-        None,
-        ChatActor,
-        ChatActorArguments {
-            actor_id: actor_id.clone(),
-            user_id: user_id.clone(),
-            event_store: store_ref.clone(),
-        },
-    )
-    .await
-    .unwrap();
-
-    let duplicate_id = test_event_id();
-
-    // Events with same event_id
-    let events = vec![
-        shared_types::Event {
-            seq: 1,
-            event_id: duplicate_id.clone(),
-            timestamp: chrono::Utc::now(),
-            actor_id: shared_types::ActorId(actor_id.clone()),
-            event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
-            payload: serde_json::json!("First occurrence"),
-            user_id: user_id.clone(),
-        },
-        shared_types::Event {
-            seq: 2,
-            event_id: duplicate_id.clone(), // Same ID
-            timestamp: chrono::Utc::now(),
-            actor_id: shared_types::ActorId(actor_id.clone()),
-            event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
-            payload: serde_json::json!("Duplicate"),
-            user_id: user_id.clone(),
-        },
-    ];
-
-    chat_ref.cast(ChatActorMsg::SyncEvents { events }).unwrap();
-
-    // Allow time for processing
-    sleep(Duration::from_millis(50)).await;
-
-    let messages = ractor::call!(chat_ref, |reply| ChatActorMsg::GetMessages { reply }).unwrap();
-
-    // Current implementation doesn't deduplicate by event_id
-    // Both events are projected (this is expected behavior)
-    assert_eq!(messages.len(), 2);
-}
-
 // ============================================================================
 // Persistence Recovery Tests
 // ============================================================================
@@ -1833,21 +994,6 @@ async fn test_recovery_after_crash() {
     )
     .await
     .unwrap();
-
-    let (chat_ref, _chat_handle) = Actor::spawn(
-        None,
-        ChatActor,
-        ChatActorArguments {
-            actor_id: actor_id.clone(),
-            user_id: user_id.clone(),
-            event_store: store2_ref.clone(),
-        },
-    )
-    .await
-    .unwrap();
-
-    // Allow sync
-    sleep(Duration::from_millis(100)).await;
 
     // Verify all data recovered
     let events = ractor::call!(store2_ref, |reply| EventStoreMsg::GetEventsForActor {
@@ -1928,7 +1074,6 @@ async fn test_recovery_empty_database() {
     let db_path = temp_dir.path().join("test_events.db");
     let db_path_str = db_path.to_str().expect("Invalid database path");
     let actor_id = test_actor_id();
-    let user_id = test_user_id();
 
     // Create fresh database
     let (store_ref, _store_handle) = Actor::spawn(
@@ -1938,21 +1083,6 @@ async fn test_recovery_empty_database() {
     )
     .await
     .unwrap();
-
-    let (chat_ref, _chat_handle) = Actor::spawn(
-        None,
-        ChatActor,
-        ChatActorArguments {
-            actor_id: actor_id.clone(),
-            user_id: user_id.clone(),
-            event_store: store_ref.clone(),
-        },
-    )
-    .await
-    .unwrap();
-
-    // Allow sync
-    sleep(Duration::from_millis(100)).await;
 
     // Verify empty state
     let events = ractor::call!(store_ref, |reply| EventStoreMsg::GetEventsForActor {
@@ -1964,13 +1094,6 @@ async fn test_recovery_empty_database() {
     .unwrap();
 
     assert!(events.is_empty(), "Empty database should return no events");
-
-    let messages = ractor::call!(chat_ref, |reply| ChatActorMsg::GetMessages { reply }).unwrap();
-
-    assert!(
-        messages.is_empty(),
-        "ChatActor should start with empty conversation"
-    );
 }
 
 #[tokio::test]
@@ -2009,21 +1132,6 @@ async fn test_recovery_corrupted_event() {
     // This test verifies the system handles malformed events gracefully
     // when they are loaded (e.g., invalid JSON in payload)
 
-    let (chat_ref, _chat_handle) = Actor::spawn(
-        None,
-        ChatActor,
-        ChatActorArguments {
-            actor_id: actor_id.clone(),
-            user_id: user_id.clone(),
-            event_store: store_ref.clone(),
-        },
-    )
-    .await
-    .unwrap();
-
-    // Allow sync
-    sleep(Duration::from_millis(100)).await;
-
     // Verify valid events are loaded
     let events = ractor::call!(store_ref, |reply| EventStoreMsg::GetEventsForActor {
         actor_id: actor_id.clone(),
@@ -2039,117 +1147,6 @@ async fn test_recovery_corrupted_event() {
 // ============================================================================
 // Additional Integration Tests
 // ============================================================================
-
-#[tokio::test]
-async fn test_end_to_end_conversation_flow() {
-    let temp_dir = tempfile::tempdir().expect("Failed to create temp directory");
-    let db_path = temp_dir.path().join("test_events.db");
-    let db_path_str = db_path.to_str().expect("Invalid database path");
-    let actor_id = test_actor_id();
-    let user_id = test_user_id();
-
-    // Create components
-    let (store_ref, _store_handle) = Actor::spawn(
-        None,
-        EventStoreActor,
-        EventStoreArguments::File(db_path_str.to_string()),
-    )
-    .await
-    .unwrap();
-
-    let (chat_ref, _chat_handle) = Actor::spawn(
-        None,
-        ChatActor,
-        ChatActorArguments {
-            actor_id: actor_id.clone(),
-            user_id: user_id.clone(),
-            event_store: store_ref.clone(),
-        },
-    )
-    .await
-    .unwrap();
-
-    // Step 1: User sends message (creates pending)
-    let temp_id = ractor::call!(chat_ref, |reply| ChatActorMsg::SendUserMessage {
-        text: "Hello, can you help me?".to_string(),
-        reply,
-    })
-    .unwrap()
-    .unwrap();
-
-    let messages = ractor::call!(chat_ref, |reply| ChatActorMsg::GetMessages { reply }).unwrap();
-
-    assert_eq!(messages.len(), 1);
-    assert!(messages[0].pending);
-
-    // Step 2: Event is logged to EventStore
-    let user_event = shared_types::Event {
-        seq: 1,
-        event_id: temp_id,
-        timestamp: chrono::Utc::now(),
-        actor_id: shared_types::ActorId(actor_id.clone()),
-        event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
-        payload: serde_json::json!("Hello, can you help me?"),
-        user_id: user_id.clone(),
-    };
-
-    ractor::call!(store_ref, |reply| EventStoreMsg::Append {
-        event: AppendEvent {
-            event_type: user_event.event_type.clone(),
-            payload: user_event.payload.clone(),
-            actor_id: user_event.actor_id.0.clone(),
-            user_id: user_event.user_id.clone(),
-        },
-        reply,
-    })
-    .unwrap()
-    .unwrap();
-
-    // Step 3: Sync to confirm
-    chat_ref
-        .cast(ChatActorMsg::SyncEvents {
-            events: vec![user_event],
-        })
-        .unwrap();
-
-    sleep(Duration::from_millis(50)).await;
-
-    let messages = ractor::call!(chat_ref, |reply| ChatActorMsg::GetMessages { reply }).unwrap();
-
-    assert!(!messages[0].pending);
-
-    // Step 4: Assistant responds
-    let assistant_event = create_assistant_message_event(2, &actor_id, "Yes, I can help!");
-
-    ractor::call!(store_ref, |reply| EventStoreMsg::Append {
-        event: AppendEvent {
-            event_type: assistant_event.event_type.clone(),
-            payload: assistant_event.payload.clone(),
-            actor_id: assistant_event.actor_id.0.clone(),
-            user_id: assistant_event.user_id.clone(),
-        },
-        reply,
-    })
-    .unwrap()
-    .unwrap();
-
-    chat_ref
-        .cast(ChatActorMsg::SyncEvents {
-            events: vec![assistant_event],
-        })
-        .unwrap();
-
-    sleep(Duration::from_millis(50)).await;
-
-    let messages = ractor::call!(chat_ref, |reply| ChatActorMsg::GetMessages { reply }).unwrap();
-
-    assert_eq!(messages.len(), 2);
-    assert_eq!(messages[1].text, "Yes, I can help!");
-    assert!(matches!(
-        messages[1].sender,
-        shared_types::Sender::Assistant
-    ));
-}
 
 #[tokio::test]
 async fn test_concurrent_event_appends() {

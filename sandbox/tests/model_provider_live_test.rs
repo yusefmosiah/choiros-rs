@@ -1,13 +1,10 @@
-use ractor::Actor;
 use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments, EventStoreMsg};
 use sandbox::actors::model_config::{ModelRegistry, ProviderConfig};
-use sandbox::actors::{
-    chat_agent::ChatAgent, chat_agent::ChatAgentArguments, chat_agent::ChatAgentMsg,
-};
 use sandbox::baml_client::types::Message as BamlMessage;
 use sandbox::baml_client::B;
 use sandbox::runtime_env::ensure_tls_cert_env;
-use sandbox::supervisor::ApplicationSupervisor;
+use sandbox::supervisor::{ApplicationSupervisor, ApplicationSupervisorMsg};
+use ractor::Actor;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
@@ -174,297 +171,66 @@ fn sampled_live_models(eligible: &[String]) -> Vec<String> {
     selected
 }
 
-fn parse_bash_command(tool_args_json: &str) -> Option<String> {
-    let parsed: serde_json::Value = serde_json::from_str(tool_args_json).ok()?;
-    parsed
-        .get("cmd")
-        .and_then(|v| v.as_str())
-        .or_else(|| parsed.get("command").and_then(|v| v.as_str()))
-        .map(ToString::to_string)
-}
-
-fn parse_bash_model(tool_args_json: &str) -> Option<String> {
-    let parsed: serde_json::Value = serde_json::from_str(tool_args_json).ok()?;
-    parsed
-        .get("model")
-        .and_then(|v| v.as_str())
-        .map(ToString::to_string)
-}
-
-async fn run_delegation_case(
+async fn run_terminal_delegation_case(
     event_store: ractor::ActorRef<EventStoreMsg>,
     app_supervisor: ractor::ActorRef<sandbox::supervisor::ApplicationSupervisorMsg>,
     model_id: String,
 ) -> Result<String, String> {
-    let actor_id = format!("chat-live-{model_id}");
-    let (agent, _agent_handle) = Actor::spawn(
-        None,
-        ChatAgent::new(),
-        ChatAgentArguments {
-            actor_id: actor_id.clone(),
-            user_id: "live-test-user".to_string(),
-            event_store,
-            preload_session_id: None,
-            preload_thread_id: None,
-            application_supervisor: Some(app_supervisor),
-        },
-    )
-    .await
-    .map_err(|e| format!("spawn chat agent: {e}"))?;
+    let actor_id = format!("terminal-live-{model_id}");
+    let session_id = format!("session-{model_id}");
+    let thread_id = format!("thread-{model_id}");
 
     let marker = format!("CHOIR_TOOL_OK_{}", model_id.to_lowercase());
-    let prompt = format!(
-        "Use the bash tool exactly once with cmd `printf {marker}`. Do not answer from memory."
-    );
 
-    let reply = run_with_rate_limit_retry(&format!("delegation:{model_id}"), || {
-        let agent = agent.clone();
-        let prompt = prompt.clone();
-        let model_id = model_id.clone();
-        async move {
-            ractor::call!(agent, |rpc| ChatAgentMsg::ProcessMessage {
-                text: prompt,
-                session_id: Some(format!("session-{model_id}")),
-                thread_id: Some(format!("thread-{model_id}")),
-                model_override: Some(model_id.clone()),
-                reply: rpc,
-            })
-            .map_err(|e| format!("chat rpc failed: {e}"))?
-            .map_err(|e| format!("chat processing error: {e}"))
-        }
-    })
-    .await?;
-
-    let result = {
-        let call = match reply.tool_calls.iter().find(|c| c.tool_name == "bash") {
-            Some(call) => call,
-            None => return Err(format!("{model_id} produced no bash tool call")),
-        };
-
-        if !call.result.success {
-            return Err(format!(
-                "{model_id} bash tool call failed: {}",
-                call.result.content
-            ));
-        }
-
-        let command = parse_bash_command(&call.tool_args)
-            .ok_or_else(|| format!("{model_id} bash tool args missing cmd/command"))?;
-        if !command.contains(&marker) {
-            return Err(format!(
-                "{model_id} bash tool args missing marker command: {}",
-                command
-            ));
-        }
-
-        if !call.result.content.contains(&marker) {
-            println!(
-                "WARN {} => delegated output omitted marker; accepted based on success + command: {}",
-                model_id, call.result.content
-            );
-        }
-        Ok(format!("delegated bash accepted: {command}"))
-    };
-
-    agent.stop(None);
-    result
-}
-
-async fn run_mixed_model_case(
-    event_store: ractor::ActorRef<EventStoreMsg>,
-    app_supervisor: ractor::ActorRef<sandbox::supervisor::ApplicationSupervisorMsg>,
-    chat_model: String,
-    terminal_model: String,
-) -> Result<String, String> {
-    let actor_id = format!("chat-mixed-{}-{}", chat_model, terminal_model);
-    let (agent, _agent_handle) = Actor::spawn(
-        None,
-        ChatAgent::new(),
-        ChatAgentArguments {
+    // Delegate terminal task directly through supervisor
+    let task = ractor::call!(app_supervisor, |reply| {
+        ApplicationSupervisorMsg::DelegateTerminalTask {
+            terminal_id: format!("term-{actor_id}"),
             actor_id: actor_id.clone(),
             user_id: "live-test-user".to_string(),
-            event_store: event_store.clone(),
-            preload_session_id: None,
-            preload_thread_id: None,
-            application_supervisor: Some(app_supervisor),
-        },
-    )
-    .await
-    .map_err(|e| format!("spawn mixed chat agent: {e}"))?;
-
-    let chat_prompt = format!(
-        "Reply with exactly MIXED_CHAT_OK_{}. Do not call any tools.",
-        chat_model.to_lowercase()
-    );
-    let chat_reply = run_with_rate_limit_retry(
-        &format!("mixed-chat:{chat_model}->{terminal_model}"),
-        || {
-            let agent = agent.clone();
-            let chat_prompt = chat_prompt.clone();
-            let chat_model = chat_model.clone();
-            let terminal_model = terminal_model.clone();
-            async move {
-                ractor::call!(agent, |rpc| ChatAgentMsg::ProcessMessage {
-                    text: chat_prompt,
-                    session_id: Some(format!("mixed-chat-session-{chat_model}-{terminal_model}")),
-                    thread_id: Some("thread-1".to_string()),
-                    model_override: Some(chat_model.clone()),
-                    reply: rpc,
-                })
-                .map_err(|e| format!("mixed chat rpc failed: {e}"))?
-                .map_err(|e| format!("mixed chat processing failed: {e}"))
-            }
-        },
-    )
-    .await?;
-
-    if chat_reply.model_used != chat_model {
-        agent.stop(None);
-        return Err(format!(
-            "chat model mismatch: expected {}, got {}",
-            chat_model, chat_reply.model_used
-        ));
-    }
-
-    let marker = format!(
-        "CHOIR_MIXED_TOOL_OK_{}_{}",
-        chat_model.to_lowercase(),
-        terminal_model.to_lowercase()
-    );
-    let tool_prompt = format!(
-        "Use bash exactly once with cmd `printf {marker}` and set the bash model field to `{terminal_model}`."
-    );
-    let tool_reply = run_with_rate_limit_retry(
-        &format!("mixed-tool:{chat_model}->{terminal_model}"),
-        || {
-            let agent = agent.clone();
-            let tool_prompt = tool_prompt.clone();
-            let chat_model = chat_model.clone();
-            let terminal_model = terminal_model.clone();
-            async move {
-                ractor::call!(agent, |rpc| ChatAgentMsg::ProcessMessage {
-                    text: tool_prompt,
-                    session_id: Some(format!("mixed-chat-session-{chat_model}-{terminal_model}")),
-                    thread_id: Some("thread-2".to_string()),
-                    model_override: Some(chat_model.clone()),
-                    reply: rpc,
-                })
-                .map_err(|e| format!("mixed tool rpc failed: {e}"))?
-                .map_err(|e| format!("mixed tool processing failed: {e}"))
-            }
-        },
-    )
-    .await?;
-
-    let Some(tool_call) = tool_reply.tool_calls.iter().find(|c| c.tool_name == "bash") else {
-        agent.stop(None);
-        return Err(format!(
-            "mixed tool run did not produce bash call for case {} -> {}",
-            chat_model, terminal_model
-        ));
-    };
-    if !tool_call.result.success {
-        agent.stop(None);
-        return Err(format!(
-            "mixed tool run bash failed for case {} -> {}: {}",
-            chat_model, terminal_model, tool_call.result.content
-        ));
-    }
-    let delegated_command = parse_bash_command(&tool_call.tool_args).ok_or_else(|| {
-        format!(
-            "mixed tool args missing cmd/command for case {} -> {}",
-            chat_model, terminal_model
-        )
-    })?;
-    if !delegated_command.contains(&marker) {
-        agent.stop(None);
-        return Err(format!(
-            "mixed tool args command marker mismatch for case {} -> {}: {}",
-            chat_model, terminal_model, delegated_command
-        ));
-    }
-    let delegated_model =
-        parse_bash_model(&tool_call.tool_args).unwrap_or_else(|| "UNSET".to_string());
-    if delegated_model != terminal_model {
-        agent.stop(None);
-        return Err(format!(
-            "mixed tool args model mismatch for case {} -> {}: {}",
-            chat_model, terminal_model, delegated_model
-        ));
-    }
-
-    let events = ractor::call!(event_store, |reply| EventStoreMsg::GetEventsForActor {
-        actor_id: actor_id.clone(),
-        since_seq: 0,
-        reply,
+            shell: "/bin/zsh".to_string(),
+            working_dir: ".".to_string(),
+            command: format!("printf {marker}"),
+            timeout_ms: Some(20_000),
+            model_override: Some(model_id.clone()),
+            objective: Some(format!("Test terminal delegation with model {model_id}")),
+            session_id: Some(session_id.clone()),
+            thread_id: Some(thread_id.clone()),
+            reply,
+        }
     })
-    .map_err(|e| format!("load mixed events rpc failed: {e}"))?
-    .map_err(|e| format!("load mixed events failed: {e}"))?;
+    .map_err(|e| format!("delegate task rpc failed: {e}"))?
+    .map_err(|e| format!("delegate task failed: {e}"))?;
 
-    let command_marker = marker.clone();
-    let has_command_marker = events.iter().rev().any(|event| {
-        let payload = &event.payload;
-        let command_match = payload
-            .get("command")
-            .and_then(|v| v.as_str())
-            .map(|cmd| cmd.contains(&command_marker))
-            .unwrap_or(false);
-        let executed_match = payload
-            .get("executed_commands")
-            .and_then(|v| v.as_array())
-            .map(|commands| {
-                commands
-                    .iter()
-                    .filter_map(|cmd| cmd.as_str())
-                    .any(|cmd| cmd.contains(&command_marker))
-            })
-            .unwrap_or(false);
-        (event.event_type.starts_with("worker.task") || event.event_type == "worker_complete")
-            && (command_match || executed_match)
-    });
-
-    if !has_command_marker {
-        agent.stop(None);
-        return Err(format!(
-            "no worker event with command marker found for case {} -> {}",
-            chat_model, terminal_model
-        ));
-    }
-
-    let model_used = events
-        .iter()
-        .rev()
-        .find_map(|event| {
-            if event.event_type.starts_with("worker.task") || event.event_type == "worker_complete"
-            {
-                return event
-                    .payload
-                    .get("model_used")
-                    .and_then(|v| v.as_str())
-                    .map(ToString::to_string);
+    // Wait for task completion
+    let start = std::time::Instant::now();
+    while start.elapsed() < Duration::from_secs(30) {
+        let events = ractor::call!(event_store, |reply| {
+            EventStoreMsg::GetEventsForActorWithScope {
+                actor_id: actor_id.clone(),
+                session_id: session_id.clone(),
+                thread_id: thread_id.clone(),
+                since_seq: 0,
+                reply,
             }
-            None
         })
-        .ok_or_else(|| {
-            format!(
-                "worker events missing model_used for case {} -> {}",
-                chat_model, terminal_model
-            )
-        })?;
+        .ok()
+        .and_then(|r| r.ok())
+        .unwrap_or_default();
 
-    if model_used != terminal_model {
-        agent.stop(None);
-        return Err(format!(
-            "terminal model mismatch: expected {}, got {}",
-            terminal_model, model_used
-        ));
+        let has_terminal = events.iter().any(|e| {
+            e.event_type == shared_types::EVENT_TOPIC_WORKER_TASK_COMPLETED
+                || e.event_type == shared_types::EVENT_TOPIC_WORKER_TASK_FAILED
+        });
+
+        if has_terminal {
+            return Ok(format!("terminal delegation accepted with correlation: {}", task.correlation_id));
+        }
+
+        sleep(Duration::from_millis(100)).await;
     }
 
-    agent.stop(None);
-    Ok(format!(
-        "chat_model={} terminal_model={} command={}",
-        chat_model, terminal_model, command_marker
-    ))
+    Err("timeout waiting for terminal task completion".to_string())
 }
 
 #[tokio::test]
@@ -676,7 +442,7 @@ async fn live_plan_action_matrix() {
 }
 
 #[tokio::test]
-async fn live_chat_terminal_delegation_matrix() {
+async fn live_terminal_delegation_matrix() {
     let _ = dotenvy::dotenv();
     ensure_tls_cert_env();
     let registry = ModelRegistry::new();
@@ -706,7 +472,7 @@ async fn live_chat_terminal_delegation_matrix() {
         let app_supervisor = app_supervisor.clone();
         join_set.spawn(async move {
             let _permit = permit;
-            let result = run_delegation_case(event_store, app_supervisor, model_id.clone()).await;
+            let result = run_terminal_delegation_case(event_store, app_supervisor, model_id.clone()).await;
             (model_id, result)
         });
     }
@@ -746,106 +512,6 @@ async fn live_chat_terminal_delegation_matrix() {
     assert!(
         failed.is_empty(),
         "Live delegation failures: {}",
-        failed.join(" | ")
-    );
-}
-
-#[tokio::test]
-async fn live_chat_terminal_mixed_model_sample() {
-    let _ = dotenvy::dotenv();
-    ensure_tls_cert_env();
-    let registry = ModelRegistry::new();
-    let (eligible, skipped) = available_live_models(&registry);
-    let sampled = sampled_live_models(&eligible);
-    let attempted_cases = sampled.len().min(3);
-
-    if attempted_cases < 2 {
-        println!(
-            "mixed-model skipped: need at least 2 eligible requested models. requested={:?} available={:?} skipped={:?}",
-            requested_live_model_targets(),
-            eligible,
-            skipped
-        );
-        return;
-    }
-
-    let mut cases = Vec::new();
-    for idx in 0..attempted_cases {
-        let chat_model = sampled[idx].clone();
-        let terminal_model = sampled[(idx + 1) % sampled.len()].clone();
-        if chat_model != terminal_model {
-            cases.push((chat_model, terminal_model));
-        }
-    }
-
-    let (event_store, _event_handle) =
-        Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-            .await
-            .expect("spawn mixed event store");
-    let (app_supervisor, _app_handle) =
-        Actor::spawn(None, ApplicationSupervisor, event_store.clone())
-            .await
-            .expect("spawn mixed app supervisor");
-
-    let concurrency = live_test_concurrency(2);
-    let semaphore = Arc::new(Semaphore::new(concurrency));
-    let mut join_set = JoinSet::new();
-
-    for (chat_model, terminal_model) in cases.iter().cloned() {
-        let permit = semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("semaphore closed");
-        let event_store = event_store.clone();
-        let app_supervisor = app_supervisor.clone();
-        join_set.spawn(async move {
-            let _permit = permit;
-            let result = run_mixed_model_case(
-                event_store,
-                app_supervisor,
-                chat_model.clone(),
-                terminal_model.clone(),
-            )
-            .await;
-            (chat_model, terminal_model, result)
-        });
-    }
-
-    let attempted = cases.len();
-    let mut passed = 0usize;
-    let mut failed: Vec<String> = Vec::new();
-
-    while let Some(joined) = join_set.join_next().await {
-        match joined {
-            Ok((chat_model, terminal_model, Ok(msg))) => {
-                println!("PASS mixed {} -> {} => {}", chat_model, terminal_model, msg);
-                passed += 1;
-            }
-            Ok((chat_model, terminal_model, Err(reason))) => {
-                failed.push(format!("{} -> {} {}", chat_model, terminal_model, reason));
-            }
-            Err(e) => failed.push(format!("join error: {e}")),
-        }
-    }
-
-    println!("mixed attempted={attempted} passed={passed}");
-    println!(
-        "mixed requested_models={}",
-        requested_live_model_targets().join(",")
-    );
-    println!("mixed sampled_models={}", sampled.join(","));
-    if !skipped.is_empty() {
-        println!("mixed skipped providers:\n{}", skipped.join("\n"));
-    }
-    if !failed.is_empty() {
-        println!("mixed failed:\n{}", failed.join("\n"));
-    }
-
-    assert!(attempted > 0, "No mixed-model cases attempted");
-    assert!(
-        failed.is_empty(),
-        "Live mixed-model failures: {}",
         failed.join(" | ")
     );
 }

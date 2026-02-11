@@ -1,5 +1,4 @@
-pub mod chat;
-pub mod chat_agent;
+pub mod agent_harness;
 pub mod conductor;
 pub mod desktop;
 pub mod event_bus;
@@ -12,8 +11,6 @@ pub mod researcher;
 pub mod terminal;
 pub mod watcher;
 
-pub use chat::ChatActor;
-pub use chat_agent::ChatAgent;
 pub use conductor::{ConductorActor, ConductorArguments, ConductorMsg};
 pub use desktop::DesktopActor;
 pub use event_bus::{Event, EventBusActor, EventBusMsg, EventType};
