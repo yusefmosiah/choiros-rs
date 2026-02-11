@@ -540,6 +540,180 @@ impl AsRef<ReadFileToolArgs> for ReadFileToolArgs {
 
 #[derive(Debug, Clone, Default, BamlDecode)]
 
+pub struct ResearcherCitationInput {
+    pub provider: Option<String>,
+
+    pub title: Option<String>,
+
+    pub url: Option<String>,
+
+    pub snippet: Option<String>,
+
+    pub published_at: Option<String>,
+
+    pub score: Option<f64>,
+}
+
+impl AsRef<ResearcherCitationInput> for ResearcherCitationInput {
+    fn as_ref(&self) -> &ResearcherCitationInput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct ResearcherFetchedPageInput {
+    pub url: Option<String>,
+
+    pub status_code: Option<i64>,
+
+    pub content_excerpt: Option<String>,
+
+    pub success: Option<bool>,
+}
+
+impl AsRef<ResearcherFetchedPageInput> for ResearcherFetchedPageInput {
+    fn as_ref(&self) -> &ResearcherFetchedPageInput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct ResearcherPlanInput {
+    pub objective: Option<String>,
+
+    pub current_query: Option<String>,
+
+    pub round: Option<i64>,
+
+    pub max_rounds: Option<i64>,
+
+    pub provider_hint: Option<String>,
+
+    pub max_results_hint: Option<i64>,
+
+    pub last_error: Option<String>,
+
+    pub provider_calls: Vec<ResearcherProviderCallSummary>,
+
+    pub citations: Vec<ResearcherCitationInput>,
+
+    pub fetched_pages: Vec<ResearcherFetchedPageInput>,
+}
+
+impl AsRef<ResearcherPlanInput> for ResearcherPlanInput {
+    fn as_ref(&self) -> &ResearcherPlanInput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct ResearcherPlanOutput {
+    pub action: Option<types::ResearcherNextAction>,
+
+    pub query: Option<String>,
+
+    pub provider: Option<String>,
+
+    pub fetch_url: Option<String>,
+
+    pub max_results: Option<i64>,
+
+    pub time_range: Option<String>,
+
+    pub rationale: Option<String>,
+
+    pub confidence: Option<f64>,
+
+    pub completion_reason: Option<String>,
+
+    pub recommended_next_capability: Option<String>,
+
+    pub recommended_next_objective: Option<String>,
+}
+
+impl AsRef<ResearcherPlanOutput> for ResearcherPlanOutput {
+    fn as_ref(&self) -> &ResearcherPlanOutput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct ResearcherProviderCallSummary {
+    pub provider: Option<String>,
+
+    pub latency_ms: Option<i64>,
+
+    pub result_count: Option<i64>,
+
+    pub succeeded: Option<bool>,
+
+    pub error: Option<String>,
+}
+
+impl AsRef<ResearcherProviderCallSummary> for ResearcherProviderCallSummary {
+    fn as_ref(&self) -> &ResearcherProviderCallSummary {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct ResearcherSynthesisInput {
+    pub objective: Option<String>,
+
+    pub query: Option<String>,
+
+    pub provider_label: Option<String>,
+
+    pub citations: Vec<ResearcherCitationInput>,
+
+    pub provider_calls: Vec<ResearcherProviderCallSummary>,
+
+    pub fetched_pages: Vec<ResearcherFetchedPageInput>,
+
+    pub raw_results_count: Option<i64>,
+
+    pub errors: Vec<String>,
+}
+
+impl AsRef<ResearcherSynthesisInput> for ResearcherSynthesisInput {
+    fn as_ref(&self) -> &ResearcherSynthesisInput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct ResearcherSynthesisOutput {
+    pub summary: Option<String>,
+
+    pub objective_status: Option<types::ResearcherObjectiveStatus>,
+
+    pub completion_reason: Option<String>,
+
+    pub recommended_next_capability: Option<String>,
+
+    pub recommended_next_objective: Option<String>,
+
+    pub key_findings: Vec<String>,
+
+    pub gaps: Vec<String>,
+
+    pub confidence: Option<f64>,
+}
+
+impl AsRef<ResearcherSynthesisOutput> for ResearcherSynthesisOutput {
+    fn as_ref(&self) -> &ResearcherSynthesisOutput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct Resume {
     pub name: Option<String>,
 

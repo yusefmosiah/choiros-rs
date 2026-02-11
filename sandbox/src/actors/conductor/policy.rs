@@ -109,6 +109,14 @@ impl BamlConductorPolicy {
         let worker_outputs: Vec<WorkerOutput> = run
             .artifacts
             .iter()
+            .filter(|artifact| {
+                artifact
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.get("category"))
+                    .and_then(|v| v.as_str())
+                    != Some("wake_signal")
+            })
             .map(|artifact| {
                 let summary = artifact
                     .metadata
@@ -133,15 +141,61 @@ impl BamlConductorPolicy {
             })
             .collect();
 
-        let recent_events = vec![EventSummary {
+        let mut recent_events = run
+            .artifacts
+            .iter()
+            .filter_map(|artifact| {
+                let metadata = artifact.metadata.as_ref()?;
+                if metadata.get("category").and_then(|v| v.as_str()) != Some("wake_signal") {
+                    return None;
+                }
+                Some(EventSummary {
+                    event_id: artifact.artifact_id.clone(),
+                    event_type: metadata
+                        .get("event_type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("conductor.event")
+                        .to_string(),
+                    timestamp: artifact.created_at.to_rfc3339(),
+                    payload: metadata
+                        .get("event_payload")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null)
+                        .to_string(),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        recent_events.push(EventSummary {
             event_id: format!("run-context-{}", run.run_id),
             event_type: "conductor.run.context".to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
             payload: serde_json::json!({
-                "capabilities": available_capabilities
+                "capabilities": available_capabilities,
+                "agenda_statuses": run
+                    .agenda
+                    .iter()
+                    .map(|item| serde_json::json!({
+                        "item_id": item.item_id,
+                        "capability": item.capability,
+                        "status": format!("{:?}", item.status),
+                    }))
+                    .collect::<Vec<_>>(),
+                "active_calls": run.active_calls.len(),
             })
             .to_string(),
-        }];
+        });
+        recent_events.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+        if recent_events.len() > 20 {
+            recent_events = recent_events
+                .into_iter()
+                .rev()
+                .take(20)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+        }
 
         ConductorDecisionInput {
             run_id: run.run_id.clone(),

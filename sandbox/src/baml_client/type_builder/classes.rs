@@ -1689,6 +1689,540 @@ impl ReadFileToolArgsClassBuilder {
     }
 }
 
+/// Wrapper for the `ResearcherCitationInput` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct ResearcherCitationInputClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl ResearcherCitationInputClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner.as_type().expect(
+            "ResearcherCitationInput is statically defined in .baml and should always have a type",
+        )
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `provider` field builder.
+    pub fn property_provider(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("provider")
+            .expect("ResearcherCitationInput.provider is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `title` field builder.
+    pub fn property_title(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("title")
+            .expect("ResearcherCitationInput.title is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `url` field builder.
+    pub fn property_url(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("url")
+            .expect("ResearcherCitationInput.url is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `snippet` field builder.
+    pub fn property_snippet(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("snippet")
+            .expect("ResearcherCitationInput.snippet is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `published_at` field builder.
+    pub fn property_published_at(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("published_at")
+            .expect("ResearcherCitationInput.published_at is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `score` field builder.
+    pub fn property_score(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("score")
+            .expect("ResearcherCitationInput.score is statically defined in .baml and should always be present")
+    }
+}
+
+/// Wrapper for the `ResearcherFetchedPageInput` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct ResearcherFetchedPageInputClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl ResearcherFetchedPageInputClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner.as_type()
+            .expect("ResearcherFetchedPageInput is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `url` field builder.
+    pub fn property_url(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("url")
+            .expect("ResearcherFetchedPageInput.url is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `status_code` field builder.
+    pub fn property_status_code(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("status_code")
+            .expect("ResearcherFetchedPageInput.status_code is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `content_excerpt` field builder.
+    pub fn property_content_excerpt(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("content_excerpt")
+            .expect("ResearcherFetchedPageInput.content_excerpt is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `success` field builder.
+    pub fn property_success(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("success")
+            .expect("ResearcherFetchedPageInput.success is statically defined in .baml and should always be present")
+    }
+}
+
+/// Wrapper for the `ResearcherPlanInput` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct ResearcherPlanInputClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl ResearcherPlanInputClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner.as_type().expect(
+            "ResearcherPlanInput is statically defined in .baml and should always have a type",
+        )
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `objective` field builder.
+    pub fn property_objective(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("objective")
+            .expect("ResearcherPlanInput.objective is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `current_query` field builder.
+    pub fn property_current_query(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("current_query")
+            .expect("ResearcherPlanInput.current_query is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `round` field builder.
+    pub fn property_round(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("round").expect(
+            "ResearcherPlanInput.round is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `max_rounds` field builder.
+    pub fn property_max_rounds(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("max_rounds")
+            .expect("ResearcherPlanInput.max_rounds is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `provider_hint` field builder.
+    pub fn property_provider_hint(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("provider_hint")
+            .expect("ResearcherPlanInput.provider_hint is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `max_results_hint` field builder.
+    pub fn property_max_results_hint(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("max_results_hint")
+            .expect("ResearcherPlanInput.max_results_hint is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `last_error` field builder.
+    pub fn property_last_error(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("last_error")
+            .expect("ResearcherPlanInput.last_error is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `provider_calls` field builder.
+    pub fn property_provider_calls(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("provider_calls")
+            .expect("ResearcherPlanInput.provider_calls is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `citations` field builder.
+    pub fn property_citations(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("citations")
+            .expect("ResearcherPlanInput.citations is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `fetched_pages` field builder.
+    pub fn property_fetched_pages(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("fetched_pages")
+            .expect("ResearcherPlanInput.fetched_pages is statically defined in .baml and should always be present")
+    }
+}
+
+/// Wrapper for the `ResearcherPlanOutput` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct ResearcherPlanOutputClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl ResearcherPlanOutputClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner.as_type().expect(
+            "ResearcherPlanOutput is statically defined in .baml and should always have a type",
+        )
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `action` field builder.
+    pub fn property_action(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("action")
+            .expect("ResearcherPlanOutput.action is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `query` field builder.
+    pub fn property_query(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("query")
+            .expect("ResearcherPlanOutput.query is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `provider` field builder.
+    pub fn property_provider(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("provider")
+            .expect("ResearcherPlanOutput.provider is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `fetch_url` field builder.
+    pub fn property_fetch_url(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("fetch_url")
+            .expect("ResearcherPlanOutput.fetch_url is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `max_results` field builder.
+    pub fn property_max_results(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("max_results")
+            .expect("ResearcherPlanOutput.max_results is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `time_range` field builder.
+    pub fn property_time_range(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("time_range")
+            .expect("ResearcherPlanOutput.time_range is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `rationale` field builder.
+    pub fn property_rationale(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("rationale")
+            .expect("ResearcherPlanOutput.rationale is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `confidence` field builder.
+    pub fn property_confidence(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("confidence")
+            .expect("ResearcherPlanOutput.confidence is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `completion_reason` field builder.
+    pub fn property_completion_reason(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("completion_reason")
+            .expect("ResearcherPlanOutput.completion_reason is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `recommended_next_capability` field builder.
+    pub fn property_recommended_next_capability(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("recommended_next_capability")
+            .expect("ResearcherPlanOutput.recommended_next_capability is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `recommended_next_objective` field builder.
+    pub fn property_recommended_next_objective(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("recommended_next_objective")
+            .expect("ResearcherPlanOutput.recommended_next_objective is statically defined in .baml and should always be present")
+    }
+}
+
+/// Wrapper for the `ResearcherProviderCallSummary` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct ResearcherProviderCallSummaryClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl ResearcherProviderCallSummaryClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner.as_type()
+            .expect("ResearcherProviderCallSummary is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `provider` field builder.
+    pub fn property_provider(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("provider")
+            .expect("ResearcherProviderCallSummary.provider is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `latency_ms` field builder.
+    pub fn property_latency_ms(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("latency_ms")
+            .expect("ResearcherProviderCallSummary.latency_ms is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `result_count` field builder.
+    pub fn property_result_count(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("result_count")
+            .expect("ResearcherProviderCallSummary.result_count is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `succeeded` field builder.
+    pub fn property_succeeded(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("succeeded")
+            .expect("ResearcherProviderCallSummary.succeeded is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `error` field builder.
+    pub fn property_error(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("error")
+            .expect("ResearcherProviderCallSummary.error is statically defined in .baml and should always be present")
+    }
+}
+
+/// Wrapper for the `ResearcherSynthesisInput` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct ResearcherSynthesisInputClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl ResearcherSynthesisInputClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner.as_type().expect(
+            "ResearcherSynthesisInput is statically defined in .baml and should always have a type",
+        )
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `objective` field builder.
+    pub fn property_objective(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("objective")
+            .expect("ResearcherSynthesisInput.objective is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `query` field builder.
+    pub fn property_query(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("query")
+            .expect("ResearcherSynthesisInput.query is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `provider_label` field builder.
+    pub fn property_provider_label(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("provider_label")
+            .expect("ResearcherSynthesisInput.provider_label is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `citations` field builder.
+    pub fn property_citations(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("citations")
+            .expect("ResearcherSynthesisInput.citations is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `provider_calls` field builder.
+    pub fn property_provider_calls(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("provider_calls")
+            .expect("ResearcherSynthesisInput.provider_calls is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `fetched_pages` field builder.
+    pub fn property_fetched_pages(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("fetched_pages")
+            .expect("ResearcherSynthesisInput.fetched_pages is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `raw_results_count` field builder.
+    pub fn property_raw_results_count(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("raw_results_count")
+            .expect("ResearcherSynthesisInput.raw_results_count is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `errors` field builder.
+    pub fn property_errors(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("errors")
+            .expect("ResearcherSynthesisInput.errors is statically defined in .baml and should always be present")
+    }
+}
+
+/// Wrapper for the `ResearcherSynthesisOutput` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct ResearcherSynthesisOutputClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl ResearcherSynthesisOutputClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner.as_type()
+            .expect("ResearcherSynthesisOutput is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `summary` field builder.
+    pub fn property_summary(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("summary")
+            .expect("ResearcherSynthesisOutput.summary is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `objective_status` field builder.
+    pub fn property_objective_status(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("objective_status")
+            .expect("ResearcherSynthesisOutput.objective_status is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `completion_reason` field builder.
+    pub fn property_completion_reason(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("completion_reason")
+            .expect("ResearcherSynthesisOutput.completion_reason is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `recommended_next_capability` field builder.
+    pub fn property_recommended_next_capability(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("recommended_next_capability")
+            .expect("ResearcherSynthesisOutput.recommended_next_capability is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `recommended_next_objective` field builder.
+    pub fn property_recommended_next_objective(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("recommended_next_objective")
+            .expect("ResearcherSynthesisOutput.recommended_next_objective is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `key_findings` field builder.
+    pub fn property_key_findings(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("key_findings")
+            .expect("ResearcherSynthesisOutput.key_findings is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `gaps` field builder.
+    pub fn property_gaps(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("gaps")
+            .expect("ResearcherSynthesisOutput.gaps is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `confidence` field builder.
+    pub fn property_confidence(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("confidence")
+            .expect("ResearcherSynthesisOutput.confidence is statically defined in .baml and should always be present")
+    }
+}
+
 /// Wrapper for the `Resume` class builder.
 ///
 /// Provides type-safe method access to fields defined in the schema.

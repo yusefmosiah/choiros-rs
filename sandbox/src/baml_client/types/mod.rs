@@ -73,6 +73,20 @@ pub enum Types {
 
     ReadFileToolArgs(ReadFileToolArgs),
 
+    ResearcherCitationInput(ResearcherCitationInput),
+
+    ResearcherFetchedPageInput(ResearcherFetchedPageInput),
+
+    ResearcherPlanInput(ResearcherPlanInput),
+
+    ResearcherPlanOutput(ResearcherPlanOutput),
+
+    ResearcherProviderCallSummary(ResearcherProviderCallSummary),
+
+    ResearcherSynthesisInput(ResearcherSynthesisInput),
+
+    ResearcherSynthesisOutput(ResearcherSynthesisOutput),
+
     Resume(Resume),
 
     RetryPolicy(RetryPolicy),
@@ -122,6 +136,10 @@ pub enum Types {
     ObjectiveStatus(ObjectiveStatus),
 
     PlanMode(PlanMode),
+
+    ResearcherNextAction(ResearcherNextAction),
+
+    ResearcherObjectiveStatus(ResearcherObjectiveStatus),
 
     ReviewStatus(ReviewStatus),
 
@@ -189,6 +207,20 @@ impl baml::KnownTypes for Types {
 
             Types::ReadFileToolArgs(_) => "ReadFileToolArgs",
 
+            Types::ResearcherCitationInput(_) => "ResearcherCitationInput",
+
+            Types::ResearcherFetchedPageInput(_) => "ResearcherFetchedPageInput",
+
+            Types::ResearcherPlanInput(_) => "ResearcherPlanInput",
+
+            Types::ResearcherPlanOutput(_) => "ResearcherPlanOutput",
+
+            Types::ResearcherProviderCallSummary(_) => "ResearcherProviderCallSummary",
+
+            Types::ResearcherSynthesisInput(_) => "ResearcherSynthesisInput",
+
+            Types::ResearcherSynthesisOutput(_) => "ResearcherSynthesisOutput",
+
             Types::Resume(_) => "Resume",
 
             Types::RetryPolicy(_) => "RetryPolicy",
@@ -238,6 +270,10 @@ impl baml::KnownTypes for Types {
             Types::ObjectiveStatus(_) => "ObjectiveStatus",
 
             Types::PlanMode(_) => "PlanMode",
+
+            Types::ResearcherNextAction(_) => "ResearcherNextAction",
+
+            Types::ResearcherObjectiveStatus(_) => "ResearcherObjectiveStatus",
 
             Types::ReviewStatus(_) => "ReviewStatus",
 

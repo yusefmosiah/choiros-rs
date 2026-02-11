@@ -449,6 +449,112 @@ impl AsRef<PlanMode> for PlanMode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
+pub enum ResearcherNextAction {
+    Search,
+
+    FetchUrl,
+
+    Complete,
+
+    Block,
+}
+
+impl Default for ResearcherNextAction {
+    fn default() -> Self {
+        Self::Search
+    }
+}
+
+impl std::fmt::Display for ResearcherNextAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Search => write!(f, "Search"),
+
+            Self::FetchUrl => write!(f, "FetchUrl"),
+
+            Self::Complete => write!(f, "Complete"),
+
+            Self::Block => write!(f, "Block"),
+        }
+    }
+}
+
+impl std::str::FromStr for ResearcherNextAction {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Search" => Ok(Self::Search),
+
+            "FetchUrl" => Ok(Self::FetchUrl),
+
+            "Complete" => Ok(Self::Complete),
+
+            "Block" => Ok(Self::Block),
+
+            _ => Err(()),
+        }
+    }
+}
+
+impl AsRef<ResearcherNextAction> for ResearcherNextAction {
+    fn as_ref(&self) -> &ResearcherNextAction {
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
+pub enum ResearcherObjectiveStatus {
+    Complete,
+
+    Incomplete,
+
+    Blocked,
+}
+
+impl Default for ResearcherObjectiveStatus {
+    fn default() -> Self {
+        Self::Complete
+    }
+}
+
+impl std::fmt::Display for ResearcherObjectiveStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Complete => write!(f, "Complete"),
+
+            Self::Incomplete => write!(f, "Incomplete"),
+
+            Self::Blocked => write!(f, "Blocked"),
+        }
+    }
+}
+
+impl std::str::FromStr for ResearcherObjectiveStatus {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Complete" => Ok(Self::Complete),
+
+            "Incomplete" => Ok(Self::Incomplete),
+
+            "Blocked" => Ok(Self::Blocked),
+
+            _ => Err(()),
+        }
+    }
+}
+
+impl AsRef<ResearcherObjectiveStatus> for ResearcherObjectiveStatus {
+    fn as_ref(&self) -> &ResearcherObjectiveStatus {
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
 pub enum ReviewStatus {
     Clean,
 

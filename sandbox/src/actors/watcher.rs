@@ -271,7 +271,35 @@ impl WatcherActor {
         }
 
         let actor_id = event.actor_id.0.as_str();
-        actor_id == state.watcher_id || actor_id.starts_with("watcher:")
+        if actor_id == state.watcher_id || actor_id.starts_with("watcher:") {
+            return true;
+        }
+
+        !self.should_review_event(event)
+    }
+
+    fn should_review_event(&self, event: &shared_types::Event) -> bool {
+        matches!(
+            event.event_type.as_str(),
+            "conductor.task.started"
+                | "conductor.task.progress"
+                | "conductor.task.completed"
+                | "conductor.task.failed"
+                | "conductor.worker.call"
+                | "conductor.worker.result"
+                | "conductor.run.started"
+                | "conductor.capability.completed"
+                | "conductor.capability.failed"
+                | "conductor.capability.blocked"
+                | "conductor.decision"
+                | "conductor.progress"
+                | "worker.task.started"
+                | "worker.task.progress"
+                | "worker.task.completed"
+                | "worker.task.failed"
+                | "worker.task.finding"
+                | "worker.task.learning"
+        )
     }
 
     /// Build event windows from recent events
@@ -291,6 +319,14 @@ impl WatcherActor {
                 .payload
                 .get("run_id")
                 .and_then(|v| v.as_str())
+                .or_else(|| event.payload.get("task_id").and_then(|v| v.as_str()))
+                .or_else(|| {
+                    event
+                        .payload
+                        .get("task")
+                        .and_then(|t| t.get("task_id"))
+                        .and_then(|v| v.as_str())
+                })
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| "unknown".to_string());
 

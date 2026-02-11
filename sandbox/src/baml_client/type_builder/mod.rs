@@ -275,6 +275,69 @@ impl TypeBuilder {
         )
     }
 
+    /// Access the `ResearcherCitationInput` class builder.
+    pub fn ResearcherCitationInput(&self) -> ResearcherCitationInputClassBuilder {
+        ResearcherCitationInputClassBuilder::new(
+            self.inner
+                .get_class("ResearcherCitationInput")
+                .expect("class ResearcherCitationInput is defined in schema"),
+        )
+    }
+
+    /// Access the `ResearcherFetchedPageInput` class builder.
+    pub fn ResearcherFetchedPageInput(&self) -> ResearcherFetchedPageInputClassBuilder {
+        ResearcherFetchedPageInputClassBuilder::new(
+            self.inner
+                .get_class("ResearcherFetchedPageInput")
+                .expect("class ResearcherFetchedPageInput is defined in schema"),
+        )
+    }
+
+    /// Access the `ResearcherPlanInput` class builder.
+    pub fn ResearcherPlanInput(&self) -> ResearcherPlanInputClassBuilder {
+        ResearcherPlanInputClassBuilder::new(
+            self.inner
+                .get_class("ResearcherPlanInput")
+                .expect("class ResearcherPlanInput is defined in schema"),
+        )
+    }
+
+    /// Access the `ResearcherPlanOutput` class builder.
+    pub fn ResearcherPlanOutput(&self) -> ResearcherPlanOutputClassBuilder {
+        ResearcherPlanOutputClassBuilder::new(
+            self.inner
+                .get_class("ResearcherPlanOutput")
+                .expect("class ResearcherPlanOutput is defined in schema"),
+        )
+    }
+
+    /// Access the `ResearcherProviderCallSummary` class builder.
+    pub fn ResearcherProviderCallSummary(&self) -> ResearcherProviderCallSummaryClassBuilder {
+        ResearcherProviderCallSummaryClassBuilder::new(
+            self.inner
+                .get_class("ResearcherProviderCallSummary")
+                .expect("class ResearcherProviderCallSummary is defined in schema"),
+        )
+    }
+
+    /// Access the `ResearcherSynthesisInput` class builder.
+    pub fn ResearcherSynthesisInput(&self) -> ResearcherSynthesisInputClassBuilder {
+        ResearcherSynthesisInputClassBuilder::new(
+            self.inner
+                .get_class("ResearcherSynthesisInput")
+                .expect("class ResearcherSynthesisInput is defined in schema"),
+        )
+    }
+
+    /// Access the `ResearcherSynthesisOutput` class builder.
+    pub fn ResearcherSynthesisOutput(&self) -> ResearcherSynthesisOutputClassBuilder {
+        ResearcherSynthesisOutputClassBuilder::new(
+            self.inner
+                .get_class("ResearcherSynthesisOutput")
+                .expect("class ResearcherSynthesisOutput is defined in schema"),
+        )
+    }
+
     /// Access the `Resume` class builder.
     pub fn Resume(&self) -> ResumeClassBuilder {
         ResumeClassBuilder::new(
@@ -501,6 +564,24 @@ impl TypeBuilder {
             self.inner
                 .get_enum("PlanMode")
                 .expect("enum PlanMode is defined in schema"),
+        )
+    }
+
+    /// Access the `ResearcherNextAction` enum builder.
+    pub fn ResearcherNextAction(&self) -> ResearcherNextActionEnumBuilder {
+        ResearcherNextActionEnumBuilder::new(
+            self.inner
+                .get_enum("ResearcherNextAction")
+                .expect("enum ResearcherNextAction is defined in schema"),
+        )
+    }
+
+    /// Access the `ResearcherObjectiveStatus` enum builder.
+    pub fn ResearcherObjectiveStatus(&self) -> ResearcherObjectiveStatusEnumBuilder {
+        ResearcherObjectiveStatusEnumBuilder::new(
+            self.inner
+                .get_enum("ResearcherObjectiveStatus")
+                .expect("enum ResearcherObjectiveStatus is defined in schema"),
         )
     }
 

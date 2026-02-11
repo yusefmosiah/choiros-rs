@@ -464,6 +464,111 @@ impl PlanModeEnumBuilder {
     }
 }
 
+/// Wrapper for the `ResearcherNextAction` enum builder.
+///
+/// Provides type-safe method access to values defined in the schema.
+/// Access values via methods: `builder.ValueName()`
+
+pub struct ResearcherNextActionEnumBuilder {
+    inner: baml::EnumBuilder,
+}
+
+impl ResearcherNextActionEnumBuilder {
+    /// Create wrapper from runtime EnumBuilder.
+    pub(crate) fn new(inner: baml::EnumBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying EnumBuilder.
+    pub fn inner(&self) -> &baml::EnumBuilder {
+        &self.inner
+    }
+
+    /// Get the enum as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner.as_type().expect(
+            "ResearcherNextAction is statically defined in .baml and should always have a type",
+        )
+    }
+
+    // =========================================================================
+    // Value Accessors (1:1 with schema value names)
+    // =========================================================================
+
+    /// Access the `Search` value builder.
+    pub fn value_Search(&self) -> baml::EnumValueBuilder {
+        self.inner.get_value("Search")
+            .expect("ResearcherNextAction.Search is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `FetchUrl` value builder.
+    pub fn value_FetchUrl(&self) -> baml::EnumValueBuilder {
+        self.inner.get_value("FetchUrl")
+            .expect("ResearcherNextAction.FetchUrl is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `Complete` value builder.
+    pub fn value_Complete(&self) -> baml::EnumValueBuilder {
+        self.inner.get_value("Complete")
+            .expect("ResearcherNextAction.Complete is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `Block` value builder.
+    pub fn value_Block(&self) -> baml::EnumValueBuilder {
+        self.inner.get_value("Block")
+            .expect("ResearcherNextAction.Block is statically defined in .baml and should always be present")
+    }
+}
+
+/// Wrapper for the `ResearcherObjectiveStatus` enum builder.
+///
+/// Provides type-safe method access to values defined in the schema.
+/// Access values via methods: `builder.ValueName()`
+
+pub struct ResearcherObjectiveStatusEnumBuilder {
+    inner: baml::EnumBuilder,
+}
+
+impl ResearcherObjectiveStatusEnumBuilder {
+    /// Create wrapper from runtime EnumBuilder.
+    pub(crate) fn new(inner: baml::EnumBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying EnumBuilder.
+    pub fn inner(&self) -> &baml::EnumBuilder {
+        &self.inner
+    }
+
+    /// Get the enum as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner.as_type()
+            .expect("ResearcherObjectiveStatus is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Value Accessors (1:1 with schema value names)
+    // =========================================================================
+
+    /// Access the `Complete` value builder.
+    pub fn value_Complete(&self) -> baml::EnumValueBuilder {
+        self.inner.get_value("Complete")
+            .expect("ResearcherObjectiveStatus.Complete is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `Incomplete` value builder.
+    pub fn value_Incomplete(&self) -> baml::EnumValueBuilder {
+        self.inner.get_value("Incomplete")
+            .expect("ResearcherObjectiveStatus.Incomplete is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `Blocked` value builder.
+    pub fn value_Blocked(&self) -> baml::EnumValueBuilder {
+        self.inner.get_value("Blocked")
+            .expect("ResearcherObjectiveStatus.Blocked is statically defined in .baml and should always be present")
+    }
+}
+
 /// Wrapper for the `ReviewStatus` enum builder.
 ///
 /// Provides type-safe method access to values defined in the schema.

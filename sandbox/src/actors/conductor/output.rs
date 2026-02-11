@@ -7,8 +7,18 @@ use crate::actors::conductor::protocol::WorkerOutput;
 pub fn build_worker_output_from_run(run: &shared_types::ConductorRunState) -> WorkerOutput {
     let mut citations = Vec::new();
     let mut sections = Vec::new();
+    let mut run_narrative = Vec::new();
 
     for artifact in &run.artifacts {
+        let is_wake_signal = artifact
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("category"))
+            .and_then(|v| v.as_str())
+            == Some("wake_signal");
+        if is_wake_signal {
+            continue;
+        }
         let summary = artifact
             .metadata
             .as_ref()
@@ -37,6 +47,13 @@ pub fn build_worker_output_from_run(run: &shared_types::ConductorRunState) -> Wo
             }
         }
     }
+    for decision in &run.decision_log {
+        run_narrative.push(format!(
+            "- {}: {}",
+            format!("{:?}", decision.decision_type),
+            decision.reason
+        ));
+    }
 
     let mut report_content = format!(
         "# Conductor Report\n\n## Objective\n\n{}\n\n## Run\n\n- Run ID: `{}`\n- Status: `{}`\n\n## Agenda\n\n",
@@ -51,6 +68,15 @@ pub fn build_worker_output_from_run(run: &shared_types::ConductorRunState) -> Wo
             item.capability,
             format!("{:?}", item.status)
         ));
+    }
+    report_content.push_str("\n## Run Narrative\n\n");
+    if run_narrative.is_empty() {
+        report_content.push_str("- No policy decisions recorded.\n");
+    } else {
+        for line in run_narrative {
+            report_content.push_str(&line);
+            report_content.push('\n');
+        }
     }
     report_content.push_str("\n## Artifacts\n\n");
     if sections.is_empty() {

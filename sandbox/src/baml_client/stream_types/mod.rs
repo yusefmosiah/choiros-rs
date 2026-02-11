@@ -68,6 +68,20 @@ pub enum StreamTypes {
 
     ReadFileToolArgs(ReadFileToolArgs),
 
+    ResearcherCitationInput(ResearcherCitationInput),
+
+    ResearcherFetchedPageInput(ResearcherFetchedPageInput),
+
+    ResearcherPlanInput(ResearcherPlanInput),
+
+    ResearcherPlanOutput(ResearcherPlanOutput),
+
+    ResearcherProviderCallSummary(ResearcherProviderCallSummary),
+
+    ResearcherSynthesisInput(ResearcherSynthesisInput),
+
+    ResearcherSynthesisOutput(ResearcherSynthesisOutput),
+
     Resume(Resume),
 
     RetryPolicy(RetryPolicy),
@@ -161,6 +175,20 @@ impl baml::KnownTypes for StreamTypes {
             StreamTypes::ObjectiveContract(_) => "ObjectiveContract",
 
             StreamTypes::ReadFileToolArgs(_) => "ReadFileToolArgs",
+
+            StreamTypes::ResearcherCitationInput(_) => "ResearcherCitationInput",
+
+            StreamTypes::ResearcherFetchedPageInput(_) => "ResearcherFetchedPageInput",
+
+            StreamTypes::ResearcherPlanInput(_) => "ResearcherPlanInput",
+
+            StreamTypes::ResearcherPlanOutput(_) => "ResearcherPlanOutput",
+
+            StreamTypes::ResearcherProviderCallSummary(_) => "ResearcherProviderCallSummary",
+
+            StreamTypes::ResearcherSynthesisInput(_) => "ResearcherSynthesisInput",
+
+            StreamTypes::ResearcherSynthesisOutput(_) => "ResearcherSynthesisOutput",
 
             StreamTypes::Resume(_) => "Resume",
 

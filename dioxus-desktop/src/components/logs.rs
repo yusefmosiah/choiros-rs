@@ -451,10 +451,17 @@ pub fn LogsView(desktop_id: String, window_id: String) -> Element {
 }
 
 fn run_key_for_event(event: &LogsEvent) -> Option<String> {
+    let data = event
+        .payload
+        .get("data")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+
     event
         .payload
         .get("correlation_id")
         .and_then(|v| v.as_str())
+        .or_else(|| data.get("correlation_id").and_then(|v| v.as_str()))
         .or_else(|| {
             event
                 .payload
@@ -469,6 +476,9 @@ fn run_key_for_event(event: &LogsEvent) -> Option<String> {
                 .payload
                 .get("task_id")
                 .and_then(|v| v.as_str())
+                .or_else(|| data.get("task_id").and_then(|v| v.as_str()))
+                .or_else(|| event.payload.get("run_id").and_then(|v| v.as_str()))
+                .or_else(|| data.get("run_id").and_then(|v| v.as_str()))
                 .or_else(|| {
                     event
                         .payload
@@ -493,13 +503,24 @@ fn derive_runs(entries: &[LogFeedEntry]) -> Vec<RunListEntry> {
         let actor =
             event_emitter_label(&entry.event).unwrap_or_else(|| entry.event.actor_id.clone());
         let status = match entry.event.event_type.as_str() {
-            "worker.task.failed" | "conductor.task.failed" => "failed",
+            "worker.task.failed"
+            | "conductor.task.failed"
+            | "conductor.capability.failed"
+            | "watcher.review.failed" => "failed",
             "worker.task.completed" | "conductor.task.completed" => "completed",
             "worker.task.started"
             | "worker.task.progress"
             | "conductor.task.started"
+            | "conductor.task.progress"
             | "conductor.worker.call"
-            | "conductor.worker.result" => "running",
+            | "conductor.worker.result"
+            | "conductor.run.started"
+            | "conductor.capability.completed"
+            | "conductor.capability.blocked"
+            | "conductor.decision"
+            | "conductor.progress"
+            | "watcher.escalation"
+            | "watcher.review.completed" => "running",
             _ => "active",
         }
         .to_string();
@@ -587,8 +608,21 @@ fn should_display_event(event: &LogsEvent) -> bool {
         | "conductor.task.started"
         | "conductor.task.completed"
         | "conductor.task.failed"
+        | "conductor.run.started"
+        | "conductor.capability.completed"
+        | "conductor.capability.failed"
+        | "conductor.capability.blocked"
+        | "conductor.decision"
+        | "conductor.progress"
+        | "conductor.finding"
+        | "conductor.learning"
+        | "conductor.tool.call"
+        | "conductor.tool.result"
         | "conductor.worker.call"
-        | "conductor.worker.result" => true,
+        | "conductor.worker.result"
+        | "watcher.review.completed"
+        | "watcher.review.failed"
+        | "watcher.escalation" => true,
         "worker.task.progress" => {
             let phase = event
                 .payload
@@ -602,6 +636,13 @@ fn should_display_event(event: &LogsEvent) -> bool {
                     | "terminal_tool_result"
                     | "terminal_agent_fallback"
                     | "terminal_agent_synthesizing"
+                    | "research_task_started"
+                    | "research_provider_call"
+                    | "research_provider_result"
+                    | "research_provider_error"
+                    | "research_round_started"
+                    | "research_round_refine_query"
+                    | "research_task_completed"
             )
         }
         "conductor.task.progress" => {
@@ -612,7 +653,11 @@ fn should_display_event(event: &LogsEvent) -> bool {
                 .unwrap_or_default();
             matches!(phase, "routing" | "worker_execution")
         }
-        other => other.starts_with("watcher.alert"),
+        other => {
+            other.starts_with("watcher.alert")
+                || other.starts_with("conductor.")
+                || other.starts_with("worker.task")
+        }
     }
 }
 
@@ -634,6 +679,7 @@ fn event_headline(event: &LogsEvent) -> String {
 
     let actor = event_emitter_label(event).unwrap_or_else(|| event.actor_id.clone());
     let payload = &event.payload;
+    let data = payload.get("data").unwrap_or(payload);
     let headline = match event.event_type.as_str() {
         "chat.user_msg" => payload
             .get("text")
@@ -792,6 +838,103 @@ fn event_headline(event: &LogsEvent) -> String {
                 .and_then(|v| v.as_str())
                 .unwrap_or("conductor");
             format!("{actor} conductor progress status={status} phase={phase}")
+        }
+        "conductor.run.started" => {
+            let objective = data
+                .get("objective")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            format!(
+                "{actor} conductor run started objective={}",
+                soften(&trim_snippet(objective, 160))
+            )
+        }
+        "conductor.progress" => {
+            let message = data
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let capability = payload
+                .get("capability")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            format!(
+                "{actor} conductor progress capability={capability} {}",
+                soften(&trim_snippet(message, 180))
+            )
+        }
+        "conductor.capability.completed"
+        | "conductor.capability.failed"
+        | "conductor.capability.blocked" => {
+            let capability = payload
+                .get("capability")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let call_id = data.get("call_id").and_then(|v| v.as_str()).unwrap_or("n/a");
+            let message = data
+                .get("summary")
+                .or_else(|| data.get("error"))
+                .or_else(|| data.get("reason"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            format!(
+                "{actor} {} capability={capability} call_id={call_id} {}",
+                event.event_type,
+                soften(&trim_snippet(message, 160))
+            )
+        }
+        "conductor.decision" => {
+            let decision_type = data
+                .get("decision_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let reason = data
+                .get("reason")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            format!(
+                "{actor} conductor decision={decision_type} {}",
+                soften(&trim_snippet(reason, 160))
+            )
+        }
+        "watcher.review.completed" => {
+            let status = payload
+                .get("review_status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let escalations = payload
+                .get("escalation_count")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            format!("{actor} watcher review status={status} escalations={escalations}")
+        }
+        "watcher.review.failed" => {
+            let error = payload
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            format!(
+                "{actor} watcher review failed {}",
+                soften(&trim_snippet(error, 160))
+            )
+        }
+        "watcher.escalation" => {
+            let kind = payload
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let urgency = payload
+                .get("urgency")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let description = payload
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            format!(
+                "{actor} watcher escalation kind={kind} urgency={urgency} {}",
+                soften(&trim_snippet(description, 150))
+            )
         }
         "conductor.worker.call" => {
             let worker_type = payload
