@@ -16,6 +16,7 @@ pub mod conductor;
 pub mod desktop;
 pub mod files;
 pub mod logs;
+pub mod run_observability;
 pub mod terminal;
 pub mod user;
 pub mod viewer;
@@ -47,6 +48,10 @@ pub fn router() -> Router<ApiState> {
         .route("/logs/latest-seq", get(logs::get_latest_seq))
         .route("/logs/events.jsonl", get(logs::export_events_jsonl))
         .route("/logs/run.md", get(logs::export_run_markdown))
+        .route(
+            "/api/runs/{run_id}/timeline",
+            get(run_observability::get_run_timeline),
+        )
         // User preference routes
         .route(
             "/user/{user_id}/preferences",

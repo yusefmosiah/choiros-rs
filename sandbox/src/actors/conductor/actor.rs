@@ -148,27 +148,46 @@ impl ConductorActor {
             "Processing event"
         );
 
-        if state.tasks.get_run(&run_id).is_some() {
-            let event_artifact = shared_types::ConductorArtifact {
-                artifact_id: ulid::Ulid::new().to_string(),
-                kind: shared_types::ArtifactKind::JsonData,
-                reference: format!("event://{}", event_type),
-                mime_type: Some("application/json".to_string()),
-                created_at: chrono::Utc::now(),
-                source_call_id: metadata
-                    .call_id
-                    .clone()
-                    .unwrap_or_else(|| "event".to_string()),
-                metadata: Some(serde_json::json!({
-                    "event_type": event_type,
-                    "event_payload": payload,
-                    "event_metadata": metadata,
-                    "category": "wake_signal",
-                })),
-            };
-            if let Err(err) = state.tasks.add_artifact(&run_id, event_artifact) {
-                tracing::warn!(run_id = %run_id, error = %err, "Failed to persist wake event artifact");
+        if let Some(metadata_run_id) = metadata.run_id.as_ref() {
+            if metadata_run_id != &run_id {
+                tracing::warn!(
+                    run_id = %run_id,
+                    metadata_run_id = %metadata_run_id,
+                    event_type = %event_type,
+                    "Ignoring event with mismatched run provenance"
+                );
+                return Ok(());
             }
+        }
+
+        if state.tasks.get_run(&run_id).is_none() {
+            tracing::debug!(
+                run_id = %run_id,
+                event_type = %event_type,
+                "Ignoring event for unknown run"
+            );
+            return Ok(());
+        }
+
+        let event_artifact = shared_types::ConductorArtifact {
+            artifact_id: ulid::Ulid::new().to_string(),
+            kind: shared_types::ArtifactKind::JsonData,
+            reference: format!("event://{}", event_type),
+            mime_type: Some("application/json".to_string()),
+            created_at: chrono::Utc::now(),
+            source_call_id: metadata
+                .call_id
+                .clone()
+                .unwrap_or_else(|| "event".to_string()),
+            metadata: Some(serde_json::json!({
+                "event_type": event_type,
+                "event_payload": payload,
+                "event_metadata": metadata,
+                "category": "wake_signal",
+            })),
+        };
+        if let Err(err) = state.tasks.add_artifact(&run_id, event_artifact) {
+            tracing::warn!(run_id = %run_id, error = %err, "Failed to persist wake event artifact");
         }
 
         if metadata.wake_policy == shared_types::WakePolicy::Wake {

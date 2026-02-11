@@ -69,6 +69,9 @@ pub enum ConductorError {
     /// Worker failed to complete task
     #[error("worker failed: {0}")]
     WorkerFailed(String),
+    /// Worker could not proceed and returned a blocked state
+    #[error("worker blocked: {0}")]
+    WorkerBlocked(String),
     /// Report write failed
     #[error("report write failed: {0}")]
     ReportWriteFailed(String),
@@ -87,6 +90,7 @@ impl From<ConductorError> for shared_types::ConductorError {
                 ConductorError::NotFound(_) => "NOT_FOUND",
                 ConductorError::InvalidRequest(_) => "INVALID_REQUEST",
                 ConductorError::WorkerFailed(_) => "WORKER_FAILED",
+                ConductorError::WorkerBlocked(_) => "WORKER_BLOCKED",
                 ConductorError::ReportWriteFailed(_) => "REPORT_WRITE_FAILED",
                 ConductorError::DuplicateTask(_) => "DUPLICATE_TASK",
                 ConductorError::PolicyError(_) => "POLICY_ERROR",
@@ -97,6 +101,7 @@ impl From<ConductorError> for shared_types::ConductorError {
                 ConductorError::NotFound(_) => shared_types::FailureKind::Unknown,
                 ConductorError::InvalidRequest(_) => shared_types::FailureKind::Validation,
                 ConductorError::WorkerFailed(_) => shared_types::FailureKind::Provider,
+                ConductorError::WorkerBlocked(_) => shared_types::FailureKind::Provider,
                 ConductorError::ReportWriteFailed(_) => shared_types::FailureKind::Unknown,
                 ConductorError::DuplicateTask(_) => shared_types::FailureKind::Validation,
                 ConductorError::PolicyError(_) => shared_types::FailureKind::Provider,

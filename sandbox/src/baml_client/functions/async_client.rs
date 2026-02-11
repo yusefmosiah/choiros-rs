@@ -110,6 +110,8 @@ macro_rules! baml_function_async {
 
 baml_function_async!(ConductorAssessTerminality(input: &types::ConductorTerminalityInput, ) -> (stream_types::ConductorTerminalityOutput, types::ConductorTerminalityOutput));
 
+baml_function_async!(ConductorBootstrapAgenda(input: &types::ConductorBootstrapInput, ) -> (stream_types::ConductorBootstrapOutput, types::ConductorBootstrapOutput));
+
 baml_function_async!(ConductorDecideNextAction(input: &types::ConductorDecisionInput, ) -> (stream_types::ConductorDecisionOutput, types::ConductorDecisionOutput));
 
 baml_function_async!(ConductorRefineObjective(input: &types::ConductorObjectiveRefineInput, ) -> (stream_types::ConductorObjectiveRefineOutput, types::ConductorObjectiveRefineOutput));
@@ -140,6 +142,8 @@ pub struct BamlAsyncClient {
 
     pub ConductorAssessTerminality: ConductorAssessTerminality,
 
+    pub ConductorBootstrapAgenda: ConductorBootstrapAgenda,
+
     pub ConductorDecideNextAction: ConductorDecideNextAction,
 
     pub ConductorRefineObjective: ConductorRefineObjective,
@@ -167,6 +171,8 @@ impl BamlAsyncClient {
             options: FunctionOptions::new(),
 
             ConductorAssessTerminality: ConductorAssessTerminality::new(),
+
+            ConductorBootstrapAgenda: ConductorBootstrapAgenda::new(),
 
             ConductorDecideNextAction: ConductorDecideNextAction::new(),
 
@@ -196,6 +202,10 @@ impl BamlAsyncClient {
             options: options.clone(),
 
             ConductorAssessTerminality: ConductorAssessTerminality {
+                options: options.clone(),
+            },
+
+            ConductorBootstrapAgenda: ConductorBootstrapAgenda {
                 options: options.clone(),
             },
 

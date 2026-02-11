@@ -184,35 +184,53 @@ impl ConductorActor {
                 }
             }
             Err(err) => {
+                let (call_status, agenda_status, failure_kind, blocked_reason) = match &err {
+                    ConductorError::WorkerBlocked(reason) => (
+                        shared_types::CapabilityCallStatus::Blocked,
+                        shared_types::AgendaItemStatus::Blocked,
+                        Some(shared_types::FailureKind::Provider),
+                        Some(reason.clone()),
+                    ),
+                    _ => (
+                        shared_types::CapabilityCallStatus::Failed,
+                        shared_types::AgendaItemStatus::Failed,
+                        Some(shared_types::FailureKind::Unknown),
+                        None,
+                    ),
+                };
+
                 let err_text = err.to_string();
                 state
                     .tasks
-                    .update_capability_call(
-                        &run_id,
-                        &call_id,
-                        shared_types::CapabilityCallStatus::Failed,
-                        Some(err_text.clone()),
-                    )
+                    .update_capability_call(&run_id, &call_id, call_status, Some(err_text.clone()))
                     .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
                 state
                     .tasks
-                    .update_agenda_item(
-                        &run_id,
-                        &agenda_item_id,
-                        shared_types::AgendaItemStatus::Failed,
-                    )
+                    .update_agenda_item(&run_id, &agenda_item_id, agenda_status)
                     .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
 
-                events::emit_capability_failed(
-                    &state.event_store,
-                    &run_id,
-                    &task_id,
-                    &call_id,
-                    &capability,
-                    &err_text,
-                    Some(shared_types::FailureKind::Unknown),
-                )
-                .await;
+                if let Some(reason) = blocked_reason {
+                    events::emit_capability_blocked(
+                        &state.event_store,
+                        &run_id,
+                        &task_id,
+                        &call_id,
+                        &capability,
+                        &reason,
+                    )
+                    .await;
+                } else {
+                    events::emit_capability_failed(
+                        &state.event_store,
+                        &run_id,
+                        &task_id,
+                        &call_id,
+                        &capability,
+                        &err_text,
+                        failure_kind,
+                    )
+                    .await;
+                }
                 events::emit_worker_result(
                     &state.event_store,
                     &task_id,

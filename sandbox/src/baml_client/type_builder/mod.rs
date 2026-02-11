@@ -122,6 +122,24 @@ impl TypeBuilder {
         )
     }
 
+    /// Access the `ConductorBootstrapInput` class builder.
+    pub fn ConductorBootstrapInput(&self) -> ConductorBootstrapInputClassBuilder {
+        ConductorBootstrapInputClassBuilder::new(
+            self.inner
+                .get_class("ConductorBootstrapInput")
+                .expect("class ConductorBootstrapInput is defined in schema"),
+        )
+    }
+
+    /// Access the `ConductorBootstrapOutput` class builder.
+    pub fn ConductorBootstrapOutput(&self) -> ConductorBootstrapOutputClassBuilder {
+        ConductorBootstrapOutputClassBuilder::new(
+            self.inner
+                .get_class("ConductorBootstrapOutput")
+                .expect("class ConductorBootstrapOutput is defined in schema"),
+        )
+    }
+
     /// Access the `ConductorCapabilityCall` class builder.
     pub fn ConductorCapabilityCall(&self) -> ConductorCapabilityCallClassBuilder {
         ConductorCapabilityCallClassBuilder::new(

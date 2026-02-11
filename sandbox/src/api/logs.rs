@@ -21,6 +21,7 @@ pub struct LogsQuery {
     pub event_type_prefix: Option<String>,
     pub actor_id: Option<String>,
     pub user_id: Option<String>,
+    pub task_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,7 +60,26 @@ pub(crate) async fn query_events_from_store(
             reply,
         }
     }) {
-        Ok(Ok(events)) => Ok(events),
+        Ok(Ok(mut events)) => {
+            if let Some(ref task_id) = query.task_id {
+                events.retain(|event| {
+                    event
+                        .payload
+                        .get("task_id")
+                        .and_then(|v| v.as_str())
+                        .or_else(|| {
+                            event
+                                .payload
+                                .get("task")
+                                .and_then(|t| t.get("task_id"))
+                                .and_then(|v| v.as_str())
+                        })
+                        .map(|id| id == task_id)
+                        .unwrap_or(false)
+                });
+            }
+            Ok(events)
+        }
         Ok(Err(err)) => Err(format!("EventStore error: {err}")),
         Err(err) => Err(format!("RPC error: {err}")),
     }
@@ -204,6 +224,7 @@ pub(crate) async fn build_run_markdown_from_store(
         event_type_prefix: None,
         actor_id: query.actor_id.clone(),
         user_id: query.user_id.clone(),
+        task_id: None,
     };
 
     let events = query_events_from_store(event_store, base_query).await?;

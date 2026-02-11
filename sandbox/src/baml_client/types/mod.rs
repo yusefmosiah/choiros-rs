@@ -39,6 +39,10 @@ pub enum Types {
 
     ConductorArtifact(ConductorArtifact),
 
+    ConductorBootstrapInput(ConductorBootstrapInput),
+
+    ConductorBootstrapOutput(ConductorBootstrapOutput),
+
     ConductorCapabilityCall(ConductorCapabilityCall),
 
     ConductorDecisionInput(ConductorDecisionInput),
@@ -172,6 +176,10 @@ impl baml::KnownTypes for Types {
             Types::ConductorAgendaItem(_) => "ConductorAgendaItem",
 
             Types::ConductorArtifact(_) => "ConductorArtifact",
+
+            Types::ConductorBootstrapInput(_) => "ConductorBootstrapInput",
+
+            Types::ConductorBootstrapOutput(_) => "ConductorBootstrapOutput",
 
             Types::ConductorCapabilityCall(_) => "ConductorCapabilityCall",
 

@@ -768,19 +768,6 @@ impl WatcherActor {
     }
 }
 
-// ============================================================================
-// DEPRECATED: Deterministic rule methods (replaced by LLM review)
-// ============================================================================
-// The following methods are kept for reference but are no longer used:
-// - evaluate_failure_spike()
-// - evaluate_timeout_spike()
-// - evaluate_network_spike()
-// - evaluate_retry_storm()
-// - evaluate_stalled_tasks()
-//
-// All detection is now handled by WatcherReviewLogWindow BAML function.
-// ============================================================================
-
 #[cfg(test)]
 mod tests {
     use super::*;

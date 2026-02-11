@@ -229,7 +229,46 @@ function ConductorRefineObjective(input: ConductorObjectiveRefineInput) -> Condu
 }
 
 // ============================================================================
-// Function 3: ConductorAssessTerminality
+// Function 3: ConductorBootstrapAgenda
+// ============================================================================
+
+class ConductorBootstrapInput {
+  raw_objective string
+  available_capabilities string[]
+}
+
+class ConductorBootstrapOutput {
+  dispatch_capabilities string[]
+  block_reason string?
+  rationale string
+  confidence float
+}
+
+function ConductorBootstrapAgenda(input: ConductorBootstrapInput) -> ConductorBootstrapOutput {
+  client ClaudeBedrock
+  prompt #"
+    You are the ChoirOS Conductor bootstrap policy.
+
+    Choose which capabilities should be dispatched first for a new run.
+
+    Raw Objective: {{ input.raw_objective }}
+    Available Capabilities: {{ input.available_capabilities }}
+
+    Output contract:
+    - dispatch_capabilities may include zero, one, or many capability names.
+    - Only return capability names from available_capabilities.
+    - Return zero capabilities when the run should be blocked immediately.
+    - If dispatch_capabilities is empty, block_reason is required.
+    - rationale must explain why these capabilities were selected.
+    - confidence is 0.0-1.0.
+    - Avoid deterministic threshold logic and use semantic task fit.
+
+    {{ ctx.output_format }}
+  "#
+}
+
+// ============================================================================
+// Function 4: ConductorAssessTerminality
 // ============================================================================
 
 class ConductorTerminalityInput {

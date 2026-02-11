@@ -10,6 +10,7 @@ use crate::actors::conductor::protocol::ConductorError;
 use crate::actors::model_config::{ModelRegistry, ModelResolutionContext};
 use crate::baml_client::types::{
     ConductorAgendaItem as BamlAgendaItem, ConductorArtifact as BamlArtifact,
+    ConductorBootstrapInput, ConductorBootstrapOutput,
     ConductorCapabilityCall as BamlCapabilityCall, ConductorDecisionInput, ConductorDecisionOutput,
     ConductorObjectiveRefineInput, ConductorObjectiveRefineOutput, EventSummary, WorkerOutput,
 };
@@ -19,6 +20,12 @@ pub type SharedConductorPolicy = Arc<dyn ConductorPolicy>;
 
 #[async_trait]
 pub trait ConductorPolicy: Send + Sync {
+    async fn bootstrap_agenda(
+        &self,
+        raw_objective: &str,
+        available_capabilities: &[String],
+    ) -> Result<ConductorBootstrapOutput, ConductorError>;
+
     async fn decide_next_action(
         &self,
         run: &shared_types::ConductorRunState,
@@ -213,6 +220,23 @@ impl BamlConductorPolicy {
 
 #[async_trait]
 impl ConductorPolicy for BamlConductorPolicy {
+    async fn bootstrap_agenda(
+        &self,
+        raw_objective: &str,
+        available_capabilities: &[String],
+    ) -> Result<ConductorBootstrapOutput, ConductorError> {
+        let client_registry = self.resolve_client_registry_for_role("conductor")?;
+        let input = ConductorBootstrapInput {
+            raw_objective: raw_objective.to_string(),
+            available_capabilities: available_capabilities.to_vec(),
+        };
+        B.ConductorBootstrapAgenda
+            .with_client_registry(&client_registry)
+            .call(&input)
+            .await
+            .map_err(|e| ConductorError::PolicyError(format!("Bootstrap agenda failed: {e}")))
+    }
+
     async fn decide_next_action(
         &self,
         run: &shared_types::ConductorRunState,

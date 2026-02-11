@@ -668,6 +668,106 @@ impl ConductorArtifactClassBuilder {
     }
 }
 
+/// Wrapper for the `ConductorBootstrapInput` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct ConductorBootstrapInputClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl ConductorBootstrapInputClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner.as_type().expect(
+            "ConductorBootstrapInput is statically defined in .baml and should always have a type",
+        )
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `raw_objective` field builder.
+    pub fn property_raw_objective(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("raw_objective")
+            .expect("ConductorBootstrapInput.raw_objective is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `available_capabilities` field builder.
+    pub fn property_available_capabilities(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("available_capabilities")
+            .expect("ConductorBootstrapInput.available_capabilities is statically defined in .baml and should always be present")
+    }
+}
+
+/// Wrapper for the `ConductorBootstrapOutput` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct ConductorBootstrapOutputClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl ConductorBootstrapOutputClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner.as_type().expect(
+            "ConductorBootstrapOutput is statically defined in .baml and should always have a type",
+        )
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `dispatch_capabilities` field builder.
+    pub fn property_dispatch_capabilities(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("dispatch_capabilities")
+            .expect("ConductorBootstrapOutput.dispatch_capabilities is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `block_reason` field builder.
+    pub fn property_block_reason(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("block_reason")
+            .expect("ConductorBootstrapOutput.block_reason is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `rationale` field builder.
+    pub fn property_rationale(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("rationale")
+            .expect("ConductorBootstrapOutput.rationale is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `confidence` field builder.
+    pub fn property_confidence(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("confidence")
+            .expect("ConductorBootstrapOutput.confidence is statically defined in .baml and should always be present")
+    }
+}
+
 /// Wrapper for the `ConductorCapabilityCall` class builder.
 ///
 /// Provides type-safe method access to fields defined in the schema.

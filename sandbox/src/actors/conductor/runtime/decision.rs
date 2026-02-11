@@ -121,17 +121,38 @@ impl ConductorActor {
                 );
             }
             DecisionType::Retry => {
-                for item_id in &decision.target_agenda_item_ids {
+                let items_to_retry: Vec<shared_types::ConductorAgendaItem> = {
+                    if let Some(run) = state.tasks.get_run(run_id) {
+                        decision
+                            .target_agenda_item_ids
+                            .iter()
+                            .filter_map(|item_id| {
+                                run.agenda.iter().find(|i| &i.item_id == item_id).cloned()
+                            })
+                            .collect()
+                    } else {
+                        vec![]
+                    }
+                };
+
+                for item in items_to_retry {
                     state
                         .tasks
-                        .update_agenda_item(run_id, item_id, shared_types::AgendaItemStatus::Ready)
+                        .update_agenda_item(
+                            run_id,
+                            &item.item_id,
+                            shared_types::AgendaItemStatus::Running,
+                        )
                         .map_err(|e| {
                             ConductorError::PolicyError(format!("Failed to retry agenda item: {e}"))
                         })?;
+                    self.spawn_capability_call(myself, state, run_id, item)
+                        .await?;
                 }
-                let _ = myself.send_message(ConductorMsg::DispatchReady {
-                    run_id: run_id.to_string(),
-                });
+                let _ = state.tasks.transition_run_status(
+                    run_id,
+                    shared_types::ConductorRunStatus::WaitingForCalls,
+                );
             }
             DecisionType::SpawnFollowup => {
                 for new_item in &decision.new_agenda_items {

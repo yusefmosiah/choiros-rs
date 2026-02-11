@@ -146,53 +146,58 @@ impl ConductorActor {
             }
         }
 
-        let mut candidates: Vec<(
-            &str,
-            crate::baml_client::types::ConductorObjectiveRefineOutput,
-        )> = Vec::new();
+        let mut available_capabilities = Vec::new();
         if state.terminal_actor.is_some() {
-            candidates.push((
-                "terminal",
-                state
-                    .policy
-                    .refine_objective_for_capability(&request.objective, "terminal")
-                    .await?,
-            ));
+            available_capabilities.push("terminal".to_string());
         }
         if state.researcher_actor.is_some() {
-            candidates.push((
-                "researcher",
-                state
-                    .policy
-                    .refine_objective_for_capability(&request.objective, "researcher")
-                    .await?,
-            ));
+            available_capabilities.push("researcher".to_string());
         }
-        if candidates.is_empty() {
+        if available_capabilities.is_empty() {
             return Err(ConductorError::InvalidRequest(
                 "No worker actors available for Conductor default policy".to_string(),
             ));
         }
 
-        candidates.sort_by(|a, b| {
-            b.1.confidence
-                .partial_cmp(&a.1.confidence)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        let bootstrap = state
+            .policy
+            .bootstrap_agenda(&request.objective, &available_capabilities)
+            .await?;
 
-        let mut selected = vec![candidates[0].clone()];
-        if candidates.len() > 1 {
-            let top = &candidates[0].1;
-            let second = &candidates[1].1;
-            if second.confidence >= 0.75 && (top.confidence - second.confidence).abs() <= 0.20 {
-                selected.push(candidates[1].clone());
+        let mut selected_capabilities = Vec::new();
+        for capability in bootstrap.dispatch_capabilities {
+            let normalized = capability.trim().to_ascii_lowercase();
+            if normalized.is_empty()
+                || !available_capabilities
+                    .iter()
+                    .any(|c| c.eq_ignore_ascii_case(&normalized))
+                || selected_capabilities
+                    .iter()
+                    .any(|c: &String| c.eq_ignore_ascii_case(&normalized))
+            {
+                continue;
             }
+            selected_capabilities.push(normalized);
         }
 
-        for (idx, (capability, refined)) in selected.into_iter().enumerate() {
+        if selected_capabilities.is_empty() {
+            let reason = bootstrap
+                .block_reason
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or(bootstrap.rationale);
+            return Err(ConductorError::InvalidRequest(format!(
+                "Conductor bootstrap policy blocked run: {reason}"
+            )));
+        }
+
+        for (idx, capability) in selected_capabilities.into_iter().enumerate() {
+            let refined = state
+                .policy
+                .refine_objective_for_capability(&request.objective, &capability)
+                .await?;
             items.push(shared_types::ConductorAgendaItem {
                 item_id: format!("{task_id}:seed:{idx}:{capability}"),
-                capability: capability.to_string(),
+                capability,
                 objective: refined.refined_objective,
                 priority: idx as u8,
                 depends_on: vec![],

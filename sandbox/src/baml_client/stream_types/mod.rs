@@ -34,6 +34,10 @@ pub enum StreamTypes {
 
     ConductorArtifact(ConductorArtifact),
 
+    ConductorBootstrapInput(ConductorBootstrapInput),
+
+    ConductorBootstrapOutput(ConductorBootstrapOutput),
+
     ConductorCapabilityCall(ConductorCapabilityCall),
 
     ConductorDecisionInput(ConductorDecisionInput),
@@ -141,6 +145,10 @@ impl baml::KnownTypes for StreamTypes {
             StreamTypes::ConductorAgendaItem(_) => "ConductorAgendaItem",
 
             StreamTypes::ConductorArtifact(_) => "ConductorArtifact",
+
+            StreamTypes::ConductorBootstrapInput(_) => "ConductorBootstrapInput",
+
+            StreamTypes::ConductorBootstrapOutput(_) => "ConductorBootstrapOutput",
 
             StreamTypes::ConductorCapabilityCall(_) => "ConductorCapabilityCall",
 

@@ -216,6 +216,38 @@ impl AsRef<ConductorArtifact> for ConductorArtifact {
 
 #[derive(Debug, Clone, Default, BamlDecode)]
 
+pub struct ConductorBootstrapInput {
+    pub raw_objective: Option<String>,
+
+    pub available_capabilities: Vec<String>,
+}
+
+impl AsRef<ConductorBootstrapInput> for ConductorBootstrapInput {
+    fn as_ref(&self) -> &ConductorBootstrapInput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct ConductorBootstrapOutput {
+    pub dispatch_capabilities: Vec<String>,
+
+    pub block_reason: Option<String>,
+
+    pub rationale: Option<String>,
+
+    pub confidence: Option<f64>,
+}
+
+impl AsRef<ConductorBootstrapOutput> for ConductorBootstrapOutput {
+    fn as_ref(&self) -> &ConductorBootstrapOutput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct ConductorCapabilityCall {
     pub call_id: Option<String>,
 

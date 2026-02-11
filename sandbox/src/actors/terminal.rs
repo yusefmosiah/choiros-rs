@@ -212,6 +212,9 @@ pub enum TerminalError {
     #[error("Invalid input: {0}")]
     InvalidInput(String),
 
+    #[error("Blocked: {0}")]
+    Blocked(String),
+
     #[error("PTY not supported on this platform")]
     PtyNotSupported,
 }
@@ -560,54 +563,6 @@ impl TerminalActor {
             None,
             Some(max_steps),
         );
-        if Self::looks_like_shell_command(&objective) {
-            Self::emit_progress(
-                &progress_tx,
-                "terminal_tool_call",
-                "executing direct bash command",
-                Some("Direct command execution (explicit bash command).".to_string()),
-                Some(objective.clone()),
-                None,
-                None,
-                None,
-                Some(1),
-                Some(1),
-            );
-            let (output, exit_code) = self
-                .execute_terminal_command(&ctx, &objective, per_step_timeout)
-                .await?;
-            let summary = if exit_code == 0 {
-                output.clone()
-            } else {
-                format!("Command failed with exit status {exit_code}: {output}")
-            };
-            let output_excerpt = Self::truncate_excerpt(&summary);
-            Self::emit_progress(
-                &progress_tx,
-                "terminal_tool_result",
-                "direct bash command completed",
-                Some("Direct command execution (explicit bash command).".to_string()),
-                Some(objective.clone()),
-                None,
-                Some(output_excerpt.clone()),
-                Some(exit_code),
-                Some(1),
-                Some(1),
-            );
-            return Ok(TerminalAgentResult {
-                summary,
-                reasoning: Some("Direct command execution (explicit bash command).".to_string()),
-                success: exit_code == 0,
-                model_used: None,
-                exit_code: Some(exit_code),
-                executed_commands: vec![objective.clone()],
-                steps: vec![TerminalExecutionStep {
-                    command: objective,
-                    exit_code,
-                    output_excerpt,
-                }],
-            });
-        }
 
         let mut executed_commands = Vec::new();
         let mut steps: Vec<TerminalExecutionStep> = Vec::new();
@@ -663,47 +618,21 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                 .await
             {
                 Ok(plan) => plan,
-                Err(_) => {
-                    let (output, exit_code) = self
-                        .execute_terminal_command(&ctx, &objective, per_step_timeout)
-                        .await?;
-                    let summary = if exit_code == 0 {
-                        output.clone()
-                    } else {
-                        format!("Command failed with exit status {exit_code}: {output}")
-                    };
-                    let output_excerpt = Self::truncate_excerpt(&summary);
+                Err(e) => {
+                    let reason = format!("Planning failed: {e}");
                     Self::emit_progress(
                         &progress_tx,
-                        "terminal_agent_fallback",
-                        "planner unavailable; executed objective directly",
-                        Some(
-                            "Planner unavailable; executed objective as direct command."
-                                .to_string(),
-                        ),
+                        "terminal_agent_blocked",
+                        "terminal agent blocked during planning",
+                        Some(reason.clone()),
                         Some(objective.clone()),
                         Some(model_used.clone()),
-                        Some(output_excerpt.clone()),
-                        Some(exit_code),
-                        Some(1),
-                        Some(1),
+                        None,
+                        None,
+                        None,
+                        Some(max_steps),
                     );
-                    return Ok(TerminalAgentResult {
-                        summary,
-                        reasoning: Some(
-                            "Planner unavailable; executed objective as direct command."
-                                .to_string(),
-                        ),
-                        success: exit_code == 0,
-                        model_used: Some(model_used.clone()),
-                        exit_code: Some(exit_code),
-                        executed_commands: vec![objective.clone()],
-                        steps: vec![TerminalExecutionStep {
-                            command: objective,
-                            exit_code,
-                            output_excerpt,
-                        }],
-                    });
+                    return Err(TerminalError::Blocked(reason));
                 }
             };
             latest_reasoning = Some(plan.thinking.clone());
@@ -1001,30 +930,6 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
         });
     }
 
-    fn looks_like_shell_command(input: &str) -> bool {
-        let trimmed = input.trim();
-        if trimmed.is_empty() {
-            return false;
-        }
-        trimmed.contains('\n')
-            || trimmed.starts_with("./")
-            || trimmed.starts_with('/')
-            || trimmed.contains("&&")
-            || trimmed.contains("||")
-            || trimmed.contains('|')
-            || trimmed.contains('>')
-            || trimmed.contains('<')
-            || trimmed.starts_with("ls ")
-            || trimmed.starts_with("cat ")
-            || trimmed.starts_with("echo ")
-            || trimmed.starts_with("curl ")
-            || trimmed.starts_with("grep ")
-            || trimmed.starts_with("find ")
-            || trimmed.starts_with("git ")
-            || trimmed.starts_with("cargo ")
-            || trimmed.starts_with("just ")
-    }
-
     fn normalize_command_for_runtime(command: &str, timeout_ms: u64) -> String {
         let trimmed = command.trim();
         let Some(rest) = trimmed.strip_prefix("curl") else {
@@ -1210,6 +1115,22 @@ mod tests {
             .status()
             .map(|s| s.success())
             .unwrap_or(false)
+    }
+
+    fn has_live_terminal_planner() -> bool {
+        let bedrock_auth = std::env::var("AWS_BEARER_TOKEN_BEDROCK")
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false)
+            || std::env::var("AWS_PROFILE")
+                .map(|v| !v.trim().is_empty())
+                .unwrap_or(false)
+            || (std::env::var("AWS_ACCESS_KEY_ID")
+                .map(|v| !v.trim().is_empty())
+                .unwrap_or(false)
+                && std::env::var("AWS_SECRET_ACCESS_KEY")
+                    .map(|v| !v.trim().is_empty())
+                    .unwrap_or(false));
+        bedrock_auth && crate::runtime_env::ensure_tls_cert_env().is_some()
     }
 
     #[test]
@@ -1509,6 +1430,9 @@ mod tests {
         if !has_curl() {
             return;
         }
+        if !has_live_terminal_planner() {
+            return;
+        }
 
         let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind local test server");
         let port = listener
@@ -1592,6 +1516,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_run_agentic_task_times_out_long_command() {
+        if !has_live_terminal_planner() {
+            return;
+        }
+
         let (event_store, _event_store_handle) =
             Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
                 .await

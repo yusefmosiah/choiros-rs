@@ -124,6 +124,7 @@ fn map_actor_error(err: ActorConductorError) -> (StatusCode, ConductorError) {
             ),
         ),
         ActorConductorError::WorkerFailed(msg)
+        | ActorConductorError::WorkerBlocked(msg)
         | ActorConductorError::ReportWriteFailed(msg)
         | ActorConductorError::DuplicateTask(msg)
         | ActorConductorError::PolicyError(msg) => (

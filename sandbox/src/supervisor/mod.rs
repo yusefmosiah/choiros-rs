@@ -2439,6 +2439,11 @@ impl ApplicationSupervisor {
                         "Invalid terminal request payload or runtime capability for delegated tool.",
                 }
             }
+            TerminalError::Blocked(_) => FailureClassification {
+                kind: shared_types::FailureKind::Provider,
+                retriable: false,
+                hint: "Terminal planner blocked execution; inspect policy output and objective.",
+            },
             TerminalError::AlreadyRunning
             | TerminalError::NotRunning
             | TerminalError::SpawnFailed(_) => FailureClassification {

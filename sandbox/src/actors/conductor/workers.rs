@@ -69,7 +69,10 @@ pub async fn call_terminal(
         .map_err(|e| {
             ConductorError::WorkerFailed(format!("Failed to call terminal bash tool: {e}"))
         })?
-        .map_err(|e| ConductorError::WorkerFailed(e.to_string()))
+        .map_err(|e| match e {
+            TerminalError::Blocked(reason) => ConductorError::WorkerBlocked(reason),
+            other => ConductorError::WorkerFailed(other.to_string()),
+        })
     } else {
         call!(terminal, |reply| TerminalMsg::RunAgenticTask {
             objective,
@@ -82,6 +85,9 @@ pub async fn call_terminal(
         .map_err(|e| {
             ConductorError::WorkerFailed(format!("Failed to call terminal agent task: {e}"))
         })?
-        .map_err(|e| ConductorError::WorkerFailed(e.to_string()))
+        .map_err(|e| match e {
+            TerminalError::Blocked(reason) => ConductorError::WorkerBlocked(reason),
+            other => ConductorError::WorkerFailed(other.to_string()),
+        })
     }
 }

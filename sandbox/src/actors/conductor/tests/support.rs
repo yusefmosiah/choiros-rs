@@ -9,7 +9,7 @@ use crate::actors::event_store::{EventStoreActor, EventStoreArguments, EventStor
 use crate::actors::researcher::ResearcherMsg;
 use crate::actors::terminal::TerminalMsg;
 use crate::baml_client::types::{
-    ConductorDecisionOutput, ConductorObjectiveRefineOutput, DecisionType,
+    ConductorBootstrapOutput, ConductorDecisionOutput, ConductorObjectiveRefineOutput, DecisionType,
 };
 
 #[derive(Debug)]
@@ -17,6 +17,25 @@ pub(crate) struct TestPolicy;
 
 #[async_trait]
 impl ConductorPolicy for TestPolicy {
+    async fn bootstrap_agenda(
+        &self,
+        _raw_objective: &str,
+        available_capabilities: &[String],
+    ) -> Result<ConductorBootstrapOutput, ConductorError> {
+        let dispatch_capabilities = available_capabilities
+            .iter()
+            .filter(|c| c.as_str() == "terminal" || c.as_str() == "researcher")
+            .take(1)
+            .cloned()
+            .collect::<Vec<_>>();
+        Ok(ConductorBootstrapOutput {
+            dispatch_capabilities,
+            block_reason: None,
+            rationale: "test bootstrap".to_string(),
+            confidence: 1.0,
+        })
+    }
+
     async fn decide_next_action(
         &self,
         _run: &shared_types::ConductorRunState,
