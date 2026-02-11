@@ -1,8 +1,29 @@
-# ChoirOS Progress - 2026-02-09 (Pathway Normalization: Conductor-First)
+# ChoirOS Progress - 2026-02-10 (Code Review + Refactor Strategy)
 
 ## Narrative Summary (1-minute read)
 
-Files v0 and Writer v0 are complete. The project has shifted to Conductor-first orchestration: Prompt Bar routes intent to Conductor, which coordinates capability actors to generate markdown reports and open them in Writer preview mode. Chat remains a compatibility surface and does not own multi-step planning. All workflow control is encoded in typed protocols (NO ADHOC WORKFLOW).
+**Strategic Pivot: Simplify and refactor using current working code as baseline.**
+
+E2E tests serve as **intelligence sources** - run them to observe actual behavior, use results to guide refactoring direction. Tests inform refactoring, they don't block it.
+
+Current codebase (from usage testing) is the **closest we've been to intended behavior**. Focus shifts to simplification and solid engineering practices, not comprehensive test coverage.
+
+## Recent Code Review (2026-02-10)
+
+### Determinism Violations: ✅ FULLY RESOLVED
+- TerminalActor command bypass removed
+- Conductor agenda thresholds removed (now BAML-based)
+- Silent fallbacks removed (explicit blocked/failed states)
+
+### NO ADHOC WORKFLOW: ✅ PRODUCTION FIXED
+- All critical string-based control flow removed from production code
+- Typed enums (ObjectiveStatus, PlanMode, FailureKind) fully implemented
+- Only phrase-based assertions remain in test files (acceptable during transition)
+
+### Critical Gaps: ❌ HEADLESS E2E TESTS + UNIFIED HARNESS
+- 7 required E2E scenarios not implemented (tests as requirements, not blockers)
+- Unified agentic harness does NOT exist (each actor has independent loop)
+- Run observability API not implemented
 
 ## Doc Consistency Diff
 
@@ -19,22 +40,34 @@ Files v0 and Writer v0 are complete. The project has shifted to Conductor-first 
 - Historical execution lanes prioritizing Logging/Watcher/Model Policy as active work (they are complete)
 - References to Files/Writer as "in progress" or "viewer shells"
 
-### What To Do Next (Authoritative)
-1. **Milestone A**: Conductor backend MVP for report generation
-   - ConductorActor with capability dispatch to actors
-   - Markdown report generation endpoint
-   - Strict typed protocol enforcement (NO ADHOC WORKFLOW)
-2. **Milestone B**: Prompt bar routing to Conductor
-   - Prompt Bar captures universal input and routes to Conductor
-   - Chat available as compatibility fallback only
-3. **Milestone C**: Writer auto-open in markdown preview
-   - Conductor-generated reports auto-open in Writer
-   - Writer launches in preview mode for markdown files
-   - Backend-driven UI state per `backend-authoritative-ui-state-pattern.md`
+### What To Do Next (Authoritative - Tests as Intelligence Sources)
+
+**Strategy: Run E2E tests to observe actual behavior → Refactor based on what's working**
+
+1. **Create headless E2E test suite** (`sandbox/tests/e2e_conductor_scenarios.rs`)
+   - Purpose: Observe actual Conductor behavior, not gate development
+   - 7 scenarios: basic run, replan, watcher wake, blocked, concurrency, observability, live-stream
+   - Use results to identify what's working vs what needs refactoring
+
+2. **Implement unified agentic harness** (refactor, not new feature)
+   - Extract shared loop state machine from existing working code
+   - Start with Researcher as reference (it already has typed worker events)
+   - Unify step caps, timeout logic, typed event emission
+
+3. **Simplify and harden observability**
+   - `GET /api/runs/{run_id}/timeline` endpoint
+   - Use E2E test results to understand which events are actually useful
+   - Remove unnecessary complexity
+
+4. **Phase 5: Modernize test assertions** (lowest priority)
+   - Replace phrase matching in tests with typed protocol assertions
+   - Only after refactoring is stable
 
 ### Architecture Principles
-- **NO ADHOC WORKFLOW**: Encode all control flow in typed protocol fields (BAML/shared-types) and actor messages. Never use natural-language string matching for workflow state transitions.
-- **Chat is compatibility; Conductor is orchestrator**: Chat can answer simple queries but escalates multi-step planning to Conductor.
+- **Tests inform refactoring, they don't block it**
+- **Simplify to essentials** - current working code is baseline
+- **NO ADHOC WORKFLOW**: LLM planners output typed enums (BAML), runtime acts on those - no string parsing of free text to guess state
+- **Chat is compatibility; Conductor is orchestrator**
 
 ---
 

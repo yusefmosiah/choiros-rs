@@ -44,8 +44,8 @@ This section tracks intentional corrections to roadmap documentation to maintain
    - Writer launches in preview mode for .md files
    - Backend-driven UI state (not browser localStorage)
 
-### Architecture Principles Enforced
-- **NO ADHOC WORKFLOW**: Encode control flow in typed protocols, never string matching
+ ### Architecture Principles Enforced
+- **NO ADHOC WORKFLOW**: LLM planners output typed enums (BAML), runtime acts on those - no string parsing of free text to guess state
 - **Chat is compatibility; Conductor is orchestrator**
 
 ## Narrative Summary (1-minute read)
