@@ -7,13 +7,13 @@
 
 mod classes;
 mod enums;
-mod type_aliases;
 mod unions;
+mod type_aliases;
 
 pub use classes::*;
 pub use enums::*;
-pub use type_aliases::*;
 pub use unions::*;
+pub use type_aliases::*;
 
 // Re-export types from baml runtime
 pub use baml::{Audio, Image, Pdf, Video};
@@ -23,6 +23,7 @@ pub use baml::{Checked, StreamState};
 /// Serves as the compile-time type registry for BamlValue.
 #[derive(Debug, Clone)]
 pub enum Types {
+
     AgentPlan(AgentPlan),
 
     AgentToolArgs(AgentToolArgs),
@@ -127,6 +128,7 @@ pub enum Types {
 
     WriteFileToolArgs(WriteFileToolArgs),
 
+
     DecisionType(DecisionType),
 
     EscalationAction(EscalationAction),
@@ -152,6 +154,8 @@ pub enum Types {
     TerminalityStatus(TerminalityStatus),
 
     UrgencyLevel(UrgencyLevel),
+
+
 }
 
 impl baml::KnownTypes for Types {
@@ -161,6 +165,7 @@ impl baml::KnownTypes for Types {
 
     fn type_name(&self) -> &'static str {
         match self {
+
             Types::AgentPlan(_) => "AgentPlan",
 
             Types::AgentToolArgs(_) => "AgentToolArgs",
@@ -265,6 +270,7 @@ impl baml::KnownTypes for Types {
 
             Types::WriteFileToolArgs(_) => "WriteFileToolArgs",
 
+
             Types::DecisionType(_) => "DecisionType",
 
             Types::EscalationAction(_) => "EscalationAction",
@@ -290,6 +296,9 @@ impl baml::KnownTypes for Types {
             Types::TerminalityStatus(_) => "TerminalityStatus",
 
             Types::UrgencyLevel(_) => "UrgencyLevel",
+
+
+
         }
     }
 }

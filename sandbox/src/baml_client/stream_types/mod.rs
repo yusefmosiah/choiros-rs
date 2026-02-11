@@ -8,16 +8,17 @@
 //! Full implementation coming in Phase 6.
 
 mod classes;
-mod type_aliases;
 mod unions;
+mod type_aliases;
 
 pub use classes::*;
-pub use type_aliases::*;
 pub use unions::*;
+pub use type_aliases::*;
 
 /// Streaming variants of types (all fields Optional).
 #[derive(Debug, Clone)]
 pub enum StreamTypes {
+
     AgentPlan(AgentPlan),
 
     AgentToolArgs(AgentToolArgs),
@@ -121,6 +122,8 @@ pub enum StreamTypes {
     WorkerOutput(WorkerOutput),
 
     WriteFileToolArgs(WriteFileToolArgs),
+
+
 }
 
 impl baml::KnownTypes for StreamTypes {
@@ -130,6 +133,7 @@ impl baml::KnownTypes for StreamTypes {
 
     fn type_name(&self) -> &'static str {
         match self {
+
             StreamTypes::AgentPlan(_) => "AgentPlan",
 
             StreamTypes::AgentToolArgs(_) => "AgentToolArgs",
@@ -233,6 +237,9 @@ impl baml::KnownTypes for StreamTypes {
             StreamTypes::WorkerOutput(_) => "WorkerOutput",
 
             StreamTypes::WriteFileToolArgs(_) => "WriteFileToolArgs",
+
+
+
         }
     }
 }

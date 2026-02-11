@@ -1,10 +1,9 @@
 // ChoirOS Chat Agent Clients
-// Define both model providers: ClaudeBedrock (AWS) and GLM47 (Z.ai)
+// Semantic client names for role-based model routing.
+// Actual providers are configured at runtime via ClientRegistry.
 
-// AWS Bedrock Claude configuration
-// Authentication: Automatically reads AWS_BEARER_TOKEN_BEDROCK from environment
-// AWS introduced API key auth in July 2025 - BAML's aws-bedrock provider supports this natively
-client<llm> ClaudeBedrock {
+// Orchestrator: High-quality model for complex reasoning and orchestration
+client<llm> Orchestrator {
   provider aws-bedrock
   retry_policy Exponential
   options {
@@ -14,8 +13,8 @@ client<llm> ClaudeBedrock {
   }
 }
 
-// Z.ai GLM4.7 configuration using Anthropic-compatible API
-client<llm> GLM47 {
+// FastResponse: Fast/cheap model for quick responses and high-volume tasks
+client<llm> FastResponse {
   provider anthropic
   retry_policy Exponential
   options {

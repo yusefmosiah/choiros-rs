@@ -171,7 +171,7 @@ class AlternativeAction {
 // ============================================================================
 
 function WatcherReviewLogWindow(input: WatcherLogWindowInput) -> WatcherReviewOutput {
-  client GLM47
+  client FastResponse
   prompt #"
     You are the ChoirOS Watcher, an AI that reviews event logs for anomalies,
     failures, and concerning patterns.
@@ -242,7 +242,7 @@ function WatcherReviewLogWindow(input: WatcherLogWindowInput) -> WatcherReviewOu
 // ============================================================================
 
 function WatcherRecommendMitigation(input: WatcherMitigationInput) -> WatcherMitigationOutput {
-  client GLM47
+  client FastResponse
   prompt #"
     You are the ChoirOS Watcher, recommending mitigation actions for detected issues.
 

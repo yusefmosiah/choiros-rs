@@ -88,7 +88,7 @@ class ResearcherSynthesisOutput {
 }
 
 function ResearcherPlanStep(input: ResearcherPlanInput) -> ResearcherPlanOutput {
-  client GLM47
+  client FastResponse
   prompt #"
     You are the ChoirOS Researcher planner.
     Your job is to decide the next agentic step for this research run.
@@ -127,7 +127,7 @@ function ResearcherPlanStep(input: ResearcherPlanInput) -> ResearcherPlanOutput 
 }
 
 function ResearcherSummarizeEvidence(input: ResearcherSynthesisInput) -> ResearcherSynthesisOutput {
-  client GLM47
+  client FastResponse
   prompt #"
     You are the ChoirOS Researcher synthesizer.
     Produce a semantic summary from gathered evidence and decide objective terminality.

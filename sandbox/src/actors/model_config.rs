@@ -4,7 +4,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-pub const REQUIRED_BAML_CLIENT_ALIASES: &[&str] = &["ClaudeBedrock", "GLM47"];
+pub const REQUIRED_BAML_CLIENT_ALIASES: &[&str] = &["Orchestrator", "FastResponse"];
 pub const DEFAULT_MODEL_POLICY_PATH: &str = "config/model-policy.toml";
 
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
@@ -187,6 +187,38 @@ impl ModelRegistry {
         model_id: &str,
     ) -> Result<ClientRegistry, ModelConfigError> {
         self.create_client_registry_for_model(model_id, REQUIRED_BAML_CLIENT_ALIASES)
+    }
+
+    /// Creates a ClientRegistry with semantic role mapping based on model capabilities.
+    /// High-quality models (Opus, Sonnet) are registered as "Orchestrator".
+    /// Fast/cheap models (Haiku, GLM Flash, GLM Air) are registered as "FastResponse".
+    pub fn create_client_registry_with_role_mapping(
+        &self,
+        model_id: &str,
+    ) -> Result<ClientRegistry, ModelConfigError> {
+        let config = self
+            .get(model_id)
+            .cloned()
+            .ok_or_else(|| ModelConfigError::UnknownModel(model_id.to_string()))?;
+
+        let mut registry = ClientRegistry::new();
+
+        // Determine which semantic role this model should be registered as
+        let role_alias = if is_high_quality_model(model_id) {
+            "Orchestrator"
+        } else {
+            "FastResponse"
+        };
+
+        // Register the model under its semantic role
+        add_provider_client(&mut registry, role_alias, &config.provider)?;
+
+        // Also register under its actual ID for direct access if needed
+        if role_alias != config.id {
+            add_provider_client(&mut registry, &config.id, &config.provider)?;
+        }
+
+        Ok(registry)
     }
 
     pub fn resolve_for_role(
@@ -400,6 +432,25 @@ fn add_provider_client(
             }
             registry.add_llm_client(client_name, "openai-generic", options);
             Ok(())
+        }
+    }
+}
+
+/// Determines if a model is high-quality (suitable for Orchestrator role).
+/// High-quality models: Opus, Sonnet variants
+/// Fast/cheap models: Haiku, GLM Flash, GLM Air
+fn is_high_quality_model(model_id: &str) -> bool {
+    match model_id {
+        "ClaudeBedrockOpus46" | "ClaudeBedrockSonnet45" => true,
+        "ClaudeBedrock" | "ClaudeBedrockHaiku45" => false,
+        "ZaiGLM47" => false,
+        "ZaiGLM47Flash" | "GLM47Flash" => false,
+        "ZaiGLM47Air" => false,
+        "KimiK25" | "KimiK25Fallback" => true,
+        _ => {
+            // Default: check if model name contains quality indicators
+            let id_lower = model_id.to_lowercase();
+            id_lower.contains("opus") || id_lower.contains("sonnet")
         }
     }
 }

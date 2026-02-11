@@ -5,10 +5,7 @@
 
 //! Asynchronous BAML client with function-object pattern.
 
-use crate::baml_client::{
-    runtime::{get_runtime, FunctionOptions},
-    stream_types, types,
-};
+use crate::baml_client::{runtime::{get_runtime, FunctionOptions}, stream_types, types};
 use baml::{AsyncStreamingCall, BamlEncode, BamlError};
 
 // =============================================================================
@@ -108,29 +105,43 @@ macro_rules! baml_function_async {
 // Generate function structs
 // =============================================================================
 
+
+
 baml_function_async!(ConductorAssessTerminality(input: &types::ConductorTerminalityInput, ) -> (stream_types::ConductorTerminalityOutput, types::ConductorTerminalityOutput));
+
 
 baml_function_async!(ConductorBootstrapAgenda(input: &types::ConductorBootstrapInput, ) -> (stream_types::ConductorBootstrapOutput, types::ConductorBootstrapOutput));
 
+
 baml_function_async!(ConductorDecideNextAction(input: &types::ConductorDecisionInput, ) -> (stream_types::ConductorDecisionOutput, types::ConductorDecisionOutput));
+
 
 baml_function_async!(ConductorRefineObjective(input: &types::ConductorObjectiveRefineInput, ) -> (stream_types::ConductorObjectiveRefineOutput, types::ConductorObjectiveRefineOutput));
 
+
 baml_function_async!(ExtractResume(resume: impl AsRef<str> + BamlEncode, ) -> (stream_types::Resume, types::Resume));
+
 
 baml_function_async!(PlanAction(messages: &[types::Message], system_context: impl AsRef<str> + BamlEncode, available_tools: impl AsRef<str> + BamlEncode, ) -> (stream_types::AgentPlan, types::AgentPlan));
 
+
 baml_function_async!(QuickResponse(user_message: impl AsRef<str> + BamlEncode, conversation_history: impl AsRef<str> + BamlEncode, ) -> (String, String));
+
 
 baml_function_async!(ResearcherPlanStep(input: &types::ResearcherPlanInput, ) -> (stream_types::ResearcherPlanOutput, types::ResearcherPlanOutput));
 
+
 baml_function_async!(ResearcherSummarizeEvidence(input: &types::ResearcherSynthesisInput, ) -> (stream_types::ResearcherSynthesisOutput, types::ResearcherSynthesisOutput));
+
 
 baml_function_async!(SynthesizeResponse(user_prompt: impl AsRef<str> + BamlEncode, tool_results: &[types::ToolResult], conversation_context: impl AsRef<str> + BamlEncode, ) -> (String, String));
 
+
 baml_function_async!(WatcherRecommendMitigation(input: &types::WatcherMitigationInput, ) -> (stream_types::WatcherMitigationOutput, types::WatcherMitigationOutput));
 
+
 baml_function_async!(WatcherReviewLogWindow(input: &types::WatcherLogWindowInput, ) -> (stream_types::WatcherReviewOutput, types::WatcherReviewOutput));
+
 
 // =============================================================================
 // Client Struct
@@ -139,60 +150,62 @@ baml_function_async!(WatcherReviewLogWindow(input: &types::WatcherLogWindowInput
 #[derive(Clone)]
 pub struct BamlAsyncClient {
     options: FunctionOptions,
-
+    
     pub ConductorAssessTerminality: ConductorAssessTerminality,
-
+    
     pub ConductorBootstrapAgenda: ConductorBootstrapAgenda,
-
+    
     pub ConductorDecideNextAction: ConductorDecideNextAction,
-
+    
     pub ConductorRefineObjective: ConductorRefineObjective,
-
+    
     pub ExtractResume: ExtractResume,
-
+    
     pub PlanAction: PlanAction,
-
+    
     pub QuickResponse: QuickResponse,
-
+    
     pub ResearcherPlanStep: ResearcherPlanStep,
-
+    
     pub ResearcherSummarizeEvidence: ResearcherSummarizeEvidence,
-
+    
     pub SynthesizeResponse: SynthesizeResponse,
-
+    
     pub WatcherRecommendMitigation: WatcherRecommendMitigation,
-
+    
     pub WatcherReviewLogWindow: WatcherReviewLogWindow,
+    
 }
 
 impl BamlAsyncClient {
     pub const fn new() -> Self {
         Self {
             options: FunctionOptions::new(),
-
+            
             ConductorAssessTerminality: ConductorAssessTerminality::new(),
-
+            
             ConductorBootstrapAgenda: ConductorBootstrapAgenda::new(),
-
+            
             ConductorDecideNextAction: ConductorDecideNextAction::new(),
-
+            
             ConductorRefineObjective: ConductorRefineObjective::new(),
-
+            
             ExtractResume: ExtractResume::new(),
-
+            
             PlanAction: PlanAction::new(),
-
+            
             QuickResponse: QuickResponse::new(),
-
+            
             ResearcherPlanStep: ResearcherPlanStep::new(),
-
+            
             ResearcherSummarizeEvidence: ResearcherSummarizeEvidence::new(),
-
+            
             SynthesizeResponse: SynthesizeResponse::new(),
-
+            
             WatcherRecommendMitigation: WatcherRecommendMitigation::new(),
-
+            
             WatcherReviewLogWindow: WatcherReviewLogWindow::new(),
+            
         }
     }
 
@@ -200,54 +213,31 @@ impl BamlAsyncClient {
     pub fn with_options(&self, options: FunctionOptions) -> Self {
         Self {
             options: options.clone(),
-
-            ConductorAssessTerminality: ConductorAssessTerminality {
-                options: options.clone(),
-            },
-
-            ConductorBootstrapAgenda: ConductorBootstrapAgenda {
-                options: options.clone(),
-            },
-
-            ConductorDecideNextAction: ConductorDecideNextAction {
-                options: options.clone(),
-            },
-
-            ConductorRefineObjective: ConductorRefineObjective {
-                options: options.clone(),
-            },
-
-            ExtractResume: ExtractResume {
-                options: options.clone(),
-            },
-
-            PlanAction: PlanAction {
-                options: options.clone(),
-            },
-
-            QuickResponse: QuickResponse {
-                options: options.clone(),
-            },
-
-            ResearcherPlanStep: ResearcherPlanStep {
-                options: options.clone(),
-            },
-
-            ResearcherSummarizeEvidence: ResearcherSummarizeEvidence {
-                options: options.clone(),
-            },
-
-            SynthesizeResponse: SynthesizeResponse {
-                options: options.clone(),
-            },
-
-            WatcherRecommendMitigation: WatcherRecommendMitigation {
-                options: options.clone(),
-            },
-
-            WatcherReviewLogWindow: WatcherReviewLogWindow {
-                options: options.clone(),
-            },
+            
+            ConductorAssessTerminality: ConductorAssessTerminality { options: options.clone() },
+            
+            ConductorBootstrapAgenda: ConductorBootstrapAgenda { options: options.clone() },
+            
+            ConductorDecideNextAction: ConductorDecideNextAction { options: options.clone() },
+            
+            ConductorRefineObjective: ConductorRefineObjective { options: options.clone() },
+            
+            ExtractResume: ExtractResume { options: options.clone() },
+            
+            PlanAction: PlanAction { options: options.clone() },
+            
+            QuickResponse: QuickResponse { options: options.clone() },
+            
+            ResearcherPlanStep: ResearcherPlanStep { options: options.clone() },
+            
+            ResearcherSummarizeEvidence: ResearcherSummarizeEvidence { options: options.clone() },
+            
+            SynthesizeResponse: SynthesizeResponse { options: options.clone() },
+            
+            WatcherRecommendMitigation: WatcherRecommendMitigation { options: options.clone() },
+            
+            WatcherReviewLogWindow: WatcherReviewLogWindow { options: options.clone() },
+            
         }
     }
 }

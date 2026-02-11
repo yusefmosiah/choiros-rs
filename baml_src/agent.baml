@@ -7,7 +7,7 @@ function PlanAction(
   system_context: string,
   available_tools: string
 ) -> AgentPlan {
-  client ClaudeBedrock
+  client Orchestrator
   prompt #"
     You are ChoirOS, an intelligent AI assistant in a web desktop environment.
 
@@ -65,7 +65,7 @@ function SynthesizeResponse(
   tool_results: ToolResult[],
   conversation_context: string
 ) -> string {
-  client ClaudeBedrock
+  client Orchestrator
   prompt #"
     You are ChoirOS, an AI assistant. Synthesize a helpful, natural response.
 
@@ -87,7 +87,7 @@ function QuickResponse(
   user_message: string,
   conversation_history: string
 ) -> string {
-  client GLM47
+  client FastResponse
   prompt #"
     You are ChoirOS, a helpful AI assistant.
 

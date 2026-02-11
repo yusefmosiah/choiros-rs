@@ -105,7 +105,7 @@ class ConductorDecisionOutput {
 }
 
 function ConductorDecideNextAction(input: ConductorDecisionInput) -> ConductorDecisionOutput {
-  client ClaudeBedrock
+  client Orchestrator
   prompt #"
     You are the ChoirOS Conductor, an orchestration AI that manages multi-step agent workflows.
 
@@ -193,7 +193,7 @@ class ConductorObjectiveRefineOutput {
 }
 
 function ConductorRefineObjective(input: ConductorObjectiveRefineInput) -> ConductorObjectiveRefineOutput {
-  client ClaudeBedrock
+  client Orchestrator
   prompt #"
     You are the ChoirOS Conductor, refining user objectives into clear, actionable tasks for capability workers.
 
@@ -245,7 +245,7 @@ class ConductorBootstrapOutput {
 }
 
 function ConductorBootstrapAgenda(input: ConductorBootstrapInput) -> ConductorBootstrapOutput {
-  client ClaudeBedrock
+  client Orchestrator
   prompt #"
     You are the ChoirOS Conductor bootstrap policy.
 
@@ -285,7 +285,7 @@ class ConductorTerminalityOutput {
 }
 
 function ConductorAssessTerminality(input: ConductorTerminalityInput) -> ConductorTerminalityOutput {
-  client ClaudeBedrock
+  client Orchestrator
   prompt #"
     You are the ChoirOS Conductor, assessing whether a workflow run has reached a terminal state.
 
