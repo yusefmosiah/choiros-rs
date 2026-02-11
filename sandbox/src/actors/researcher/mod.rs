@@ -8,8 +8,11 @@
 
 mod adapter;
 mod events;
-mod policy;
 mod providers;
+
+// Policy module kept for backward compatibility with BAML types
+// The researcher now uses the unified agent harness instead
+pub mod policy;
 
 use async_trait::async_trait;
 use ractor::{Actor, ActorProcessingErr, RpcReplyPort};
@@ -169,14 +172,11 @@ impl From<crate::actors::agent_harness::HarnessError> for ResearcherError {
             crate::actors::agent_harness::HarnessError::ModelResolution(msg) => {
                 ResearcherError::ModelResolution(msg)
             }
-            crate::actors::agent_harness::HarnessError::Planning(msg) => {
-                ResearcherError::Policy(format!("Planning failed: {msg}"))
+            crate::actors::agent_harness::HarnessError::Decision(msg) => {
+                ResearcherError::Policy(format!("Decision failed: {msg}"))
             }
             crate::actors::agent_harness::HarnessError::ToolExecution(msg) => {
                 ResearcherError::ProviderRequest("tool".to_string(), msg)
-            }
-            crate::actors::agent_harness::HarnessError::Synthesis(msg) => {
-                ResearcherError::Policy(format!("Synthesis failed: {msg}"))
             }
             crate::actors::agent_harness::HarnessError::Timeout(ms) => {
                 ResearcherError::ProviderRequest("timeout".to_string(), format!("{ms}ms"))
@@ -349,7 +349,6 @@ impl ResearcherActor {
             timeout_budget_ms: timeout,
             max_steps,
             emit_progress: true,
-            emit_structured_signals: true,
             emit_worker_report: true,
         };
 

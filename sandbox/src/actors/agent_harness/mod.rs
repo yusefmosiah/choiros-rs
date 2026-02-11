@@ -2,14 +2,14 @@
 //!
 //! This module provides a generic harness for building agentic workers with:
 //! - Model resolution via ModelRegistry
-//! - BAML-based planning and synthesis
-//! - Structured event emission (started, progress, finding, learning, completed/failed)
+//! - BAML-based decision loop (simplified: Decide -> Execute -> loop/return)
+//! - Structured event emission (started, progress, completed/failed)
 //! - WorkerTurnReport generation at completion
 //!
 //! ## Architecture
 //!
-//! The harness uses a state machine loop:
-//! RECEIVE_OBJECTIVE -> PLAN_STEP -> EXECUTE_TOOLS -> OBSERVE_RESULTS -> SYNTHESIZE or PLAN_STEP
+//! The harness uses a simplified loop:
+//! DECIDE -> EXECUTE -> (loop or return)
 //!
 //! ## Usage
 //!
@@ -35,36 +35,29 @@ use tracing::{debug, error, info};
 
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::{ModelConfigError, ModelRegistry, ModelResolutionContext};
-use crate::baml_client::types::{AgentPlan, AgentToolCall, Message as BamlMessage, ToolResult as BamlToolResult};
+use crate::baml_client::types::{Action, AgentDecision, AgentToolCall, Message as BamlMessage};
 use crate::baml_client::{ClientRegistry, B};
 
 // Re-export shared types for convenience
 pub use shared_types::{
-    WorkerArtifact, WorkerEscalation, WorkerEscalationKind, WorkerEscalationUrgency, WorkerFinding,
-    WorkerLearning, WorkerTurnReport, WorkerTurnStatus,
+    WorkerArtifact, WorkerEscalation, WorkerEscalationKind, WorkerEscalationUrgency, WorkerTurnReport, WorkerTurnStatus,
 };
 
 // ============================================================================
 // Core Types
 // ============================================================================
 
-/// State machine states for the agentic loop
+// Action and AgentDecision are now imported from crate::baml_client::types
+
+/// State machine states for the agentic loop (simplified)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentLoopState {
-    /// Initial state - objective received, preparing to plan
-    ReceiveObjective,
-    /// Planning next action using LLM
-    PlanStep,
-    /// Executing tool calls
-    ExecuteTools,
-    /// Observing tool results
-    ObserveResults,
-    /// Synthesizing final response
-    Synthesize,
-    /// Loop completed
-    Completed,
-    /// Loop failed/blocked
-    Failed,
+    /// Still deciding/executing
+    Running,
+    /// Got Complete action with summary
+    Complete,
+    /// Got Block action
+    Blocked,
 }
 
 /// Configuration for the agent harness
@@ -76,8 +69,6 @@ pub struct HarnessConfig {
     pub max_steps: usize,
     /// Whether to emit progress events
     pub emit_progress: bool,
-    /// Whether to emit findings and learnings
-    pub emit_structured_signals: bool,
     /// Whether to generate WorkerTurnReport at completion
     pub emit_worker_report: bool,
 }
@@ -88,7 +79,6 @@ impl Default for HarnessConfig {
             timeout_budget_ms: 30_000,
             max_steps: 6,
             emit_progress: true,
-            emit_structured_signals: true,
             emit_worker_report: true,
         }
     }
@@ -170,12 +160,10 @@ pub enum ObjectiveStatus {
 pub enum HarnessError {
     #[error("Model resolution error: {0}")]
     ModelResolution(String),
-    #[error("Planning failed: {0}")]
-    Planning(String),
+    #[error("Decision failed: {0}")]
+    Decision(String),
     #[error("Tool execution failed: {0}")]
     ToolExecution(String),
-    #[error("Synthesis failed: {0}")]
-    Synthesis(String),
     #[error("Timeout after {0}ms")]
     Timeout(u64),
     #[error("Blocked: {0}")]
@@ -260,33 +248,13 @@ pub trait AgentAdapter: Send + Sync {
         progress: AgentProgress,
     ) -> Result<(), HarnessError>;
 
-    /// Emit a finding (structured insight)
-    ///
-    /// Called when the worker discovers something noteworthy.
-    async fn emit_finding(
-        &self,
-        ctx: &ExecutionContext,
-        finding: WorkerFinding,
-    ) -> Result<(), HarnessError>;
-
-    /// Emit a learning (adjustment to understanding)
-    ///
-    /// Called when the worker learns something that changes its approach.
-    async fn emit_learning(
-        &self,
-        ctx: &ExecutionContext,
-        learning: WorkerLearning,
-    ) -> Result<(), HarnessError>;
-
     /// Build the final WorkerTurnReport
     ///
-    /// The harness provides default findings/learnings, but the adapter
+    /// The harness provides a default implementation, but the adapter
     /// can customize the report generation.
     fn build_worker_report(
         &self,
         ctx: &ExecutionContext,
-        findings: Vec<WorkerFinding>,
-        learnings: Vec<WorkerLearning>,
         summary: &str,
         success: bool,
     ) -> WorkerTurnReport {
@@ -301,8 +269,8 @@ pub trait AgentAdapter: Send + Sync {
                 WorkerTurnStatus::Failed
             },
             summary: Some(summary.to_string()),
-            findings,
-            learnings,
+            findings: Vec::new(),
+            learnings: Vec::new(),
             escalations: Vec::new(),
             artifacts: Vec::new(),
             created_at: Some(chrono::Utc::now().to_rfc3339()),
@@ -347,13 +315,11 @@ impl<A: AgentAdapter> AgentHarness<A> {
     /// Run the agentic loop with the given objective
     ///
     /// This is the main entry point for executing an agentic task.
-    /// The loop will:
+    /// The simplified loop:
     /// 1. Resolve the model to use
-    /// 2. Plan actions using the LLM
-    /// 3. Execute tools via the adapter
-    /// 4. Observe results and iterate
-    /// 5. Synthesize a final response
-    /// 6. Emit a WorkerTurnReport
+    /// 2. Call BAML Decide to get action
+    /// 3. Execute tools or return result
+    /// 4. Emit a WorkerTurnReport
     pub async fn run(
         &self,
         worker_id: String,
@@ -387,7 +353,7 @@ impl<A: AgentAdapter> AgentHarness<A> {
         );
 
         // Create execution context
-        let ctx = ExecutionContext {
+        let mut ctx = ExecutionContext {
             loop_id: loop_id.clone(),
             worker_id: worker_id.clone(),
             user_id: user_id.clone(),
@@ -406,13 +372,11 @@ impl<A: AgentAdapter> AgentHarness<A> {
             content: format!("[{}]\n{}", chrono::Utc::now().to_rfc3339(), objective),
         }];
         let mut tool_executions: Vec<ToolExecution> = Vec::new();
-        let mut findings: Vec<WorkerFinding> = Vec::new();
-        let mut learnings: Vec<WorkerLearning> = Vec::new();
-        let mut loop_state = AgentLoopState::ReceiveObjective;
         let mut step_count = 0;
         let mut final_summary = String::new();
         let mut completion_reason = String::new();
         let mut objective_status = ObjectiveStatus::Incomplete;
+        let mut loop_state = AgentLoopState::Running;
 
         // Get client registry for BAML calls
         let client_registry = self
@@ -420,61 +384,37 @@ impl<A: AgentAdapter> AgentHarness<A> {
             .create_runtime_client_registry_for_model(&model_used)
             .map_err(HarnessError::from)?;
 
-        // Main loop
-        while step_count < self.config.max_steps {
+        // Main loop: Decide -> Execute -> (loop or return)
+        while step_count < self.config.max_steps && loop_state == AgentLoopState::Running {
             step_count += 1;
+            ctx.step_number = step_count;
 
-            match loop_state {
-                AgentLoopState::ReceiveObjective | AgentLoopState::PlanStep => {
-                    self.emit_progress_internal(
-                        &ctx,
-                        &progress_tx,
-                        "planning",
-                        &format!("Planning step {}/{}", step_count, self.config.max_steps),
-                        Some(step_count),
-                        Some(self.config.max_steps),
-                    )
-                    .await?;
+            self.emit_progress_internal(
+                &ctx,
+                &progress_tx,
+                "deciding",
+                &format!("Deciding step {}/{}", step_count, self.config.max_steps),
+                Some(step_count),
+                Some(self.config.max_steps),
+            )
+            .await?;
 
-                    // Call BAML PlanAction
-                    let plan = match self.plan_step(&client_registry, &messages, &ctx).await {
-                        Ok(plan) => plan,
-                        Err(e) => {
-                            error!(error = %e, "Planning failed");
-                            objective_status = ObjectiveStatus::Blocked;
-                            completion_reason = format!("Planning failed: {e}");
-                            loop_state = AgentLoopState::Failed;
-                            break;
-                        }
-                    };
+            // Call BAML Decide
+            let decision = match self.decide(&client_registry, &messages, &ctx).await {
+                Ok(decision) => decision,
+                Err(e) => {
+                    error!(error = %e, "Decision failed");
+                    objective_status = ObjectiveStatus::Blocked;
+                    completion_reason = format!("Decision failed: {e}");
+                    loop_state = AgentLoopState::Blocked;
+                    break;
+                }
+            };
 
-                    // Check for final response (no tool calls)
-                    if plan.tool_calls.is_empty() {
-                        if let Some(response) = plan.final_response {
-                            final_summary = response;
-                            objective_status = ObjectiveStatus::Complete;
-                            completion_reason =
-                                "Agent produced final response without tool calls".to_string();
-                            loop_state = AgentLoopState::Synthesize;
-                            break;
-                        }
-                    }
-
-                    // Store reasoning as a learning
-                    if !plan.thinking.is_empty() {
-                        let learning = WorkerLearning {
-                            learning_id: ulid::Ulid::new().to_string(),
-                            insight: plan.thinking.clone(),
-                            confidence: 0.8,
-                            supports: Vec::new(),
-                            changes_plan: Some(true),
-                        };
-                        self.adapter.emit_learning(&ctx, learning.clone()).await?;
-                        learnings.push(learning);
-                    }
-
-                    // Execute tools
-                    for tool_call in &plan.tool_calls {
+            match decision.action {
+                Action::ToolCall => {
+                    // Execute tools from decision.tool_calls
+                    for tool_call in &decision.tool_calls {
                         if self.adapter.should_defer(&tool_call.tool_name) {
                             debug!(tool = %tool_call.tool_name, "Tool deferred");
                             continue;
@@ -490,30 +430,11 @@ impl<A: AgentAdapter> AgentHarness<A> {
                         )
                         .await?;
 
-                        let tool_result = self
-                            .adapter
-                            .execute_tool_call(&ctx, tool_call)
-                            .await;
+                        let tool_result = self.adapter.execute_tool_call(&ctx, tool_call).await;
 
                         match tool_result {
                             Ok(execution) => {
-                                // Create finding from successful execution
-                                if execution.success {
-                                    let finding = WorkerFinding {
-                                        finding_id: ulid::Ulid::new().to_string(),
-                                        claim: format!(
-                                            "Tool {} executed successfully",
-                                            tool_call.tool_name
-                                        ),
-                                        confidence: 0.9,
-                                        evidence_refs: vec![execution.output.clone()],
-                                        novel: Some(true),
-                                    };
-                                    self.adapter.emit_finding(&ctx, finding.clone()).await?;
-                                    findings.push(finding);
-                                }
-
-                                // Add to messages for next planning round
+                                // Add to messages for next decision round
                                 messages.push(BamlMessage {
                                     role: "assistant".to_string(),
                                     content: format!(
@@ -521,7 +442,6 @@ impl<A: AgentAdapter> AgentHarness<A> {
                                         tool_call.tool_name, execution.output, execution.success
                                     ),
                                 });
-
                                 tool_executions.push(execution);
                             }
                             Err(e) => {
@@ -533,85 +453,40 @@ impl<A: AgentAdapter> AgentHarness<A> {
                             }
                         }
                     }
-
-                    loop_state = AgentLoopState::ObserveResults;
+                    // Continue loop for next decision
                 }
-
-                AgentLoopState::ExecuteTools => {
-                    // Tool execution happens within PlanStep arm
-                    // This state exists for tracking but tools are executed immediately after planning
-                    loop_state = AgentLoopState::ObserveResults;
-                }
-
-                AgentLoopState::ObserveResults => {
-                    self.emit_progress_internal(
-                        &ctx,
-                        &progress_tx,
-                        "observing",
-                        "Observing results and planning next step",
-                        Some(step_count),
-                        Some(self.config.max_steps),
-                    )
-                    .await?;
-
-                    // Check if we should continue or synthesize
-                    if step_count >= self.config.max_steps {
-                        loop_state = AgentLoopState::Synthesize;
-                    } else {
-                        loop_state = AgentLoopState::PlanStep;
-                    }
-                }
-
-                AgentLoopState::Synthesize => {
-                    self.emit_progress_internal(
-                        &ctx,
-                        &progress_tx,
-                        "synthesizing",
-                        "Synthesizing final response",
-                        Some(step_count),
-                        Some(self.config.max_steps),
-                    )
-                    .await?;
-
-                    // Call BAML SynthesizeResponse
-                    final_summary = self
-                        .synthesize(&client_registry, &objective, &tool_executions, &ctx)
-                        .await?;
-
-                    objective_status = if tool_executions.iter().all(|t| t.success) {
-                        ObjectiveStatus::Complete
-                    } else if tool_executions.iter().any(|t| t.success) {
-                        ObjectiveStatus::Incomplete
-                    } else {
-                        ObjectiveStatus::Blocked
-                    };
-
-                    completion_reason = format!("Completed after {} steps", step_count);
-                    loop_state = AgentLoopState::Completed;
+                Action::Complete => {
+                    final_summary = decision.summary.unwrap_or_default();
+                    objective_status = ObjectiveStatus::Complete;
+                    completion_reason = decision.reason.unwrap_or_default();
+                    loop_state = AgentLoopState::Complete;
                     break;
                 }
-
-                AgentLoopState::Completed | AgentLoopState::Failed => {
+                Action::Block => {
+                    let reason = decision.reason.unwrap_or_else(|| "Blocked without reason".to_string());
+                    final_summary = reason.clone();
+                    objective_status = ObjectiveStatus::Blocked;
+                    completion_reason = reason;
+                    loop_state = AgentLoopState::Blocked;
                     break;
                 }
             }
         }
 
-        // If we hit max steps without completing, synthesize anyway
-        if loop_state != AgentLoopState::Completed && loop_state != AgentLoopState::Failed {
-            final_summary = self
-                .synthesize(&client_registry, &objective, &tool_executions, &ctx)
-                .await?;
+        // If we hit max steps without completing, mark as incomplete
+        if loop_state == AgentLoopState::Running {
             objective_status = ObjectiveStatus::Incomplete;
             completion_reason = format!("Reached max steps ({})", self.config.max_steps);
+            // Use last reasoning as summary if available
+            if final_summary.is_empty() {
+                final_summary = format!("Reached maximum steps without completion. Executed {} tool calls.", tool_executions.len());
+            }
         }
 
         // Build and emit WorkerTurnReport
         let worker_report = if self.config.emit_worker_report {
             let report = self.adapter.build_worker_report(
                 &ctx,
-                findings,
-                learnings,
                 &final_summary,
                 objective_status != ObjectiveStatus::Blocked,
             );
@@ -655,52 +530,25 @@ impl<A: AgentAdapter> AgentHarness<A> {
     // Internal Methods
     // ========================================================================
 
-    async fn plan_step(
+    /// Call BAML Decide function to get the next action
+    async fn decide(
         &self,
         client_registry: &ClientRegistry,
         messages: &[BamlMessage],
         ctx: &ExecutionContext,
-    ) -> Result<AgentPlan, HarnessError> {
+    ) -> Result<AgentDecision, HarnessError> {
         let system_context = self.adapter.get_system_context(ctx);
         let tools_description = self.adapter.get_tool_description();
 
-        B
-            .PlanAction
+        // Call B.Decide to get AgentDecision directly
+        let decision = B
+            .Decide
             .with_client_registry(client_registry)
             .call(messages, &system_context, &tools_description)
             .await
-            .map_err(|e| HarnessError::Planning(e.to_string()))
-    }
+            .map_err(|e| HarnessError::Decision(e.to_string()))?;
 
-    async fn synthesize(
-        &self,
-        client_registry: &ClientRegistry,
-        objective: &str,
-        tool_results: &[ToolExecution],
-        ctx: &ExecutionContext,
-    ) -> Result<String, HarnessError> {
-        let baml_results: Vec<BamlToolResult> = tool_results
-            .iter()
-            .map(|t| BamlToolResult {
-                tool_name: t.tool_name.clone(),
-                success: t.success,
-                output: t.output.clone(),
-                error: t.error.clone(),
-            })
-            .collect();
-
-        let conversation_context = format!(
-            "Generated at UTC {}. Executed {} tools in {} steps.",
-            chrono::Utc::now().to_rfc3339(),
-            tool_results.len(),
-            ctx.step_number
-        );
-
-        B.SynthesizeResponse
-            .with_client_registry(client_registry)
-            .call(objective, &baml_results, &conversation_context)
-            .await
-            .map_err(|e| HarnessError::Synthesis(e.to_string()))
+        Ok(decision)
     }
 
     async fn emit_started(&self, ctx: &ExecutionContext) -> Result<(), HarnessError> {
@@ -1026,39 +874,6 @@ impl AgentAdapter for DefaultAdapter {
         }
         Ok(())
     }
-
-    async fn emit_finding(
-        &self,
-        ctx: &ExecutionContext,
-        finding: WorkerFinding,
-    ) -> Result<(), HarnessError> {
-        if let Some(emitter) = &self.event_emitter {
-            emitter.emit_worker_finding(
-                &ctx.loop_id,
-                &finding.finding_id,
-                &finding.claim,
-                finding.confidence,
-                &finding.evidence_refs,
-            );
-        }
-        Ok(())
-    }
-
-    async fn emit_learning(
-        &self,
-        ctx: &ExecutionContext,
-        learning: WorkerLearning,
-    ) -> Result<(), HarnessError> {
-        if let Some(emitter) = &self.event_emitter {
-            emitter.emit_worker_learning(
-                &ctx.loop_id,
-                &learning.learning_id,
-                &learning.insight,
-                learning.confidence,
-            );
-        }
-        Ok(())
-    }
 }
 
 // ============================================================================
@@ -1075,7 +890,6 @@ mod tests {
         assert_eq!(config.timeout_budget_ms, 30_000);
         assert_eq!(config.max_steps, 6);
         assert!(config.emit_progress);
-        assert!(config.emit_structured_signals);
         assert!(config.emit_worker_report);
     }
 
@@ -1092,15 +906,11 @@ mod tests {
 
     #[test]
     fn test_agent_loop_state_transitions() {
-        // Test that the state machine has the expected states
+        // Test that the simplified state machine has the expected states
         let states = vec![
-            AgentLoopState::ReceiveObjective,
-            AgentLoopState::PlanStep,
-            AgentLoopState::ExecuteTools,
-            AgentLoopState::ObserveResults,
-            AgentLoopState::Synthesize,
-            AgentLoopState::Completed,
-            AgentLoopState::Failed,
+            AgentLoopState::Running,
+            AgentLoopState::Complete,
+            AgentLoopState::Blocked,
         ];
 
         // Verify all states are distinct
@@ -1108,5 +918,18 @@ mod tests {
         for state in states {
             assert!(unique.insert(std::mem::discriminant(&state)));
         }
+    }
+
+    #[test]
+    fn test_action_variants() {
+        // Test Action enum variants (BAML-generated simple enums)
+        let tool_call = Action::ToolCall;
+        assert!(matches!(tool_call, Action::ToolCall));
+
+        let complete = Action::Complete;
+        assert!(matches!(complete, Action::Complete));
+
+        let block = Action::Block;
+        assert!(matches!(block, Action::Block));
     }
 }

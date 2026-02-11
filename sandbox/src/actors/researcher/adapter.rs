@@ -657,41 +657,4 @@ Guidelines:
 
         Ok(())
     }
-
-    async fn emit_finding(
-        &self,
-        ctx: &ExecutionContext,
-        finding: shared_types::WorkerFinding,
-    ) -> Result<(), HarnessError> {
-        // Finding is now just a progress event - the document is the source of truth
-        let payload = serde_json::json!({
-            "task_id": ctx.loop_id,
-            "worker_id": ctx.worker_id,
-            "phase": "finding",
-            "claim": finding.claim,
-            "confidence": finding.confidence,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        });
-        self.emit_event("worker.task.finding", payload);
-
-        Ok(())
-    }
-
-    async fn emit_learning(
-        &self,
-        ctx: &ExecutionContext,
-        learning: shared_types::WorkerLearning,
-    ) -> Result<(), HarnessError> {
-        // Learning is now just a progress event - the document is the source of truth
-        let payload = serde_json::json!({
-            "task_id": ctx.loop_id,
-            "worker_id": ctx.worker_id,
-            "phase": "learning",
-            "insight": learning.insight,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        });
-        self.emit_event("worker.task.learning", payload);
-
-        Ok(())
-    }
 }

@@ -119,19 +119,16 @@ baml_function_sync!(ConductorDecideNextAction(input: &types::ConductorDecisionIn
 baml_function_sync!(ConductorRefineObjective(input: &types::ConductorObjectiveRefineInput, ) -> (stream_types::ConductorObjectiveRefineOutput, types::ConductorObjectiveRefineOutput));
 
 
+baml_function_sync!(Decide(messages: &[types::Message], context: impl AsRef<str> + BamlEncode, available_tools: impl AsRef<str> + BamlEncode, ) -> (stream_types::AgentDecision, types::AgentDecision));
+
+
 baml_function_sync!(ExtractResume(resume: impl AsRef<str> + BamlEncode, ) -> (stream_types::Resume, types::Resume));
-
-
-baml_function_sync!(PlanAction(messages: &[types::Message], system_context: impl AsRef<str> + BamlEncode, available_tools: impl AsRef<str> + BamlEncode, ) -> (stream_types::AgentPlan, types::AgentPlan));
 
 
 baml_function_sync!(QuickResponse(user_message: impl AsRef<str> + BamlEncode, conversation_history: impl AsRef<str> + BamlEncode, ) -> (String, String));
 
 
 baml_function_sync!(ResearcherPlanStep(input: &types::ResearcherPlanInput, ) -> (stream_types::ResearcherPlanOutput, types::ResearcherPlanOutput));
-
-
-baml_function_sync!(SynthesizeResponse(user_prompt: impl AsRef<str> + BamlEncode, tool_results: &[types::ToolResult], conversation_context: impl AsRef<str> + BamlEncode, ) -> (String, String));
 
 
 baml_function_sync!(WatcherRecommendMitigation(input: &types::WatcherMitigationInput, ) -> (stream_types::WatcherMitigationOutput, types::WatcherMitigationOutput));
@@ -156,15 +153,13 @@ pub struct BamlSyncClient {
     
     pub ConductorRefineObjective: ConductorRefineObjective,
     
-    pub ExtractResume: ExtractResume,
+    pub Decide: Decide,
     
-    pub PlanAction: PlanAction,
+    pub ExtractResume: ExtractResume,
     
     pub QuickResponse: QuickResponse,
     
     pub ResearcherPlanStep: ResearcherPlanStep,
-    
-    pub SynthesizeResponse: SynthesizeResponse,
     
     pub WatcherRecommendMitigation: WatcherRecommendMitigation,
     
@@ -185,15 +180,13 @@ impl BamlSyncClient {
             
             ConductorRefineObjective: ConductorRefineObjective::new(),
             
-            ExtractResume: ExtractResume::new(),
+            Decide: Decide::new(),
             
-            PlanAction: PlanAction::new(),
+            ExtractResume: ExtractResume::new(),
             
             QuickResponse: QuickResponse::new(),
             
             ResearcherPlanStep: ResearcherPlanStep::new(),
-            
-            SynthesizeResponse: SynthesizeResponse::new(),
             
             WatcherRecommendMitigation: WatcherRecommendMitigation::new(),
             
@@ -215,15 +208,13 @@ impl BamlSyncClient {
             
             ConductorRefineObjective: ConductorRefineObjective { options: options.clone() },
             
-            ExtractResume: ExtractResume { options: options.clone() },
+            Decide: Decide { options: options.clone() },
             
-            PlanAction: PlanAction { options: options.clone() },
+            ExtractResume: ExtractResume { options: options.clone() },
             
             QuickResponse: QuickResponse { options: options.clone() },
             
             ResearcherPlanStep: ResearcherPlanStep { options: options.clone() },
-            
-            SynthesizeResponse: SynthesizeResponse { options: options.clone() },
             
             WatcherRecommendMitigation: WatcherRecommendMitigation { options: options.clone() },
             

@@ -19,7 +19,7 @@ pub use type_aliases::*;
 #[derive(Debug, Clone)]
 pub enum StreamTypes {
 
-    AgentPlan(AgentPlan),
+    AgentDecision(AgentDecision),
 
     AgentToolArgs(AgentToolArgs),
 
@@ -28,8 +28,6 @@ pub enum StreamTypes {
     AlternativeAction(AlternativeAction),
 
     BashToolArgs(BashToolArgs),
-
-    CompletionPayload(CompletionPayload),
 
     ConductorAgendaItem(ConductorAgendaItem),
 
@@ -57,8 +55,6 @@ pub enum StreamTypes {
 
     EventSummary(EventSummary),
 
-    Evidence(Evidence),
-
     FollowupRecommendation(FollowupRecommendation),
 
     HistoricalResolution(HistoricalResolution),
@@ -66,10 +62,6 @@ pub enum StreamTypes {
     ListFilesToolArgs(ListFilesToolArgs),
 
     Message(Message),
-
-    NextAction(NextAction),
-
-    ObjectiveContract(ObjectiveContract),
 
     ReadFileToolArgs(ReadFileToolArgs),
 
@@ -92,8 +84,6 @@ pub enum StreamTypes {
     StreamChunk(StreamChunk),
 
     ToolResult(ToolResult),
-
-    UnresolvedItem(UnresolvedItem),
 
     WatcherEscalation(WatcherEscalation),
 
@@ -124,7 +114,7 @@ impl baml::KnownTypes for StreamTypes {
     fn type_name(&self) -> &'static str {
         match self {
 
-            StreamTypes::AgentPlan(_) => "AgentPlan",
+            StreamTypes::AgentDecision(_) => "AgentDecision",
 
             StreamTypes::AgentToolArgs(_) => "AgentToolArgs",
 
@@ -133,8 +123,6 @@ impl baml::KnownTypes for StreamTypes {
             StreamTypes::AlternativeAction(_) => "AlternativeAction",
 
             StreamTypes::BashToolArgs(_) => "BashToolArgs",
-
-            StreamTypes::CompletionPayload(_) => "CompletionPayload",
 
             StreamTypes::ConductorAgendaItem(_) => "ConductorAgendaItem",
 
@@ -162,8 +150,6 @@ impl baml::KnownTypes for StreamTypes {
 
             StreamTypes::EventSummary(_) => "EventSummary",
 
-            StreamTypes::Evidence(_) => "Evidence",
-
             StreamTypes::FollowupRecommendation(_) => "FollowupRecommendation",
 
             StreamTypes::HistoricalResolution(_) => "HistoricalResolution",
@@ -171,10 +157,6 @@ impl baml::KnownTypes for StreamTypes {
             StreamTypes::ListFilesToolArgs(_) => "ListFilesToolArgs",
 
             StreamTypes::Message(_) => "Message",
-
-            StreamTypes::NextAction(_) => "NextAction",
-
-            StreamTypes::ObjectiveContract(_) => "ObjectiveContract",
 
             StreamTypes::ReadFileToolArgs(_) => "ReadFileToolArgs",
 
@@ -197,8 +179,6 @@ impl baml::KnownTypes for StreamTypes {
             StreamTypes::StreamChunk(_) => "StreamChunk",
 
             StreamTypes::ToolResult(_) => "ToolResult",
-
-            StreamTypes::UnresolvedItem(_) => "UnresolvedItem",
 
             StreamTypes::WatcherEscalation(_) => "WatcherEscalation",
 

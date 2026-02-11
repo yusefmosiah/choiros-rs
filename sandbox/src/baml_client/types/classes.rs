@@ -14,11 +14,11 @@ use super::*;
 
 #[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
 
-pub struct AgentPlan {
+pub struct AgentDecision {
 
 
 
-    pub thinking: String,
+    pub action: Action,
 
 
 
@@ -26,31 +26,19 @@ pub struct AgentPlan {
 
 
 
-    pub final_response: Option<String>,
+    pub summary: Option<String>,
 
 
 
-    pub objective_status: Option<ObjectiveStatus>,
-
-
-
-    pub plan_mode: Option<PlanMode>,
-
-
-
-    pub completion_reason: Option<String>,
-
-
-
-    pub confidence: f64,
+    pub reason: Option<String>,
 
 
 }
 
 
 
-impl AsRef<AgentPlan> for AgentPlan {
-    fn as_ref(&self) -> &AgentPlan {
+impl AsRef<AgentDecision> for AgentDecision {
+    fn as_ref(&self) -> &AgentDecision {
         self
     }
 }
@@ -283,48 +271,6 @@ pub struct BashToolArgs {
 
 impl AsRef<BashToolArgs> for BashToolArgs {
     fn as_ref(&self) -> &BashToolArgs {
-        self
-    }
-}
-
-
-
-
-#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
-
-pub struct CompletionPayload {
-
-
-
-    pub objective_status: ObjectiveStatus,
-
-
-
-    pub objective_fulfilled: bool,
-
-
-
-    pub completion_reason: String,
-
-
-
-    pub evidence: Vec<Evidence>,
-
-
-
-    pub unresolved_items: Vec<UnresolvedItem>,
-
-
-
-    pub recommended_next_action: Option<NextAction>,
-
-
-}
-
-
-
-impl AsRef<CompletionPayload> for CompletionPayload {
-    fn as_ref(&self) -> &CompletionPayload {
         self
     }
 }
@@ -816,48 +762,6 @@ impl AsRef<EventSummary> for EventSummary {
 
 #[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
 
-pub struct Evidence {
-
-
-
-    pub evidence_id: String,
-
-
-
-    pub evidence_type: EvidenceType,
-
-
-
-    pub source: String,
-
-
-
-    pub content: String,
-
-
-
-    pub confidence: f64,
-
-
-
-    pub timestamp: String,
-
-
-}
-
-
-
-impl AsRef<Evidence> for Evidence {
-    fn as_ref(&self) -> &Evidence {
-        self
-    }
-}
-
-
-
-
-#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
-
 pub struct FollowupRecommendation {
 
 
@@ -965,86 +869,6 @@ pub struct Message {
 
 impl AsRef<Message> for Message {
     fn as_ref(&self) -> &Message {
-        self
-    }
-}
-
-
-
-
-#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
-
-pub struct NextAction {
-
-
-
-    pub action_type: NextActionType,
-
-
-
-    pub recommended_capability: Option<String>,
-
-
-
-    pub recommended_objective: Option<String>,
-
-
-
-    pub rationale: String,
-
-
-}
-
-
-
-impl AsRef<NextAction> for NextAction {
-    fn as_ref(&self) -> &NextAction {
-        self
-    }
-}
-
-
-
-
-#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
-
-pub struct ObjectiveContract {
-
-
-
-    pub objective_id: String,
-
-
-
-    pub parent_objective_id: Option<String>,
-
-
-
-    pub primary_objective: String,
-
-
-
-    pub success_criteria: Vec<String>,
-
-
-
-    pub max_tool_calls: i64,
-
-
-
-    pub timeout_ms: i64,
-
-
-
-    pub attempts_budget: i64,
-
-
-}
-
-
-
-impl AsRef<ObjectiveContract> for ObjectiveContract {
-    fn as_ref(&self) -> &ObjectiveContract {
         self
     }
 }
@@ -1439,36 +1263,6 @@ pub struct ToolResult {
 
 impl AsRef<ToolResult> for ToolResult {
     fn as_ref(&self) -> &ToolResult {
-        self
-    }
-}
-
-
-
-
-#[derive(Debug, Clone, Default, BamlEncode, BamlDecode)]
-
-pub struct UnresolvedItem {
-
-
-
-    pub item_id: String,
-
-
-
-    pub description: String,
-
-
-
-    pub reason: String,
-
-
-}
-
-
-
-impl AsRef<UnresolvedItem> for UnresolvedItem {
-    fn as_ref(&self) -> &UnresolvedItem {
         self
     }
 }

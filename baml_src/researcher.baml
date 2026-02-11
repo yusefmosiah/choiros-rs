@@ -1,9 +1,18 @@
-// ChoirOS Researcher BAML Contracts - Simplified Living Document Model
-// The researcher maintains a working draft file that evolves as research progresses.
-// No complex structured outputs - the file content IS the output.
+// ChoirOS Researcher BAML Contracts - DEPRECATED
+//
+// DEPRECATION NOTICE (2026-02-11):
+// The ResearcherActor now uses the unified agent harness (agent_harness module)
+// with the standard Decide function from agent.baml. These types and the
+// ResearcherPlanStep function are kept for backward compatibility but are
+// no longer used by the main researcher loop.
+//
+// The researcher now follows the standard pattern:
+//   DECIDE (via PlanAction/Decide) -> EXECUTE tools -> loop or return
+//
+// Tool execution is handled by ResearcherAdapter which implements AgentAdapter.
 
 // ============================================================================
-// Simple Status Enums
+// Status Enums (kept for backward compatibility)
 // ============================================================================
 
 enum ResearchStatus {
@@ -13,7 +22,7 @@ enum ResearchStatus {
 }
 
 // ============================================================================
-// Minimal Planning Input
+// Planning Types (kept for backward compatibility)
 // ============================================================================
 
 class ResearcherPlanInput {
@@ -24,10 +33,6 @@ class ResearcherPlanInput {
   working_draft_path string  // Path to the current working draft file
   last_error string?
 }
-
-// ============================================================================
-// Minimal Planning Output - Just status and what to do next
-// ============================================================================
 
 class ResearcherPlanOutput {
   action ResearchAction        // What to do next
@@ -53,12 +58,15 @@ enum ResearchAction {
 }
 
 // ============================================================================
-// Functions
+// Functions (DEPRECATED - use Decide from agent.baml instead)
 // ============================================================================
 
 function ResearcherPlanStep(input: ResearcherPlanInput) -> ResearcherPlanOutput {
   client FastResponse
   prompt #"
+    DEPRECATED: This function is kept for backward compatibility.
+    The ResearcherActor now uses the unified agent harness with Decide.
+
     You are the ChoirOS Researcher. Your job is to gather information and maintain a working draft document.
 
     Objective: {{ input.objective }}

@@ -24,7 +24,7 @@ pub use baml::{Checked, StreamState};
 #[derive(Debug, Clone)]
 pub enum Types {
 
-    AgentPlan(AgentPlan),
+    AgentDecision(AgentDecision),
 
     AgentToolArgs(AgentToolArgs),
 
@@ -33,8 +33,6 @@ pub enum Types {
     AlternativeAction(AlternativeAction),
 
     BashToolArgs(BashToolArgs),
-
-    CompletionPayload(CompletionPayload),
 
     ConductorAgendaItem(ConductorAgendaItem),
 
@@ -62,8 +60,6 @@ pub enum Types {
 
     EventSummary(EventSummary),
 
-    Evidence(Evidence),
-
     FollowupRecommendation(FollowupRecommendation),
 
     HistoricalResolution(HistoricalResolution),
@@ -71,10 +67,6 @@ pub enum Types {
     ListFilesToolArgs(ListFilesToolArgs),
 
     Message(Message),
-
-    NextAction(NextAction),
-
-    ObjectiveContract(ObjectiveContract),
 
     ReadFileToolArgs(ReadFileToolArgs),
 
@@ -98,8 +90,6 @@ pub enum Types {
 
     ToolResult(ToolResult),
 
-    UnresolvedItem(UnresolvedItem),
-
     WatcherEscalation(WatcherEscalation),
 
     WatcherEvent(WatcherEvent),
@@ -119,19 +109,13 @@ pub enum Types {
     WriteFileToolArgs(WriteFileToolArgs),
 
 
+    Action(Action),
+
     DecisionType(DecisionType),
 
     EscalationAction(EscalationAction),
 
     EscalationKind(EscalationKind),
-
-    EvidenceType(EvidenceType),
-
-    NextActionType(NextActionType),
-
-    ObjectiveStatus(ObjectiveStatus),
-
-    PlanMode(PlanMode),
 
     ResearchAction(ResearchAction),
 
@@ -156,7 +140,7 @@ impl baml::KnownTypes for Types {
     fn type_name(&self) -> &'static str {
         match self {
 
-            Types::AgentPlan(_) => "AgentPlan",
+            Types::AgentDecision(_) => "AgentDecision",
 
             Types::AgentToolArgs(_) => "AgentToolArgs",
 
@@ -165,8 +149,6 @@ impl baml::KnownTypes for Types {
             Types::AlternativeAction(_) => "AlternativeAction",
 
             Types::BashToolArgs(_) => "BashToolArgs",
-
-            Types::CompletionPayload(_) => "CompletionPayload",
 
             Types::ConductorAgendaItem(_) => "ConductorAgendaItem",
 
@@ -194,8 +176,6 @@ impl baml::KnownTypes for Types {
 
             Types::EventSummary(_) => "EventSummary",
 
-            Types::Evidence(_) => "Evidence",
-
             Types::FollowupRecommendation(_) => "FollowupRecommendation",
 
             Types::HistoricalResolution(_) => "HistoricalResolution",
@@ -203,10 +183,6 @@ impl baml::KnownTypes for Types {
             Types::ListFilesToolArgs(_) => "ListFilesToolArgs",
 
             Types::Message(_) => "Message",
-
-            Types::NextAction(_) => "NextAction",
-
-            Types::ObjectiveContract(_) => "ObjectiveContract",
 
             Types::ReadFileToolArgs(_) => "ReadFileToolArgs",
 
@@ -230,8 +206,6 @@ impl baml::KnownTypes for Types {
 
             Types::ToolResult(_) => "ToolResult",
 
-            Types::UnresolvedItem(_) => "UnresolvedItem",
-
             Types::WatcherEscalation(_) => "WatcherEscalation",
 
             Types::WatcherEvent(_) => "WatcherEvent",
@@ -251,19 +225,13 @@ impl baml::KnownTypes for Types {
             Types::WriteFileToolArgs(_) => "WriteFileToolArgs",
 
 
+            Types::Action(_) => "Action",
+
             Types::DecisionType(_) => "DecisionType",
 
             Types::EscalationAction(_) => "EscalationAction",
 
             Types::EscalationKind(_) => "EscalationKind",
-
-            Types::EvidenceType(_) => "EvidenceType",
-
-            Types::NextActionType(_) => "NextActionType",
-
-            Types::ObjectiveStatus(_) => "ObjectiveStatus",
-
-            Types::PlanMode(_) => "PlanMode",
 
             Types::ResearchAction(_) => "ResearchAction",
 

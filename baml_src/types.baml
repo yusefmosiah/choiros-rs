@@ -91,15 +91,18 @@ class AgentToolCall {
   reasoning string?
 }
 
-// The agent's plan - thinking, tool calls, and final response
-class AgentPlan {
-  thinking string
-  tool_calls AgentToolCall[]
-  final_response string?
-  objective_status ObjectiveStatus?
-  plan_mode PlanMode?
-  completion_reason string?
-  confidence float
+// Simplified agent decision - what to do next
+class AgentDecision {
+  action Action
+  tool_calls AgentToolCall[]  // Empty if Complete/Block
+  summary string?             // Present if Complete (the answer)
+  reason string?              // Present if Block (why stuck)
+}
+
+enum Action {
+  ToolCall    // Execute tools in tool_calls
+  Complete    // Done, summary contains answer
+  Block       // Stuck, reason explains why
 }
 
 // Result of executing a tool
@@ -114,74 +117,4 @@ class ToolResult {
 class StreamChunk {
   chunk_type string // "thinking", "tool_call", "tool_result", "response", "error"
   content string
-}
-
-// Objective tracking and completion types
-enum ObjectiveStatus {
-  Satisfied
-  InProgress
-  Blocked
-}
-
-enum PlanMode {
-  CallTools
-  Finalize
-  Escalate
-}
-
-class ObjectiveContract {
-  objective_id string
-  parent_objective_id string?
-  primary_objective string
-  success_criteria string[]
-  max_tool_calls int
-  timeout_ms int
-  attempts_budget int
-}
-
-class CompletionPayload {
-  objective_status ObjectiveStatus
-  objective_fulfilled bool
-  completion_reason string
-  evidence Evidence[]
-  unresolved_items UnresolvedItem[]
-  recommended_next_action NextAction?
-}
-
-class Evidence {
-  evidence_id string
-  evidence_type EvidenceType
-  source string
-  content string
-  confidence float
-  timestamp string
-}
-
-class UnresolvedItem {
-  item_id string
-  description string
-  reason string
-}
-
-class NextAction {
-  action_type NextActionType
-  recommended_capability string?
-  recommended_objective string?
-  rationale string
-}
-
-enum EvidenceType {
-  SearchResult
-  CodeSnippet
-  Documentation
-  TerminalOutput
-  FileContent
-  WebPage
-  Other
-}
-
-enum NextActionType {
-  Escalate
-  Continue
-  Complete
 }

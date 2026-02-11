@@ -31,8 +31,8 @@ use crate::actors::model_config::ModelRegistry;
 use crate::baml_client::types::AgentToolCall;
 
 use shared_types::{
-    WorkerEscalation, WorkerEscalationKind, WorkerEscalationUrgency, WorkerFinding,
-    WorkerLearning, WorkerTurnReport, WorkerTurnStatus,
+    WorkerEscalation, WorkerEscalationKind, WorkerEscalationUrgency, WorkerTurnReport,
+    WorkerTurnStatus,
 };
 
 // ============================================================================
@@ -355,66 +355,9 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
         Ok(())
     }
 
-    async fn emit_finding(
-        &self,
-        ctx: &ExecutionContext,
-        finding: WorkerFinding,
-    ) -> Result<(), crate::actors::agent_harness::HarnessError> {
-        if let Some(event_store) = &self.event_store {
-            let payload = serde_json::json!({
-                "task_id": ctx.loop_id,
-                "worker_id": ctx.worker_id,
-                "phase": "finding",
-                "finding_id": finding.finding_id,
-                "claim": finding.claim,
-                "confidence": finding.confidence,
-                "evidence_refs": finding.evidence_refs,
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-            });
-            let event = crate::actors::event_store::AppendEvent {
-                event_type: "worker.task.finding".to_string(),
-                payload,
-                actor_id: ctx.worker_id.clone(),
-                user_id: ctx.user_id.clone(),
-            };
-            let _ = event_store
-                .send_message(crate::actors::event_store::EventStoreMsg::AppendAsync { event });
-        }
-        Ok(())
-    }
-
-    async fn emit_learning(
-        &self,
-        ctx: &ExecutionContext,
-        learning: WorkerLearning,
-    ) -> Result<(), crate::actors::agent_harness::HarnessError> {
-        if let Some(event_store) = &self.event_store {
-            let payload = serde_json::json!({
-                "task_id": ctx.loop_id,
-                "worker_id": ctx.worker_id,
-                "phase": "learning",
-                "learning_id": learning.learning_id,
-                "insight": learning.insight,
-                "confidence": learning.confidence,
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-            });
-            let event = crate::actors::event_store::AppendEvent {
-                event_type: "worker.task.learning".to_string(),
-                payload,
-                actor_id: ctx.worker_id.clone(),
-                user_id: ctx.user_id.clone(),
-            };
-            let _ = event_store
-                .send_message(crate::actors::event_store::EventStoreMsg::AppendAsync { event });
-        }
-        Ok(())
-    }
-
     fn build_worker_report(
         &self,
         ctx: &ExecutionContext,
-        findings: Vec<WorkerFinding>,
-        learnings: Vec<WorkerLearning>,
         summary: &str,
         success: bool,
     ) -> WorkerTurnReport {
@@ -443,8 +386,8 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                 WorkerTurnStatus::Failed
             },
             summary: Some(summary.to_string()),
-            findings,
-            learnings,
+            findings: Vec::new(),
+            learnings: Vec::new(),
             escalations,
             artifacts: Vec::new(),
             created_at: Some(chrono::Utc::now().to_rfc3339()),
@@ -953,7 +896,6 @@ impl TerminalActor {
             timeout_budget_ms: timeout_ms.unwrap_or(30_000).clamp(1_000, 120_000),
             max_steps: max_steps.unwrap_or(3).clamp(1, 6) as usize,
             emit_progress: true,
-            emit_structured_signals: true,
             emit_worker_report: true,
         };
 

@@ -51,11 +51,11 @@ impl TypeBuilder {
     // =========================================================================
 
 
-    /// Access the `AgentPlan` class builder.
-    pub fn AgentPlan(&self) -> AgentPlanClassBuilder {
-        AgentPlanClassBuilder::new(
-            self.inner.get_class("AgentPlan")
-                .expect("class AgentPlan is defined in schema")
+    /// Access the `AgentDecision` class builder.
+    pub fn AgentDecision(&self) -> AgentDecisionClassBuilder {
+        AgentDecisionClassBuilder::new(
+            self.inner.get_class("AgentDecision")
+                .expect("class AgentDecision is defined in schema")
         )
     }
 
@@ -92,15 +92,6 @@ impl TypeBuilder {
         BashToolArgsClassBuilder::new(
             self.inner.get_class("BashToolArgs")
                 .expect("class BashToolArgs is defined in schema")
-        )
-    }
-
-
-    /// Access the `CompletionPayload` class builder.
-    pub fn CompletionPayload(&self) -> CompletionPayloadClassBuilder {
-        CompletionPayloadClassBuilder::new(
-            self.inner.get_class("CompletionPayload")
-                .expect("class CompletionPayload is defined in schema")
         )
     }
 
@@ -222,15 +213,6 @@ impl TypeBuilder {
     }
 
 
-    /// Access the `Evidence` class builder.
-    pub fn Evidence(&self) -> EvidenceClassBuilder {
-        EvidenceClassBuilder::new(
-            self.inner.get_class("Evidence")
-                .expect("class Evidence is defined in schema")
-        )
-    }
-
-
     /// Access the `FollowupRecommendation` class builder.
     pub fn FollowupRecommendation(&self) -> FollowupRecommendationClassBuilder {
         FollowupRecommendationClassBuilder::new(
@@ -263,24 +245,6 @@ impl TypeBuilder {
         MessageClassBuilder::new(
             self.inner.get_class("Message")
                 .expect("class Message is defined in schema")
-        )
-    }
-
-
-    /// Access the `NextAction` class builder.
-    pub fn NextAction(&self) -> NextActionClassBuilder {
-        NextActionClassBuilder::new(
-            self.inner.get_class("NextAction")
-                .expect("class NextAction is defined in schema")
-        )
-    }
-
-
-    /// Access the `ObjectiveContract` class builder.
-    pub fn ObjectiveContract(&self) -> ObjectiveContractClassBuilder {
-        ObjectiveContractClassBuilder::new(
-            self.inner.get_class("ObjectiveContract")
-                .expect("class ObjectiveContract is defined in schema")
         )
     }
 
@@ -384,15 +348,6 @@ impl TypeBuilder {
     }
 
 
-    /// Access the `UnresolvedItem` class builder.
-    pub fn UnresolvedItem(&self) -> UnresolvedItemClassBuilder {
-        UnresolvedItemClassBuilder::new(
-            self.inner.get_class("UnresolvedItem")
-                .expect("class UnresolvedItem is defined in schema")
-        )
-    }
-
-
     /// Access the `WatcherEscalation` class builder.
     pub fn WatcherEscalation(&self) -> WatcherEscalationClassBuilder {
         WatcherEscalationClassBuilder::new(
@@ -479,6 +434,15 @@ impl TypeBuilder {
     // =========================================================================
 
 
+    /// Access the `Action` enum builder.
+    pub fn Action(&self) -> ActionEnumBuilder {
+        ActionEnumBuilder::new(
+            self.inner.get_enum("Action")
+                .expect("enum Action is defined in schema")
+        )
+    }
+
+
     /// Access the `DecisionType` enum builder.
     pub fn DecisionType(&self) -> DecisionTypeEnumBuilder {
         DecisionTypeEnumBuilder::new(
@@ -502,42 +466,6 @@ impl TypeBuilder {
         EscalationKindEnumBuilder::new(
             self.inner.get_enum("EscalationKind")
                 .expect("enum EscalationKind is defined in schema")
-        )
-    }
-
-
-    /// Access the `EvidenceType` enum builder.
-    pub fn EvidenceType(&self) -> EvidenceTypeEnumBuilder {
-        EvidenceTypeEnumBuilder::new(
-            self.inner.get_enum("EvidenceType")
-                .expect("enum EvidenceType is defined in schema")
-        )
-    }
-
-
-    /// Access the `NextActionType` enum builder.
-    pub fn NextActionType(&self) -> NextActionTypeEnumBuilder {
-        NextActionTypeEnumBuilder::new(
-            self.inner.get_enum("NextActionType")
-                .expect("enum NextActionType is defined in schema")
-        )
-    }
-
-
-    /// Access the `ObjectiveStatus` enum builder.
-    pub fn ObjectiveStatus(&self) -> ObjectiveStatusEnumBuilder {
-        ObjectiveStatusEnumBuilder::new(
-            self.inner.get_enum("ObjectiveStatus")
-                .expect("enum ObjectiveStatus is defined in schema")
-        )
-    }
-
-
-    /// Access the `PlanMode` enum builder.
-    pub fn PlanMode(&self) -> PlanModeEnumBuilder {
-        PlanModeEnumBuilder::new(
-            self.inner.get_enum("PlanMode")
-                .expect("enum PlanMode is defined in schema")
         )
     }
 
