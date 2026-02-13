@@ -9,7 +9,7 @@ use crate::actors::event_store::{EventStoreActor, EventStoreArguments, EventStor
 use crate::actors::researcher::ResearcherMsg;
 use crate::actors::terminal::TerminalMsg;
 use crate::baml_client::types::{
-    ConductorBootstrapOutput, ConductorDecisionOutput, ConductorObjectiveRefineOutput, DecisionType,
+    ConductorBootstrapOutput, ConductorDecision, ConductorAction, ConductorObjectiveRefineOutput,
 };
 
 #[derive(Debug)]
@@ -40,17 +40,11 @@ impl ConductorPolicy for TestPolicy {
         &self,
         _run: &shared_types::ConductorRunState,
         _available_capabilities: &[String],
-    ) -> Result<ConductorDecisionOutput, ConductorError> {
-        Ok(ConductorDecisionOutput {
-            decision_type: DecisionType::Continue,
-            target_agenda_item_ids: vec![],
-            new_agenda_items: vec![],
-            capability: None,
-            objective: None,
-            retry_policy: None,
-            completion_reason: None,
-            confidence: 1.0,
-            rationale: "test policy continue".to_string(),
+    ) -> Result<ConductorDecision, ConductorError> {
+        Ok(ConductorDecision {
+            action: ConductorAction::SpawnWorker,
+            args: None,
+            reason: "test policy".to_string(),
         })
     }
 

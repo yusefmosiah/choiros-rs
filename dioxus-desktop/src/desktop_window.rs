@@ -4,7 +4,7 @@ use gloo_timers::future::TimeoutFuture;
 use shared_types::WindowState;
 use wasm_bindgen::JsCast;
 
-use crate::components::{load_files_path, FilesView, LogsView, SettingsView, WriterView};
+use crate::components::{load_files_path, FilesView, LogsView, RunView, SettingsView, WriterView};
 use crate::terminal::TerminalView;
 use crate::viewers::{parse_viewer_window_props, ViewerShell};
 
@@ -590,6 +590,29 @@ pub fn FloatingWindow(
                             }
                         }
                     },
+                    "run" => {
+                        let run_id = window
+                            .props
+                            .get("run_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let document_path = window
+                            .props
+                            .get("document_path")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        rsx! {
+                            RunView {
+                                key: "{window.id}",
+                                desktop_id: desktop_id.clone(),
+                                window_id: window.id.clone(),
+                                run_id: run_id,
+                                document_path: document_path,
+                            }
+                        }
+                    },
                     _ => rsx! {
                         div {
                             style: "display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-muted, #6b7280); padding: 1rem;",
@@ -731,6 +754,7 @@ fn get_app_icon(app_id: &str) -> &'static str {
         "files" => "📁",
         "logs" => "📡",
         "settings" => "⚙️",
+        "run" => "🚀",
         _ => "📱",
     }
 }

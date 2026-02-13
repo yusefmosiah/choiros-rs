@@ -80,19 +80,13 @@ impl AsRef<Action> for Action {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
-pub enum DecisionType {
+pub enum ConductorAction {
 
 
-    Dispatch,
+    SpawnWorker,
 
 
-    Retry,
-
-
-    SpawnFollowup,
-
-
-    Continue,
+    UpdateDraft,
 
 
     Complete,
@@ -103,25 +97,21 @@ pub enum DecisionType {
 
 }
 
-impl Default for DecisionType {
+impl Default for ConductorAction {
     fn default() -> Self {
         
-        Self::Dispatch
+        Self::SpawnWorker
         
     }
 }
 
-impl std::fmt::Display for DecisionType {
+impl std::fmt::Display for ConductorAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
 
-            Self::Dispatch => write!(f, "Dispatch"),
+            Self::SpawnWorker => write!(f, "SpawnWorker"),
 
-            Self::Retry => write!(f, "Retry"),
-
-            Self::SpawnFollowup => write!(f, "SpawnFollowup"),
-
-            Self::Continue => write!(f, "Continue"),
+            Self::UpdateDraft => write!(f, "UpdateDraft"),
 
             Self::Complete => write!(f, "Complete"),
 
@@ -132,19 +122,15 @@ impl std::fmt::Display for DecisionType {
     }
 }
 
-impl std::str::FromStr for DecisionType {
+impl std::str::FromStr for ConductorAction {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
 
-            "Dispatch" => Ok(Self::Dispatch),
+            "SpawnWorker" => Ok(Self::SpawnWorker),
 
-            "Retry" => Ok(Self::Retry),
-
-            "SpawnFollowup" => Ok(Self::SpawnFollowup),
-
-            "Continue" => Ok(Self::Continue),
+            "UpdateDraft" => Ok(Self::UpdateDraft),
 
             "Complete" => Ok(Self::Complete),
 
@@ -157,8 +143,8 @@ impl std::str::FromStr for DecisionType {
     }
 }
 
-impl AsRef<DecisionType> for DecisionType {
-    fn as_ref(&self) -> &DecisionType {
+impl AsRef<ConductorAction> for ConductorAction {
+    fn as_ref(&self) -> &ConductorAction {
         self
     }
 }
@@ -666,73 +652,6 @@ impl std::str::FromStr for RiskCategory {
 
 impl AsRef<RiskCategory> for RiskCategory {
     fn as_ref(&self) -> &RiskCategory {
-        self
-    }
-}
-
-
-
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
-
-pub enum TerminalityStatus {
-
-
-    Complete,
-
-
-    Blocked,
-
-
-    Continue,
-
-
-}
-
-impl Default for TerminalityStatus {
-    fn default() -> Self {
-        
-        Self::Complete
-        
-    }
-}
-
-impl std::fmt::Display for TerminalityStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-
-            Self::Complete => write!(f, "Complete"),
-
-            Self::Blocked => write!(f, "Blocked"),
-
-            Self::Continue => write!(f, "Continue"),
-
-
-        }
-    }
-}
-
-impl std::str::FromStr for TerminalityStatus {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-
-            "Complete" => Ok(Self::Complete),
-
-            "Blocked" => Ok(Self::Blocked),
-
-            "Continue" => Ok(Self::Continue),
-
-
-            _ => Err(()),
-
-        }
-    }
-}
-
-impl AsRef<TerminalityStatus> for TerminalityStatus {
-    fn as_ref(&self) -> &TerminalityStatus {
         self
     }
 }

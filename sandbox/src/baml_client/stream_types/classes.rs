@@ -285,82 +285,6 @@ impl AsRef<BashToolArgs> for BashToolArgs {
 
 #[derive(Debug, Clone, Default, BamlDecode)]
 
-pub struct ConductorAgendaItem {
-
-
-
-    pub id: Option<String>,
-
-
-
-    pub capability: Option<String>,
-
-
-
-    pub objective: Option<String>,
-
-
-
-    pub dependencies: Vec<String>,
-
-
-
-    pub status: Option<String>,
-
-
-
-    pub priority: Option<i64>,
-
-
-}
-
-
-
-impl AsRef<ConductorAgendaItem> for ConductorAgendaItem {
-    fn as_ref(&self) -> &ConductorAgendaItem {
-        self
-    }
-}
-
-
-
-
-#[derive(Debug, Clone, Default, BamlDecode)]
-
-pub struct ConductorArtifact {
-
-
-
-    pub artifact_id: Option<String>,
-
-
-
-    pub name: Option<String>,
-
-
-
-    pub content_type: Option<String>,
-
-
-
-    pub summary: Option<String>,
-
-
-}
-
-
-
-impl AsRef<ConductorArtifact> for ConductorArtifact {
-    fn as_ref(&self) -> &ConductorArtifact {
-        self
-    }
-}
-
-
-
-
-#[derive(Debug, Clone, Default, BamlDecode)]
-
 pub struct ConductorBootstrapInput {
 
 
@@ -421,35 +345,27 @@ impl AsRef<ConductorBootstrapOutput> for ConductorBootstrapOutput {
 
 #[derive(Debug, Clone, Default, BamlDecode)]
 
-pub struct ConductorCapabilityCall {
+pub struct ConductorDecision {
 
 
 
-    pub call_id: Option<String>,
+    pub action: Option<types::ConductorAction>,
 
 
 
-    pub agenda_item_id: Option<String>,
+    pub args: Option<std::collections::HashMap<String, String>>,
 
 
 
-    pub capability: Option<String>,
-
-
-
-    pub objective: Option<String>,
-
-
-
-    pub status: Option<String>,
+    pub reason: Option<String>,
 
 
 }
 
 
 
-impl AsRef<ConductorCapabilityCall> for ConductorCapabilityCall {
-    fn as_ref(&self) -> &ConductorCapabilityCall {
+impl AsRef<ConductorDecision> for ConductorDecision {
+    fn as_ref(&self) -> &ConductorDecision {
         self
     }
 }
@@ -467,35 +383,15 @@ pub struct ConductorDecisionInput {
 
 
 
-    pub task_id: Option<String>,
-
-
-
     pub objective: Option<String>,
 
 
 
-    pub run_status: Option<String>,
+    pub document_path: Option<String>,
 
 
 
-    pub agenda: Vec<ConductorAgendaItem>,
-
-
-
-    pub active_calls: Vec<ConductorCapabilityCall>,
-
-
-
-    pub artifacts: Vec<ConductorArtifact>,
-
-
-
-    pub recent_events: Vec<EventSummary>,
-
-
-
-    pub worker_outputs: Vec<WorkerOutput>,
+    pub last_error: Option<String>,
 
 
 }
@@ -513,60 +409,6 @@ impl AsRef<ConductorDecisionInput> for ConductorDecisionInput {
 
 #[derive(Debug, Clone, Default, BamlDecode)]
 
-pub struct ConductorDecisionOutput {
-
-
-
-    pub decision_type: Option<types::DecisionType>,
-
-
-
-    pub target_agenda_item_ids: Vec<String>,
-
-
-
-    pub new_agenda_items: Vec<ConductorAgendaItem>,
-
-
-
-    pub capability: Option<String>,
-
-
-
-    pub objective: Option<String>,
-
-
-
-    pub retry_policy: Option<RetryPolicy>,
-
-
-
-    pub completion_reason: Option<String>,
-
-
-
-    pub confidence: Option<f64>,
-
-
-
-    pub rationale: Option<String>,
-
-
-}
-
-
-
-impl AsRef<ConductorDecisionOutput> for ConductorDecisionOutput {
-    fn as_ref(&self) -> &ConductorDecisionOutput {
-        self
-    }
-}
-
-
-
-
-#[derive(Debug, Clone, Default, BamlDecode)]
-
 pub struct ConductorObjectiveRefineInput {
 
 
@@ -575,7 +417,7 @@ pub struct ConductorObjectiveRefineInput {
 
 
 
-    pub context: Vec<WorkerOutput>,
+    pub context: Vec<String>,
 
 
 
@@ -631,70 +473,6 @@ impl AsRef<ConductorObjectiveRefineOutput> for ConductorObjectiveRefineOutput {
 
 #[derive(Debug, Clone, Default, BamlDecode)]
 
-pub struct ConductorTerminalityInput {
-
-
-
-    pub run_id: Option<String>,
-
-
-
-    pub agenda: Vec<ConductorAgendaItem>,
-
-
-
-    pub artifacts: Vec<ConductorArtifact>,
-
-
-
-    pub original_objective: Option<String>,
-
-
-}
-
-
-
-impl AsRef<ConductorTerminalityInput> for ConductorTerminalityInput {
-    fn as_ref(&self) -> &ConductorTerminalityInput {
-        self
-    }
-}
-
-
-
-
-#[derive(Debug, Clone, Default, BamlDecode)]
-
-pub struct ConductorTerminalityOutput {
-
-
-
-    pub terminality_status: Option<types::TerminalityStatus>,
-
-
-
-    pub reason: Option<String>,
-
-
-
-    pub confidence: Option<f64>,
-
-
-}
-
-
-
-impl AsRef<ConductorTerminalityOutput> for ConductorTerminalityOutput {
-    fn as_ref(&self) -> &ConductorTerminalityOutput {
-        self
-    }
-}
-
-
-
-
-#[derive(Debug, Clone, Default, BamlDecode)]
-
 pub struct DetectedAnomaly {
 
 
@@ -724,74 +502,6 @@ pub struct DetectedAnomaly {
 
 impl AsRef<DetectedAnomaly> for DetectedAnomaly {
     fn as_ref(&self) -> &DetectedAnomaly {
-        self
-    }
-}
-
-
-
-
-#[derive(Debug, Clone, Default, BamlDecode)]
-
-pub struct EventSummary {
-
-
-
-    pub event_id: Option<String>,
-
-
-
-    pub event_type: Option<String>,
-
-
-
-    pub timestamp: Option<String>,
-
-
-
-    pub payload: Option<String>,
-
-
-}
-
-
-
-impl AsRef<EventSummary> for EventSummary {
-    fn as_ref(&self) -> &EventSummary {
-        self
-    }
-}
-
-
-
-
-#[derive(Debug, Clone, Default, BamlDecode)]
-
-pub struct FollowupRecommendation {
-
-
-
-    pub capability: Option<String>,
-
-
-
-    pub objective: Option<String>,
-
-
-
-    pub priority: Option<i64>,
-
-
-
-    pub rationale: Option<String>,
-
-
-}
-
-
-
-impl AsRef<FollowupRecommendation> for FollowupRecommendation {
-    fn as_ref(&self) -> &FollowupRecommendation {
         self
     }
 }
@@ -1038,32 +748,6 @@ pub struct Resume {
 
 impl AsRef<Resume> for Resume {
     fn as_ref(&self) -> &Resume {
-        self
-    }
-}
-
-
-
-
-#[derive(Debug, Clone, Default, BamlDecode)]
-
-pub struct RetryPolicy {
-
-
-
-    pub max_attempts: Option<i64>,
-
-
-
-    pub backoff_strategy: Option<String>,
-
-
-}
-
-
-
-impl AsRef<RetryPolicy> for RetryPolicy {
-    fn as_ref(&self) -> &RetryPolicy {
         self
     }
 }
@@ -1590,48 +1274,6 @@ pub struct WebSearchToolArgs {
 
 impl AsRef<WebSearchToolArgs> for WebSearchToolArgs {
     fn as_ref(&self) -> &WebSearchToolArgs {
-        self
-    }
-}
-
-
-
-
-#[derive(Debug, Clone, Default, BamlDecode)]
-
-pub struct WorkerOutput {
-
-
-
-    pub call_id: Option<String>,
-
-
-
-    pub agenda_item_id: Option<String>,
-
-
-
-    pub status: Option<String>,
-
-
-
-    pub result_summary: Option<String>,
-
-
-
-    pub artifacts_produced: Vec<ConductorArtifact>,
-
-
-
-    pub followup_recommendations: Vec<FollowupRecommendation>,
-
-
-}
-
-
-
-impl AsRef<WorkerOutput> for WorkerOutput {
-    fn as_ref(&self) -> &WorkerOutput {
         self
     }
 }

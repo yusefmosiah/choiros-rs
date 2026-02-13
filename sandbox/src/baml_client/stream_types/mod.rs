@@ -29,33 +29,19 @@ pub enum StreamTypes {
 
     BashToolArgs(BashToolArgs),
 
-    ConductorAgendaItem(ConductorAgendaItem),
-
-    ConductorArtifact(ConductorArtifact),
-
     ConductorBootstrapInput(ConductorBootstrapInput),
 
     ConductorBootstrapOutput(ConductorBootstrapOutput),
 
-    ConductorCapabilityCall(ConductorCapabilityCall),
+    ConductorDecision(ConductorDecision),
 
     ConductorDecisionInput(ConductorDecisionInput),
-
-    ConductorDecisionOutput(ConductorDecisionOutput),
 
     ConductorObjectiveRefineInput(ConductorObjectiveRefineInput),
 
     ConductorObjectiveRefineOutput(ConductorObjectiveRefineOutput),
 
-    ConductorTerminalityInput(ConductorTerminalityInput),
-
-    ConductorTerminalityOutput(ConductorTerminalityOutput),
-
     DetectedAnomaly(DetectedAnomaly),
-
-    EventSummary(EventSummary),
-
-    FollowupRecommendation(FollowupRecommendation),
 
     HistoricalResolution(HistoricalResolution),
 
@@ -70,8 +56,6 @@ pub enum StreamTypes {
     ResearcherPlanOutput(ResearcherPlanOutput),
 
     Resume(Resume),
-
-    RetryPolicy(RetryPolicy),
 
     ReviewScope(ReviewScope),
 
@@ -99,8 +83,6 @@ pub enum StreamTypes {
 
     WebSearchToolArgs(WebSearchToolArgs),
 
-    WorkerOutput(WorkerOutput),
-
     WriteFileToolArgs(WriteFileToolArgs),
 
 
@@ -124,33 +106,19 @@ impl baml::KnownTypes for StreamTypes {
 
             StreamTypes::BashToolArgs(_) => "BashToolArgs",
 
-            StreamTypes::ConductorAgendaItem(_) => "ConductorAgendaItem",
-
-            StreamTypes::ConductorArtifact(_) => "ConductorArtifact",
-
             StreamTypes::ConductorBootstrapInput(_) => "ConductorBootstrapInput",
 
             StreamTypes::ConductorBootstrapOutput(_) => "ConductorBootstrapOutput",
 
-            StreamTypes::ConductorCapabilityCall(_) => "ConductorCapabilityCall",
+            StreamTypes::ConductorDecision(_) => "ConductorDecision",
 
             StreamTypes::ConductorDecisionInput(_) => "ConductorDecisionInput",
-
-            StreamTypes::ConductorDecisionOutput(_) => "ConductorDecisionOutput",
 
             StreamTypes::ConductorObjectiveRefineInput(_) => "ConductorObjectiveRefineInput",
 
             StreamTypes::ConductorObjectiveRefineOutput(_) => "ConductorObjectiveRefineOutput",
 
-            StreamTypes::ConductorTerminalityInput(_) => "ConductorTerminalityInput",
-
-            StreamTypes::ConductorTerminalityOutput(_) => "ConductorTerminalityOutput",
-
             StreamTypes::DetectedAnomaly(_) => "DetectedAnomaly",
-
-            StreamTypes::EventSummary(_) => "EventSummary",
-
-            StreamTypes::FollowupRecommendation(_) => "FollowupRecommendation",
 
             StreamTypes::HistoricalResolution(_) => "HistoricalResolution",
 
@@ -165,8 +133,6 @@ impl baml::KnownTypes for StreamTypes {
             StreamTypes::ResearcherPlanOutput(_) => "ResearcherPlanOutput",
 
             StreamTypes::Resume(_) => "Resume",
-
-            StreamTypes::RetryPolicy(_) => "RetryPolicy",
 
             StreamTypes::ReviewScope(_) => "ReviewScope",
 
@@ -193,8 +159,6 @@ impl baml::KnownTypes for StreamTypes {
             StreamTypes::WatcherReviewOutput(_) => "WatcherReviewOutput",
 
             StreamTypes::WebSearchToolArgs(_) => "WebSearchToolArgs",
-
-            StreamTypes::WorkerOutput(_) => "WorkerOutput",
 
             StreamTypes::WriteFileToolArgs(_) => "WriteFileToolArgs",
 

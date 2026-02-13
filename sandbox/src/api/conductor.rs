@@ -127,7 +127,8 @@ fn map_actor_error(err: ActorConductorError) -> (StatusCode, ConductorError) {
         | ActorConductorError::WorkerBlocked(msg)
         | ActorConductorError::ReportWriteFailed(msg)
         | ActorConductorError::DuplicateTask(msg)
-        | ActorConductorError::PolicyError(msg) => (
+        | ActorConductorError::PolicyError(msg)
+        | ActorConductorError::FileError(msg) => (
             ConductorErrorCode::InternalError.status_code(),
             conductor_error(
                 ConductorErrorCode::InternalError,
@@ -163,6 +164,29 @@ async fn broadcast_telemetry_event(
             phase: phase.to_string(),
             importance: importance_str.to_string(),
             data,
+        },
+    )
+    .await;
+}
+
+/// Broadcast a document update event to all WebSocket clients for a desktop
+#[allow(dead_code)]
+pub async fn broadcast_document_update(
+    ws_sessions: &crate::api::websocket::WsSessions,
+    desktop_id: &str,
+    run_id: &str,
+    document_path: &str,
+    content_excerpt: &str,
+    timestamp: &str,
+) {
+    broadcast_event(
+        ws_sessions,
+        desktop_id,
+        WsMessage::DocumentUpdate {
+            run_id: run_id.to_string(),
+            document_path: document_path.to_string(),
+            content_excerpt: content_excerpt.to_string(),
+            timestamp: timestamp.to_string(),
         },
     )
     .await;

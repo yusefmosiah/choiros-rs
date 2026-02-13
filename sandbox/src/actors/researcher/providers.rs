@@ -28,9 +28,7 @@ pub(crate) enum ProviderSelection {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ProviderSearchOutput {
-    pub provider: SearchProvider,
     pub citations: Vec<ResearchCitation>,
-    pub raw_results_count: usize,
     pub latency_ms: u64,
 }
 
@@ -109,19 +107,6 @@ pub(crate) fn merge_citations(outputs: &[ProviderSearchOutput]) -> Vec<ResearchC
         }
     }
     merged
-}
-
-pub(crate) fn provider_label_from_outputs(outputs: &[ProviderSearchOutput]) -> Option<String> {
-    if outputs.is_empty() {
-        return None;
-    }
-    Some(
-        outputs
-            .iter()
-            .map(|output| output.provider.as_str().to_string())
-            .collect::<Vec<_>>()
-            .join("->"),
-    )
 }
 
 pub(crate) async fn fetch_url(
@@ -449,8 +434,6 @@ async fn search_tavily(
     }
 
     Ok(ProviderSearchOutput {
-        provider: SearchProvider::Tavily,
-        raw_results_count: citations.len(),
         citations,
         latency_ms: 0,
     })
@@ -535,8 +518,6 @@ async fn search_brave(
     }
 
     Ok(ProviderSearchOutput {
-        provider: SearchProvider::Brave,
-        raw_results_count: citations.len(),
         citations,
         latency_ms: 0,
     })
@@ -649,8 +630,6 @@ async fn search_exa(
     }
 
     Ok(ProviderSearchOutput {
-        provider: SearchProvider::Exa,
-        raw_results_count: citations.len(),
         citations,
         latency_ms: 0,
     })

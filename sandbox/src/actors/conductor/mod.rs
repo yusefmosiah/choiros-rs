@@ -34,6 +34,7 @@
 
 pub mod actor;
 pub mod events;
+pub mod file_tools;
 pub mod output;
 pub mod policy;
 pub mod protocol;

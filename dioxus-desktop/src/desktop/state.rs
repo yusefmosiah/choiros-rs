@@ -121,6 +121,10 @@ pub fn apply_ws_event(
             // Telemetry events are handled separately by the prompt bar
             // They don't modify desktop state
         }
+        WsEvent::DocumentUpdate { .. } => {
+            // Document update events are handled separately by the run view
+            // They don't modify desktop state
+        }
     }
 }
 

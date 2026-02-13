@@ -81,6 +81,9 @@ pub enum ConductorError {
     /// Policy decision failed
     #[error("policy error: {0}")]
     PolicyError(String),
+    /// File operation error
+    #[error("file error: {0}")]
+    FileError(String),
 }
 
 impl From<ConductorError> for shared_types::ConductorError {
@@ -94,6 +97,7 @@ impl From<ConductorError> for shared_types::ConductorError {
                 ConductorError::ReportWriteFailed(_) => "REPORT_WRITE_FAILED",
                 ConductorError::DuplicateTask(_) => "DUPLICATE_TASK",
                 ConductorError::PolicyError(_) => "POLICY_ERROR",
+                ConductorError::FileError(_) => "FILE_ERROR",
             }
             .to_string(),
             message: err.to_string(),
@@ -105,6 +109,7 @@ impl From<ConductorError> for shared_types::ConductorError {
                 ConductorError::ReportWriteFailed(_) => shared_types::FailureKind::Unknown,
                 ConductorError::DuplicateTask(_) => shared_types::FailureKind::Validation,
                 ConductorError::PolicyError(_) => shared_types::FailureKind::Provider,
+                ConductorError::FileError(_) => shared_types::FailureKind::Unknown,
             }),
         }
     }

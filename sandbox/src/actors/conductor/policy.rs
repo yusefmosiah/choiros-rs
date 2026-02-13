@@ -9,10 +9,8 @@ use std::sync::Arc;
 use crate::actors::conductor::protocol::ConductorError;
 use crate::actors::model_config::{ModelRegistry, ModelResolutionContext};
 use crate::baml_client::types::{
-    ConductorAgendaItem as BamlAgendaItem, ConductorArtifact as BamlArtifact,
-    ConductorBootstrapInput, ConductorBootstrapOutput,
-    ConductorCapabilityCall as BamlCapabilityCall, ConductorDecisionInput, ConductorDecisionOutput,
-    ConductorObjectiveRefineInput, ConductorObjectiveRefineOutput, EventSummary, WorkerOutput,
+    ConductorBootstrapInput, ConductorBootstrapOutput, ConductorDecision,
+    ConductorDecisionInput, ConductorObjectiveRefineInput, ConductorObjectiveRefineOutput,
 };
 use crate::baml_client::{ClientRegistry, B};
 
@@ -30,7 +28,7 @@ pub trait ConductorPolicy: Send + Sync {
         &self,
         run: &shared_types::ConductorRunState,
         available_capabilities: &[String],
-    ) -> Result<ConductorDecisionOutput, ConductorError>;
+    ) -> Result<ConductorDecision, ConductorError>;
 
     async fn refine_objective_for_capability(
         &self,
@@ -67,153 +65,12 @@ impl BamlConductorPolicy {
             })
     }
 
-    fn build_decision_input(
-        run: &shared_types::ConductorRunState,
-        available_capabilities: &[String],
-    ) -> ConductorDecisionInput {
-        let agenda: Vec<BamlAgendaItem> = run
-            .agenda
-            .iter()
-            .map(|item| BamlAgendaItem {
-                id: item.item_id.clone(),
-                capability: item.capability.clone(),
-                objective: item.objective.clone(),
-                dependencies: item.depends_on.clone(),
-                status: format!("{:?}", item.status),
-                priority: item.priority as i64,
-            })
-            .collect();
-
-        let active_calls: Vec<BamlCapabilityCall> = run
-            .active_calls
-            .iter()
-            .map(|call| BamlCapabilityCall {
-                call_id: call.call_id.clone(),
-                agenda_item_id: call.agenda_item_id.clone().unwrap_or_default(),
-                capability: call.capability.clone(),
-                objective: call.objective.clone(),
-                status: format!("{:?}", call.status),
-            })
-            .collect();
-
-        let artifacts: Vec<BamlArtifact> = run
-            .artifacts
-            .iter()
-            .map(|artifact| BamlArtifact {
-                artifact_id: artifact.artifact_id.clone(),
-                name: artifact.artifact_id.clone(),
-                content_type: artifact
-                    .mime_type
-                    .clone()
-                    .unwrap_or_else(|| "application/octet-stream".to_string()),
-                summary: format!(
-                    "{:?} artifact from {}",
-                    artifact.kind, artifact.source_call_id
-                ),
-            })
-            .collect();
-
-        let worker_outputs: Vec<WorkerOutput> = run
-            .artifacts
-            .iter()
-            .filter(|artifact| {
-                artifact
-                    .metadata
-                    .as_ref()
-                    .and_then(|m| m.get("category"))
-                    .and_then(|v| v.as_str())
-                    != Some("wake_signal")
-            })
-            .map(|artifact| {
-                let summary = artifact
-                    .metadata
-                    .as_ref()
-                    .and_then(|m| m.get("summary"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("No summary")
-                    .to_string();
-                WorkerOutput {
-                    call_id: artifact.source_call_id.clone(),
-                    agenda_item_id: run
-                        .active_calls
-                        .iter()
-                        .find(|c| c.call_id == artifact.source_call_id)
-                        .and_then(|c| c.agenda_item_id.clone())
-                        .unwrap_or_default(),
-                    status: "completed".to_string(),
-                    result_summary: summary,
-                    artifacts_produced: vec![],
-                    followup_recommendations: vec![],
-                }
-            })
-            .collect();
-
-        let mut recent_events = run
-            .artifacts
-            .iter()
-            .filter_map(|artifact| {
-                let metadata = artifact.metadata.as_ref()?;
-                if metadata.get("category").and_then(|v| v.as_str()) != Some("wake_signal") {
-                    return None;
-                }
-                Some(EventSummary {
-                    event_id: artifact.artifact_id.clone(),
-                    event_type: metadata
-                        .get("event_type")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("conductor.event")
-                        .to_string(),
-                    timestamp: artifact.created_at.to_rfc3339(),
-                    payload: metadata
-                        .get("event_payload")
-                        .cloned()
-                        .unwrap_or(serde_json::Value::Null)
-                        .to_string(),
-                })
-            })
-            .collect::<Vec<_>>();
-
-        recent_events.push(EventSummary {
-            event_id: format!("run-context-{}", run.run_id),
-            event_type: "conductor.run.context".to_string(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-            payload: serde_json::json!({
-                "capabilities": available_capabilities,
-                "agenda_statuses": run
-                    .agenda
-                    .iter()
-                    .map(|item| serde_json::json!({
-                        "item_id": item.item_id,
-                        "capability": item.capability,
-                        "status": format!("{:?}", item.status),
-                    }))
-                    .collect::<Vec<_>>(),
-                "active_calls": run.active_calls.len(),
-            })
-            .to_string(),
-        });
-        recent_events.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
-        if recent_events.len() > 20 {
-            recent_events = recent_events
-                .into_iter()
-                .rev()
-                .take(20)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect();
-        }
-
+    fn build_decision_input(run: &shared_types::ConductorRunState) -> ConductorDecisionInput {
         ConductorDecisionInput {
             run_id: run.run_id.clone(),
-            task_id: run.task_id.clone(),
             objective: run.objective.clone(),
-            run_status: format!("{:?}", run.status),
-            agenda,
-            active_calls,
-            artifacts,
-            recent_events,
-            worker_outputs,
+            document_path: run.document_path.clone(),
+            last_error: None, // Can be populated later if needed
         }
     }
 }
@@ -240,11 +97,11 @@ impl ConductorPolicy for BamlConductorPolicy {
     async fn decide_next_action(
         &self,
         run: &shared_types::ConductorRunState,
-        available_capabilities: &[String],
-    ) -> Result<ConductorDecisionOutput, ConductorError> {
+        _available_capabilities: &[String],
+    ) -> Result<ConductorDecision, ConductorError> {
         let client_registry = self.resolve_client_registry_for_role("conductor")?;
-        let input = Self::build_decision_input(run, available_capabilities);
-        B.ConductorDecideNextAction
+        let input = Self::build_decision_input(run);
+        B.ConductorDecide
             .with_client_registry(&client_registry)
             .call(&input)
             .await

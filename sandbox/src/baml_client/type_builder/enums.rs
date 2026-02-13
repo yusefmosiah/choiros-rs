@@ -61,16 +61,16 @@ impl ActionEnumBuilder {
 }
 
 
-/// Wrapper for the `DecisionType` enum builder.
+/// Wrapper for the `ConductorAction` enum builder.
 ///
 /// Provides type-safe method access to values defined in the schema.
 /// Access values via methods: `builder.ValueName()`
 
-pub struct DecisionTypeEnumBuilder {
+pub struct ConductorActionEnumBuilder {
     inner: baml::EnumBuilder,
 }
 
-impl DecisionTypeEnumBuilder {
+impl ConductorActionEnumBuilder {
     /// Create wrapper from runtime EnumBuilder.
     pub(crate) fn new(inner: baml::EnumBuilder) -> Self {
         Self { inner }
@@ -84,7 +84,7 @@ impl DecisionTypeEnumBuilder {
     /// Get the enum as a type definition.
     pub fn r#type(&self) -> baml::TypeDef {
         self.inner.as_type()
-            .expect("DecisionType is statically defined in .baml and should always have a type")
+            .expect("ConductorAction is statically defined in .baml and should always have a type")
     }
 
 
@@ -93,45 +93,31 @@ impl DecisionTypeEnumBuilder {
     // =========================================================================
 
 
-    /// Access the `Dispatch` value builder.
-    pub fn value_Dispatch(&self) -> baml::EnumValueBuilder {
-        self.inner.get_value("Dispatch")
-            .expect("DecisionType.Dispatch is statically defined in .baml and should always be present")
+    /// Access the `SpawnWorker` value builder.
+    pub fn value_SpawnWorker(&self) -> baml::EnumValueBuilder {
+        self.inner.get_value("SpawnWorker")
+            .expect("ConductorAction.SpawnWorker is statically defined in .baml and should always be present")
     }
 
 
-    /// Access the `Retry` value builder.
-    pub fn value_Retry(&self) -> baml::EnumValueBuilder {
-        self.inner.get_value("Retry")
-            .expect("DecisionType.Retry is statically defined in .baml and should always be present")
-    }
-
-
-    /// Access the `SpawnFollowup` value builder.
-    pub fn value_SpawnFollowup(&self) -> baml::EnumValueBuilder {
-        self.inner.get_value("SpawnFollowup")
-            .expect("DecisionType.SpawnFollowup is statically defined in .baml and should always be present")
-    }
-
-
-    /// Access the `Continue` value builder.
-    pub fn value_Continue(&self) -> baml::EnumValueBuilder {
-        self.inner.get_value("Continue")
-            .expect("DecisionType.Continue is statically defined in .baml and should always be present")
+    /// Access the `UpdateDraft` value builder.
+    pub fn value_UpdateDraft(&self) -> baml::EnumValueBuilder {
+        self.inner.get_value("UpdateDraft")
+            .expect("ConductorAction.UpdateDraft is statically defined in .baml and should always be present")
     }
 
 
     /// Access the `Complete` value builder.
     pub fn value_Complete(&self) -> baml::EnumValueBuilder {
         self.inner.get_value("Complete")
-            .expect("DecisionType.Complete is statically defined in .baml and should always be present")
+            .expect("ConductorAction.Complete is statically defined in .baml and should always be present")
     }
 
 
     /// Access the `Block` value builder.
     pub fn value_Block(&self) -> baml::EnumValueBuilder {
         self.inner.get_value("Block")
-            .expect("DecisionType.Block is statically defined in .baml and should always be present")
+            .expect("ConductorAction.Block is statically defined in .baml and should always be present")
     }
 
 }
@@ -567,61 +553,6 @@ impl RiskCategoryEnumBuilder {
     pub fn value_Compliance(&self) -> baml::EnumValueBuilder {
         self.inner.get_value("Compliance")
             .expect("RiskCategory.Compliance is statically defined in .baml and should always be present")
-    }
-
-}
-
-
-/// Wrapper for the `TerminalityStatus` enum builder.
-///
-/// Provides type-safe method access to values defined in the schema.
-/// Access values via methods: `builder.ValueName()`
-
-pub struct TerminalityStatusEnumBuilder {
-    inner: baml::EnumBuilder,
-}
-
-impl TerminalityStatusEnumBuilder {
-    /// Create wrapper from runtime EnumBuilder.
-    pub(crate) fn new(inner: baml::EnumBuilder) -> Self {
-        Self { inner }
-    }
-
-    /// Get the underlying EnumBuilder.
-    pub fn inner(&self) -> &baml::EnumBuilder {
-        &self.inner
-    }
-
-    /// Get the enum as a type definition.
-    pub fn r#type(&self) -> baml::TypeDef {
-        self.inner.as_type()
-            .expect("TerminalityStatus is statically defined in .baml and should always have a type")
-    }
-
-
-    // =========================================================================
-    // Value Accessors (1:1 with schema value names)
-    // =========================================================================
-
-
-    /// Access the `Complete` value builder.
-    pub fn value_Complete(&self) -> baml::EnumValueBuilder {
-        self.inner.get_value("Complete")
-            .expect("TerminalityStatus.Complete is statically defined in .baml and should always be present")
-    }
-
-
-    /// Access the `Blocked` value builder.
-    pub fn value_Blocked(&self) -> baml::EnumValueBuilder {
-        self.inner.get_value("Blocked")
-            .expect("TerminalityStatus.Blocked is statically defined in .baml and should always be present")
-    }
-
-
-    /// Access the `Continue` value builder.
-    pub fn value_Continue(&self) -> baml::EnumValueBuilder {
-        self.inner.get_value("Continue")
-            .expect("TerminalityStatus.Continue is statically defined in .baml and should always be present")
     }
 
 }

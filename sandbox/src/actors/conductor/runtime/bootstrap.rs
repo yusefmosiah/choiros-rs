@@ -4,6 +4,7 @@ use shared_types::{ConductorExecuteRequest, ConductorTaskState, ConductorTaskSta
 use crate::actors::conductor::actor::{ConductorActor, ConductorState};
 use crate::actors::conductor::{
     events,
+    file_tools,
     protocol::{ConductorError, ConductorMsg},
 };
 
@@ -60,6 +61,16 @@ impl ConductorActor {
         .await;
 
         let initial_agenda = self.build_initial_agenda(state, &request, &task_id).await?;
+
+        // Create initial draft document
+        let document_path = match file_tools::create_initial_draft(&task_id, &request.objective).await {
+            Ok(path) => path,
+            Err(e) => {
+                tracing::error!(task_id = %task_id, error = %e, "Failed to create initial draft");
+                return Err(e);
+            }
+        };
+
         let run = shared_types::ConductorRunState {
             run_id: task_id.clone(),
             task_id: task_id.clone(),
@@ -72,6 +83,7 @@ impl ConductorActor {
             active_calls: vec![],
             artifacts: vec![],
             decision_log: vec![],
+            document_path,
             output_mode: request.output_mode,
             desktop_id: request.desktop_id.clone(),
             correlation_id: correlation_id.clone(),

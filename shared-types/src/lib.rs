@@ -864,6 +864,8 @@ pub struct ConductorRunState {
     pub artifacts: Vec<ConductorArtifact>,
     /// Typed decisions made during orchestration
     pub decision_log: Vec<ConductorDecision>,
+    /// Path to the living document (draft.md)
+    pub document_path: String,
     /// Output mode for final delivery
     pub output_mode: ConductorOutputMode,
     /// Desktop ID for UI coordination

@@ -91,6 +91,15 @@ pub enum WsMessage {
         data: serde_json::Value,
     },
 
+    /// Document update event for live streaming of conductor run documents
+    #[serde(rename = "conductor.run.document_update")]
+    DocumentUpdate {
+        run_id: String,
+        document_path: String,
+        content_excerpt: String,
+        timestamp: String,
+    },
+
     #[serde(rename = "error")]
     Error { message: String },
 }

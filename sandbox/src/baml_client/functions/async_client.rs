@@ -107,13 +107,10 @@ macro_rules! baml_function_async {
 
 
 
-baml_function_async!(ConductorAssessTerminality(input: &types::ConductorTerminalityInput, ) -> (stream_types::ConductorTerminalityOutput, types::ConductorTerminalityOutput));
-
-
 baml_function_async!(ConductorBootstrapAgenda(input: &types::ConductorBootstrapInput, ) -> (stream_types::ConductorBootstrapOutput, types::ConductorBootstrapOutput));
 
 
-baml_function_async!(ConductorDecideNextAction(input: &types::ConductorDecisionInput, ) -> (stream_types::ConductorDecisionOutput, types::ConductorDecisionOutput));
+baml_function_async!(ConductorDecide(input: &types::ConductorDecisionInput, ) -> (stream_types::ConductorDecision, types::ConductorDecision));
 
 
 baml_function_async!(ConductorRefineObjective(input: &types::ConductorObjectiveRefineInput, ) -> (stream_types::ConductorObjectiveRefineOutput, types::ConductorObjectiveRefineOutput));
@@ -145,11 +142,9 @@ baml_function_async!(WatcherReviewLogWindow(input: &types::WatcherLogWindowInput
 pub struct BamlAsyncClient {
     options: FunctionOptions,
     
-    pub ConductorAssessTerminality: ConductorAssessTerminality,
-    
     pub ConductorBootstrapAgenda: ConductorBootstrapAgenda,
     
-    pub ConductorDecideNextAction: ConductorDecideNextAction,
+    pub ConductorDecide: ConductorDecide,
     
     pub ConductorRefineObjective: ConductorRefineObjective,
     
@@ -172,11 +167,9 @@ impl BamlAsyncClient {
         Self {
             options: FunctionOptions::new(),
             
-            ConductorAssessTerminality: ConductorAssessTerminality::new(),
-            
             ConductorBootstrapAgenda: ConductorBootstrapAgenda::new(),
             
-            ConductorDecideNextAction: ConductorDecideNextAction::new(),
+            ConductorDecide: ConductorDecide::new(),
             
             ConductorRefineObjective: ConductorRefineObjective::new(),
             
@@ -200,11 +193,9 @@ impl BamlAsyncClient {
         Self {
             options: options.clone(),
             
-            ConductorAssessTerminality: ConductorAssessTerminality { options: options.clone() },
-            
             ConductorBootstrapAgenda: ConductorBootstrapAgenda { options: options.clone() },
             
-            ConductorDecideNextAction: ConductorDecideNextAction { options: options.clone() },
+            ConductorDecide: ConductorDecide { options: options.clone() },
             
             ConductorRefineObjective: ConductorRefineObjective { options: options.clone() },
             

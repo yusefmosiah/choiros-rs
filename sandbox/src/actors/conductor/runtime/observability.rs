@@ -1,19 +1,18 @@
 use crate::actors::conductor::actor::ConductorActor;
 use crate::actors::conductor::protocol::ConductorError;
-use crate::baml_client::types::ConductorDecisionOutput;
+use crate::baml_client::types::ConductorDecision;
 
 impl ConductorActor {
     pub(crate) async fn emit_policy_event(
         &self,
         run_id: &str,
         function_name: &str,
-        decision: &ConductorDecisionOutput,
+        decision: &ConductorDecision,
     ) {
         tracing::info!(
             run_id = %run_id,
             function = %function_name,
-            decision_type = %decision.decision_type,
-            confidence = %decision.confidence,
+            action = %decision.action,
             "Policy decision emitted"
         );
     }

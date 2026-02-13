@@ -34,33 +34,19 @@ pub enum Types {
 
     BashToolArgs(BashToolArgs),
 
-    ConductorAgendaItem(ConductorAgendaItem),
-
-    ConductorArtifact(ConductorArtifact),
-
     ConductorBootstrapInput(ConductorBootstrapInput),
 
     ConductorBootstrapOutput(ConductorBootstrapOutput),
 
-    ConductorCapabilityCall(ConductorCapabilityCall),
+    ConductorDecision(ConductorDecision),
 
     ConductorDecisionInput(ConductorDecisionInput),
-
-    ConductorDecisionOutput(ConductorDecisionOutput),
 
     ConductorObjectiveRefineInput(ConductorObjectiveRefineInput),
 
     ConductorObjectiveRefineOutput(ConductorObjectiveRefineOutput),
 
-    ConductorTerminalityInput(ConductorTerminalityInput),
-
-    ConductorTerminalityOutput(ConductorTerminalityOutput),
-
     DetectedAnomaly(DetectedAnomaly),
-
-    EventSummary(EventSummary),
-
-    FollowupRecommendation(FollowupRecommendation),
 
     HistoricalResolution(HistoricalResolution),
 
@@ -75,8 +61,6 @@ pub enum Types {
     ResearcherPlanOutput(ResearcherPlanOutput),
 
     Resume(Resume),
-
-    RetryPolicy(RetryPolicy),
 
     ReviewScope(ReviewScope),
 
@@ -104,14 +88,12 @@ pub enum Types {
 
     WebSearchToolArgs(WebSearchToolArgs),
 
-    WorkerOutput(WorkerOutput),
-
     WriteFileToolArgs(WriteFileToolArgs),
 
 
     Action(Action),
 
-    DecisionType(DecisionType),
+    ConductorAction(ConductorAction),
 
     EscalationAction(EscalationAction),
 
@@ -124,8 +106,6 @@ pub enum Types {
     ReviewStatus(ReviewStatus),
 
     RiskCategory(RiskCategory),
-
-    TerminalityStatus(TerminalityStatus),
 
     UrgencyLevel(UrgencyLevel),
 
@@ -150,33 +130,19 @@ impl baml::KnownTypes for Types {
 
             Types::BashToolArgs(_) => "BashToolArgs",
 
-            Types::ConductorAgendaItem(_) => "ConductorAgendaItem",
-
-            Types::ConductorArtifact(_) => "ConductorArtifact",
-
             Types::ConductorBootstrapInput(_) => "ConductorBootstrapInput",
 
             Types::ConductorBootstrapOutput(_) => "ConductorBootstrapOutput",
 
-            Types::ConductorCapabilityCall(_) => "ConductorCapabilityCall",
+            Types::ConductorDecision(_) => "ConductorDecision",
 
             Types::ConductorDecisionInput(_) => "ConductorDecisionInput",
-
-            Types::ConductorDecisionOutput(_) => "ConductorDecisionOutput",
 
             Types::ConductorObjectiveRefineInput(_) => "ConductorObjectiveRefineInput",
 
             Types::ConductorObjectiveRefineOutput(_) => "ConductorObjectiveRefineOutput",
 
-            Types::ConductorTerminalityInput(_) => "ConductorTerminalityInput",
-
-            Types::ConductorTerminalityOutput(_) => "ConductorTerminalityOutput",
-
             Types::DetectedAnomaly(_) => "DetectedAnomaly",
-
-            Types::EventSummary(_) => "EventSummary",
-
-            Types::FollowupRecommendation(_) => "FollowupRecommendation",
 
             Types::HistoricalResolution(_) => "HistoricalResolution",
 
@@ -191,8 +157,6 @@ impl baml::KnownTypes for Types {
             Types::ResearcherPlanOutput(_) => "ResearcherPlanOutput",
 
             Types::Resume(_) => "Resume",
-
-            Types::RetryPolicy(_) => "RetryPolicy",
 
             Types::ReviewScope(_) => "ReviewScope",
 
@@ -220,14 +184,12 @@ impl baml::KnownTypes for Types {
 
             Types::WebSearchToolArgs(_) => "WebSearchToolArgs",
 
-            Types::WorkerOutput(_) => "WorkerOutput",
-
             Types::WriteFileToolArgs(_) => "WriteFileToolArgs",
 
 
             Types::Action(_) => "Action",
 
-            Types::DecisionType(_) => "DecisionType",
+            Types::ConductorAction(_) => "ConductorAction",
 
             Types::EscalationAction(_) => "EscalationAction",
 
@@ -240,8 +202,6 @@ impl baml::KnownTypes for Types {
             Types::ReviewStatus(_) => "ReviewStatus",
 
             Types::RiskCategory(_) => "RiskCategory",
-
-            Types::TerminalityStatus(_) => "TerminalityStatus",
 
             Types::UrgencyLevel(_) => "UrgencyLevel",
 

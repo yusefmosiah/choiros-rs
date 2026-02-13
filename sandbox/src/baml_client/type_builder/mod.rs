@@ -96,24 +96,6 @@ impl TypeBuilder {
     }
 
 
-    /// Access the `ConductorAgendaItem` class builder.
-    pub fn ConductorAgendaItem(&self) -> ConductorAgendaItemClassBuilder {
-        ConductorAgendaItemClassBuilder::new(
-            self.inner.get_class("ConductorAgendaItem")
-                .expect("class ConductorAgendaItem is defined in schema")
-        )
-    }
-
-
-    /// Access the `ConductorArtifact` class builder.
-    pub fn ConductorArtifact(&self) -> ConductorArtifactClassBuilder {
-        ConductorArtifactClassBuilder::new(
-            self.inner.get_class("ConductorArtifact")
-                .expect("class ConductorArtifact is defined in schema")
-        )
-    }
-
-
     /// Access the `ConductorBootstrapInput` class builder.
     pub fn ConductorBootstrapInput(&self) -> ConductorBootstrapInputClassBuilder {
         ConductorBootstrapInputClassBuilder::new(
@@ -132,11 +114,11 @@ impl TypeBuilder {
     }
 
 
-    /// Access the `ConductorCapabilityCall` class builder.
-    pub fn ConductorCapabilityCall(&self) -> ConductorCapabilityCallClassBuilder {
-        ConductorCapabilityCallClassBuilder::new(
-            self.inner.get_class("ConductorCapabilityCall")
-                .expect("class ConductorCapabilityCall is defined in schema")
+    /// Access the `ConductorDecision` class builder.
+    pub fn ConductorDecision(&self) -> ConductorDecisionClassBuilder {
+        ConductorDecisionClassBuilder::new(
+            self.inner.get_class("ConductorDecision")
+                .expect("class ConductorDecision is defined in schema")
         )
     }
 
@@ -146,15 +128,6 @@ impl TypeBuilder {
         ConductorDecisionInputClassBuilder::new(
             self.inner.get_class("ConductorDecisionInput")
                 .expect("class ConductorDecisionInput is defined in schema")
-        )
-    }
-
-
-    /// Access the `ConductorDecisionOutput` class builder.
-    pub fn ConductorDecisionOutput(&self) -> ConductorDecisionOutputClassBuilder {
-        ConductorDecisionOutputClassBuilder::new(
-            self.inner.get_class("ConductorDecisionOutput")
-                .expect("class ConductorDecisionOutput is defined in schema")
         )
     }
 
@@ -177,47 +150,11 @@ impl TypeBuilder {
     }
 
 
-    /// Access the `ConductorTerminalityInput` class builder.
-    pub fn ConductorTerminalityInput(&self) -> ConductorTerminalityInputClassBuilder {
-        ConductorTerminalityInputClassBuilder::new(
-            self.inner.get_class("ConductorTerminalityInput")
-                .expect("class ConductorTerminalityInput is defined in schema")
-        )
-    }
-
-
-    /// Access the `ConductorTerminalityOutput` class builder.
-    pub fn ConductorTerminalityOutput(&self) -> ConductorTerminalityOutputClassBuilder {
-        ConductorTerminalityOutputClassBuilder::new(
-            self.inner.get_class("ConductorTerminalityOutput")
-                .expect("class ConductorTerminalityOutput is defined in schema")
-        )
-    }
-
-
     /// Access the `DetectedAnomaly` class builder.
     pub fn DetectedAnomaly(&self) -> DetectedAnomalyClassBuilder {
         DetectedAnomalyClassBuilder::new(
             self.inner.get_class("DetectedAnomaly")
                 .expect("class DetectedAnomaly is defined in schema")
-        )
-    }
-
-
-    /// Access the `EventSummary` class builder.
-    pub fn EventSummary(&self) -> EventSummaryClassBuilder {
-        EventSummaryClassBuilder::new(
-            self.inner.get_class("EventSummary")
-                .expect("class EventSummary is defined in schema")
-        )
-    }
-
-
-    /// Access the `FollowupRecommendation` class builder.
-    pub fn FollowupRecommendation(&self) -> FollowupRecommendationClassBuilder {
-        FollowupRecommendationClassBuilder::new(
-            self.inner.get_class("FollowupRecommendation")
-                .expect("class FollowupRecommendation is defined in schema")
         )
     }
 
@@ -281,15 +218,6 @@ impl TypeBuilder {
         ResumeClassBuilder::new(
             self.inner.get_class("Resume")
                 .expect("class Resume is defined in schema")
-        )
-    }
-
-
-    /// Access the `RetryPolicy` class builder.
-    pub fn RetryPolicy(&self) -> RetryPolicyClassBuilder {
-        RetryPolicyClassBuilder::new(
-            self.inner.get_class("RetryPolicy")
-                .expect("class RetryPolicy is defined in schema")
         )
     }
 
@@ -411,15 +339,6 @@ impl TypeBuilder {
     }
 
 
-    /// Access the `WorkerOutput` class builder.
-    pub fn WorkerOutput(&self) -> WorkerOutputClassBuilder {
-        WorkerOutputClassBuilder::new(
-            self.inner.get_class("WorkerOutput")
-                .expect("class WorkerOutput is defined in schema")
-        )
-    }
-
-
     /// Access the `WriteFileToolArgs` class builder.
     pub fn WriteFileToolArgs(&self) -> WriteFileToolArgsClassBuilder {
         WriteFileToolArgsClassBuilder::new(
@@ -443,11 +362,11 @@ impl TypeBuilder {
     }
 
 
-    /// Access the `DecisionType` enum builder.
-    pub fn DecisionType(&self) -> DecisionTypeEnumBuilder {
-        DecisionTypeEnumBuilder::new(
-            self.inner.get_enum("DecisionType")
-                .expect("enum DecisionType is defined in schema")
+    /// Access the `ConductorAction` enum builder.
+    pub fn ConductorAction(&self) -> ConductorActionEnumBuilder {
+        ConductorActionEnumBuilder::new(
+            self.inner.get_enum("ConductorAction")
+                .expect("enum ConductorAction is defined in schema")
         )
     }
 
@@ -502,15 +421,6 @@ impl TypeBuilder {
         RiskCategoryEnumBuilder::new(
             self.inner.get_enum("RiskCategory")
                 .expect("enum RiskCategory is defined in schema")
-        )
-    }
-
-
-    /// Access the `TerminalityStatus` enum builder.
-    pub fn TerminalityStatus(&self) -> TerminalityStatusEnumBuilder {
-        TerminalityStatusEnumBuilder::new(
-            self.inner.get_enum("TerminalityStatus")
-                .expect("enum TerminalityStatus is defined in schema")
         )
     }
 

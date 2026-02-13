@@ -58,6 +58,13 @@ pub enum WsEvent {
         importance: String,
         data: serde_json::Value,
     },
+    /// Document update for live streaming of conductor run documents
+    DocumentUpdate {
+        run_id: String,
+        document_path: String,
+        content_excerpt: String,
+        timestamp: String,
+    },
     Pong,
     Error(String),
 }
@@ -211,6 +218,25 @@ pub fn parse_ws_message(payload: &str) -> Option<WsEvent> {
                     phase: phase.to_string(),
                     importance: importance.to_string(),
                     data,
+                })
+            } else {
+                None
+            }
+        }
+        "conductor.run.document_update" => {
+            if let (Some(run_id), Some(document_path), Some(content_excerpt)) = (
+                json.get("run_id").and_then(|v| v.as_str()),
+                json.get("document_path").and_then(|v| v.as_str()),
+                json.get("content_excerpt").and_then(|v| v.as_str()),
+            ) {
+                Some(WsEvent::DocumentUpdate {
+                    run_id: run_id.to_string(),
+                    document_path: document_path.to_string(),
+                    content_excerpt: content_excerpt.to_string(),
+                    timestamp: json.get("timestamp")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                 })
             } else {
                 None

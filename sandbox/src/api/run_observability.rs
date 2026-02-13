@@ -114,31 +114,6 @@ pub struct ArtifactSummary {
     pub summary: String,
 }
 
-// Legacy types for backward compatibility
-#[derive(Debug, Clone, Serialize)]
-pub struct RunTimeline {
-    pub run_id: String,
-    pub objective: String,
-    pub status: String,
-    pub timeline: Vec<LegacyTimelineEvent>,
-    pub artifacts: Vec<RunArtifact>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct LegacyTimelineEvent {
-    pub seq: i64,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-    pub event_type: String,
-    pub summary: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct RunArtifact {
-    pub artifact_id: String,
-    pub artifact_type: String,
-    pub summary: String,
-}
-
 /// Get run timeline endpoint
 ///
 /// Returns a categorized timeline of events for a Conductor run.
@@ -515,39 +490,6 @@ fn extract_artifact_summaries(events: &[shared_types::Event]) -> Vec<ArtifactSum
     artifacts
 }
 
-pub(crate) async fn build_run_timeline_from_store(
-    event_store: ActorRef<EventStoreMsg>,
-    run_id: &str,
-) -> Result<RunTimeline, String> {
-    let events = fetch_run_events(event_store, run_id).await?;
-    if events.is_empty() {
-        return Err(format!("not_found:run '{run_id}' not found"));
-    }
-
-    let objective = extract_objective(&events).unwrap_or_else(|| "unknown".to_string());
-    let status = derive_run_status(&events);
-
-    let timeline = events
-        .iter()
-        .map(|event| LegacyTimelineEvent {
-            seq: event.seq,
-            timestamp: event.timestamp,
-            event_type: event.event_type.clone(),
-            summary: extract_event_summary(&event.event_type, &event.payload),
-        })
-        .collect::<Vec<_>>();
-
-    let artifacts = extract_artifacts(&events);
-
-    Ok(RunTimeline {
-        run_id: run_id.to_string(),
-        objective,
-        status,
-        timeline,
-        artifacts,
-    })
-}
-
 async fn fetch_run_events(
     event_store: ActorRef<EventStoreMsg>,
     run_id: &str,
@@ -587,27 +529,6 @@ async fn fetch_run_events(
     }
 
     Ok(collected)
-}
-
-fn parse_required_milestones(raw: Option<&str>) -> Vec<String> {
-    raw.unwrap_or_default()
-        .split(',')
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string)
-        .collect()
-}
-
-fn missing_required_milestones(timeline: &[LegacyTimelineEvent], required: &[String]) -> Vec<String> {
-    required
-        .iter()
-        .filter(|needle| {
-            !timeline
-                .iter()
-                .any(|event| event.event_type == **needle || event.event_type.contains(*needle))
-        })
-        .cloned()
-        .collect()
 }
 
 fn event_belongs_to_run(event: &shared_types::Event, run_id: &str) -> bool {
@@ -686,44 +607,6 @@ fn extract_event_summary(event_type: &str, payload: &Value) -> String {
     format!("{event_type}: {truncated}")
 }
 
-fn extract_artifacts(events: &[shared_types::Event]) -> Vec<RunArtifact> {
-    let mut artifacts = Vec::new();
-    let mut seen = HashSet::new();
-
-    for event in events {
-        if let Some(report_path) = payload_string(&event.payload, &["report_path"]) {
-            let key = format!("report_path:{report_path}");
-            if seen.insert(key) {
-                artifacts.push(RunArtifact {
-                    artifact_id: format!("artifact-report-{}", event.seq),
-                    artifact_type: "report_path".to_string(),
-                    summary: report_path,
-                });
-            }
-        }
-
-        if matches!(
-            event.event_type.as_str(),
-            "conductor.worker.result"
-                | "conductor.capability.completed"
-                | "worker.task.finding"
-                | "worker.task.learning"
-        ) {
-            let summary = extract_event_summary(&event.event_type, &event.payload);
-            let key = format!("{}:{summary}", event.event_type);
-            if seen.insert(key) {
-                artifacts.push(RunArtifact {
-                    artifact_id: format!("artifact-{}-{}", event.event_type, event.seq),
-                    artifact_type: event.event_type.clone(),
-                    summary,
-                });
-            }
-        }
-    }
-
-    artifacts
-}
-
 fn payload_string(payload: &Value, path: &[&str]) -> Option<String> {
     payload_str(payload, path).map(ToString::to_string)
 }
@@ -742,121 +625,6 @@ mod tests {
     use crate::actors::event_store::{AppendEvent, EventStoreActor, EventStoreArguments};
     use ractor::Actor;
 
-    #[tokio::test]
-    async fn test_build_run_timeline_orders_events_and_extracts_artifacts() {
-        let (store_ref, _handle) =
-            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-                .await
-                .unwrap();
-
-        let run_id = "run_123";
-        let events = vec![
-            AppendEvent {
-                event_type: "conductor.task.started".to_string(),
-                payload: json!({
-                    "task_id": run_id,
-                    "objective": "test objective",
-                    "status": "started",
-                }),
-                actor_id: "conductor:test".to_string(),
-                user_id: "system".to_string(),
-            },
-            AppendEvent {
-                event_type: "conductor.worker.result".to_string(),
-                payload: json!({
-                    "task_id": run_id,
-                    "result_summary": "worker finished",
-                }),
-                actor_id: "conductor:test".to_string(),
-                user_id: "system".to_string(),
-            },
-            AppendEvent {
-                event_type: "conductor.task.completed".to_string(),
-                payload: json!({
-                    "task_id": run_id,
-                    "status": "completed",
-                    "report_path": "/tmp/report.md",
-                }),
-                actor_id: "conductor:test".to_string(),
-                user_id: "system".to_string(),
-            },
-        ];
-
-        for event in events {
-            let _ = ractor::call!(store_ref, |reply| EventStoreMsg::Append { event, reply })
-                .unwrap()
-                .unwrap();
-        }
-
-        let timeline = build_run_timeline_from_store(store_ref.clone(), run_id)
-            .await
-            .unwrap();
-        assert_eq!(timeline.run_id, run_id);
-        assert_eq!(timeline.objective, "test objective");
-        assert_eq!(timeline.status, "completed");
-        assert_eq!(timeline.timeline.len(), 3);
-        assert!(timeline.timeline[0].seq < timeline.timeline[1].seq);
-        assert!(timeline.timeline[1].seq < timeline.timeline[2].seq);
-        assert!(timeline
-            .artifacts
-            .iter()
-            .any(|a| a.artifact_type == "report_path"));
-
-        store_ref.stop(None);
-    }
-
-    #[tokio::test]
-    async fn test_build_run_timeline_returns_not_found_for_unknown_run() {
-        let (store_ref, _handle) =
-            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-                .await
-                .unwrap();
-
-        let event = AppendEvent {
-            event_type: "conductor.task.started".to_string(),
-            payload: json!({ "task_id": "different_run", "objective": "x" }),
-            actor_id: "conductor:test".to_string(),
-            user_id: "system".to_string(),
-        };
-        let _ = ractor::call!(store_ref, |reply| EventStoreMsg::Append { event, reply })
-            .unwrap()
-            .unwrap();
-
-        let err = build_run_timeline_from_store(store_ref.clone(), "missing_run")
-            .await
-            .unwrap_err();
-        assert!(err.starts_with("not_found:"));
-
-        store_ref.stop(None);
-    }
-
-    #[test]
-    fn test_missing_required_milestones_detects_absent_events() {
-        let timeline = vec![
-            LegacyTimelineEvent {
-                seq: 1,
-                timestamp: chrono::Utc::now(),
-                event_type: "conductor.task.started".to_string(),
-                summary: "started".to_string(),
-            },
-            LegacyTimelineEvent {
-                seq: 2,
-                timestamp: chrono::Utc::now(),
-                event_type: "conductor.worker.call".to_string(),
-                summary: "call".to_string(),
-            },
-        ];
-
-        let missing = missing_required_milestones(
-            &timeline,
-            &[
-                "conductor.task.started".to_string(),
-                "conductor.task.completed".to_string(),
-            ],
-        );
-
-        assert_eq!(missing, vec!["conductor.task.completed".to_string()]);
-    }
 
     // ============================================================================
     // Categorized Timeline Tests

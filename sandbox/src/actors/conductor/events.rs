@@ -213,6 +213,34 @@ pub async fn emit_task_failed(
         .ok();
 }
 
+/// Emit document update event for live streaming
+pub async fn emit_document_update(
+    event_store: &ActorRef<EventStoreMsg>,
+    run_id: &str,
+    task_id: &str,
+    document_path: &str,
+    content_excerpt: &str,
+) {
+    let payload = serde_json::json!({
+        "run_id": run_id,
+        "task_id": task_id,
+        "document_path": document_path,
+        "content_excerpt": content_excerpt.chars().take(500).collect::<String>(),
+        "timestamp": Utc::now().to_rfc3339(),
+    });
+
+    let event = AppendEvent {
+        event_type: "conductor.run.document_update".to_string(),
+        payload,
+        actor_id: format!("conductor:{}", run_id),
+        user_id: "system".to_string(),
+    };
+
+    let _ = event_store
+        .send_message(EventStoreMsg::AppendAsync { event })
+        .ok();
+}
+
 // ============================================================================
 // Phase B: Wake/Display Lane Event Emission
 // ============================================================================

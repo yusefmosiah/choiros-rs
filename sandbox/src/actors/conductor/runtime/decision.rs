@@ -6,7 +6,7 @@ use crate::actors::conductor::{
     protocol::{ConductorError, ConductorMsg},
     workers::{call_researcher, call_terminal},
 };
-use crate::baml_client::types::{ConductorDecisionOutput, DecisionType};
+use crate::baml_client::types::{ConductorAction, ConductorDecision};
 
 impl ConductorActor {
     pub(crate) async fn handle_dispatch_ready(
@@ -45,7 +45,7 @@ impl ConductorActor {
         &self,
         state: &ConductorState,
         run_id: &str,
-    ) -> Result<ConductorDecisionOutput, ConductorError> {
+    ) -> Result<ConductorDecision, ConductorError> {
         let run = state
             .tasks
             .get_run(run_id)
@@ -53,7 +53,7 @@ impl ConductorActor {
         let capabilities = self.available_capabilities(state);
         let decision = state.policy.decide_next_action(run, &capabilities).await?;
 
-        self.emit_policy_event(run_id, "ConductorDecideNextAction", &decision)
+        self.emit_policy_event(run_id, "ConductorDecide", &decision)
             .await;
         Ok(decision)
     }
@@ -74,158 +74,115 @@ impl ConductorActor {
         myself: &ActorRef<ConductorMsg>,
         state: &mut ConductorState,
         run_id: &str,
-        decision: ConductorDecisionOutput,
+        decision: ConductorDecision,
     ) -> Result<(), ConductorError> {
         tracing::info!(
             run_id = %run_id,
-            decision_type = %decision.decision_type,
+            action = %decision.action,
             "Applying conductor policy decision"
         );
 
-        match decision.decision_type {
-            DecisionType::Dispatch => {
-                let items_to_dispatch: Vec<shared_types::ConductorAgendaItem> = {
-                    if let Some(run) = state.tasks.get_run(run_id) {
-                        decision
-                            .target_agenda_item_ids
-                            .iter()
-                            .filter_map(|item_id| {
-                                run.agenda.iter().find(|i| &i.item_id == item_id).cloned()
-                            })
-                            .collect()
-                    } else {
-                        vec![]
-                    }
+        match decision.action {
+            ConductorAction::SpawnWorker => {
+                // Extract worker details from args
+                let capability = decision.args.as_ref()
+                    .and_then(|args| args.get("capability"))
+                    .cloned()
+                    .unwrap_or_else(|| "terminal".to_string());
+                let objective = decision.args.as_ref()
+                    .and_then(|args| args.get("objective"))
+                    .cloned()
+                    .unwrap_or_default();
+
+                // Create a minimal agenda item for the worker
+                let item = shared_types::ConductorAgendaItem {
+                    item_id: ulid::Ulid::new().to_string(),
+                    capability,
+                    objective,
+                    priority: 5,
+                    depends_on: vec![],
+                    status: shared_types::AgendaItemStatus::Pending,
+                    created_at: chrono::Utc::now(),
+                    started_at: None,
+                    completed_at: None,
                 };
 
-                for item in items_to_dispatch {
-                    state
-                        .tasks
-                        .update_agenda_item(
-                            run_id,
-                            &item.item_id,
-                            shared_types::AgendaItemStatus::Running,
-                        )
-                        .map_err(|e| {
-                            ConductorError::PolicyError(format!(
-                                "Failed to update agenda item: {e}"
-                            ))
-                        })?;
+                state
+                    .tasks
+                    .add_agenda_items(run_id, vec![item.clone()])
+                    .map_err(|e| {
+                        ConductorError::PolicyError(format!("Failed to add agenda item: {e}"))
+                    })?;
 
-                    self.spawn_capability_call(myself, state, run_id, item)
-                        .await?;
-                }
+                state
+                    .tasks
+                    .update_agenda_item(
+                        run_id,
+                        &item.item_id,
+                        shared_types::AgendaItemStatus::Running,
+                    )
+                    .map_err(|e| {
+                        ConductorError::PolicyError(format!(
+                            "Failed to update agenda item: {e}"
+                        ))
+                    })?;
+
+                self.spawn_capability_call(myself, state, run_id, item)
+                    .await?;
+
                 let _ = state.tasks.transition_run_status(
                     run_id,
                     shared_types::ConductorRunStatus::WaitingForCalls,
                 );
             }
-            DecisionType::Retry => {
-                let items_to_retry: Vec<shared_types::ConductorAgendaItem> = {
-                    if let Some(run) = state.tasks.get_run(run_id) {
-                        decision
-                            .target_agenda_item_ids
-                            .iter()
-                            .filter_map(|item_id| {
-                                run.agenda.iter().find(|i| &i.item_id == item_id).cloned()
-                            })
-                            .collect()
-                    } else {
-                        vec![]
-                    }
-                };
-
-                for item in items_to_retry {
-                    state
-                        .tasks
-                        .update_agenda_item(
-                            run_id,
-                            &item.item_id,
-                            shared_types::AgendaItemStatus::Running,
-                        )
-                        .map_err(|e| {
-                            ConductorError::PolicyError(format!("Failed to retry agenda item: {e}"))
-                        })?;
-                    self.spawn_capability_call(myself, state, run_id, item)
-                        .await?;
-                }
-                let _ = state.tasks.transition_run_status(
-                    run_id,
-                    shared_types::ConductorRunStatus::WaitingForCalls,
-                );
-            }
-            DecisionType::SpawnFollowup => {
-                for new_item in &decision.new_agenda_items {
-                    let item = shared_types::ConductorAgendaItem {
-                        item_id: new_item.id.clone(),
-                        capability: new_item.capability.clone(),
-                        objective: new_item.objective.clone(),
-                        priority: new_item.priority as u8,
-                        depends_on: new_item.dependencies.clone(),
-                        status: shared_types::AgendaItemStatus::Pending,
-                        created_at: chrono::Utc::now(),
-                        started_at: None,
-                        completed_at: None,
-                    };
-                    state
-                        .tasks
-                        .add_agenda_items(run_id, vec![item])
-                        .map_err(|e| {
-                            ConductorError::PolicyError(format!("Failed to add agenda items: {e}"))
-                        })?;
-                }
-                let _ = state.tasks.update_agenda_item_readiness(run_id);
+            ConductorAction::UpdateDraft => {
+                // The document update is handled by the worker directly
+                // This action signals the conductor to continue monitoring
+                tracing::info!(run_id = %run_id, "Conductor decision: Update draft");
                 let _ = myself.send_message(ConductorMsg::DispatchReady {
                     run_id: run_id.to_string(),
                 });
             }
-            DecisionType::Continue => {
-                tracing::info!(run_id = %run_id, "Conductor decision: Continue waiting");
-            }
-            DecisionType::Complete => {
+            ConductorAction::Complete => {
                 state
                     .tasks
                     .transition_run_status(run_id, shared_types::ConductorRunStatus::Completed)
                     .map_err(|e| {
                         ConductorError::PolicyError(format!("Failed to complete run: {e}"))
                     })?;
-                self.finalize_run_as_completed(state, run_id, decision.completion_reason.clone())
+                let reason = Some(decision.reason.clone());
+                self.finalize_run_as_completed(state, run_id, reason.clone())
                     .await?;
-                self.emit_run_complete(run_id, decision.completion_reason)
+                self.emit_run_complete(run_id, reason)
                     .await?;
             }
-            DecisionType::Block => {
+            ConductorAction::Block => {
                 state
                     .tasks
                     .transition_run_status(run_id, shared_types::ConductorRunStatus::Blocked)
                     .map_err(|e| {
                         ConductorError::PolicyError(format!("Failed to block run: {e}"))
                     })?;
-                self.finalize_run_as_blocked(state, run_id, decision.completion_reason.clone())
+                let reason = Some(decision.reason.clone());
+                self.finalize_run_as_blocked(state, run_id, reason.clone())
                     .await?;
-                self.emit_run_blocked(run_id, decision.completion_reason)
+                self.emit_run_blocked(run_id, reason)
                     .await?;
             }
         }
 
         let decision_record = shared_types::ConductorDecision {
             decision_id: ulid::Ulid::new().to_string(),
-            decision_type: match decision.decision_type {
-                DecisionType::Dispatch => shared_types::DecisionType::Dispatch,
-                DecisionType::Retry => shared_types::DecisionType::Retry,
-                DecisionType::SpawnFollowup => shared_types::DecisionType::SpawnFollowup,
-                DecisionType::Continue => shared_types::DecisionType::Continue,
-                DecisionType::Complete => shared_types::DecisionType::Complete,
-                DecisionType::Block => shared_types::DecisionType::Block,
+            decision_type: match decision.action {
+                ConductorAction::SpawnWorker => shared_types::DecisionType::Dispatch,
+                ConductorAction::UpdateDraft => shared_types::DecisionType::Continue,
+                ConductorAction::Complete => shared_types::DecisionType::Complete,
+                ConductorAction::Block => shared_types::DecisionType::Block,
             },
-            reason: decision.rationale.clone(),
+            reason: decision.reason.clone(),
             timestamp: chrono::Utc::now(),
-            affected_agenda_items: decision.target_agenda_item_ids.clone(),
-            new_agenda_items: decision
-                .new_agenda_items
-                .iter()
-                .map(|i| i.id.clone())
-                .collect(),
+            affected_agenda_items: vec![],
+            new_agenda_items: vec![],
         };
         state
             .tasks
