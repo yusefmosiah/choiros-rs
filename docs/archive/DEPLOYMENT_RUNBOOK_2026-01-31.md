@@ -427,8 +427,8 @@ The backend enforces CORS in `sandbox/src/main.rs`. For production, keep a stric
 
 ```
 http://<PUBLIC_IP>
-http://choir.chat
-https://choir.chat
+http://choir-ip.com
+https://choir-ip.com
 http://localhost:5173
 http://127.0.0.1:5173
 ```

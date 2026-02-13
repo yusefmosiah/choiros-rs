@@ -7,7 +7,8 @@
 
 enum ConductorAction {
   SpawnWorker
-  UpdateDraft
+  AwaitWorker
+  MergeCanon
   Complete
   Block
 }
@@ -42,7 +43,8 @@ function ConductorDecide(input: ConductorDecisionInput) -> ConductorDecision {
 
     Decide the next action:
     - **SpawnWorker**: Dispatch a worker (researcher, terminal) with an objective
-    - **UpdateDraft**: Update the living document with new findings
+    - **AwaitWorker**: Wait for pending worker calls to complete
+    - **MergeCanon**: Merge completed worker proposals into canon
     - **Complete**: The objective is achieved
     - **Block**: Cannot proceed (error or needs human help)
 

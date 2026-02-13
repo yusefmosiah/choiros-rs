@@ -7,7 +7,7 @@ mod apps;
 mod components;
 mod effects;
 mod shell;
-mod state;
+pub mod state;
 mod theme;
 mod ws;
 

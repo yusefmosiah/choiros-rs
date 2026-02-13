@@ -2,12 +2,15 @@
 //!
 //! Document editor with revision-based optimistic concurrency control.
 //! Supports both edit and preview modes for markdown files.
+//! Supports live patch apply from writer.run.* websocket events.
 
 use dioxus::prelude::*;
 use gloo_timers::future::TimeoutFuture;
 
 use crate::api::files_api::{list_directory, DirectoryEntry};
 use crate::api::{writer_open, writer_preview, writer_save};
+use crate::desktop::state::ACTIVE_WRITER_RUNS;
+use shared_types::{PatchOp, WriterRunStatusKind};
 
 /// Save state for the document
 #[derive(Debug, Clone, PartialEq)]
@@ -49,6 +52,80 @@ pub enum DialogState {
         entries: Vec<DirectoryEntry>,
         filename: String,
     },
+}
+
+/// A segment of content with styling for proposals
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContentSegment {
+    pub text: String,
+    pub is_proposal: bool,
+    pub is_deleted: bool,
+}
+
+/// Parse proposal text into segments for rendering
+/// Lines starting with '-' are deletions (gray + strikethrough)
+/// Lines starting with '+' are additions (gray)
+/// Other lines are context (normal)
+fn parse_proposal_segments(proposal: &str) -> Vec<ContentSegment> {
+    proposal
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('-') && !trimmed.starts_with("---") {
+                ContentSegment {
+                    text: line.to_string(),
+                    is_proposal: false,
+                    is_deleted: true,
+                }
+            } else if trimmed.starts_with('+') && !trimmed.starts_with("+++") {
+                ContentSegment {
+                    text: line.to_string(),
+                    is_proposal: true,
+                    is_deleted: false,
+                }
+            } else {
+                ContentSegment {
+                    text: line.to_string(),
+                    is_proposal: false,
+                    is_deleted: false,
+                }
+            }
+        })
+        .collect()
+}
+
+/// Apply patch operations to content
+fn apply_patch_ops(content: &str, ops: &[PatchOp]) -> String {
+    let mut chars: Vec<char> = content.chars().collect();
+
+    for op in ops {
+        match op {
+            PatchOp::Insert { pos, text } => {
+                let pos = (*pos as usize).min(chars.len());
+                let insert_chars: Vec<char> = text.chars().collect();
+                chars.splice(pos..pos, insert_chars);
+            }
+            PatchOp::Delete { pos, len } => {
+                let pos = (*pos as usize).min(chars.len());
+                let end = (pos + *len as usize).min(chars.len());
+                chars.drain(pos..end);
+            }
+            PatchOp::Replace { pos, len, text } => {
+                let pos = (*pos as usize).min(chars.len());
+                let end = (pos + *len as usize).min(chars.len());
+                let replace_chars: Vec<char> = text.chars().collect();
+                chars.splice(pos..end, replace_chars);
+            }
+            PatchOp::Retain { .. } => {}
+        }
+    }
+
+    chars.into_iter().collect()
+}
+
+/// Check if there's a revision gap (missed patches)
+fn has_revision_gap(current_revision: u64, patch_revision: u64) -> bool {
+    patch_revision > current_revision + 1
 }
 
 /// Writer component props
@@ -93,6 +170,12 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
     let mut dialog = use_signal(|| DialogState::None);
     let mut loaded_path = use_signal(|| None::<String>);
 
+    // Live patch state
+    let active_run_id = use_signal(|| None::<String>);
+    let _pending_patches = use_signal(|| Vec::<(u64, Vec<PatchOp>)>::new());
+    let mut last_applied_revision = use_signal(|| 0u64);
+    let run_status = use_signal(|| None::<WriterRunStatusKind>);
+
     // Load document on mount
     use_effect(move || {
         let path_str = path();
@@ -116,6 +199,7 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                     path.set(response.path);
                     content.set(response.content);
                     revision.set(response.revision);
+                    last_applied_revision.set(response.revision);
                     mime.set(response.mime);
                     readonly.set(response.readonly);
                     save_state.set(SaveState::Clean);
@@ -138,6 +222,120 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
             }
         });
     });
+
+    // Watch for writer run events and apply patches
+    {
+        let path_for_effect = path;
+        let mut content_for_effect = content;
+        let mut revision_for_effect = revision;
+        let mut last_applied_revision_for_effect = last_applied_revision;
+        let mut active_run_id_for_effect = active_run_id;
+        let mut run_status_for_effect = run_status;
+        let mut save_state_for_effect = save_state;
+
+        use_effect(move || {
+            let current_path = path_for_effect();
+            let runs = ACTIVE_WRITER_RUNS.read();
+
+            if let Some(run_state) = runs.get(&current_path) {
+                let run_id = run_state.run_id.clone();
+                let new_revision = run_state.revision;
+                let status = run_state.status;
+                let pending_patches = run_state.pending_patches.clone();
+                let run_last_applied = run_state.last_applied_revision;
+
+                drop(runs);
+
+                // Check for new run starting
+                if active_run_id_for_effect.read().as_ref() != Some(&run_id) {
+                    active_run_id_for_effect.set(Some(run_id.clone()));
+                    last_applied_revision_for_effect.set(run_last_applied);
+                }
+
+                run_status_for_effect.set(Some(status));
+
+                // Check for revision gap - need to fetch latest document
+                let current_last_rev = last_applied_revision_for_effect();
+                if has_revision_gap(current_last_rev, new_revision) && pending_patches.is_empty() {
+                    dioxus_logger::tracing::warn!(
+                        "Revision gap detected without patches: {} -> {}",
+                        current_last_rev,
+                        new_revision
+                    );
+                    save_state_for_effect.set(SaveState::Error(
+                        "Live patch stream lost continuity; missing patch event".to_string(),
+                    ));
+                } else if !pending_patches.is_empty() {
+                    // Apply pending patches in revision order
+                    let mut patches_to_apply: Vec<_> = pending_patches
+                        .into_iter()
+                        .filter(|p| !p.applied && p.revision > current_last_rev)
+                        .collect();
+                    patches_to_apply.sort_by_key(|p| p.revision);
+
+                    if !patches_to_apply.is_empty() {
+                        let mut current_content = content_for_effect();
+                        let mut highest_revision = current_last_rev;
+
+                        for patch in patches_to_apply {
+                            dioxus_logger::tracing::debug!(
+                                "Applying patch {} at revision {}",
+                                patch.patch_id,
+                                patch.revision
+                            );
+
+                            // Apply the patch operations
+                            current_content = apply_patch_ops(&current_content, &patch.ops);
+                            highest_revision = patch.revision;
+
+                            // Mark as applied in global state
+                            if let Some(run) = ACTIVE_WRITER_RUNS.write().get_mut(&current_path) {
+                                if let Some(p) = run
+                                    .pending_patches
+                                    .iter_mut()
+                                    .find(|p| p.patch_id == patch.patch_id)
+                                {
+                                    p.applied = true;
+                                }
+                            }
+                        }
+
+                        content_for_effect.set(current_content);
+                        revision_for_effect.set(highest_revision);
+                        last_applied_revision_for_effect.set(highest_revision);
+
+                        // Update last_applied_revision in global state
+                        if let Some(run) = ACTIVE_WRITER_RUNS.write().get_mut(&current_path) {
+                            run.last_applied_revision = highest_revision;
+                        }
+
+                        // Update preview if in preview mode
+                        if view_mode() == ViewMode::Preview {
+                            let content_clone = content_for_effect();
+                            let current_mime = mime();
+                            let current_path_clone = current_path.clone();
+                            spawn(async move {
+                                let mut preview_signal = preview_html;
+                                let _ = update_preview(
+                                    content_clone,
+                                    &current_mime,
+                                    &current_path_clone,
+                                    &mut preview_signal,
+                                )
+                                .await;
+                            });
+                        }
+                    }
+                }
+            } else {
+                // No active run for this document
+                if active_run_id_for_effect.read().is_some() {
+                    active_run_id_for_effect.set(None);
+                    run_status_for_effect.set(None);
+                }
+            }
+        });
+    }
 
     // Update preview when switching to preview mode
     use_effect(move || {
@@ -333,6 +531,14 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
     let is_markdown_file = is_markdown(&current_mime, &current_path);
     let is_loading = loading();
     let current_preview_html = preview_html();
+    let current_run_status = run_status();
+    let current_active_run_id = active_run_id();
+
+    // Get proposal from active run
+    let current_proposal = {
+        let runs = ACTIVE_WRITER_RUNS.read();
+        runs.get(&current_path).and_then(|r| r.proposal.clone())
+    };
 
     rsx! {
         div {
@@ -351,6 +557,29 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                     if current_readonly {
                         span { style: "font-size: 0.75rem; color: var(--warning-bg); padding: 0.125rem 0.375rem; background: rgba(245, 158, 11, 0.1); border-radius: 0.25rem;",
                             "Read-only"
+                        }
+                    }
+                    // Live run status indicator
+                    if let Some(status) = current_run_status {
+                        {
+                            let (status_text, status_color) = match status {
+                                WriterRunStatusKind::Initializing => ("Initializing...", "#94a3b8"),
+                                WriterRunStatusKind::Running => ("Running...", "#3b82f6"),
+                                WriterRunStatusKind::WaitingForWorker => ("Waiting...", "#f59e0b"),
+                                WriterRunStatusKind::Completing => ("Completing...", "#10b981"),
+                                WriterRunStatusKind::Completed => ("Completed", "#10b981"),
+                                WriterRunStatusKind::Failed => ("Failed", "#ef4444"),
+                                WriterRunStatusKind::Blocked => ("Blocked", "#ef4444"),
+                            };
+                            rsx! {
+                                span {
+                                    style: "font-size: 0.75rem; color: {status_color}; padding: 0.125rem 0.375rem; background: rgba(255, 255, 255, 0.05); border-radius: 0.25rem; display: flex; align-items: center; gap: 0.25rem;",
+                                    if status != WriterRunStatusKind::Completed && status != WriterRunStatusKind::Failed {
+                                        span { style: "animation: spin 1s linear infinite; display: inline-block;", "◐" }
+                                    }
+                                    "{status_text}"
+                                }
+                            }
                         }
                     }
                 }
@@ -455,6 +684,41 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                             style: "background: var(--warning-bg); border: none; color: var(--warning-bg); cursor: pointer; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem;",
                             onclick: move |_| handle_overwrite.call(()),
                             "Overwrite"
+                        }
+                    }
+                }
+            }
+
+            // Proposal banner - shows pending changes from agent
+            if let Some(ref proposal) = current_proposal {
+                if current_active_run_id.is_some() {
+                    {
+                        let segments = parse_proposal_segments(proposal);
+                        rsx! {
+                            div {
+                                style: "padding: 0.5rem 1rem; background: rgba(59, 130, 246, 0.1); border-bottom: 1px solid var(--border-color); font-size: 0.875rem;",
+                                div {
+                                    style: "display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;",
+                                    span { style: "color: var(--accent-bg);", "📝 Proposed change:" }
+                                }
+                                div {
+                                    style: "font-family: ui-monospace, monospace; font-size: 0.8rem; white-space: pre-wrap; max-height: 120px; overflow-y: auto;",
+                                    for segment in segments {
+                                        {
+                                            let style = if segment.is_deleted {
+                                                "color: #94a3b8; text-decoration: line-through;"
+                                            } else if segment.is_proposal {
+                                                "color: #94a3b8;"
+                                            } else {
+                                                "color: var(--text-muted);"
+                                            };
+                                            rsx! {
+                                                div { style: "{style}", "{segment.text}" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

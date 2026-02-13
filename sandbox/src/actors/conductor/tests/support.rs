@@ -9,7 +9,7 @@ use crate::actors::event_store::{EventStoreActor, EventStoreArguments, EventStor
 use crate::actors::researcher::ResearcherMsg;
 use crate::actors::terminal::TerminalMsg;
 use crate::baml_client::types::{
-    ConductorBootstrapOutput, ConductorDecision, ConductorAction, ConductorObjectiveRefineOutput,
+    ConductorAction, ConductorBootstrapOutput, ConductorDecision, ConductorObjectiveRefineOutput,
 };
 
 #[derive(Debug)]

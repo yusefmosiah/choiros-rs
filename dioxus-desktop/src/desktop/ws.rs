@@ -2,7 +2,10 @@ use std::cell::Cell;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use shared_types::{DesktopState, WindowState};
+use shared_types::{
+    DesktopState, FailureKind, PatchOp, PatchSource, WindowState, WriterRunEventBase,
+    WriterRunPatchPayload, WriterRunStatusKind,
+};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{MessageEvent, WebSocket};
@@ -64,6 +67,36 @@ pub enum WsEvent {
         document_path: String,
         content_excerpt: String,
         timestamp: String,
+    },
+    /// Writer run started event
+    WriterRunStarted {
+        base: WriterRunEventBase,
+        objective: String,
+    },
+    /// Writer run progress event
+    WriterRunProgress {
+        base: WriterRunEventBase,
+        phase: String,
+        message: String,
+        progress_pct: Option<u8>,
+    },
+    /// Writer run patch event for live document updates
+    WriterRunPatch {
+        base: WriterRunEventBase,
+        payload: WriterRunPatchPayload,
+    },
+    /// Writer run status change event
+    WriterRunStatus {
+        base: WriterRunEventBase,
+        status: WriterRunStatusKind,
+        message: Option<String>,
+    },
+    /// Writer run failed event
+    WriterRunFailed {
+        base: WriterRunEventBase,
+        error_code: String,
+        error_message: String,
+        failure_kind: Option<FailureKind>,
     },
     Pong,
     Error(String),
@@ -200,12 +233,7 @@ pub fn parse_ws_message(payload: &str) -> Option<WsEvent> {
             }
         }
         "telemetry" => {
-            if let (
-                Some(event_type),
-                Some(capability),
-                Some(phase),
-                Some(importance),
-            ) = (
+            if let (Some(event_type), Some(capability), Some(phase), Some(importance)) = (
                 json.get("event_type").and_then(|v| v.as_str()),
                 json.get("capability").and_then(|v| v.as_str()),
                 json.get("phase").and_then(|v| v.as_str()),
@@ -233,7 +261,8 @@ pub fn parse_ws_message(payload: &str) -> Option<WsEvent> {
                     run_id: run_id.to_string(),
                     document_path: document_path.to_string(),
                     content_excerpt: content_excerpt.to_string(),
-                    timestamp: json.get("timestamp")
+                    timestamp: json
+                        .get("timestamp")
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string(),
@@ -242,12 +271,162 @@ pub fn parse_ws_message(payload: &str) -> Option<WsEvent> {
                 None
             }
         }
+        "writer.run.started" => parse_writer_run_started(&json),
+        "writer.run.progress" => parse_writer_run_progress(&json),
+        "writer.run.patch" => parse_writer_run_patch(&json),
+        "writer.run.status" => parse_writer_run_status(&json),
+        "writer.run.failed" => parse_writer_run_failed(&json),
         "error" => json
             .get("message")
             .and_then(|v| v.as_str())
             .map(|message| WsEvent::Error(message.to_string())),
         _ => None,
     }
+}
+
+fn parse_writer_run_base(json: &serde_json::Value) -> Option<WriterRunEventBase> {
+    Some(WriterRunEventBase {
+        desktop_id: json.get("desktop_id")?.as_str()?.to_string(),
+        session_id: json.get("session_id")?.as_str()?.to_string(),
+        thread_id: json.get("thread_id")?.as_str()?.to_string(),
+        run_id: json.get("run_id")?.as_str()?.to_string(),
+        document_path: json.get("document_path")?.as_str()?.to_string(),
+        revision: json.get("revision")?.as_u64()?,
+        timestamp: json
+            .get("timestamp")
+            .and_then(|v| v.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+            .unwrap_or_else(chrono::Utc::now),
+    })
+}
+
+fn parse_writer_run_started(json: &serde_json::Value) -> Option<WsEvent> {
+    let base = parse_writer_run_base(json)?;
+    let objective = json.get("objective")?.as_str()?.to_string();
+    Some(WsEvent::WriterRunStarted { base, objective })
+}
+
+fn parse_writer_run_progress(json: &serde_json::Value) -> Option<WsEvent> {
+    let base = parse_writer_run_base(json)?;
+    let phase = json.get("phase")?.as_str()?.to_string();
+    let message = json.get("message")?.as_str()?.to_string();
+    let progress_pct = json
+        .get("progress_pct")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u8);
+    Some(WsEvent::WriterRunProgress {
+        base,
+        phase,
+        message,
+        progress_pct,
+    })
+}
+
+fn parse_patch_ops(json: &serde_json::Value) -> Option<Vec<PatchOp>> {
+    let ops_array = json.get("ops")?.as_array()?;
+    let mut ops = Vec::new();
+    for op_json in ops_array {
+        let op_type = op_json.get("op")?.as_str()?;
+        let patch_op = match op_type {
+            "insert" => PatchOp::Insert {
+                pos: op_json.get("pos")?.as_u64()?,
+                text: op_json.get("text")?.as_str()?.to_string(),
+            },
+            "delete" => PatchOp::Delete {
+                pos: op_json.get("pos")?.as_u64()?,
+                len: op_json.get("len")?.as_u64()?,
+            },
+            "replace" => PatchOp::Replace {
+                pos: op_json.get("pos")?.as_u64()?,
+                len: op_json.get("len")?.as_u64()?,
+                text: op_json.get("text")?.as_str()?.to_string(),
+            },
+            "retain" => PatchOp::Retain {
+                len: op_json.get("len")?.as_u64()?,
+            },
+            _ => continue,
+        };
+        ops.push(patch_op);
+    }
+    Some(ops)
+}
+
+fn parse_patch_source(json: &serde_json::Value) -> Option<PatchSource> {
+    match json.get("source")?.as_str()? {
+        "agent" => Some(PatchSource::Agent),
+        "user" => Some(PatchSource::User),
+        "system" => Some(PatchSource::System),
+        _ => None,
+    }
+}
+
+fn parse_writer_run_patch(json: &serde_json::Value) -> Option<WsEvent> {
+    let base = parse_writer_run_base(json)?;
+    let ops = parse_patch_ops(json)?;
+    let payload = WriterRunPatchPayload {
+        patch_id: json.get("patch_id")?.as_str()?.to_string(),
+        source: parse_patch_source(json)?,
+        section_id: json
+            .get("section_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        ops,
+        proposal: json
+            .get("proposal")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+    };
+    Some(WsEvent::WriterRunPatch { base, payload })
+}
+
+fn parse_writer_run_status(json: &serde_json::Value) -> Option<WsEvent> {
+    let base = parse_writer_run_base(json)?;
+    let status_str = json.get("status")?.as_str()?;
+    let status = match status_str {
+        "initializing" => WriterRunStatusKind::Initializing,
+        "running" => WriterRunStatusKind::Running,
+        "waiting_for_worker" => WriterRunStatusKind::WaitingForWorker,
+        "completing" => WriterRunStatusKind::Completing,
+        "completed" => WriterRunStatusKind::Completed,
+        "failed" => WriterRunStatusKind::Failed,
+        "blocked" => WriterRunStatusKind::Blocked,
+        _ => return None,
+    };
+    let message = json
+        .get("message")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    Some(WsEvent::WriterRunStatus {
+        base,
+        status,
+        message,
+    })
+}
+
+fn parse_failure_kind(json: &serde_json::Value) -> Option<FailureKind> {
+    match json.get("failure_kind")?.as_str()? {
+        "timeout" => Some(FailureKind::Timeout),
+        "network" => Some(FailureKind::Network),
+        "auth" => Some(FailureKind::Auth),
+        "rate_limit" => Some(FailureKind::RateLimit),
+        "validation" => Some(FailureKind::Validation),
+        "provider" => Some(FailureKind::Provider),
+        _ => Some(FailureKind::Unknown),
+    }
+}
+
+fn parse_writer_run_failed(json: &serde_json::Value) -> Option<WsEvent> {
+    let base = parse_writer_run_base(json)?;
+    let error_code = json.get("error_code")?.as_str()?.to_string();
+    let error_message = json.get("error_message")?.as_str()?.to_string();
+    let failure_kind = parse_failure_kind(json);
+    Some(WsEvent::WriterRunFailed {
+        base,
+        error_code,
+        error_message,
+        failure_kind,
+    })
 }
 
 pub fn connect_websocket<F>(desktop_id: &str, on_event: F) -> Result<DesktopWsRuntime, String>

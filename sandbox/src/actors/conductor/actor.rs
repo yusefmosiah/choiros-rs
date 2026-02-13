@@ -5,6 +5,7 @@
 
 use async_trait::async_trait;
 use ractor::{Actor, ActorProcessingErr, ActorRef};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::actors::conductor::{
@@ -14,6 +15,7 @@ use crate::actors::conductor::{
 };
 use crate::actors::event_store::EventStoreMsg;
 use crate::actors::researcher::ResearcherMsg;
+use crate::actors::run_writer::RunWriterMsg;
 use crate::actors::terminal::TerminalMsg;
 
 /// ConductorActor - main orchestration actor.
@@ -40,6 +42,7 @@ pub struct ConductorState {
     pub(crate) researcher_actor: Option<ActorRef<ResearcherMsg>>,
     pub(crate) terminal_actor: Option<ActorRef<TerminalMsg>>,
     pub(crate) policy: SharedConductorPolicy,
+    pub(crate) run_writers: HashMap<String, ActorRef<RunWriterMsg>>,
 }
 
 #[async_trait]
@@ -62,6 +65,7 @@ impl Actor for ConductorActor {
             policy: args
                 .policy
                 .unwrap_or_else(|| Arc::new(BamlConductorPolicy::new())),
+            run_writers: HashMap::new(),
         })
     }
 
@@ -83,6 +87,10 @@ impl Actor for ConductorActor {
         match message {
             ConductorMsg::ExecuteTask { request, reply } => {
                 let _ = reply.send(self.handle_execute_task(myself, state, request).await);
+            }
+            ConductorMsg::BootstrapRun { run_id, request } => {
+                self.handle_bootstrap_run(&myself, state, run_id, request)
+                    .await?;
             }
             ConductorMsg::GetTaskState { task_id, reply } => {
                 let _ = reply.send(state.tasks.get_task(&task_id).cloned());

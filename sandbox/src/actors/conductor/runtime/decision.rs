@@ -1,4 +1,5 @@
 use ractor::{ActorProcessingErr, ActorRef};
+use tokio::sync::mpsc;
 
 use crate::actors::conductor::actor::{ConductorActor, ConductorState};
 use crate::actors::conductor::{
@@ -6,6 +7,9 @@ use crate::actors::conductor::{
     protocol::{ConductorError, ConductorMsg},
     workers::{call_researcher, call_terminal},
 };
+use crate::actors::researcher::ResearcherProgress;
+use crate::actors::run_writer::{RunWriterActor, RunWriterArguments, RunWriterMsg};
+use crate::actors::terminal::TerminalAgentProgress;
 use crate::baml_client::types::{ConductorAction, ConductorDecision};
 
 impl ConductorActor {
@@ -85,11 +89,15 @@ impl ConductorActor {
         match decision.action {
             ConductorAction::SpawnWorker => {
                 // Extract worker details from args
-                let capability = decision.args.as_ref()
+                let capability = decision
+                    .args
+                    .as_ref()
                     .and_then(|args| args.get("capability"))
                     .cloned()
                     .unwrap_or_else(|| "terminal".to_string());
-                let objective = decision.args.as_ref()
+                let objective = decision
+                    .args
+                    .as_ref()
                     .and_then(|args| args.get("objective"))
                     .cloned()
                     .unwrap_or_default();
@@ -122,9 +130,7 @@ impl ConductorActor {
                         shared_types::AgendaItemStatus::Running,
                     )
                     .map_err(|e| {
-                        ConductorError::PolicyError(format!(
-                            "Failed to update agenda item: {e}"
-                        ))
+                        ConductorError::PolicyError(format!("Failed to update agenda item: {e}"))
                     })?;
 
                 self.spawn_capability_call(myself, state, run_id, item)
@@ -135,10 +141,53 @@ impl ConductorActor {
                     shared_types::ConductorRunStatus::WaitingForCalls,
                 );
             }
-            ConductorAction::UpdateDraft => {
-                // The document update is handled by the worker directly
-                // This action signals the conductor to continue monitoring
-                tracing::info!(run_id = %run_id, "Conductor decision: Update draft");
+            ConductorAction::AwaitWorker => {
+                tracing::info!(run_id = %run_id, "Conductor decision: Await worker completion");
+                let _ = state.tasks.transition_run_status(
+                    run_id,
+                    shared_types::ConductorRunStatus::WaitingForCalls,
+                );
+            }
+            ConductorAction::MergeCanon => {
+                tracing::info!(run_id = %run_id, "Conductor decision: Merge canon from completed workers");
+                if let Some(run_writer) = state.run_writers.get(run_id).cloned() {
+                    let run_id_owned = run_id.to_string();
+                    tokio::spawn(async move {
+                        use ractor::call;
+                        for section in ["researcher", "terminal"] {
+                            let result = call!(run_writer, |reply| RunWriterMsg::CommitProposal {
+                                section_id: section.to_string(),
+                                reply,
+                            });
+                            match result {
+                                Ok(Ok(revision)) => {
+                                    tracing::info!(
+                                        run_id = %run_id_owned,
+                                        section = section,
+                                        revision = revision,
+                                        "Committed proposal to canon"
+                                    );
+                                }
+                                Ok(Err(e)) => {
+                                    tracing::debug!(
+                                        run_id = %run_id_owned,
+                                        section = section,
+                                        error = %e,
+                                        "No proposal to commit for section"
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        run_id = %run_id_owned,
+                                        section = section,
+                                        error = %e,
+                                        "Failed to call RunWriterActor for commit"
+                                    );
+                                }
+                            }
+                        }
+                    });
+                }
                 let _ = myself.send_message(ConductorMsg::DispatchReady {
                     run_id: run_id.to_string(),
                 });
@@ -153,8 +202,7 @@ impl ConductorActor {
                 let reason = Some(decision.reason.clone());
                 self.finalize_run_as_completed(state, run_id, reason.clone())
                     .await?;
-                self.emit_run_complete(run_id, reason)
-                    .await?;
+                self.emit_run_complete(run_id, reason).await?;
             }
             ConductorAction::Block => {
                 state
@@ -166,8 +214,7 @@ impl ConductorActor {
                 let reason = Some(decision.reason.clone());
                 self.finalize_run_as_blocked(state, run_id, reason.clone())
                     .await?;
-                self.emit_run_blocked(run_id, reason)
-                    .await?;
+                self.emit_run_blocked(run_id, reason).await?;
             }
         }
 
@@ -175,7 +222,8 @@ impl ConductorActor {
             decision_id: ulid::Ulid::new().to_string(),
             decision_type: match decision.action {
                 ConductorAction::SpawnWorker => shared_types::DecisionType::Dispatch,
-                ConductorAction::UpdateDraft => shared_types::DecisionType::Continue,
+                ConductorAction::AwaitWorker => shared_types::DecisionType::Continue,
+                ConductorAction::MergeCanon => shared_types::DecisionType::Continue,
                 ConductorAction::Complete => shared_types::DecisionType::Complete,
                 ConductorAction::Block => shared_types::DecisionType::Block,
             },
@@ -256,6 +304,43 @@ impl ConductorActor {
             .await;
         }
 
+        let run_writer = if !state.run_writers.contains_key(run_id) {
+            let run_metadata = state.tasks.get_run(run_id).cloned().ok_or_else(|| {
+                ConductorError::NotFound(format!(
+                    "run metadata unavailable while spawning run writer: {run_id}"
+                ))
+            })?;
+            let run_writer_args = RunWriterArguments {
+                run_id: run_id.to_string(),
+                desktop_id: run_metadata.desktop_id.clone(),
+                objective: run_metadata.objective.clone(),
+                session_id: run_metadata.desktop_id.clone(),
+                thread_id: run_metadata.run_id.clone(),
+                root_dir: Some(env!("CARGO_MANIFEST_DIR").to_string()),
+                event_store: state.event_store.clone(),
+            };
+            match ractor::Actor::spawn(
+                Some(format!("run-writer-{}", run_id)),
+                RunWriterActor,
+                run_writer_args,
+            )
+            .await
+            {
+                Ok((actor_ref, _handle)) => {
+                    state
+                        .run_writers
+                        .insert(run_id.to_string(), actor_ref.clone());
+                    Some(actor_ref)
+                }
+                Err(e) => {
+                    tracing::warn!(run_id = %run_id, error = %e, "Failed to spawn RunWriterActor");
+                    None
+                }
+            }
+        } else {
+            state.run_writers.get(run_id).cloned()
+        };
+
         let conductor_ref = myself.clone();
         let run_id_owned = run_id.to_string();
         let call_id_owned = call_id.clone();
@@ -264,33 +349,119 @@ impl ConductorActor {
         let objective = item.objective.clone();
         let researcher = state.researcher_actor.clone();
         let terminal = state.terminal_actor.clone();
+        let run_writer_for_logs = run_writer.clone();
+
+        if let Some(run_writer) = run_writer.clone() {
+            let section_id = match capability.as_str() {
+                "researcher" | "terminal" => capability.clone(),
+                _ => "conductor".to_string(),
+            };
+            let _ = ractor::call!(run_writer, |reply| RunWriterMsg::MarkSectionState {
+                run_id: run_id.to_string(),
+                section_id,
+                state: crate::actors::run_writer::SectionState::Running,
+                reply,
+            });
+        }
 
         tokio::spawn(async move {
             let result = match capability.as_str() {
                 "researcher" => match researcher {
-                    Some(researcher_ref) => call_researcher(
-                        &researcher_ref,
-                        objective,
-                        Some(60_000),
-                        Some(8),
-                        Some(3),
-                    )
-                    .await
-                    .map(crate::actors::conductor::protocol::CapabilityWorkerOutput::Researcher),
+                    Some(researcher_ref) => {
+                        let progress_tx = if run_writer_for_logs.is_some() {
+                            let (tx, mut rx) = mpsc::unbounded_channel::<ResearcherProgress>();
+                            let run_writer_for_progress = run_writer_for_logs.clone();
+                            let run_id_for_progress = run_id_owned.clone();
+                            tokio::spawn(async move {
+                                while let Some(progress) = rx.recv().await {
+                                    if let Some(run_writer) = run_writer_for_progress.clone() {
+                                        let _ = ractor::call!(run_writer, |reply| {
+                                            RunWriterMsg::AppendLogLine {
+                                                run_id: run_id_for_progress.clone(),
+                                                source: "researcher".to_string(),
+                                                section_id: "researcher".to_string(),
+                                                text: format!(
+                                                    "{}: {}",
+                                                    progress.phase, progress.message
+                                                ),
+                                                proposal: true,
+                                                reply,
+                                            }
+                                        });
+                                    }
+                                }
+                            });
+                            Some(tx)
+                        } else {
+                            None
+                        };
+
+                        call_researcher(
+                            &researcher_ref,
+                            objective,
+                            Some(60_000),
+                            Some(8),
+                            Some(3),
+                            progress_tx,
+                            run_writer.clone(),
+                            Some(run_id_owned.clone()),
+                        )
+                        .await
+                        .map(crate::actors::conductor::protocol::CapabilityWorkerOutput::Researcher)
+                    }
                     None => Err(ConductorError::WorkerFailed(
                         "Researcher capability requested but actor is unavailable".to_string(),
                     )),
                 },
                 "terminal" => match terminal {
-                    Some(terminal_ref) => call_terminal(
-                        &terminal_ref,
-                        objective,
-                        None,
-                        Some(60_000),
-                        Some(6),
-                    )
-                    .await
-                    .map(crate::actors::conductor::protocol::CapabilityWorkerOutput::Terminal),
+                    Some(terminal_ref) => {
+                        let progress_tx = if run_writer_for_logs.is_some() {
+                            let (tx, mut rx) = mpsc::unbounded_channel::<TerminalAgentProgress>();
+                            let run_writer_for_progress = run_writer_for_logs.clone();
+                            let run_id_for_progress = run_id_owned.clone();
+                            tokio::spawn(async move {
+                                while let Some(progress) = rx.recv().await {
+                                    if let Some(run_writer) = run_writer_for_progress.clone() {
+                                        let message = match &progress.command {
+                                            Some(command) if !command.trim().is_empty() => {
+                                                format!(
+                                                    "{}: {} ({})",
+                                                    progress.phase, progress.message, command
+                                                )
+                                            }
+                                            _ => {
+                                                format!("{}: {}", progress.phase, progress.message)
+                                            }
+                                        };
+                                        let _ = ractor::call!(run_writer, |reply| {
+                                            RunWriterMsg::AppendLogLine {
+                                                run_id: run_id_for_progress.clone(),
+                                                source: "terminal".to_string(),
+                                                section_id: "terminal".to_string(),
+                                                text: message,
+                                                proposal: true,
+                                                reply,
+                                            }
+                                        });
+                                    }
+                                }
+                            });
+                            Some(tx)
+                        } else {
+                            None
+                        };
+
+                        call_terminal(
+                            &terminal_ref,
+                            objective,
+                            None,
+                            Some(60_000),
+                            Some(6),
+                            progress_tx,
+                        )
+                        .await
+                        .map(crate::actors::conductor::protocol::CapabilityWorkerOutput::Terminal)
+                    }
                     None => Err(ConductorError::WorkerFailed(
                         "Terminal capability requested but actor is unavailable".to_string(),
                     )),

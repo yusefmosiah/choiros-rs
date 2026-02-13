@@ -7,13 +7,13 @@
 
 mod classes;
 mod enums;
-mod unions;
 mod type_aliases;
+mod unions;
 
 pub use classes::*;
 pub use enums::*;
-pub use unions::*;
 pub use type_aliases::*;
+pub use unions::*;
 
 // Re-export types from baml runtime
 pub use baml::{Audio, Image, Pdf, Video};
@@ -23,7 +23,6 @@ pub use baml::{Checked, StreamState};
 /// Serves as the compile-time type registry for BamlValue.
 #[derive(Debug, Clone)]
 pub enum Types {
-
     AgentDecision(AgentDecision),
 
     AgentToolArgs(AgentToolArgs),
@@ -90,7 +89,6 @@ pub enum Types {
 
     WriteFileToolArgs(WriteFileToolArgs),
 
-
     Action(Action),
 
     ConductorAction(ConductorAction),
@@ -108,8 +106,6 @@ pub enum Types {
     RiskCategory(RiskCategory),
 
     UrgencyLevel(UrgencyLevel),
-
-
 }
 
 impl baml::KnownTypes for Types {
@@ -119,7 +115,6 @@ impl baml::KnownTypes for Types {
 
     fn type_name(&self) -> &'static str {
         match self {
-
             Types::AgentDecision(_) => "AgentDecision",
 
             Types::AgentToolArgs(_) => "AgentToolArgs",
@@ -186,7 +181,6 @@ impl baml::KnownTypes for Types {
 
             Types::WriteFileToolArgs(_) => "WriteFileToolArgs",
 
-
             Types::Action(_) => "Action",
 
             Types::ConductorAction(_) => "ConductorAction",
@@ -204,9 +198,6 @@ impl baml::KnownTypes for Types {
             Types::RiskCategory(_) => "RiskCategory",
 
             Types::UrgencyLevel(_) => "UrgencyLevel",
-
-
-
         }
     }
 }

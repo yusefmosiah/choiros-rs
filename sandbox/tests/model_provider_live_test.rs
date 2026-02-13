@@ -1,10 +1,10 @@
+use ractor::Actor;
 use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments, EventStoreMsg};
 use sandbox::actors::model_config::{ModelRegistry, ProviderConfig};
 use sandbox::baml_client::types::Message as BamlMessage;
 use sandbox::baml_client::B;
 use sandbox::runtime_env::ensure_tls_cert_env;
 use sandbox::supervisor::{ApplicationSupervisor, ApplicationSupervisorMsg};
-use ractor::Actor;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
@@ -224,7 +224,10 @@ async fn run_terminal_delegation_case(
         });
 
         if has_terminal {
-            return Ok(format!("terminal delegation accepted with correlation: {}", task.correlation_id));
+            return Ok(format!(
+                "terminal delegation accepted with correlation: {}",
+                task.correlation_id
+            ));
         }
 
         sleep(Duration::from_millis(100)).await;
@@ -472,7 +475,8 @@ async fn live_terminal_delegation_matrix() {
         let app_supervisor = app_supervisor.clone();
         join_set.spawn(async move {
             let _permit = permit;
-            let result = run_terminal_delegation_case(event_store, app_supervisor, model_id.clone()).await;
+            let result =
+                run_terminal_delegation_case(event_store, app_supervisor, model_id.clone()).await;
             (model_id, result)
         });
     }

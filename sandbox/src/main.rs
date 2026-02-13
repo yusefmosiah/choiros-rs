@@ -111,6 +111,7 @@ async fn main() -> std::io::Result<()> {
 
     // Create WebSocket sessions state
     let ws_sessions: api::websocket::WsSessions = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+    api::websocket::spawn_writer_run_event_forwarder(event_store.clone(), ws_sessions.clone());
 
     let app_state = Arc::new(AppState::new(event_store.clone()));
     let _ = app_state
@@ -175,10 +176,11 @@ async fn main() -> std::io::Result<()> {
     // Configure CORS to allow known UI origins
     let allowed_origins = [
         "http://13.218.213.227",
-        "http://choir.chat",
-        "https://choir.chat",
+        "http://choir-ip.com",
+        "https://choir-ip.com",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://100.91.73.16:3000",
     ]
     .iter()
     .map(|origin| HeaderValue::from_str(origin).expect("Invalid CORS origin"))

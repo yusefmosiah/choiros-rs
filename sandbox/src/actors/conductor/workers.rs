@@ -1,11 +1,13 @@
 //! Worker call adapters for conductor capability dispatch.
 
 use ractor::ActorRef;
+use tokio::sync::mpsc;
 
 use crate::actors::conductor::protocol::ConductorError;
-use crate::actors::researcher::{ResearcherMsg, ResearcherResult};
+use crate::actors::researcher::{ResearcherMsg, ResearcherProgress, ResearcherResult};
+use crate::actors::run_writer::RunWriterMsg;
 use crate::actors::terminal::{
-    TerminalAgentResult, TerminalBashToolRequest, TerminalError, TerminalMsg,
+    TerminalAgentProgress, TerminalAgentResult, TerminalBashToolRequest, TerminalError, TerminalMsg,
 };
 
 /// Call the ResearcherActor for an agentic task.
@@ -15,6 +17,9 @@ pub async fn call_researcher(
     timeout_ms: Option<u64>,
     max_results: Option<u32>,
     max_rounds: Option<u8>,
+    progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
+    run_writer_actor: Option<ActorRef<RunWriterMsg>>,
+    run_id: Option<String>,
 ) -> Result<ResearcherResult, ConductorError> {
     use ractor::call;
 
@@ -24,7 +29,9 @@ pub async fn call_researcher(
         max_results,
         max_rounds,
         model_override: None,
-        progress_tx: None,
+        progress_tx,
+        run_writer_actor,
+        run_id,
         reply,
     })
     .map_err(|e| ConductorError::WorkerFailed(format!("Failed to call researcher actor: {e}")))?
@@ -38,6 +45,7 @@ pub async fn call_terminal(
     terminal_command: Option<String>,
     timeout_ms: Option<u64>,
     max_steps: Option<u8>,
+    progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
 ) -> Result<TerminalAgentResult, ConductorError> {
     use ractor::call;
 
@@ -63,7 +71,7 @@ pub async fn call_terminal(
                 model_override: None,
                 reasoning: Some("conductor capability dispatch terminal command".to_string()),
             },
-            progress_tx: None,
+            progress_tx,
             reply,
         })
         .map_err(|e| {
@@ -79,7 +87,7 @@ pub async fn call_terminal(
             timeout_ms,
             max_steps,
             model_override: None,
-            progress_tx: None,
+            progress_tx,
             reply,
         })
         .map_err(|e| {

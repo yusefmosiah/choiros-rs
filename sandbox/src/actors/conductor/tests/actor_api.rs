@@ -51,10 +51,10 @@ async fn test_execute_task_message_missing_workers() {
 
     assert!(result.is_ok());
     match result.unwrap().unwrap_err() {
-        ConductorError::InvalidRequest(msg) => {
+        ConductorError::ActorUnavailable(msg) => {
             assert!(msg.contains("No worker actors available"));
         }
-        other => panic!("Expected InvalidRequest, got {:?}", other),
+        other => panic!("Expected ActorUnavailable, got {:?}", other),
     }
 
     conductor_ref.stop(None);

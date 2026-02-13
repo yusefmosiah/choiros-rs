@@ -397,7 +397,9 @@ async fn test_conductor_multi_agent_delegation() {
 
     tracing::info!("[OBSERVATION] ==========================================");
     tracing::info!("[OBSERVATION] TEST: Conductor Multi-Agent Delegation");
-    tracing::info!("[OBSERVATION] Objective: 'research superbowl weather then save results to file'");
+    tracing::info!(
+        "[OBSERVATION] Objective: 'research superbowl weather then save results to file'"
+    );
     tracing::info!("[OBSERVATION] ==========================================");
 
     let task_id = submit_conductor_run(
@@ -451,7 +453,9 @@ async fn test_conductor_multi_agent_delegation() {
     } else if saw_terminal {
         tracing::info!("[OBSERVATION] Only Terminal was dispatched");
     } else {
-        tracing::warn!("[OBSERVATION] No worker calls observed - check if test timed out or failed");
+        tracing::warn!(
+            "[OBSERVATION] No worker calls observed - check if test timed out or failed"
+        );
     }
 
     tracing::info!(

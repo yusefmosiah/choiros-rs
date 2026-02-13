@@ -9,10 +9,12 @@ use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
 
 use crate::actors::desktop::DesktopActorMsg;
+use crate::actors::event_store::EventStoreMsg;
 use crate::api::ApiState;
 use crate::app_state::AppState;
 
@@ -98,6 +100,75 @@ pub enum WsMessage {
         document_path: String,
         content_excerpt: String,
         timestamp: String,
+    },
+
+    #[serde(rename = "writer.run.started")]
+    WriterRunStarted {
+        desktop_id: String,
+        session_id: String,
+        thread_id: String,
+        run_id: String,
+        document_path: String,
+        revision: u64,
+        timestamp: String,
+        objective: String,
+    },
+
+    #[serde(rename = "writer.run.progress")]
+    WriterRunProgress {
+        desktop_id: String,
+        session_id: String,
+        thread_id: String,
+        run_id: String,
+        document_path: String,
+        revision: u64,
+        timestamp: String,
+        phase: String,
+        message: String,
+        progress_pct: Option<u8>,
+    },
+
+    #[serde(rename = "writer.run.patch")]
+    WriterRunPatch {
+        desktop_id: String,
+        session_id: String,
+        thread_id: String,
+        run_id: String,
+        document_path: String,
+        revision: u64,
+        timestamp: String,
+        patch_id: String,
+        source: shared_types::PatchSource,
+        section_id: Option<String>,
+        ops: Vec<shared_types::PatchOp>,
+        proposal: Option<String>,
+    },
+
+    #[serde(rename = "writer.run.status")]
+    WriterRunStatus {
+        desktop_id: String,
+        session_id: String,
+        thread_id: String,
+        run_id: String,
+        document_path: String,
+        revision: u64,
+        timestamp: String,
+        status: shared_types::WriterRunStatusKind,
+        message: Option<String>,
+    },
+
+    #[serde(rename = "writer.run.failed")]
+    WriterRunFailed {
+        desktop_id: String,
+        session_id: String,
+        thread_id: String,
+        run_id: String,
+        document_path: String,
+        revision: u64,
+        timestamp: String,
+        error_code: String,
+        error_message: String,
+        failure_kind: Option<shared_types::FailureKind>,
     },
 
     #[serde(rename = "error")]
@@ -207,7 +278,6 @@ async fn handle_socket(socket: WebSocket, app_state: Arc<AppState>, sessions: Ws
 }
 
 /// Broadcast an event to all subscribers of a desktop
-#[allow(dead_code)]
 pub async fn broadcast_event(sessions: &WsSessions, desktop_id: &str, event: WsMessage) {
     let json = match serde_json::to_string(&event) {
         Ok(j) => j,
@@ -221,6 +291,218 @@ pub async fn broadcast_event(sessions: &WsSessions, desktop_id: &str, event: WsM
     if let Some(subscribers) = sessions.get_mut(desktop_id) {
         subscribers.retain(|_, sender| sender.send(Message::Text(json.clone().into())).is_ok());
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct WriterRunBasePayload {
+    desktop_id: String,
+    session_id: String,
+    thread_id: String,
+    run_id: String,
+    document_path: String,
+    revision: u64,
+    timestamp: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct WriterRunStartedPayload {
+    #[serde(flatten)]
+    base: WriterRunBasePayload,
+    objective: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct WriterRunProgressPayload {
+    #[serde(flatten)]
+    base: WriterRunBasePayload,
+    phase: String,
+    message: String,
+    progress_pct: Option<u8>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WriterRunPatchPayload {
+    #[serde(flatten)]
+    base: WriterRunBasePayload,
+    patch_id: String,
+    source: shared_types::PatchSource,
+    section_id: Option<String>,
+    ops: Vec<shared_types::PatchOp>,
+    proposal: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WriterRunStatusPayload {
+    #[serde(flatten)]
+    base: WriterRunBasePayload,
+    status: shared_types::WriterRunStatusKind,
+    message: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WriterRunFailedPayload {
+    #[serde(flatten)]
+    base: WriterRunBasePayload,
+    error_code: String,
+    error_message: String,
+    failure_kind: Option<shared_types::FailureKind>,
+}
+
+fn writer_ws_message_from_event(
+    event_type: &str,
+    payload: &serde_json::Value,
+) -> Option<(String, WsMessage)> {
+    match event_type {
+        "writer.run.started" => {
+            let parsed: WriterRunStartedPayload = serde_json::from_value(payload.clone()).ok()?;
+            let desktop_id = parsed.base.desktop_id.clone();
+            Some((
+                desktop_id,
+                WsMessage::WriterRunStarted {
+                    desktop_id: parsed.base.desktop_id,
+                    session_id: parsed.base.session_id,
+                    thread_id: parsed.base.thread_id,
+                    run_id: parsed.base.run_id,
+                    document_path: parsed.base.document_path,
+                    revision: parsed.base.revision,
+                    timestamp: parsed.base.timestamp,
+                    objective: parsed.objective,
+                },
+            ))
+        }
+        "writer.run.progress" => {
+            let parsed: WriterRunProgressPayload = serde_json::from_value(payload.clone()).ok()?;
+            let desktop_id = parsed.base.desktop_id.clone();
+            Some((
+                desktop_id,
+                WsMessage::WriterRunProgress {
+                    desktop_id: parsed.base.desktop_id,
+                    session_id: parsed.base.session_id,
+                    thread_id: parsed.base.thread_id,
+                    run_id: parsed.base.run_id,
+                    document_path: parsed.base.document_path,
+                    revision: parsed.base.revision,
+                    timestamp: parsed.base.timestamp,
+                    phase: parsed.phase,
+                    message: parsed.message,
+                    progress_pct: parsed.progress_pct,
+                },
+            ))
+        }
+        "writer.run.patch" => {
+            let parsed: WriterRunPatchPayload = serde_json::from_value(payload.clone()).ok()?;
+            let desktop_id = parsed.base.desktop_id.clone();
+            Some((
+                desktop_id,
+                WsMessage::WriterRunPatch {
+                    desktop_id: parsed.base.desktop_id,
+                    session_id: parsed.base.session_id,
+                    thread_id: parsed.base.thread_id,
+                    run_id: parsed.base.run_id,
+                    document_path: parsed.base.document_path,
+                    revision: parsed.base.revision,
+                    timestamp: parsed.base.timestamp,
+                    patch_id: parsed.patch_id,
+                    source: parsed.source,
+                    section_id: parsed.section_id,
+                    ops: parsed.ops,
+                    proposal: parsed.proposal,
+                },
+            ))
+        }
+        "writer.run.status" => {
+            let parsed: WriterRunStatusPayload = serde_json::from_value(payload.clone()).ok()?;
+            let desktop_id = parsed.base.desktop_id.clone();
+            Some((
+                desktop_id,
+                WsMessage::WriterRunStatus {
+                    desktop_id: parsed.base.desktop_id,
+                    session_id: parsed.base.session_id,
+                    thread_id: parsed.base.thread_id,
+                    run_id: parsed.base.run_id,
+                    document_path: parsed.base.document_path,
+                    revision: parsed.base.revision,
+                    timestamp: parsed.base.timestamp,
+                    status: parsed.status,
+                    message: parsed.message,
+                },
+            ))
+        }
+        "writer.run.failed" => {
+            let parsed: WriterRunFailedPayload = serde_json::from_value(payload.clone()).ok()?;
+            let desktop_id = parsed.base.desktop_id.clone();
+            Some((
+                desktop_id,
+                WsMessage::WriterRunFailed {
+                    desktop_id: parsed.base.desktop_id,
+                    session_id: parsed.base.session_id,
+                    thread_id: parsed.base.thread_id,
+                    run_id: parsed.base.run_id,
+                    document_path: parsed.base.document_path,
+                    revision: parsed.base.revision,
+                    timestamp: parsed.base.timestamp,
+                    error_code: parsed.error_code,
+                    error_message: parsed.error_message,
+                    failure_kind: parsed.failure_kind,
+                },
+            ))
+        }
+        _ => None,
+    }
+}
+
+pub fn spawn_writer_run_event_forwarder(
+    event_store: ractor::ActorRef<EventStoreMsg>,
+    sessions: WsSessions,
+) {
+    tokio::spawn(async move {
+        let mut since_seq =
+            match ractor::call!(event_store, |reply| EventStoreMsg::GetLatestSeq { reply }) {
+                Ok(Ok(Some(seq))) => seq,
+                Ok(Ok(None)) => 0,
+                Ok(Err(err)) => {
+                    tracing::warn!(error = %err, "writer run forwarder failed to read latest seq");
+                    0
+                }
+                Err(err) => {
+                    tracing::warn!(error = %err, "writer run forwarder failed to query latest seq");
+                    0
+                }
+            };
+
+        let mut ticker = tokio::time::interval(Duration::from_millis(120));
+        loop {
+            ticker.tick().await;
+
+            let events = match ractor::call!(event_store, |reply| EventStoreMsg::GetRecentEvents {
+                since_seq,
+                limit: 250,
+                event_type_prefix: Some("writer.run.".to_string()),
+                actor_id: None,
+                user_id: None,
+                reply
+            }) {
+                Ok(Ok(events)) => events,
+                Ok(Err(err)) => {
+                    tracing::warn!(error = %err, "writer run forwarder query failed");
+                    continue;
+                }
+                Err(err) => {
+                    tracing::warn!(error = %err, "writer run forwarder rpc failed");
+                    continue;
+                }
+            };
+
+            for event in events {
+                since_seq = since_seq.max(event.seq);
+                if let Some((desktop_id, message)) =
+                    writer_ws_message_from_event(&event.event_type, &event.payload)
+                {
+                    broadcast_event(&sessions, &desktop_id, message).await;
+                }
+            }
+        }
+    });
 }
 
 /// Subscribe a session to a desktop

@@ -8,12 +8,12 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::Serialize;
 
-use crate::actors::conductor::{ConductorError as ActorConductorError, ConductorMsg};
+use crate::actors::conductor::{file_tools, ConductorError as ActorConductorError, ConductorMsg};
 use crate::api::websocket::{broadcast_event, WsMessage};
 use crate::api::ApiState;
 use shared_types::{
     ConductorError, ConductorExecuteRequest, ConductorExecuteResponse, ConductorTaskState,
-    ConductorTaskStatus, EventImportance,
+    ConductorTaskStatus, EventImportance, WriterWindowProps,
 };
 
 /// Conductor error codes for machine-readable error responses
@@ -73,31 +73,60 @@ fn status_code_for_task(status: ConductorTaskStatus) -> StatusCode {
     }
 }
 
-fn writer_window_props_for_report(report_path: &str) -> serde_json::Value {
-    serde_json::json!({
-        "x": 100,
-        "y": 100,
-        "width": 900,
-        "height": 680,
-        "path": report_path,
-        "preview_mode": true,
-    })
+fn writer_window_props_for_report(report_path: &str, run_id: Option<&str>) -> WriterWindowProps {
+    WriterWindowProps {
+        x: 100,
+        y: 100,
+        width: 900,
+        height: 680,
+        path: report_path.to_string(),
+        preview_mode: true,
+        run_id: run_id.map(ToString::to_string),
+    }
+}
+
+fn writer_window_props_for_run_document(document_path: &str, run_id: &str) -> WriterWindowProps {
+    WriterWindowProps {
+        x: 100,
+        y: 100,
+        width: 900,
+        height: 680,
+        path: document_path.to_string(),
+        preview_mode: false,
+        run_id: Some(run_id.to_string()),
+    }
 }
 
 fn task_state_to_execute_response(task: ConductorTaskState) -> ConductorExecuteResponse {
-    let writer_window_props =
-        if task.output_mode == shared_types::ConductorOutputMode::MarkdownReportToWriter {
-            task.report_path
-                .as_ref()
-                .map(|path| writer_window_props_for_report(path))
-        } else {
-            None
-        };
+    let run_id = task.task_id.clone();
+    let (document_path, writer_window_props) = match task.status {
+        ConductorTaskStatus::Queued
+        | ConductorTaskStatus::Running
+        | ConductorTaskStatus::WaitingWorker => {
+            let path = file_tools::get_run_document_path(&run_id);
+            let props = writer_window_props_for_run_document(&path, &run_id);
+            (Some(path), Some(props))
+        }
+        ConductorTaskStatus::Completed => {
+            let report_path = task.report_path.clone();
+            let props =
+                if task.output_mode == shared_types::ConductorOutputMode::MarkdownReportToWriter {
+                    report_path
+                        .as_ref()
+                        .map(|path| writer_window_props_for_report(path, Some(&run_id)))
+                } else {
+                    None
+                };
+            (report_path, props)
+        }
+        ConductorTaskStatus::Failed => (task.report_path.clone(), None),
+    };
 
     ConductorExecuteResponse {
-        task_id: task.task_id,
+        task_id: task.task_id.clone(),
+        run_id: Some(run_id),
         status: task.status,
-        report_path: task.report_path,
+        document_path,
         writer_window_props,
         toast: task.toast,
         correlation_id: task.correlation_id,
@@ -107,6 +136,14 @@ fn task_state_to_execute_response(task: ConductorTaskState) -> ConductorExecuteR
 
 fn map_actor_error(err: ActorConductorError) -> (StatusCode, ConductorError) {
     match err {
+        ActorConductorError::ActorUnavailable(msg) => (
+            ConductorErrorCode::ActorNotAvailable.status_code(),
+            conductor_error(
+                ConductorErrorCode::ActorNotAvailable,
+                msg,
+                Some(shared_types::FailureKind::Unknown),
+            ),
+        ),
         ActorConductorError::InvalidRequest(msg) => (
             ConductorErrorCode::InvalidRequest.status_code(),
             conductor_error(
@@ -170,7 +207,6 @@ async fn broadcast_telemetry_event(
 }
 
 /// Broadcast a document update event to all WebSocket clients for a desktop
-#[allow(dead_code)]
 pub async fn broadcast_document_update(
     ws_sessions: &crate::api::websocket::WsSessions,
     desktop_id: &str,
@@ -205,8 +241,9 @@ pub async fn execute_task(
         );
         let body = Json(ConductorExecuteResponse {
             task_id: String::new(),
+            run_id: None,
             status: ConductorTaskStatus::Failed,
-            report_path: None,
+            document_path: None,
             writer_window_props: None,
             toast: None,
             correlation_id: request.correlation_id.unwrap_or_default(),
@@ -223,8 +260,9 @@ pub async fn execute_task(
         );
         let body = Json(ConductorExecuteResponse {
             task_id: String::new(),
+            run_id: None,
             status: ConductorTaskStatus::Failed,
-            report_path: None,
+            document_path: None,
             writer_window_props: None,
             toast: None,
             correlation_id: request.correlation_id.unwrap_or_default(),
@@ -243,8 +281,9 @@ pub async fn execute_task(
             );
             let body = Json(ConductorExecuteResponse {
                 task_id: String::new(),
+                run_id: None,
                 status: ConductorTaskStatus::Failed,
-                report_path: None,
+                document_path: None,
                 writer_window_props: None,
                 toast: None,
                 correlation_id: request.correlation_id.unwrap_or_default(),
@@ -312,8 +351,9 @@ pub async fn execute_task(
             let (status, error) = map_actor_error(actor_err);
             let body = Json(ConductorExecuteResponse {
                 task_id: String::new(),
+                run_id: None,
                 status: ConductorTaskStatus::Failed,
-                report_path: None,
+                document_path: None,
                 writer_window_props: None,
                 toast: None,
                 correlation_id: String::new(),
@@ -329,8 +369,9 @@ pub async fn execute_task(
             );
             let body = Json(ConductorExecuteResponse {
                 task_id: String::new(),
+                run_id: None,
                 status: ConductorTaskStatus::Failed,
-                report_path: None,
+                document_path: None,
                 writer_window_props: None,
                 toast: None,
                 correlation_id: String::new(),
@@ -409,6 +450,8 @@ pub async fn get_task_status(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
+    use shared_types::ConductorOutputMode;
 
     #[test]
     fn test_status_code_for_task() {
@@ -436,8 +479,50 @@ mod tests {
 
     #[test]
     fn test_writer_props_contains_preview_mode() {
-        let props = writer_window_props_for_report("reports/test.md");
-        assert_eq!(props["path"], "reports/test.md");
-        assert_eq!(props["preview_mode"], true);
+        let props = writer_window_props_for_report("reports/test.md", None);
+        assert_eq!(props.path, "reports/test.md");
+        assert!(props.preview_mode);
+    }
+
+    #[test]
+    fn test_task_state_to_execute_response_targets_live_document_for_accepted_status() {
+        let now = Utc::now();
+        let task = ConductorTaskState {
+            task_id: "run_123".to_string(),
+            status: ConductorTaskStatus::WaitingWorker,
+            objective: "test objective".to_string(),
+            desktop_id: "desktop-1".to_string(),
+            output_mode: ConductorOutputMode::Auto,
+            correlation_id: "corr-1".to_string(),
+            created_at: now,
+            updated_at: now,
+            completed_at: None,
+            report_path: None,
+            toast: None,
+            error: None,
+        };
+
+        let response = task_state_to_execute_response(task);
+
+        assert_eq!(
+            response.document_path.as_deref(),
+            Some("conductor/runs/run_123/draft.md")
+        );
+        let props = response
+            .writer_window_props
+            .expect("accepted response must include writer props");
+        assert_eq!(props.path, "conductor/runs/run_123/draft.md");
+        assert!(!props.preview_mode);
+        assert_eq!(props.run_id.as_deref(), Some("run_123"));
+    }
+
+    #[test]
+    fn test_map_actor_unavailable_maps_to_service_unavailable() {
+        let (status, error) = map_actor_error(ActorConductorError::ActorUnavailable(
+            "workers unavailable".to_string(),
+        ));
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code, "ACTOR_NOT_AVAILABLE");
+        assert!(error.message.contains("workers unavailable"));
     }
 }

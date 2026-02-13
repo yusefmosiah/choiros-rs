@@ -5,7 +5,10 @@
 
 //! Synchronous BAML client with function-object pattern.
 
-use crate::baml_client::{runtime::{get_runtime, FunctionOptions}, stream_types, types};
+use crate::baml_client::{
+    runtime::{get_runtime, FunctionOptions},
+    stream_types, types,
+};
 use baml::{BamlEncode, BamlError, StreamingCall};
 
 // =============================================================================
@@ -105,34 +108,23 @@ macro_rules! baml_function_sync {
 // Generate function structs
 // =============================================================================
 
-
-
 baml_function_sync!(ConductorBootstrapAgenda(input: &types::ConductorBootstrapInput, ) -> (stream_types::ConductorBootstrapOutput, types::ConductorBootstrapOutput));
-
 
 baml_function_sync!(ConductorDecide(input: &types::ConductorDecisionInput, ) -> (stream_types::ConductorDecision, types::ConductorDecision));
 
-
 baml_function_sync!(ConductorRefineObjective(input: &types::ConductorObjectiveRefineInput, ) -> (stream_types::ConductorObjectiveRefineOutput, types::ConductorObjectiveRefineOutput));
-
 
 baml_function_sync!(Decide(messages: &[types::Message], context: impl AsRef<str> + BamlEncode, available_tools: impl AsRef<str> + BamlEncode, ) -> (stream_types::AgentDecision, types::AgentDecision));
 
-
 baml_function_sync!(ExtractResume(resume: impl AsRef<str> + BamlEncode, ) -> (stream_types::Resume, types::Resume));
-
 
 baml_function_sync!(QuickResponse(user_message: impl AsRef<str> + BamlEncode, conversation_history: impl AsRef<str> + BamlEncode, ) -> (String, String));
 
-
 baml_function_sync!(ResearcherPlanStep(input: &types::ResearcherPlanInput, ) -> (stream_types::ResearcherPlanOutput, types::ResearcherPlanOutput));
-
 
 baml_function_sync!(WatcherRecommendMitigation(input: &types::WatcherMitigationInput, ) -> (stream_types::WatcherMitigationOutput, types::WatcherMitigationOutput));
 
-
 baml_function_sync!(WatcherReviewLogWindow(input: &types::WatcherLogWindowInput, ) -> (stream_types::WatcherReviewOutput, types::WatcherReviewOutput));
-
 
 // =============================================================================
 // Client Struct
@@ -141,50 +133,48 @@ baml_function_sync!(WatcherReviewLogWindow(input: &types::WatcherLogWindowInput,
 #[derive(Clone)]
 pub struct BamlSyncClient {
     options: FunctionOptions,
-    
+
     pub ConductorBootstrapAgenda: ConductorBootstrapAgenda,
-    
+
     pub ConductorDecide: ConductorDecide,
-    
+
     pub ConductorRefineObjective: ConductorRefineObjective,
-    
+
     pub Decide: Decide,
-    
+
     pub ExtractResume: ExtractResume,
-    
+
     pub QuickResponse: QuickResponse,
-    
+
     pub ResearcherPlanStep: ResearcherPlanStep,
-    
+
     pub WatcherRecommendMitigation: WatcherRecommendMitigation,
-    
+
     pub WatcherReviewLogWindow: WatcherReviewLogWindow,
-    
 }
 
 impl BamlSyncClient {
     pub const fn new() -> Self {
         Self {
             options: FunctionOptions::new(),
-            
+
             ConductorBootstrapAgenda: ConductorBootstrapAgenda::new(),
-            
+
             ConductorDecide: ConductorDecide::new(),
-            
+
             ConductorRefineObjective: ConductorRefineObjective::new(),
-            
+
             Decide: Decide::new(),
-            
+
             ExtractResume: ExtractResume::new(),
-            
+
             QuickResponse: QuickResponse::new(),
-            
+
             ResearcherPlanStep: ResearcherPlanStep::new(),
-            
+
             WatcherRecommendMitigation: WatcherRecommendMitigation::new(),
-            
+
             WatcherReviewLogWindow: WatcherReviewLogWindow::new(),
-            
         }
     }
 
@@ -192,25 +182,42 @@ impl BamlSyncClient {
     pub fn with_options(&self, options: FunctionOptions) -> Self {
         Self {
             options: options.clone(),
-            
-            ConductorBootstrapAgenda: ConductorBootstrapAgenda { options: options.clone() },
-            
-            ConductorDecide: ConductorDecide { options: options.clone() },
-            
-            ConductorRefineObjective: ConductorRefineObjective { options: options.clone() },
-            
-            Decide: Decide { options: options.clone() },
-            
-            ExtractResume: ExtractResume { options: options.clone() },
-            
-            QuickResponse: QuickResponse { options: options.clone() },
-            
-            ResearcherPlanStep: ResearcherPlanStep { options: options.clone() },
-            
-            WatcherRecommendMitigation: WatcherRecommendMitigation { options: options.clone() },
-            
-            WatcherReviewLogWindow: WatcherReviewLogWindow { options: options.clone() },
-            
+
+            ConductorBootstrapAgenda: ConductorBootstrapAgenda {
+                options: options.clone(),
+            },
+
+            ConductorDecide: ConductorDecide {
+                options: options.clone(),
+            },
+
+            ConductorRefineObjective: ConductorRefineObjective {
+                options: options.clone(),
+            },
+
+            Decide: Decide {
+                options: options.clone(),
+            },
+
+            ExtractResume: ExtractResume {
+                options: options.clone(),
+            },
+
+            QuickResponse: QuickResponse {
+                options: options.clone(),
+            },
+
+            ResearcherPlanStep: ResearcherPlanStep {
+                options: options.clone(),
+            },
+
+            WatcherRecommendMitigation: WatcherRecommendMitigation {
+                options: options.clone(),
+            },
+
+            WatcherReviewLogWindow: WatcherReviewLogWindow {
+                options: options.clone(),
+            },
         }
     }
 }

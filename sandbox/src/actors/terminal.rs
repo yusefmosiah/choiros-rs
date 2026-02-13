@@ -369,7 +369,11 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                 kind: WorkerEscalationKind::Blocker,
                 reason: format!("Terminal task failed or blocked: {}", summary),
                 urgency: WorkerEscalationUrgency::Medium,
-                options: vec!["retry".to_string(), "escalate".to_string(), "abort".to_string()],
+                options: vec![
+                    "retry".to_string(),
+                    "escalate".to_string(),
+                    "abort".to_string(),
+                ],
                 recommended_option: Some("retry".to_string()),
                 requires_human: Some(false),
             });
@@ -937,10 +941,13 @@ impl TerminalActor {
                     reasoning: None, // Could extract from learnings if needed
                     success: agent_result.success,
                     model_used: agent_result.model_used,
-                    exit_code: agent_result
-                        .tool_executions
-                        .last()
-                        .map(|exec| if exec.success { 0 } else { 1 }),
+                    exit_code: agent_result.tool_executions.last().map(|exec| {
+                        if exec.success {
+                            0
+                        } else {
+                            1
+                        }
+                    }),
                     executed_commands,
                     steps,
                 })

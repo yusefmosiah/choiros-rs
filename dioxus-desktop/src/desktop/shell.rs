@@ -12,7 +12,7 @@ use crate::desktop::apps::core_apps;
 use crate::desktop::components::prompt_bar::{PromptBar, TelemetryStreamState};
 use crate::desktop::components::workspace_canvas::WorkspaceCanvas;
 use crate::desktop::effects;
-use crate::desktop::state::apply_ws_event;
+use crate::desktop::state::{apply_ws_event, update_writer_runs_from_event};
 use crate::desktop::theme::{
     apply_theme_to_document, next_theme, set_cached_theme_preference, DEFAULT_THEME,
 };
@@ -97,23 +97,39 @@ pub fn DesktopShell(desktop_id: String) -> Element {
 
                     for event in drained {
                         // Handle telemetry events separately
-                        if let WsEvent::Telemetry { event_type, capability, phase, importance, data } = &event {
+                        if let WsEvent::Telemetry {
+                            event_type,
+                            capability,
+                            phase,
+                            importance,
+                            data,
+                        } = &event
+                        {
                             use shared_types::EventImportance;
                             let importance_enum = match importance.as_str() {
                                 "high" => EventImportance::High,
                                 "low" => EventImportance::Low,
                                 _ => EventImportance::Normal,
                             };
-                            let message = crate::desktop::components::prompt_bar::format_telemetry_message(
-                                event_type,
-                                data
-                            );
+                            let message =
+                                crate::desktop::components::prompt_bar::format_telemetry_message(
+                                    event_type, data,
+                                );
                             telemetry_state.write().add_line(
                                 message,
                                 capability.clone(),
                                 phase.clone(),
                                 importance_enum,
                             );
+                        } else if matches!(
+                            event,
+                            WsEvent::WriterRunStarted { .. }
+                                | WsEvent::WriterRunProgress { .. }
+                                | WsEvent::WriterRunPatch { .. }
+                                | WsEvent::WriterRunStatus { .. }
+                                | WsEvent::WriterRunFailed { .. }
+                        ) {
+                            update_writer_runs_from_event(&event);
                         } else {
                             apply_ws_event(event, &mut desktop_state, &mut ws_connected);
                         }

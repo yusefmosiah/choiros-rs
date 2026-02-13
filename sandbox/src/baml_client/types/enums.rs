@@ -3,49 +3,34 @@
 //
 // Learn more at https://docs.boundaryml.com
 
-
 //! Generated enum types.
 
-use baml::{BamlEncode, BamlDecode};
-
-
-
+use baml::{BamlDecode, BamlEncode};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum Action {
-
-
     ToolCall,
-
 
     Complete,
 
-
     Block,
-
-
 }
 
 impl Default for Action {
     fn default() -> Self {
-        
         Self::ToolCall
-        
     }
 }
 
 impl std::fmt::Display for Action {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-
             Self::ToolCall => write!(f, "ToolCall"),
 
             Self::Complete => write!(f, "Complete"),
 
             Self::Block => write!(f, "Block"),
-
-
         }
     }
 }
@@ -55,16 +40,13 @@ impl std::str::FromStr for Action {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-
             "ToolCall" => Ok(Self::ToolCall),
 
             "Complete" => Ok(Self::Complete),
 
             "Block" => Ok(Self::Block),
 
-
             _ => Err(()),
-
         }
     }
 }
@@ -75,49 +57,38 @@ impl AsRef<Action> for Action {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum ConductorAction {
-
-
     SpawnWorker,
 
+    AwaitWorker,
 
-    UpdateDraft,
-
+    MergeCanon,
 
     Complete,
 
-
     Block,
-
-
 }
 
 impl Default for ConductorAction {
     fn default() -> Self {
-        
         Self::SpawnWorker
-        
     }
 }
 
 impl std::fmt::Display for ConductorAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-
             Self::SpawnWorker => write!(f, "SpawnWorker"),
 
-            Self::UpdateDraft => write!(f, "UpdateDraft"),
+            Self::AwaitWorker => write!(f, "AwaitWorker"),
+
+            Self::MergeCanon => write!(f, "MergeCanon"),
 
             Self::Complete => write!(f, "Complete"),
 
             Self::Block => write!(f, "Block"),
-
-
         }
     }
 }
@@ -127,18 +98,17 @@ impl std::str::FromStr for ConductorAction {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-
             "SpawnWorker" => Ok(Self::SpawnWorker),
 
-            "UpdateDraft" => Ok(Self::UpdateDraft),
+            "AwaitWorker" => Ok(Self::AwaitWorker),
+
+            "MergeCanon" => Ok(Self::MergeCanon),
 
             "Complete" => Ok(Self::Complete),
 
             "Block" => Ok(Self::Block),
 
-
             _ => Err(()),
-
         }
     }
 }
@@ -149,49 +119,33 @@ impl AsRef<ConductorAction> for ConductorAction {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum EscalationAction {
-
-
     NotifyConductor,
-
 
     RequestHumanReview,
 
-
     AutoRetry,
-
 
     ScaleResources,
 
-
     TerminateRun,
-
 
     ContinueMonitoring,
 
-
     EscalateToOnCall,
-
-
 }
 
 impl Default for EscalationAction {
     fn default() -> Self {
-        
         Self::NotifyConductor
-        
     }
 }
 
 impl std::fmt::Display for EscalationAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-
             Self::NotifyConductor => write!(f, "NotifyConductor"),
 
             Self::RequestHumanReview => write!(f, "RequestHumanReview"),
@@ -205,8 +159,6 @@ impl std::fmt::Display for EscalationAction {
             Self::ContinueMonitoring => write!(f, "ContinueMonitoring"),
 
             Self::EscalateToOnCall => write!(f, "EscalateToOnCall"),
-
-
         }
     }
 }
@@ -216,7 +168,6 @@ impl std::str::FromStr for EscalationAction {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-
             "NotifyConductor" => Ok(Self::NotifyConductor),
 
             "RequestHumanReview" => Ok(Self::RequestHumanReview),
@@ -231,9 +182,7 @@ impl std::str::FromStr for EscalationAction {
 
             "EscalateToOnCall" => Ok(Self::EscalateToOnCall),
 
-
             _ => Err(()),
-
         }
     }
 }
@@ -244,49 +193,33 @@ impl AsRef<EscalationAction> for EscalationAction {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum EscalationKind {
-
-
     FailureSpike,
-
 
     TimeoutPattern,
 
-
     ResourceExhaustion,
-
 
     SecurityConcern,
 
-
     CostAnomaly,
-
 
     StalledWorkflow,
 
-
     Other,
-
-
 }
 
 impl Default for EscalationKind {
     fn default() -> Self {
-        
         Self::FailureSpike
-        
     }
 }
 
 impl std::fmt::Display for EscalationKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-
             Self::FailureSpike => write!(f, "FailureSpike"),
 
             Self::TimeoutPattern => write!(f, "TimeoutPattern"),
@@ -300,8 +233,6 @@ impl std::fmt::Display for EscalationKind {
             Self::StalledWorkflow => write!(f, "StalledWorkflow"),
 
             Self::Other => write!(f, "Other"),
-
-
         }
     }
 }
@@ -311,7 +242,6 @@ impl std::str::FromStr for EscalationKind {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-
             "FailureSpike" => Ok(Self::FailureSpike),
 
             "TimeoutPattern" => Ok(Self::TimeoutPattern),
@@ -326,9 +256,7 @@ impl std::str::FromStr for EscalationKind {
 
             "Other" => Ok(Self::Other),
 
-
             _ => Err(()),
-
         }
     }
 }
@@ -339,49 +267,33 @@ impl AsRef<EscalationKind> for EscalationKind {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum ResearchAction {
-
-
     Search,
-
 
     FetchUrl,
 
-
     FileRead,
-
 
     FileWrite,
 
-
     FileEdit,
-
 
     Complete,
 
-
     Block,
-
-
 }
 
 impl Default for ResearchAction {
     fn default() -> Self {
-        
         Self::Search
-        
     }
 }
 
 impl std::fmt::Display for ResearchAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-
             Self::Search => write!(f, "Search"),
 
             Self::FetchUrl => write!(f, "FetchUrl"),
@@ -395,8 +307,6 @@ impl std::fmt::Display for ResearchAction {
             Self::Complete => write!(f, "Complete"),
 
             Self::Block => write!(f, "Block"),
-
-
         }
     }
 }
@@ -406,7 +316,6 @@ impl std::str::FromStr for ResearchAction {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-
             "Search" => Ok(Self::Search),
 
             "FetchUrl" => Ok(Self::FetchUrl),
@@ -421,9 +330,7 @@ impl std::str::FromStr for ResearchAction {
 
             "Block" => Ok(Self::Block),
 
-
             _ => Err(()),
-
         }
     }
 }
@@ -434,44 +341,30 @@ impl AsRef<ResearchAction> for ResearchAction {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum ResearchStatus {
-
-
     Ongoing,
-
 
     Complete,
 
-
     Blocked,
-
-
 }
 
 impl Default for ResearchStatus {
     fn default() -> Self {
-        
         Self::Ongoing
-        
     }
 }
 
 impl std::fmt::Display for ResearchStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-
             Self::Ongoing => write!(f, "Ongoing"),
 
             Self::Complete => write!(f, "Complete"),
 
             Self::Blocked => write!(f, "Blocked"),
-
-
         }
     }
 }
@@ -481,16 +374,13 @@ impl std::str::FromStr for ResearchStatus {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-
             "Ongoing" => Ok(Self::Ongoing),
 
             "Complete" => Ok(Self::Complete),
 
             "Blocked" => Ok(Self::Blocked),
 
-
             _ => Err(()),
-
         }
     }
 }
@@ -501,40 +391,27 @@ impl AsRef<ResearchStatus> for ResearchStatus {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum ReviewStatus {
-
-
     Clean,
-
 
     IssuesDetected,
 
-
     Critical,
 
-
     Inconclusive,
-
-
 }
 
 impl Default for ReviewStatus {
     fn default() -> Self {
-        
         Self::Clean
-        
     }
 }
 
 impl std::fmt::Display for ReviewStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-
             Self::Clean => write!(f, "Clean"),
 
             Self::IssuesDetected => write!(f, "IssuesDetected"),
@@ -542,8 +419,6 @@ impl std::fmt::Display for ReviewStatus {
             Self::Critical => write!(f, "Critical"),
 
             Self::Inconclusive => write!(f, "Inconclusive"),
-
-
         }
     }
 }
@@ -553,7 +428,6 @@ impl std::str::FromStr for ReviewStatus {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-
             "Clean" => Ok(Self::Clean),
 
             "IssuesDetected" => Ok(Self::IssuesDetected),
@@ -562,9 +436,7 @@ impl std::str::FromStr for ReviewStatus {
 
             "Inconclusive" => Ok(Self::Inconclusive),
 
-
             _ => Err(()),
-
         }
     }
 }
@@ -575,43 +447,29 @@ impl AsRef<ReviewStatus> for ReviewStatus {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum RiskCategory {
-
-
     Operational,
-
 
     Technical,
 
-
     Security,
-
 
     Cost,
 
-
     Compliance,
-
-
 }
 
 impl Default for RiskCategory {
     fn default() -> Self {
-        
         Self::Operational
-        
     }
 }
 
 impl std::fmt::Display for RiskCategory {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-
             Self::Operational => write!(f, "Operational"),
 
             Self::Technical => write!(f, "Technical"),
@@ -621,8 +479,6 @@ impl std::fmt::Display for RiskCategory {
             Self::Cost => write!(f, "Cost"),
 
             Self::Compliance => write!(f, "Compliance"),
-
-
         }
     }
 }
@@ -632,7 +488,6 @@ impl std::str::FromStr for RiskCategory {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-
             "Operational" => Ok(Self::Operational),
 
             "Technical" => Ok(Self::Technical),
@@ -643,9 +498,7 @@ impl std::str::FromStr for RiskCategory {
 
             "Compliance" => Ok(Self::Compliance),
 
-
             _ => Err(()),
-
         }
     }
 }
@@ -656,40 +509,27 @@ impl AsRef<RiskCategory> for RiskCategory {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum UrgencyLevel {
-
-
     Low,
-
 
     Medium,
 
-
     High,
 
-
     Critical,
-
-
 }
 
 impl Default for UrgencyLevel {
     fn default() -> Self {
-        
         Self::Low
-        
     }
 }
 
 impl std::fmt::Display for UrgencyLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-
             Self::Low => write!(f, "Low"),
 
             Self::Medium => write!(f, "Medium"),
@@ -697,8 +537,6 @@ impl std::fmt::Display for UrgencyLevel {
             Self::High => write!(f, "High"),
 
             Self::Critical => write!(f, "Critical"),
-
-
         }
     }
 }
@@ -708,7 +546,6 @@ impl std::str::FromStr for UrgencyLevel {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-
             "Low" => Ok(Self::Low),
 
             "Medium" => Ok(Self::Medium),
@@ -717,9 +554,7 @@ impl std::str::FromStr for UrgencyLevel {
 
             "Critical" => Ok(Self::Critical),
 
-
             _ => Err(()),
-
         }
     }
 }
@@ -729,4 +564,3 @@ impl AsRef<UrgencyLevel> for UrgencyLevel {
         self
     }
 }
-

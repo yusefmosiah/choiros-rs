@@ -503,7 +503,7 @@ async def test_first_time_user():
 
 ## Contact & Context
 
-**Author:** YM Nathanson <yusef@choir.chat>  
+**Author:** YM Nathanson <ymnath@choir-ip.com>  
 **Git Config:** Set for this project  
 **Project:** ChoirOS - AI-powered desktop environment  
 **Phase:** 1 of 3 (Desktop foundation complete)  

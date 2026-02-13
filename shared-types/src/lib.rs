@@ -983,13 +983,132 @@ pub struct ConductorError {
 #[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct ConductorExecuteResponse {
     pub task_id: String,
+    pub run_id: Option<String>,
     pub status: ConductorTaskStatus,
-    pub report_path: Option<String>,
-    #[ts(type = "unknown")]
-    pub writer_window_props: Option<serde_json::Value>,
+    pub document_path: Option<String>,
+    pub writer_window_props: Option<WriterWindowProps>,
     pub toast: Option<ConductorToastPayload>,
     pub correlation_id: String,
     pub error: Option<ConductorError>,
+}
+
+/// Typed window props for Writer integration
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct WriterWindowProps {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub path: String,
+    pub preview_mode: bool,
+    pub run_id: Option<String>,
+}
+
+// ============================================================================
+// Writer Run Event Types (Phase A: Writer-First Cutover)
+// ============================================================================
+
+/// Single patch operation for document editing
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[serde(tag = "op", rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum PatchOp {
+    Insert { pos: u64, text: String },
+    Delete { pos: u64, len: u64 },
+    Replace { pos: u64, len: u64, text: String },
+    Retain { len: u64 },
+}
+
+/// Status for writer run events
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum WriterRunStatusKind {
+    Initializing,
+    Running,
+    WaitingForWorker,
+    Completing,
+    Completed,
+    Failed,
+    Blocked,
+}
+
+/// Source of a patch operation
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum PatchSource {
+    Agent,
+    User,
+    System,
+}
+
+/// Base fields required on every writer run event
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct WriterRunEventBase {
+    pub desktop_id: String,
+    pub session_id: String,
+    pub thread_id: String,
+    pub run_id: String,
+    pub document_path: String,
+    pub revision: u64,
+    pub timestamp: DateTime<Utc>,
+}
+
+/// Payload for writer.run.patch events
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct WriterRunPatchPayload {
+    pub patch_id: String,
+    pub source: PatchSource,
+    pub section_id: Option<String>,
+    pub ops: Vec<PatchOp>,
+    pub proposal: Option<String>,
+}
+
+/// Full writer run event with base fields and typed payload
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "event_type", rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum WriterRunEvent {
+    #[serde(rename = "writer.run.started")]
+    Started {
+        #[serde(flatten)]
+        base: WriterRunEventBase,
+        objective: String,
+    },
+    #[serde(rename = "writer.run.progress")]
+    Progress {
+        #[serde(flatten)]
+        base: WriterRunEventBase,
+        phase: String,
+        message: String,
+        progress_pct: Option<u8>,
+    },
+    #[serde(rename = "writer.run.patch")]
+    Patch {
+        #[serde(flatten)]
+        base: WriterRunEventBase,
+        #[serde(flatten)]
+        payload: WriterRunPatchPayload,
+    },
+    #[serde(rename = "writer.run.status")]
+    Status {
+        #[serde(flatten)]
+        base: WriterRunEventBase,
+        status: WriterRunStatusKind,
+        message: Option<String>,
+    },
+    #[serde(rename = "writer.run.failed")]
+    Failed {
+        #[serde(flatten)]
+        base: WriterRunEventBase,
+        error_code: String,
+        error_message: String,
+        failure_kind: Option<FailureKind>,
+    },
 }
 
 /// State tracking for a Conductor task
@@ -1135,6 +1254,12 @@ pub const EVENT_TOPIC_CONDUCTOR_WORKER_CALL: &str = "conductor.worker.call";
 pub const EVENT_TOPIC_CONDUCTOR_WORKER_RESULT: &str = "conductor.worker.result";
 pub const EVENT_TOPIC_CONDUCTOR_TASK_COMPLETED: &str = "conductor.task.completed";
 pub const EVENT_TOPIC_CONDUCTOR_TASK_FAILED: &str = "conductor.task.failed";
+
+pub const EVENT_TOPIC_WRITER_RUN_STARTED: &str = "writer.run.started";
+pub const EVENT_TOPIC_WRITER_RUN_PROGRESS: &str = "writer.run.progress";
+pub const EVENT_TOPIC_WRITER_RUN_PATCH: &str = "writer.run.patch";
+pub const EVENT_TOPIC_WRITER_RUN_STATUS: &str = "writer.run.status";
+pub const EVENT_TOPIC_WRITER_RUN_FAILED: &str = "writer.run.failed";
 
 pub const INTERFACE_KIND_UACTOR_ACTOR: &str = "uactor_actor";
 pub const INTERFACE_KIND_APPACTOR_TOOLACTOR: &str = "appactor_toolactor";

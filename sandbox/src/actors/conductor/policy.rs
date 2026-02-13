@@ -9,8 +9,8 @@ use std::sync::Arc;
 use crate::actors::conductor::protocol::ConductorError;
 use crate::actors::model_config::{ModelRegistry, ModelResolutionContext};
 use crate::baml_client::types::{
-    ConductorBootstrapInput, ConductorBootstrapOutput, ConductorDecision,
-    ConductorDecisionInput, ConductorObjectiveRefineInput, ConductorObjectiveRefineOutput,
+    ConductorBootstrapInput, ConductorBootstrapOutput, ConductorDecision, ConductorDecisionInput,
+    ConductorObjectiveRefineInput, ConductorObjectiveRefineOutput,
 };
 use crate::baml_client::{ClientRegistry, B};
 

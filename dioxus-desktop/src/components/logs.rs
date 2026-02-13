@@ -870,7 +870,10 @@ fn event_headline(event: &LogsEvent) -> String {
                 .get("capability")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
-            let call_id = data.get("call_id").and_then(|v| v.as_str()).unwrap_or("n/a");
+            let call_id = data
+                .get("call_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("n/a");
             let message = data
                 .get("summary")
                 .or_else(|| data.get("error"))

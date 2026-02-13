@@ -16,6 +16,11 @@ pub enum ConductorMsg {
         request: ConductorExecuteRequest,
         reply: RpcReplyPort<Result<ConductorTaskState, ConductorError>>,
     },
+    /// Perform bootstrap planning asynchronously after task acceptance.
+    BootstrapRun {
+        run_id: String,
+        request: ConductorExecuteRequest,
+    },
     /// Get the current state of a task (legacy)
     GetTaskState {
         task_id: String,
@@ -63,6 +68,9 @@ pub enum ConductorError {
     /// Task not found
     #[error("task not found: {0}")]
     NotFound(String),
+    /// Required actor/capability is unavailable
+    #[error("actor not available: {0}")]
+    ActorUnavailable(String),
     /// Invalid request parameters
     #[error("invalid request: {0}")]
     InvalidRequest(String),
@@ -91,6 +99,7 @@ impl From<ConductorError> for shared_types::ConductorError {
         shared_types::ConductorError {
             code: match &err {
                 ConductorError::NotFound(_) => "NOT_FOUND",
+                ConductorError::ActorUnavailable(_) => "ACTOR_NOT_AVAILABLE",
                 ConductorError::InvalidRequest(_) => "INVALID_REQUEST",
                 ConductorError::WorkerFailed(_) => "WORKER_FAILED",
                 ConductorError::WorkerBlocked(_) => "WORKER_BLOCKED",
@@ -103,6 +112,7 @@ impl From<ConductorError> for shared_types::ConductorError {
             message: err.to_string(),
             failure_kind: Some(match err {
                 ConductorError::NotFound(_) => shared_types::FailureKind::Unknown,
+                ConductorError::ActorUnavailable(_) => shared_types::FailureKind::Unknown,
                 ConductorError::InvalidRequest(_) => shared_types::FailureKind::Validation,
                 ConductorError::WorkerFailed(_) => shared_types::FailureKind::Provider,
                 ConductorError::WorkerBlocked(_) => shared_types::FailureKind::Provider,

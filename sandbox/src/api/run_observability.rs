@@ -625,7 +625,6 @@ mod tests {
     use crate::actors::event_store::{AppendEvent, EventStoreActor, EventStoreArguments};
     use ractor::Actor;
 
-
     // ============================================================================
     // Categorized Timeline Tests
     // ============================================================================
@@ -882,7 +881,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.events.len(), 1);
-        assert_eq!(response.events[0].category, EventCategory::ConductorDecisions);
+        assert_eq!(
+            response.events[0].category,
+            EventCategory::ConductorDecisions
+        );
 
         // Test filter by agent_objectives
         let query = RunTimelineQuery {
@@ -916,19 +918,35 @@ mod tests {
             .unwrap();
         assert_eq!(response.summary.total_events, 4);
         assert_eq!(
-            response.summary.event_counts_by_category.get("conductor_decisions").unwrap(),
+            response
+                .summary
+                .event_counts_by_category
+                .get("conductor_decisions")
+                .unwrap(),
             1
         );
         assert_eq!(
-            response.summary.event_counts_by_category.get("agent_objectives").unwrap(),
+            response
+                .summary
+                .event_counts_by_category
+                .get("agent_objectives")
+                .unwrap(),
             1
         );
         assert_eq!(
-            response.summary.event_counts_by_category.get("agent_results").unwrap(),
+            response
+                .summary
+                .event_counts_by_category
+                .get("agent_results")
+                .unwrap(),
             1
         );
         assert_eq!(
-            response.summary.event_counts_by_category.get("system").unwrap(),
+            response
+                .summary
+                .event_counts_by_category
+                .get("system")
+                .unwrap(),
             1
         );
 

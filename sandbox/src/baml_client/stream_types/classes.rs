@@ -3,44 +3,26 @@
 //
 // Learn more at https://docs.boundaryml.com
 
-
 //! Generated streaming class types.
 //!
 //! These types are used during streaming to hold partial results.
 //! Field types are already wrapped appropriately (Option, StreamState, etc.)
 
-use baml::BamlDecode;
-use crate::baml_client::types;
 use super::*;
-
-
-
-
+use crate::baml_client::types;
+use baml::BamlDecode;
 
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct AgentDecision {
-
-
-
     pub action: Option<types::Action>,
-
-
 
     pub tool_calls: Vec<AgentToolCall>,
 
-
-
     pub summary: Option<String>,
 
-
-
     pub reason: Option<String>,
-
-
 }
-
-
 
 impl AsRef<AgentDecision> for AgentDecision {
     fn as_ref(&self) -> &AgentDecision {
@@ -48,125 +30,63 @@ impl AsRef<AgentDecision> for AgentDecision {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct AgentToolArgs {
-
-
-
     pub bash: Option<BashToolArgs>,
-
-
 
     pub read_file: Option<ReadFileToolArgs>,
 
-
-
     pub write_file: Option<WriteFileToolArgs>,
-
-
 
     pub list_files: Option<ListFilesToolArgs>,
 
-
-
     pub search_files: Option<SearchFilesToolArgs>,
-
-
 
     pub web_search: Option<WebSearchToolArgs>,
 
-
-
     pub command: Option<String>,
-
-
 
     pub cmd: Option<String>,
 
-
-
     pub cwd: Option<String>,
-
-
 
     pub reasoning: Option<String>,
 
-
-
     pub timeout_ms: Option<i64>,
-
-
 
     pub model: Option<String>,
 
-
-
     pub path: Option<String>,
-
-
 
     pub content: Option<String>,
 
-
-
     pub pattern: Option<String>,
-
-
 
     pub file_pattern: Option<String>,
 
-
-
     pub recursive: Option<bool>,
-
-
 
     pub limit: Option<i64>,
 
-
-
     pub offset: Option<i64>,
-
-
 
     pub query: Option<String>,
 
-
-
     pub provider: Option<String>,
-
-
 
     pub max_results: Option<i64>,
 
-
-
     pub time_range: Option<String>,
-
-
 
     pub include_domains: Option<Vec<String>>,
 
-
-
     pub exclude_domains: Option<Vec<String>>,
-
-
 
     pub old_text: Option<String>,
 
-
-
     pub new_text: Option<String>,
-
-
 }
-
-
 
 impl AsRef<AgentToolArgs> for AgentToolArgs {
     fn as_ref(&self) -> &AgentToolArgs {
@@ -174,29 +94,15 @@ impl AsRef<AgentToolArgs> for AgentToolArgs {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct AgentToolCall {
-
-
-
     pub tool_name: Option<String>,
-
-
 
     pub tool_args: Option<AgentToolArgs>,
 
-
-
     pub reasoning: Option<String>,
-
-
 }
-
-
 
 impl AsRef<AgentToolCall> for AgentToolCall {
     fn as_ref(&self) -> &AgentToolCall {
@@ -204,33 +110,17 @@ impl AsRef<AgentToolCall> for AgentToolCall {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct AlternativeAction {
-
-
-
     pub action: Option<types::EscalationAction>,
-
-
 
     pub pros: Vec<String>,
 
-
-
     pub cons: Vec<String>,
 
-
-
     pub estimated_success_rate: Option<f64>,
-
-
 }
-
-
 
 impl AsRef<AlternativeAction> for AlternativeAction {
     fn as_ref(&self) -> &AlternativeAction {
@@ -238,41 +128,21 @@ impl AsRef<AlternativeAction> for AlternativeAction {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct BashToolArgs {
-
-
-
     pub command: Option<String>,
-
-
 
     pub cmd: Option<String>,
 
-
-
     pub cwd: Option<String>,
-
-
 
     pub reasoning: Option<String>,
 
-
-
     pub timeout_ms: Option<i64>,
 
-
-
     pub model: Option<String>,
-
-
 }
-
-
 
 impl AsRef<BashToolArgs> for BashToolArgs {
     fn as_ref(&self) -> &BashToolArgs {
@@ -280,25 +150,13 @@ impl AsRef<BashToolArgs> for BashToolArgs {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct ConductorBootstrapInput {
-
-
-
     pub raw_objective: Option<String>,
 
-
-
     pub available_capabilities: Vec<String>,
-
-
 }
-
-
 
 impl AsRef<ConductorBootstrapInput> for ConductorBootstrapInput {
     fn as_ref(&self) -> &ConductorBootstrapInput {
@@ -306,33 +164,17 @@ impl AsRef<ConductorBootstrapInput> for ConductorBootstrapInput {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct ConductorBootstrapOutput {
-
-
-
     pub dispatch_capabilities: Vec<String>,
-
-
 
     pub block_reason: Option<String>,
 
-
-
     pub rationale: Option<String>,
 
-
-
     pub confidence: Option<f64>,
-
-
 }
-
-
 
 impl AsRef<ConductorBootstrapOutput> for ConductorBootstrapOutput {
     fn as_ref(&self) -> &ConductorBootstrapOutput {
@@ -340,29 +182,15 @@ impl AsRef<ConductorBootstrapOutput> for ConductorBootstrapOutput {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct ConductorDecision {
-
-
-
     pub action: Option<types::ConductorAction>,
-
-
 
     pub args: Option<std::collections::HashMap<String, String>>,
 
-
-
     pub reason: Option<String>,
-
-
 }
-
-
 
 impl AsRef<ConductorDecision> for ConductorDecision {
     fn as_ref(&self) -> &ConductorDecision {
@@ -370,33 +198,17 @@ impl AsRef<ConductorDecision> for ConductorDecision {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct ConductorDecisionInput {
-
-
-
     pub run_id: Option<String>,
-
-
 
     pub objective: Option<String>,
 
-
-
     pub document_path: Option<String>,
 
-
-
     pub last_error: Option<String>,
-
-
 }
-
-
 
 impl AsRef<ConductorDecisionInput> for ConductorDecisionInput {
     fn as_ref(&self) -> &ConductorDecisionInput {
@@ -404,29 +216,15 @@ impl AsRef<ConductorDecisionInput> for ConductorDecisionInput {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct ConductorObjectiveRefineInput {
-
-
-
     pub raw_objective: Option<String>,
-
-
 
     pub context: Vec<String>,
 
-
-
     pub target_capability: Option<String>,
-
-
 }
-
-
 
 impl AsRef<ConductorObjectiveRefineInput> for ConductorObjectiveRefineInput {
     fn as_ref(&self) -> &ConductorObjectiveRefineInput {
@@ -434,33 +232,17 @@ impl AsRef<ConductorObjectiveRefineInput> for ConductorObjectiveRefineInput {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct ConductorObjectiveRefineOutput {
-
-
-
     pub refined_objective: Option<String>,
-
-
 
     pub success_criteria: Vec<String>,
 
-
-
     pub estimated_steps: Option<i64>,
 
-
-
     pub confidence: Option<f64>,
-
-
 }
-
-
 
 impl AsRef<ConductorObjectiveRefineOutput> for ConductorObjectiveRefineOutput {
     fn as_ref(&self) -> &ConductorObjectiveRefineOutput {
@@ -468,37 +250,19 @@ impl AsRef<ConductorObjectiveRefineOutput> for ConductorObjectiveRefineOutput {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct DetectedAnomaly {
-
-
-
     pub anomaly_type: Option<String>,
-
-
 
     pub severity: Option<String>,
 
-
-
     pub description: Option<String>,
-
-
 
     pub affected_events: Vec<String>,
 
-
-
     pub pattern_detected: Option<String>,
-
-
 }
-
-
 
 impl AsRef<DetectedAnomaly> for DetectedAnomaly {
     fn as_ref(&self) -> &DetectedAnomaly {
@@ -506,29 +270,15 @@ impl AsRef<DetectedAnomaly> for DetectedAnomaly {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct HistoricalResolution {
-
-
-
     pub pattern: Option<String>,
-
-
 
     pub successful_resolution: Option<String>,
 
-
-
     pub resolution_type: Option<String>,
-
-
 }
-
-
 
 impl AsRef<HistoricalResolution> for HistoricalResolution {
     fn as_ref(&self) -> &HistoricalResolution {
@@ -536,25 +286,13 @@ impl AsRef<HistoricalResolution> for HistoricalResolution {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct ListFilesToolArgs {
-
-
-
     pub path: Option<String>,
 
-
-
     pub recursive: Option<bool>,
-
-
 }
-
-
 
 impl AsRef<ListFilesToolArgs> for ListFilesToolArgs {
     fn as_ref(&self) -> &ListFilesToolArgs {
@@ -562,25 +300,13 @@ impl AsRef<ListFilesToolArgs> for ListFilesToolArgs {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct Message {
-
-
-
     pub role: Option<String>,
 
-
-
     pub content: Option<String>,
-
-
 }
-
-
 
 impl AsRef<Message> for Message {
     fn as_ref(&self) -> &Message {
@@ -588,29 +314,15 @@ impl AsRef<Message> for Message {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct ReadFileToolArgs {
-
-
-
     pub path: Option<String>,
-
-
 
     pub limit: Option<i64>,
 
-
-
     pub offset: Option<i64>,
-
-
 }
-
-
 
 impl AsRef<ReadFileToolArgs> for ReadFileToolArgs {
     fn as_ref(&self) -> &ReadFileToolArgs {
@@ -618,41 +330,21 @@ impl AsRef<ReadFileToolArgs> for ReadFileToolArgs {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct ResearcherPlanInput {
-
-
-
     pub objective: Option<String>,
-
-
 
     pub current_query: Option<String>,
 
-
-
     pub round: Option<i64>,
-
-
 
     pub max_rounds: Option<i64>,
 
-
-
     pub working_draft_path: Option<String>,
 
-
-
     pub last_error: Option<String>,
-
-
 }
-
-
 
 impl AsRef<ResearcherPlanInput> for ResearcherPlanInput {
     fn as_ref(&self) -> &ResearcherPlanInput {
@@ -660,57 +352,29 @@ impl AsRef<ResearcherPlanInput> for ResearcherPlanInput {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct ResearcherPlanOutput {
-
-
-
     pub action: Option<types::ResearchAction>,
-
-
 
     pub query: Option<String>,
 
-
-
     pub provider: Option<String>,
-
-
 
     pub url: Option<String>,
 
-
-
     pub file_path: Option<String>,
-
-
 
     pub content: Option<String>,
 
-
-
     pub old_text: Option<String>,
-
-
 
     pub new_text: Option<String>,
 
-
-
     pub reason: Option<String>,
 
-
-
     pub status: Option<types::ResearchStatus>,
-
-
 }
-
-
 
 impl AsRef<ResearcherPlanOutput> for ResearcherPlanOutput {
     fn as_ref(&self) -> &ResearcherPlanOutput {
@@ -718,33 +382,17 @@ impl AsRef<ResearcherPlanOutput> for ResearcherPlanOutput {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct Resume {
-
-
-
     pub name: Option<String>,
-
-
 
     pub email: Option<String>,
 
-
-
     pub experience: Vec<String>,
 
-
-
     pub skills: Vec<String>,
-
-
 }
-
-
 
 impl AsRef<Resume> for Resume {
     fn as_ref(&self) -> &Resume {
@@ -752,33 +400,17 @@ impl AsRef<Resume> for Resume {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct ReviewScope {
-
-
-
     pub start_time: Option<String>,
-
-
 
     pub end_time: Option<String>,
 
-
-
     pub event_types: Vec<String>,
 
-
-
     pub min_level: Option<String>,
-
-
 }
-
-
 
 impl AsRef<ReviewScope> for ReviewScope {
     fn as_ref(&self) -> &ReviewScope {
@@ -786,41 +418,21 @@ impl AsRef<ReviewScope> for ReviewScope {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct RiskItem {
-
-
-
     pub risk_id: Option<String>,
-
-
 
     pub category: Option<types::RiskCategory>,
 
-
-
     pub likelihood: Option<f64>,
-
-
 
     pub impact: Option<f64>,
 
-
-
     pub description: Option<String>,
 
-
-
     pub mitigating_factors: Vec<String>,
-
-
 }
-
-
 
 impl AsRef<RiskItem> for RiskItem {
     fn as_ref(&self) -> &RiskItem {
@@ -828,37 +440,19 @@ impl AsRef<RiskItem> for RiskItem {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct RunStateSnapshot {
-
-
-
     pub run_id: Option<String>,
-
-
 
     pub status: Option<String>,
 
-
-
     pub active_call_count: Option<i64>,
-
-
 
     pub recent_failures: Option<i64>,
 
-
-
     pub elapsed_time_ms: Option<i64>,
-
-
 }
-
-
 
 impl AsRef<RunStateSnapshot> for RunStateSnapshot {
     fn as_ref(&self) -> &RunStateSnapshot {
@@ -866,29 +460,15 @@ impl AsRef<RunStateSnapshot> for RunStateSnapshot {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct SearchFilesToolArgs {
-
-
-
     pub pattern: Option<String>,
-
-
 
     pub path: Option<String>,
 
-
-
     pub file_pattern: Option<String>,
-
-
 }
-
-
 
 impl AsRef<SearchFilesToolArgs> for SearchFilesToolArgs {
     fn as_ref(&self) -> &SearchFilesToolArgs {
@@ -896,25 +476,13 @@ impl AsRef<SearchFilesToolArgs> for SearchFilesToolArgs {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct StreamChunk {
-
-
-
     pub chunk_type: Option<String>,
 
-
-
     pub content: Option<String>,
-
-
 }
-
-
 
 impl AsRef<StreamChunk> for StreamChunk {
     fn as_ref(&self) -> &StreamChunk {
@@ -922,33 +490,17 @@ impl AsRef<StreamChunk> for StreamChunk {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct ToolResult {
-
-
-
     pub tool_name: Option<String>,
-
-
 
     pub success: Option<bool>,
 
-
-
     pub output: Option<String>,
 
-
-
     pub error: Option<String>,
-
-
 }
-
-
 
 impl AsRef<ToolResult> for ToolResult {
     fn as_ref(&self) -> &ToolResult {
@@ -956,57 +508,29 @@ impl AsRef<ToolResult> for ToolResult {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct WatcherEscalation {
-
-
-
     pub escalation_id: Option<String>,
-
-
 
     pub run_id: Option<String>,
 
-
-
     pub task_id: Option<String>,
-
-
 
     pub kind: Option<types::EscalationKind>,
 
-
-
     pub urgency: Option<types::UrgencyLevel>,
-
-
 
     pub affected_calls: Vec<String>,
 
-
-
     pub description: Option<String>,
-
-
 
     pub recommended_action: Option<String>,
 
-
-
     pub recommended_capability: Option<String>,
 
-
-
     pub recommended_objective: Option<String>,
-
-
 }
-
-
 
 impl AsRef<WatcherEscalation> for WatcherEscalation {
     fn as_ref(&self) -> &WatcherEscalation {
@@ -1014,41 +538,21 @@ impl AsRef<WatcherEscalation> for WatcherEscalation {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct WatcherEvent {
-
-
-
     pub event_id: Option<String>,
-
-
 
     pub timestamp: Option<String>,
 
-
-
     pub event_type: Option<String>,
-
-
 
     pub level: Option<String>,
 
-
-
     pub payload: Option<String>,
 
-
-
     pub source: Option<String>,
-
-
 }
-
-
 
 impl AsRef<WatcherEvent> for WatcherEvent {
     fn as_ref(&self) -> &WatcherEvent {
@@ -1056,41 +560,21 @@ impl AsRef<WatcherEvent> for WatcherEvent {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct WatcherLogWindowInput {
-
-
-
     pub window_id: Option<String>,
-
-
 
     pub run_id: Option<String>,
 
-
-
     pub task_id: Option<String>,
-
-
 
     pub events: Vec<WatcherEvent>,
 
-
-
     pub scope: Option<ReviewScope>,
 
-
-
     pub review_reason: Option<String>,
-
-
 }
-
-
 
 impl AsRef<WatcherLogWindowInput> for WatcherLogWindowInput {
     fn as_ref(&self) -> &WatcherLogWindowInput {
@@ -1098,33 +582,17 @@ impl AsRef<WatcherLogWindowInput> for WatcherLogWindowInput {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct WatcherMitigationInput {
-
-
-
     pub escalation: Option<WatcherEscalation>,
-
-
 
     pub run_state: Option<RunStateSnapshot>,
 
-
-
     pub available_capabilities: Vec<String>,
 
-
-
     pub historical_resolutions: Vec<HistoricalResolution>,
-
-
 }
-
-
 
 impl AsRef<WatcherMitigationInput> for WatcherMitigationInput {
     fn as_ref(&self) -> &WatcherMitigationInput {
@@ -1132,49 +600,25 @@ impl AsRef<WatcherMitigationInput> for WatcherMitigationInput {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct WatcherMitigationOutput {
-
-
-
     pub escalation_action: Option<types::EscalationAction>,
-
-
 
     pub urgency: Option<types::UrgencyLevel>,
 
-
-
     pub recommended_capability: Option<String>,
-
-
 
     pub recommended_objective: Option<String>,
 
-
-
     pub rationale: Option<String>,
-
-
 
     pub confidence: Option<f64>,
 
-
-
     pub expected_outcome: Option<String>,
 
-
-
     pub alternatives: Vec<AlternativeAction>,
-
-
 }
-
-
 
 impl AsRef<WatcherMitigationOutput> for WatcherMitigationOutput {
     fn as_ref(&self) -> &WatcherMitigationOutput {
@@ -1182,41 +626,21 @@ impl AsRef<WatcherMitigationOutput> for WatcherMitigationOutput {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct WatcherReviewOutput {
-
-
-
     pub review_status: Option<types::ReviewStatus>,
-
-
 
     pub escalations: Vec<WatcherEscalation>,
 
-
-
     pub risks: Vec<RiskItem>,
-
-
 
     pub anomalies: Vec<DetectedAnomaly>,
 
-
-
     pub confidence: Option<f64>,
 
-
-
     pub rationale: Option<String>,
-
-
 }
-
-
 
 impl AsRef<WatcherReviewOutput> for WatcherReviewOutput {
     fn as_ref(&self) -> &WatcherReviewOutput {
@@ -1224,53 +648,27 @@ impl AsRef<WatcherReviewOutput> for WatcherReviewOutput {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct WebSearchToolArgs {
-
-
-
     pub query: Option<String>,
-
-
 
     pub provider: Option<String>,
 
-
-
     pub max_results: Option<i64>,
-
-
 
     pub time_range: Option<String>,
 
-
-
     pub include_domains: Option<Vec<String>>,
-
-
 
     pub exclude_domains: Option<Vec<String>>,
 
-
-
     pub timeout_ms: Option<i64>,
-
-
 
     pub model: Option<String>,
 
-
-
     pub reasoning: Option<String>,
-
-
 }
-
-
 
 impl AsRef<WebSearchToolArgs> for WebSearchToolArgs {
     fn as_ref(&self) -> &WebSearchToolArgs {
@@ -1278,29 +676,16 @@ impl AsRef<WebSearchToolArgs> for WebSearchToolArgs {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct WriteFileToolArgs {
-
-
-
     pub path: Option<String>,
 
-
-
     pub content: Option<String>,
-
-
 }
-
-
 
 impl AsRef<WriteFileToolArgs> for WriteFileToolArgs {
     fn as_ref(&self) -> &WriteFileToolArgs {
         self
     }
 }
-

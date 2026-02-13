@@ -4,7 +4,7 @@ use gloo_timers::future::TimeoutFuture;
 use shared_types::WindowState;
 use wasm_bindgen::JsCast;
 
-use crate::components::{load_files_path, FilesView, LogsView, RunView, SettingsView, WriterView};
+use crate::components::{load_files_path, FilesView, LogsView, SettingsView, WriterView};
 use crate::terminal::TerminalView;
 use crate::viewers::{parse_viewer_window_props, ViewerShell};
 
@@ -578,7 +578,6 @@ pub fn FloatingWindow(
                             .props
                             .get("path")
                             .and_then(|v| v.as_str())
-                            .or_else(|| window.props.get("file_path").and_then(|v| v.as_str()))
                             .unwrap_or("")
                             .to_string();
                         rsx! {
@@ -587,29 +586,6 @@ pub fn FloatingWindow(
                                 desktop_id: desktop_id.clone(),
                                 window_id: window.id.clone(),
                                 initial_path: initial_path,
-                            }
-                        }
-                    },
-                    "run" => {
-                        let run_id = window
-                            .props
-                            .get("run_id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let document_path = window
-                            .props
-                            .get("document_path")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        rsx! {
-                            RunView {
-                                key: "{window.id}",
-                                desktop_id: desktop_id.clone(),
-                                window_id: window.id.clone(),
-                                run_id: run_id,
-                                document_path: document_path,
                             }
                         }
                     },
@@ -754,7 +730,6 @@ fn get_app_icon(app_id: &str) -> &'static str {
         "files" => "📁",
         "logs" => "📡",
         "settings" => "⚙️",
-        "run" => "🚀",
         _ => "📱",
     }
 }

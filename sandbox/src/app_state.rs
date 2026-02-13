@@ -204,19 +204,67 @@ impl AppState {
             return Ok(conductor.clone());
         }
 
-        let researcher_actor = self
-            .get_or_create_researcher("conductor-researcher".to_string(), "system".to_string())
-            .await
-            .ok();
-        let terminal_actor = self
-            .get_or_create_terminal(
-                "conductor-terminal".to_string(),
-                "system".to_string(),
-                "/bin/zsh".to_string(),
-                env!("CARGO_MANIFEST_DIR").to_string(),
-            )
-            .await
-            .ok();
+        let disable_workers = std::env::var("CHOIR_DISABLE_CONDUCTOR_WORKERS")
+            .ok()
+            .map(|value| {
+                let normalized = value.trim().to_ascii_lowercase();
+                normalized == "1" || normalized == "true" || normalized == "yes"
+            })
+            .unwrap_or(false);
+
+        let mut worker_errors: Vec<String> = Vec::new();
+
+        let researcher_actor = if disable_workers {
+            worker_errors.push(
+                "researcher unavailable: disabled by CHOIR_DISABLE_CONDUCTOR_WORKERS".to_string(),
+            );
+            None
+        } else {
+            match self
+                .get_or_create_researcher("conductor-researcher".to_string(), "system".to_string())
+                .await
+            {
+                Ok(actor) => Some(actor),
+                Err(err) => {
+                    worker_errors.push(format!("researcher unavailable: {err}"));
+                    None
+                }
+            }
+        };
+
+        let terminal_actor = if disable_workers {
+            worker_errors.push(
+                "terminal unavailable: disabled by CHOIR_DISABLE_CONDUCTOR_WORKERS".to_string(),
+            );
+            None
+        } else {
+            match self
+                .get_or_create_terminal(
+                    "conductor-terminal".to_string(),
+                    "system".to_string(),
+                    "/bin/zsh".to_string(),
+                    env!("CARGO_MANIFEST_DIR").to_string(),
+                )
+                .await
+            {
+                Ok(actor) => Some(actor),
+                Err(err) => {
+                    worker_errors.push(format!("terminal unavailable: {err}"));
+                    None
+                }
+            }
+        };
+
+        if researcher_actor.is_none() && terminal_actor.is_none() {
+            let detail = if worker_errors.is_empty() {
+                "unknown worker creation failure".to_string()
+            } else {
+                worker_errors.join("; ")
+            };
+            return Err(format!(
+                "No worker actors available for Conductor default policy ({detail})"
+            ));
+        }
 
         let (conductor, _) = Actor::spawn(
             Some(format!("conductor:{}", ulid::Ulid::new())),

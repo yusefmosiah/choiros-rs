@@ -40,7 +40,8 @@ use crate::baml_client::{ClientRegistry, B};
 
 // Re-export shared types for convenience
 pub use shared_types::{
-    WorkerArtifact, WorkerEscalation, WorkerEscalationKind, WorkerEscalationUrgency, WorkerTurnReport, WorkerTurnStatus,
+    WorkerArtifact, WorkerEscalation, WorkerEscalationKind, WorkerEscalationUrgency,
+    WorkerTurnReport, WorkerTurnStatus,
 };
 
 // ============================================================================
@@ -463,7 +464,9 @@ impl<A: AgentAdapter> AgentHarness<A> {
                     break;
                 }
                 Action::Block => {
-                    let reason = decision.reason.unwrap_or_else(|| "Blocked without reason".to_string());
+                    let reason = decision
+                        .reason
+                        .unwrap_or_else(|| "Blocked without reason".to_string());
                     final_summary = reason.clone();
                     objective_status = ObjectiveStatus::Blocked;
                     completion_reason = reason;
@@ -479,7 +482,10 @@ impl<A: AgentAdapter> AgentHarness<A> {
             completion_reason = format!("Reached max steps ({})", self.config.max_steps);
             // Use last reasoning as summary if available
             if final_summary.is_empty() {
-                final_summary = format!("Reached maximum steps without completion. Executed {} tool calls.", tool_executions.len());
+                final_summary = format!(
+                    "Reached maximum steps without completion. Executed {} tool calls.",
+                    tool_executions.len()
+                );
             }
         }
 

@@ -52,6 +52,8 @@ pub enum ResearcherMsg {
         max_rounds: Option<u8>,
         model_override: Option<String>,
         progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
+        run_writer_actor: Option<ractor::ActorRef<crate::actors::run_writer::RunWriterMsg>>,
+        run_id: Option<String>,
         reply: RpcReplyPort<Result<ResearcherResult, ResearcherError>>,
     },
     RunWebSearchTool {
@@ -247,6 +249,8 @@ impl Actor for ResearcherActor {
                 max_rounds,
                 model_override,
                 progress_tx,
+                run_writer_actor,
+                run_id,
                 reply,
             } => {
                 let result = self
@@ -257,6 +261,8 @@ impl Actor for ResearcherActor {
                         max_rounds,
                         model_override,
                         progress_tx,
+                        run_writer_actor,
+                        run_id,
                     )
                     .await;
                 let _ = reply.send(result);
@@ -266,7 +272,6 @@ impl Actor for ResearcherActor {
                 progress_tx,
                 reply,
             } => {
-                // For direct tool calls, we still use the harness but with the query as objective
                 let result = self
                     .run_with_harness(
                         state,
@@ -275,6 +280,8 @@ impl Actor for ResearcherActor {
                         request.max_rounds,
                         request.model_override.clone(),
                         progress_tx,
+                        None,
+                        None,
                     )
                     .await;
                 let _ = reply.send(result);
@@ -329,11 +336,12 @@ impl ResearcherActor {
         max_rounds: Option<u8>,
         model_override: Option<String>,
         progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
+        run_writer_actor: Option<ractor::ActorRef<crate::actors::run_writer::RunWriterMsg>>,
+        run_id: Option<String>,
     ) -> Result<ResearcherResult, ResearcherError> {
         let timeout = timeout_ms.unwrap_or(30_000).clamp(3_000, 120_000);
         let max_steps = max_rounds.unwrap_or(3).clamp(1, 8) as usize;
 
-        // Create adapter with a clone of state data
         let adapter_state = ResearcherState {
             researcher_id: state.researcher_id.clone(),
             user_id: state.user_id.clone(),
@@ -342,9 +350,13 @@ impl ResearcherActor {
             model_registry: state.model_registry.clone(),
         };
 
-        let adapter = ResearcherAdapter::new(adapter_state, progress_tx, timeout)?;
+        let adapter = ResearcherAdapter::new(adapter_state, progress_tx.clone(), timeout)?;
 
-        // Create harness with custom config
+        let adapter = match (run_writer_actor, run_id) {
+            (Some(rw), Some(rid)) => adapter.with_run_writer(rw, rid),
+            _ => adapter,
+        };
+
         let config = HarnessConfig {
             timeout_budget_ms: timeout,
             max_steps,
@@ -354,20 +366,17 @@ impl ResearcherActor {
 
         let harness = AgentHarness::with_config(adapter, state.model_registry.clone(), config);
 
-        // Run the harness
         let agent_result: AgentResult = harness
             .run(
                 state.researcher_id.clone(),
                 state.user_id.clone(),
                 objective,
                 model_override,
-                None, // progress_tx is handled internally by adapter
+                None,
             )
             .await
             .map_err(ResearcherError::from)?;
 
-        // Convert AgentResult to ResearcherResult
-        // Extract citations and provider calls from tool execution outputs
         let mut citations = Vec::new();
         let mut provider_calls = Vec::new();
 

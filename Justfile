@@ -16,7 +16,7 @@ dev-hypervisor:
 
 # Run Dioxus frontend development server (port 3000)
 dev-ui:
-    cd dioxus-desktop && dx serve --port 3000
+    cd dioxus-desktop && dx serve --port 3000 --addr 0.0.0.0
 
 # Stop/kill running development processes
 stop:

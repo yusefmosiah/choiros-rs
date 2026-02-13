@@ -9,16 +9,23 @@
 //! - file_read: Read local files
 //! - file_write: Write/create files
 //! - file_edit: Edit existing files
+//!
+//! Writer-First Integration (Phase D):
+//! - When run_writer_actor is set, writes to run document paths are delegated
+//! - Run document path pattern: conductor/runs/{run_id}/draft.md
+//! - Workers send typed patches via RunWriterActor instead of direct writes
 
 use async_trait::async_trait;
-use tokio::sync::mpsc;
+use ractor::ActorRef;
 use std::path::{Path, PathBuf};
+use tokio::sync::mpsc;
 
 use crate::actors::agent_harness::{
     AgentAdapter, AgentProgress, ExecutionContext, HarnessError, ToolExecution,
 };
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::ModelRegistry;
+use crate::actors::run_writer::{PatchOp, PatchOpKind, RunWriterMsg};
 use crate::baml_client::types::AgentToolCall;
 
 use super::{
@@ -57,11 +64,19 @@ fn validate_sandbox_path(user_path: &str) -> Result<PathBuf, String> {
     Ok(full_path)
 }
 
+const RUN_DOC_PATTERN: &str = "conductor/runs/";
+
+fn is_run_document_path(path: &str) -> bool {
+    path.starts_with(RUN_DOC_PATTERN) && path.ends_with("/draft.md")
+}
+
 /// Adapter that connects ResearcherActor to the unified agent harness
 pub struct ResearcherAdapter {
     state: ResearcherState,
     progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
     http_client: reqwest::Client,
+    run_writer_actor: Option<ActorRef<RunWriterMsg>>,
+    run_id: Option<String>,
 }
 
 impl ResearcherAdapter {
@@ -79,7 +94,19 @@ impl ResearcherAdapter {
             state,
             progress_tx,
             http_client,
+            run_writer_actor: None,
+            run_id: None,
         })
+    }
+
+    pub fn with_run_writer(
+        mut self,
+        run_writer_actor: ActorRef<RunWriterMsg>,
+        run_id: String,
+    ) -> Self {
+        self.run_writer_actor = Some(run_writer_actor);
+        self.run_id = Some(run_id);
+        self
     }
 
     /// Get access to the model registry for provider selection
@@ -129,6 +156,38 @@ impl ResearcherAdapter {
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
         self.emit_event("worker.task.document_update", payload);
+    }
+
+    async fn send_patch_to_run_writer(
+        &self,
+        section_id: &str,
+        content: &str,
+        proposal: bool,
+    ) -> Result<(), String> {
+        use ractor::call;
+
+        let (run_writer, run_id) = match (&self.run_writer_actor, &self.run_id) {
+            (Some(rw), Some(rid)) => (rw, rid),
+            _ => return Err("RunWriterActor not configured".to_string()),
+        };
+
+        let ops = vec![PatchOp {
+            kind: PatchOpKind::Append,
+            position: None,
+            text: Some(content.to_string()),
+        }];
+
+        let result = call!(run_writer, |reply| RunWriterMsg::ApplyPatch {
+            run_id: run_id.clone(),
+            source: "researcher".to_string(),
+            section_id: section_id.to_string(),
+            ops,
+            proposal,
+            reply,
+        })
+        .map_err(|e| format!("RunWriterActor call failed: {e}"))?;
+
+        result.map(|_| ()).map_err(|e| e.to_string())
     }
 }
 
@@ -212,7 +271,9 @@ Guidelines:
                     .as_ref()
                     .and_then(|ws| ws.query.clone())
                     .or_else(|| args.query.clone())
-                    .ok_or_else(|| HarnessError::ToolExecution("Missing query argument".to_string()))?;
+                    .ok_or_else(|| {
+                        HarnessError::ToolExecution("Missing query argument".to_string())
+                    })?;
 
                 let provider = args
                     .web_search
@@ -296,17 +357,20 @@ Guidelines:
                     tool_name: tool_call.tool_name.clone(),
                     success,
                     output: output.to_string(),
-                    error: if errors.is_empty() { None } else { Some(errors.join("; ")) },
+                    error: if errors.is_empty() {
+                        None
+                    } else {
+                        Some(errors.join("; "))
+                    },
                     execution_time_ms: elapsed,
                 })
             }
 
             "fetch_url" => {
                 let args = &tool_call.tool_args;
-                let url = args
-                    .path
-                    .as_ref()
-                    .ok_or_else(|| HarnessError::ToolExecution("Missing url argument".to_string()))?;
+                let url = args.path.as_ref().ok_or_else(|| {
+                    HarnessError::ToolExecution("Missing url argument".to_string())
+                })?;
 
                 let request = ResearcherFetchUrlRequest {
                     url: url.clone(),
@@ -361,10 +425,9 @@ Guidelines:
 
             "file_read" => {
                 let args = &tool_call.tool_args;
-                let path = args
-                    .path
-                    .as_ref()
-                    .ok_or_else(|| HarnessError::ToolExecution("Missing path argument".to_string()))?;
+                let path = args.path.as_ref().ok_or_else(|| {
+                    HarnessError::ToolExecution("Missing path argument".to_string())
+                })?;
 
                 if let Some(tx) = &self.progress_tx {
                     let _ = tx.send(ResearcherProgress {
@@ -378,36 +441,34 @@ Guidelines:
                 }
 
                 match validate_sandbox_path(path) {
-                    Ok(full_path) => {
-                        match tokio::fs::read_to_string(&full_path).await {
-                            Ok(content) => {
-                                let elapsed = start_time.elapsed().as_millis() as u64;
-                                let output = serde_json::json!({
-                                    "path": path,
-                                    "content": content,
-                                    "size": content.len(),
-                                });
+                    Ok(full_path) => match tokio::fs::read_to_string(&full_path).await {
+                        Ok(content) => {
+                            let elapsed = start_time.elapsed().as_millis() as u64;
+                            let output = serde_json::json!({
+                                "path": path,
+                                "content": content,
+                                "size": content.len(),
+                            });
 
-                                Ok(ToolExecution {
-                                    tool_name: tool_call.tool_name.clone(),
-                                    success: true,
-                                    output: output.to_string(),
-                                    error: None,
-                                    execution_time_ms: elapsed,
-                                })
-                            }
-                            Err(e) => {
-                                let elapsed = start_time.elapsed().as_millis() as u64;
-                                Ok(ToolExecution {
-                                    tool_name: tool_call.tool_name.clone(),
-                                    success: false,
-                                    output: String::new(),
-                                    error: Some(format!("Failed to read file: {}", e)),
-                                    execution_time_ms: elapsed,
-                                })
-                            }
+                            Ok(ToolExecution {
+                                tool_name: tool_call.tool_name.clone(),
+                                success: true,
+                                output: output.to_string(),
+                                error: None,
+                                execution_time_ms: elapsed,
+                            })
                         }
-                    }
+                        Err(e) => {
+                            let elapsed = start_time.elapsed().as_millis() as u64;
+                            Ok(ToolExecution {
+                                tool_name: tool_call.tool_name.clone(),
+                                success: false,
+                                output: String::new(),
+                                error: Some(format!("Failed to read file: {}", e)),
+                                execution_time_ms: elapsed,
+                            })
+                        }
+                    },
                     Err(e) => {
                         let elapsed = start_time.elapsed().as_millis() as u64;
                         Ok(ToolExecution {
@@ -423,14 +484,12 @@ Guidelines:
 
             "file_write" => {
                 let args = &tool_call.tool_args;
-                let path = args
-                    .path
-                    .as_ref()
-                    .ok_or_else(|| HarnessError::ToolExecution("Missing path argument".to_string()))?;
-                let content = args
-                    .content
-                    .as_ref()
-                    .ok_or_else(|| HarnessError::ToolExecution("Missing content argument".to_string()))?;
+                let path = args.path.as_ref().ok_or_else(|| {
+                    HarnessError::ToolExecution("Missing path argument".to_string())
+                })?;
+                let content = args.content.as_ref().ok_or_else(|| {
+                    HarnessError::ToolExecution("Missing content argument".to_string())
+                })?;
 
                 if let Some(tx) = &self.progress_tx {
                     let _ = tx.send(ResearcherProgress {
@@ -443,22 +502,20 @@ Guidelines:
                     });
                 }
 
-                match validate_sandbox_path(path) {
-                    Ok(full_path) => {
-                        // Ensure parent directory exists
-                        if let Some(parent) = full_path.parent() {
-                            let _ = tokio::fs::create_dir_all(parent).await;
-                        }
-
-                        match tokio::fs::write(&full_path, content).await {
+                if is_run_document_path(path) {
+                    if let Some(_run_writer) = &self.run_writer_actor {
+                        match self
+                            .send_patch_to_run_writer("researcher", content, true)
+                            .await
+                        {
                             Ok(_) => {
                                 let elapsed = start_time.elapsed().as_millis() as u64;
                                 let output = serde_json::json!({
                                     "path": path,
                                     "size": content.len(),
+                                    "via_run_writer": true,
                                 });
 
-                                // Emit document update for live streaming
                                 self.emit_document_update(&ctx.loop_id, path, content);
 
                                 Ok(ToolExecution {
@@ -475,39 +532,85 @@ Guidelines:
                                     tool_name: tool_call.tool_name.clone(),
                                     success: false,
                                     output: String::new(),
-                                    error: Some(format!("Failed to write file: {}", e)),
+                                    error: Some(format!("RunWriterActor patch failed: {}", e)),
                                     execution_time_ms: elapsed,
                                 })
                             }
                         }
-                    }
-                    Err(e) => {
+                    } else {
                         let elapsed = start_time.elapsed().as_millis() as u64;
                         Ok(ToolExecution {
                             tool_name: tool_call.tool_name.clone(),
                             success: false,
                             output: String::new(),
-                            error: Some(format!("Invalid path: {}", e)),
+                            error: Some(
+                                "Run document writes must go through RunWriterActor".to_string(),
+                            ),
                             execution_time_ms: elapsed,
                         })
+                    }
+                } else {
+                    match validate_sandbox_path(path) {
+                        Ok(full_path) => {
+                            if let Some(parent) = full_path.parent() {
+                                let _ = tokio::fs::create_dir_all(parent).await;
+                            }
+
+                            match tokio::fs::write(&full_path, content).await {
+                                Ok(_) => {
+                                    let elapsed = start_time.elapsed().as_millis() as u64;
+                                    let output = serde_json::json!({
+                                        "path": path,
+                                        "size": content.len(),
+                                    });
+
+                                    self.emit_document_update(&ctx.loop_id, path, content);
+
+                                    Ok(ToolExecution {
+                                        tool_name: tool_call.tool_name.clone(),
+                                        success: true,
+                                        output: output.to_string(),
+                                        error: None,
+                                        execution_time_ms: elapsed,
+                                    })
+                                }
+                                Err(e) => {
+                                    let elapsed = start_time.elapsed().as_millis() as u64;
+                                    Ok(ToolExecution {
+                                        tool_name: tool_call.tool_name.clone(),
+                                        success: false,
+                                        output: String::new(),
+                                        error: Some(format!("Failed to write file: {}", e)),
+                                        execution_time_ms: elapsed,
+                                    })
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            let elapsed = start_time.elapsed().as_millis() as u64;
+                            Ok(ToolExecution {
+                                tool_name: tool_call.tool_name.clone(),
+                                success: false,
+                                output: String::new(),
+                                error: Some(format!("Invalid path: {}", e)),
+                                execution_time_ms: elapsed,
+                            })
+                        }
                     }
                 }
             }
 
             "file_edit" => {
                 let args = &tool_call.tool_args;
-                let path = args
-                    .path
-                    .as_ref()
-                    .ok_or_else(|| HarnessError::ToolExecution("Missing path argument".to_string()))?;
-                let old_text = args
-                    .old_text
-                    .as_ref()
-                    .ok_or_else(|| HarnessError::ToolExecution("Missing old_text argument".to_string()))?;
-                let new_text = args
-                    .new_text
-                    .as_ref()
-                    .ok_or_else(|| HarnessError::ToolExecution("Missing new_text argument".to_string()))?;
+                let path = args.path.as_ref().ok_or_else(|| {
+                    HarnessError::ToolExecution("Missing path argument".to_string())
+                })?;
+                let old_text = args.old_text.as_ref().ok_or_else(|| {
+                    HarnessError::ToolExecution("Missing old_text argument".to_string())
+                })?;
+                let new_text = args.new_text.as_ref().ok_or_else(|| {
+                    HarnessError::ToolExecution("Missing new_text argument".to_string())
+                })?;
 
                 if let Some(tx) = &self.progress_tx {
                     let _ = tx.send(ResearcherProgress {
@@ -520,15 +623,59 @@ Guidelines:
                     });
                 }
 
-                match validate_sandbox_path(path) {
-                    Ok(full_path) => {
-                        match tokio::fs::read_to_string(&full_path).await {
+                if is_run_document_path(path) {
+                    if self.run_writer_actor.is_some() {
+                        let edit_content =
+                            format!("\n[EDIT] Replace:\n{}\n\nWith:\n{}\n", old_text, new_text);
+                        match self
+                            .send_patch_to_run_writer("researcher", &edit_content, true)
+                            .await
+                        {
+                            Ok(_) => {
+                                let elapsed = start_time.elapsed().as_millis() as u64;
+                                let output = serde_json::json!({
+                                    "path": path,
+                                    "via_run_writer": true,
+                                });
+
+                                Ok(ToolExecution {
+                                    tool_name: tool_call.tool_name.clone(),
+                                    success: true,
+                                    output: output.to_string(),
+                                    error: None,
+                                    execution_time_ms: elapsed,
+                                })
+                            }
+                            Err(e) => {
+                                let elapsed = start_time.elapsed().as_millis() as u64;
+                                Ok(ToolExecution {
+                                    tool_name: tool_call.tool_name.clone(),
+                                    success: false,
+                                    output: String::new(),
+                                    error: Some(format!("RunWriterActor patch failed: {}", e)),
+                                    execution_time_ms: elapsed,
+                                })
+                            }
+                        }
+                    } else {
+                        let elapsed = start_time.elapsed().as_millis() as u64;
+                        Ok(ToolExecution {
+                            tool_name: tool_call.tool_name.clone(),
+                            success: false,
+                            output: String::new(),
+                            error: Some(
+                                "Run document edits must go through RunWriterActor".to_string(),
+                            ),
+                            execution_time_ms: elapsed,
+                        })
+                    }
+                } else {
+                    match validate_sandbox_path(path) {
+                        Ok(full_path) => match tokio::fs::read_to_string(&full_path).await {
                             Ok(content) => {
-                                // Perform the replacement
                                 let new_content = content.replace(old_text, new_text);
 
                                 if new_content == content {
-                                    // No replacement made
                                     let elapsed = start_time.elapsed().as_millis() as u64;
                                     return Ok(ToolExecution {
                                         tool_name: tool_call.tool_name.clone(),
@@ -548,7 +695,6 @@ Guidelines:
                                             "new_size": new_content.len(),
                                         });
 
-                                        // Emit document update for live streaming
                                         self.emit_document_update(&ctx.loop_id, path, &new_content);
 
                                         Ok(ToolExecution {
@@ -581,17 +727,17 @@ Guidelines:
                                     execution_time_ms: elapsed,
                                 })
                             }
+                        },
+                        Err(e) => {
+                            let elapsed = start_time.elapsed().as_millis() as u64;
+                            Ok(ToolExecution {
+                                tool_name: tool_call.tool_name.clone(),
+                                success: false,
+                                output: String::new(),
+                                error: Some(format!("Invalid path: {}", e)),
+                                execution_time_ms: elapsed,
+                            })
                         }
-                    }
-                    Err(e) => {
-                        let elapsed = start_time.elapsed().as_millis() as u64;
-                        Ok(ToolExecution {
-                            tool_name: tool_call.tool_name.clone(),
-                            success: false,
-                            output: String::new(),
-                            error: Some(format!("Invalid path: {}", e)),
-                            execution_time_ms: elapsed,
-                        })
                     }
                 }
             }

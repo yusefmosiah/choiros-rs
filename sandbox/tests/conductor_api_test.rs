@@ -53,80 +53,6 @@ async fn json_response(app: &axum::Router, req: Request<Body>) -> (StatusCode, V
     (status, value)
 }
 
-// ============================================================================
-// Conductor Execute Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_conductor_execute_endpoint() {
-    let (app, _temp_dir) = setup_test_app().await;
-
-    let execute_req = json!({
-        "objective": "Generate a short terminal-backed report",
-        "desktop_id": "test-desktop-001",
-        "output_mode": "markdown_report_to_writer",
-        "worker_plan": [{
-            "worker_type": "terminal",
-            "objective": "Print a greeting in terminal",
-            "terminal_command": "echo conductor-test",
-            "timeout_ms": 5000,
-            "max_steps": 1
-        }],
-        "hints": null,
-        "correlation_id": "test-correlation-001"
-    });
-
-    let req = Request::builder()
-        .method("POST")
-        .uri("/conductor/execute")
-        .header("content-type", "application/json")
-        .body(Body::from(execute_req.to_string()))
-        .unwrap();
-
-    let (status, body) = json_response(&app, req).await;
-
-    assert_eq!(status, StatusCode::ACCEPTED);
-    assert!(body["task_id"].as_str().is_some());
-    assert_eq!(body["status"], "waiting_worker");
-    assert_eq!(body["correlation_id"], "test-correlation-001");
-    assert!(body["report_path"].is_null());
-    assert!(body["writer_window_props"].is_null());
-    assert!(body["error"].is_null());
-}
-
-#[tokio::test]
-async fn test_conductor_execute_without_correlation_id() {
-    let (app, _temp_dir) = setup_test_app().await;
-
-    let execute_req = json!({
-        "objective": "Generate a short terminal-backed report",
-        "desktop_id": "test-desktop-002",
-        "output_mode": "markdown_report_to_writer",
-        "worker_plan": [{
-            "worker_type": "terminal",
-            "objective": "Print a greeting in terminal",
-            "terminal_command": "echo conductor-test",
-            "timeout_ms": 5000,
-            "max_steps": 1
-        }]
-    });
-
-    let req = Request::builder()
-        .method("POST")
-        .uri("/conductor/execute")
-        .header("content-type", "application/json")
-        .body(Body::from(execute_req.to_string()))
-        .unwrap();
-
-    let (status, body) = json_response(&app, req).await;
-
-    assert_eq!(status, StatusCode::ACCEPTED);
-    assert!(body["task_id"].as_str().is_some());
-    // Correlation ID should be auto-generated
-    assert!(body["correlation_id"].as_str().is_some());
-    assert!(!body["correlation_id"].as_str().unwrap().is_empty());
-}
-
 #[tokio::test]
 async fn test_conductor_execute_validation_empty_objective() {
     let (app, _temp_dir) = setup_test_app().await;
@@ -220,10 +146,6 @@ async fn test_conductor_execute_validation_whitespace_desktop_id() {
     assert!(body["error"].is_object());
 }
 
-// ============================================================================
-// Conductor Get Task Status Tests
-// ============================================================================
-
 #[tokio::test]
 async fn test_conductor_get_task_status_not_found() {
     let (app, _temp_dir) = setup_test_app().await;
@@ -253,159 +175,7 @@ async fn test_conductor_get_task_status_empty_task_id() {
         .unwrap();
 
     let response = app.clone().oneshot(req).await.expect("Request failed");
-    // Empty path segment will result in 404 Not Found (route mismatch)
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
-async fn test_conductor_get_task_status_with_whitespace_task_id() {
-    let (app, _temp_dir) = setup_test_app().await;
-
-    // Create a task first
-    let execute_req = json!({
-        "objective": "Generate a short terminal-backed report",
-        "desktop_id": "test-desktop-005",
-        "output_mode": "markdown_report_to_writer",
-        "worker_plan": [{
-            "worker_type": "terminal",
-            "objective": "Print a greeting in terminal",
-            "terminal_command": "echo conductor-test",
-            "timeout_ms": 5000,
-            "max_steps": 1
-        }]
-    });
-
-    let req = Request::builder()
-        .method("POST")
-        .uri("/conductor/execute")
-        .header("content-type", "application/json")
-        .body(Body::from(execute_req.to_string()))
-        .unwrap();
-
-    let (status, _body) = json_response(&app, req).await;
-    assert_eq!(status, StatusCode::ACCEPTED);
-
-    // Try to get status with whitespace-only task ID
-    let req = Request::builder()
-        .method("GET")
-        .uri("/conductor/tasks/%20%20%20") // URL-encoded spaces
-        .body(Body::empty())
-        .unwrap();
-
-    let (status, body) = json_response(&app, req).await;
-    // Whitespace-only task ID returns 400 Bad Request (validation rejects empty task IDs)
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(body["error"].is_object());
-}
-
-#[tokio::test]
-async fn test_conductor_get_task_status_existing_task() {
-    let (app, _temp_dir) = setup_test_app().await;
-
-    let execute_req = json!({
-        "objective": "Generate a short terminal-backed report",
-        "desktop_id": "test-desktop-009",
-        "output_mode": "markdown_report_to_writer",
-        "worker_plan": [{
-            "worker_type": "terminal",
-            "objective": "Print a greeting in terminal",
-            "terminal_command": "echo conductor-test",
-            "timeout_ms": 5000,
-            "max_steps": 1
-        }]
-    });
-
-    let req = Request::builder()
-        .method("POST")
-        .uri("/conductor/execute")
-        .header("content-type", "application/json")
-        .body(Body::from(execute_req.to_string()))
-        .unwrap();
-    let (status, body) = json_response(&app, req).await;
-    assert_eq!(status, StatusCode::ACCEPTED);
-    let task_id = body["task_id"].as_str().expect("task_id should be present");
-
-    let req = Request::builder()
-        .method("GET")
-        .uri(format!("/conductor/tasks/{task_id}"))
-        .body(Body::empty())
-        .unwrap();
-    let (status, body) = json_response(&app, req).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["task_id"], task_id);
-    assert!(body["status"].is_string());
-}
-
-// ============================================================================
-// Conductor Response Structure Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_conductor_execute_response_structure() {
-    let (app, _temp_dir) = setup_test_app().await;
-
-    let execute_req = json!({
-        "objective": "Generate a short terminal-backed report",
-        "desktop_id": "test-desktop-006",
-        "output_mode": "markdown_report_to_writer",
-        "worker_plan": [{
-            "worker_type": "terminal",
-            "objective": "Print a greeting in terminal",
-            "terminal_command": "echo conductor-test",
-            "timeout_ms": 5000,
-            "max_steps": 1
-        }],
-        "correlation_id": "test-response-structure"
-    });
-
-    let req = Request::builder()
-        .method("POST")
-        .uri("/conductor/execute")
-        .header("content-type", "application/json")
-        .body(Body::from(execute_req.to_string()))
-        .unwrap();
-
-    let (status, body) = json_response(&app, req).await;
-
-    assert_eq!(status, StatusCode::ACCEPTED);
-
-    // Verify all expected fields are present
-    assert!(body["task_id"].is_string(), "task_id should be a string");
-    assert!(body["status"].is_string(), "status should be a string");
-    assert!(
-        body["report_path"].is_null(),
-        "report_path should be null for in-flight tasks"
-    );
-    assert!(
-        body["writer_window_props"].is_null(),
-        "writer_window_props should be null for in-flight tasks"
-    );
-    assert!(
-        body["correlation_id"].is_string(),
-        "correlation_id should be a string"
-    );
-    assert!(
-        body["error"].is_null(),
-        "error should be null for successful requests"
-    );
-
-    // Verify task_id is a valid ULID format (26 characters)
-    let task_id = body["task_id"].as_str().unwrap();
-    assert_eq!(
-        task_id.len(),
-        26,
-        "task_id should be a ULID (26 characters)"
-    );
-
-    // Verify status is one of the expected values
-    let status_str = body["status"].as_str().unwrap();
-    let valid_statuses = ["queued", "running", "waiting_worker", "completed", "failed"];
-    assert!(
-        valid_statuses.contains(&status_str),
-        "status should be one of {:?}, got {}",
-        valid_statuses,
-        status_str
-    );
 }
 
 #[tokio::test]
@@ -429,7 +199,6 @@ async fn test_conductor_error_response_structure() {
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
-    // Verify error response structure
     assert!(
         body["task_id"].is_string(),
         "task_id should be present in error response"
@@ -446,10 +215,6 @@ async fn test_conductor_error_response_structure() {
     );
 }
 
-// ============================================================================
-// Conductor Content Type Tests
-// ============================================================================
-
 #[tokio::test]
 async fn test_conductor_execute_missing_content_type() {
     let (app, _temp_dir) = setup_test_app().await;
@@ -463,12 +228,10 @@ async fn test_conductor_execute_missing_content_type() {
     let req = Request::builder()
         .method("POST")
         .uri("/conductor/execute")
-        // No content-type header
         .body(Body::from(execute_req.to_string()))
         .unwrap();
 
     let response = app.clone().oneshot(req).await.expect("Request failed");
-    // Axum will reject requests without proper content-type
     assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
 }
 
@@ -484,13 +247,8 @@ async fn test_conductor_execute_invalid_json() {
         .unwrap();
 
     let response = app.clone().oneshot(req).await.expect("Request failed");
-    // Axum rejects invalid JSON with 400 Bad Request
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
-
-// ============================================================================
-// Conductor Method Not Allowed Tests
-// ============================================================================
 
 #[tokio::test]
 async fn test_conductor_execute_get_not_allowed() {
@@ -518,4 +276,169 @@ async fn test_conductor_tasks_post_not_allowed() {
 
     let response = app.clone().oneshot(req).await.expect("Request failed");
     assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+}
+
+#[tokio::test]
+async fn test_conductor_execute_response_has_no_update_draft_action() {
+    use sandbox::baml_client::types::ConductorAction;
+
+    let action_names: Vec<&str> = vec![
+        "SpawnWorker",
+        "AwaitWorker",
+        "MergeCanon",
+        "Complete",
+        "Block",
+    ];
+
+    let actions = vec![
+        ConductorAction::SpawnWorker,
+        ConductorAction::AwaitWorker,
+        ConductorAction::MergeCanon,
+        ConductorAction::Complete,
+        ConductorAction::Block,
+    ];
+
+    for action in &actions {
+        let action_str = action.to_string();
+        assert!(
+            action_names.contains(&action_str.as_str()),
+            "ConductorAction::{} should be in known action list",
+            action_str
+        );
+        assert_ne!(
+            action_str, "UpdateDraft",
+            "ConductorAction::UpdateDraft must NOT exist"
+        );
+    }
+
+    let parsed = "UpdateDraft".parse::<ConductorAction>();
+    assert!(
+        parsed.is_err(),
+        "Parsing 'UpdateDraft' should fail - it must not exist"
+    );
+}
+
+#[tokio::test]
+async fn test_conductor_worker_plan_deprecated_rejected() {
+    let (app, _temp_dir) = setup_test_app().await;
+
+    let execute_req = json!({
+        "objective": "Test worker plan rejection",
+        "desktop_id": "test-desktop-deprecated",
+        "output_mode": "markdown_report_to_writer",
+        "worker_plan": [{
+            "worker_type": "terminal",
+            "objective": "Should be rejected",
+            "terminal_command": "echo test",
+            "timeout_ms": 5000,
+            "max_steps": 1
+        }]
+    });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/conductor/execute")
+        .header("content-type", "application/json")
+        .body(Body::from(execute_req.to_string()))
+        .unwrap();
+
+    let (status, body) = json_response(&app, req).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("deprecated"));
+}
+
+#[tokio::test]
+#[ignore = "Mutates process env for deterministic no-worker path"]
+async fn test_conductor_execute_no_workers_returns_service_unavailable() {
+    let (app, _temp_dir) = setup_test_app().await;
+    std::env::set_var("CHOIR_DISABLE_CONDUCTOR_WORKERS", "1");
+
+    let execute_req = json!({
+        "objective": "Test unavailable workers",
+        "desktop_id": "test-desktop-no-workers",
+        "output_mode": "auto"
+    });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/conductor/execute")
+        .header("content-type", "application/json")
+        .body(Body::from(execute_req.to_string()))
+        .unwrap();
+
+    let (status, body) = json_response(&app, req).await;
+    std::env::remove_var("CHOIR_DISABLE_CONDUCTOR_WORKERS");
+
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body["error"]["code"], "ACTOR_NOT_AVAILABLE");
+}
+
+#[tokio::test]
+#[ignore = "Requires live conductor execution - run with --ignored flag"]
+async fn test_conductor_execute_returns_writer_start_fields() {
+    let (app, _temp_dir) = setup_test_app().await;
+
+    let execute_req = json!({
+        "objective": "Generate a terminal-backed report for Writer",
+        "desktop_id": "test-desktop-writer-fields",
+        "output_mode": "markdown_report_to_writer",
+        "correlation_id": "writer-fields-test"
+    });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/conductor/execute")
+        .header("content-type", "application/json")
+        .body(Body::from(execute_req.to_string()))
+        .unwrap();
+
+    let (status, body) = json_response(&app, req).await;
+
+    assert_eq!(status, StatusCode::ACCEPTED);
+
+    assert!(
+        body["task_id"].is_string() && !body["task_id"].as_str().unwrap().is_empty(),
+        "task_id must be present and non-empty"
+    );
+
+    assert!(
+        body["run_id"].is_string(),
+        "run_id must be present for Writer integration"
+    );
+
+    assert!(
+        body["document_path"].is_string() && !body["document_path"].as_str().unwrap().is_empty(),
+        "document_path must be present and non-empty for accepted runs"
+    );
+
+    assert!(
+        body["writer_window_props"].is_object(),
+        "writer_window_props must be present for accepted runs"
+    );
+    assert!(
+        body["writer_window_props"]["path"].is_string()
+            && !body["writer_window_props"]["path"]
+                .as_str()
+                .unwrap()
+                .is_empty(),
+        "writer_window_props.path must be present and non-empty"
+    );
+
+    assert!(
+        body["correlation_id"].is_string(),
+        "correlation_id must be present"
+    );
+    assert_eq!(body["correlation_id"], "writer-fields-test");
+
+    assert!(body["status"].is_string(), "status must be present");
+    let status_str = body["status"].as_str().unwrap();
+    assert!(
+        matches!(status_str, "queued" | "running" | "waiting_worker"),
+        "status for accepted run should be a non-terminal state, got {}",
+        status_str
+    );
 }

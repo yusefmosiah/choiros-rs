@@ -1,10 +1,9 @@
-use ractor::ActorRef;
+use ractor::{ActorProcessingErr, ActorRef};
 use shared_types::{ConductorExecuteRequest, ConductorTaskState, ConductorTaskStatus};
 
 use crate::actors::conductor::actor::{ConductorActor, ConductorState};
 use crate::actors::conductor::{
-    events,
-    file_tools,
+    events, file_tools,
     protocol::{ConductorError, ConductorMsg},
 };
 
@@ -20,6 +19,15 @@ impl ConductorActor {
             .correlation_id
             .clone()
             .unwrap_or_else(|| task_id.clone());
+
+        if let Some(worker_plan) = &request.worker_plan {
+            if !worker_plan.is_empty() {
+                return Err(ConductorError::InvalidRequest(
+                    "worker_plan is deprecated in full-agentic mode; omit worker_plan and let conductor policy dispatch capabilities"
+                        .to_string(),
+                ));
+            }
+        }
 
         tracing::info!(
             task_id = %task_id,
@@ -46,7 +54,7 @@ impl ConductorActor {
         state.tasks.insert_task(task_state)?;
 
         if state.terminal_actor.is_none() && state.researcher_actor.is_none() {
-            return Err(ConductorError::InvalidRequest(
+            return Err(ConductorError::ActorUnavailable(
                 "No worker actors available for Conductor default policy".to_string(),
             ));
         }
@@ -60,10 +68,10 @@ impl ConductorActor {
         )
         .await;
 
-        let initial_agenda = self.build_initial_agenda(state, &request, &task_id).await?;
-
         // Create initial draft document
-        let document_path = match file_tools::create_initial_draft(&task_id, &request.objective).await {
+        let document_path = match file_tools::create_initial_draft(&task_id, &request.objective)
+            .await
+        {
             Ok(path) => path,
             Err(e) => {
                 tracing::error!(task_id = %task_id, error = %e, "Failed to create initial draft");
@@ -79,7 +87,7 @@ impl ConductorActor {
             created_at: now,
             updated_at: now,
             completed_at: None,
-            agenda: initial_agenda.clone(),
+            agenda: vec![],
             active_calls: vec![],
             artifacts: vec![],
             decision_log: vec![],
@@ -99,26 +107,90 @@ impl ConductorActor {
             "run_bootstrap",
             Some(serde_json::json!({
                 "run_id": &task_id,
-                "agenda_items": initial_agenda.len(),
+                "agenda_items": 0,
             })),
         )
         .await;
 
-        state.tasks.transition_to_waiting_worker(&task_id)?;
+        let _ = myself.send_message(ConductorMsg::BootstrapRun {
+            run_id: task_id.clone(),
+            request,
+        });
+
+        Ok(state
+            .tasks
+            .get_task(&task_id)
+            .cloned()
+            .expect("task must exist after insertion"))
+    }
+
+    pub(crate) async fn handle_bootstrap_run(
+        &self,
+        myself: &ActorRef<ConductorMsg>,
+        state: &mut ConductorState,
+        run_id: String,
+        request: ConductorExecuteRequest,
+    ) -> Result<(), ActorProcessingErr> {
+        let task_id = run_id.clone();
+        let correlation_id = state
+            .tasks
+            .get_task(&task_id)
+            .map(|task| task.correlation_id.clone())
+            .unwrap_or_else(|| task_id.clone());
+
+        let initial_agenda = match self.build_initial_agenda(state, &request, &task_id).await {
+            Ok(items) => items,
+            Err(err) => {
+                let shared_error: shared_types::ConductorError = err.clone().into();
+                let _ = state
+                    .tasks
+                    .transition_to_failed(&task_id, shared_error.clone());
+                let _ = state
+                    .tasks
+                    .transition_run_status(&run_id, shared_types::ConductorRunStatus::Failed);
+                events::emit_task_failed(
+                    &state.event_store,
+                    &task_id,
+                    &correlation_id,
+                    &shared_error.code,
+                    &shared_error.message,
+                    shared_error.failure_kind,
+                )
+                .await;
+                tracing::error!(
+                    run_id = %run_id,
+                    error = %err,
+                    "Conductor bootstrap failed"
+                );
+                return Ok(());
+            }
+        };
+
+        state
+            .tasks
+            .add_agenda_items(&run_id, initial_agenda.clone())
+            .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+
+        state
+            .tasks
+            .transition_to_waiting_worker(&task_id)
+            .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
         events::emit_task_progress(
             &state.event_store,
             &task_id,
             &correlation_id,
             "waiting_worker",
             "worker_execution",
-            None,
+            Some(serde_json::json!({
+                "agenda_items": initial_agenda.len(),
+            })),
         )
         .await;
 
         events::emit_wake_event(
             &state.event_store,
             "conductor.run.started",
-            &task_id,
+            &run_id,
             &task_id,
             "conductor",
             "run_start",
@@ -129,15 +201,8 @@ impl ConductorActor {
         )
         .await;
 
-        let _ = myself.send_message(ConductorMsg::DispatchReady {
-            run_id: task_id.clone(),
-        });
-
-        Ok(state
-            .tasks
-            .get_task(&task_id)
-            .cloned()
-            .expect("task must exist after insertion"))
+        let _ = myself.send_message(ConductorMsg::DispatchReady { run_id });
+        Ok(())
     }
 
     pub(crate) async fn build_initial_agenda(
@@ -166,7 +231,7 @@ impl ConductorActor {
             available_capabilities.push("researcher".to_string());
         }
         if available_capabilities.is_empty() {
-            return Err(ConductorError::InvalidRequest(
+            return Err(ConductorError::ActorUnavailable(
                 "No worker actors available for Conductor default policy".to_string(),
             ));
         }
