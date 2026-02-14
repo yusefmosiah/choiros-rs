@@ -18,6 +18,7 @@ pub(crate) async fn setup_test_conductor(
         event_store: store_ref.clone(),
         researcher_actor,
         terminal_actor,
+        writer_actor: None,
     };
 
     let (conductor_ref, _conductor_handle) =

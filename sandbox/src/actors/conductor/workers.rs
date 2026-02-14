@@ -9,6 +9,7 @@ use crate::actors::run_writer::RunWriterMsg;
 use crate::actors::terminal::{
     TerminalAgentProgress, TerminalAgentResult, TerminalBashToolRequest, TerminalError, TerminalMsg,
 };
+use crate::actors::writer::WriterMsg;
 
 /// Call the ResearcherActor for an agentic task.
 pub async fn call_researcher(
@@ -18,6 +19,7 @@ pub async fn call_researcher(
     max_results: Option<u32>,
     max_rounds: Option<u8>,
     progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
+    writer_actor: Option<ActorRef<WriterMsg>>,
     run_writer_actor: Option<ActorRef<RunWriterMsg>>,
     run_id: Option<String>,
     call_id: Option<String>,
@@ -31,6 +33,7 @@ pub async fn call_researcher(
         max_rounds,
         model_override: None,
         progress_tx,
+        writer_actor,
         run_writer_actor,
         run_id,
         call_id,

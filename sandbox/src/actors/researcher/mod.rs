@@ -53,6 +53,7 @@ pub enum ResearcherMsg {
         max_rounds: Option<u8>,
         model_override: Option<String>,
         progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
+        writer_actor: Option<ractor::ActorRef<crate::actors::writer::WriterMsg>>,
         run_writer_actor: Option<ractor::ActorRef<crate::actors::run_writer::RunWriterMsg>>,
         run_id: Option<String>,
         call_id: Option<String>,
@@ -251,6 +252,7 @@ impl Actor for ResearcherActor {
                 max_rounds,
                 model_override,
                 progress_tx,
+                writer_actor,
                 run_writer_actor,
                 run_id,
                 call_id,
@@ -264,6 +266,7 @@ impl Actor for ResearcherActor {
                         max_rounds,
                         model_override,
                         progress_tx,
+                        writer_actor,
                         run_writer_actor,
                         run_id,
                         call_id,
@@ -284,6 +287,7 @@ impl Actor for ResearcherActor {
                         request.max_rounds,
                         request.model_override.clone(),
                         progress_tx,
+                        None,
                         None,
                         None,
                         None,
@@ -341,6 +345,7 @@ impl ResearcherActor {
         max_rounds: Option<u8>,
         model_override: Option<String>,
         progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
+        writer_actor: Option<ractor::ActorRef<crate::actors::writer::WriterMsg>>,
         run_writer_actor: Option<ractor::ActorRef<crate::actors::run_writer::RunWriterMsg>>,
         run_id: Option<String>,
         call_id: Option<String>,
@@ -361,6 +366,10 @@ impl ResearcherActor {
         let adapter = match (run_writer_actor, run_id.clone()) {
             (Some(rw), Some(rid)) => adapter.with_run_writer(rw, rid),
             _ => adapter,
+        };
+        let adapter = match writer_actor {
+            Some(writer_actor_ref) => adapter.with_writer_actor(writer_actor_ref),
+            None => adapter,
         };
 
         let config = HarnessConfig {

@@ -17,6 +17,7 @@ use crate::actors::event_store::EventStoreMsg;
 use crate::actors::researcher::ResearcherMsg;
 use crate::actors::run_writer::RunWriterMsg;
 use crate::actors::terminal::TerminalMsg;
+use crate::actors::writer::WriterMsg;
 
 /// ConductorActor - main orchestration actor.
 #[derive(Debug, Default)]
@@ -31,6 +32,8 @@ pub struct ConductorArguments {
     pub researcher_actor: Option<ActorRef<ResearcherMsg>>,
     /// Optional terminal actor for delegation.
     pub terminal_actor: Option<ActorRef<TerminalMsg>>,
+    /// Optional writer actor for event-driven writer authority.
+    pub writer_actor: Option<ActorRef<WriterMsg>>,
 }
 
 /// Internal state for ConductorActor.
@@ -39,6 +42,7 @@ pub struct ConductorState {
     pub(crate) event_store: ActorRef<EventStoreMsg>,
     pub(crate) researcher_actor: Option<ActorRef<ResearcherMsg>>,
     pub(crate) terminal_actor: Option<ActorRef<TerminalMsg>>,
+    pub(crate) writer_actor: Option<ActorRef<WriterMsg>>,
     pub(crate) model_gateway: SharedConductorModelGateway,
     pub(crate) run_writers: HashMap<String, ActorRef<RunWriterMsg>>,
 }
@@ -61,6 +65,7 @@ impl Actor for ConductorActor {
             event_store: args.event_store,
             researcher_actor: args.researcher_actor,
             terminal_actor: args.terminal_actor,
+            writer_actor: args.writer_actor,
             model_gateway,
             run_writers: HashMap::new(),
         })
@@ -264,6 +269,7 @@ mod tests {
                 event_store: event_store.clone(),
                 researcher_actor: None,
                 terminal_actor: None,
+                writer_actor: None,
                 model_gateway: gateway,
                 run_writers: HashMap::new(),
             },

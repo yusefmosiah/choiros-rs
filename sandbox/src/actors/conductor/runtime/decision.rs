@@ -181,6 +181,7 @@ impl ConductorActor {
         let objective = item.objective.clone();
         let researcher = state.researcher_actor.clone();
         let terminal = state.terminal_actor.clone();
+        let writer = state.writer_actor.clone();
         let run_writer_for_logs = run_writer.clone();
 
         if let Some(run_writer) = run_writer.clone() {
@@ -232,6 +233,7 @@ impl ConductorActor {
                             Some(8),
                             Some(3),
                             progress_tx,
+                            writer.clone(),
                             run_writer.clone(),
                             Some(run_id_owned.clone()),
                             Some(call_id_owned.clone()),

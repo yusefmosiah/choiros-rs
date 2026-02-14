@@ -25,7 +25,8 @@ use crate::actors::agent_harness::{
 };
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::ModelRegistry;
-use crate::actors::run_writer::{PatchOp, PatchOpKind, RunWriterMsg, SectionState};
+use crate::actors::run_writer::{RunWriterMsg, SectionState};
+use crate::actors::writer::{WriterMsg, WriterSource};
 use crate::baml_client::types::AgentToolCall;
 
 use super::{
@@ -75,6 +76,7 @@ pub struct ResearcherAdapter {
     state: ResearcherState,
     progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
     http_client: reqwest::Client,
+    writer_actor: Option<ActorRef<WriterMsg>>,
     run_writer_actor: Option<ActorRef<RunWriterMsg>>,
     run_id: Option<String>,
 }
@@ -104,9 +106,15 @@ impl ResearcherAdapter {
             state,
             progress_tx,
             http_client,
+            writer_actor: None,
             run_writer_actor: None,
             run_id: None,
         })
+    }
+
+    pub fn with_writer_actor(mut self, writer_actor: ActorRef<WriterMsg>) -> Self {
+        self.writer_actor = Some(writer_actor);
+        self
     }
 
     pub fn with_run_writer(
@@ -168,38 +176,6 @@ impl ResearcherAdapter {
         self.emit_event("worker.task.document_update", payload);
     }
 
-    async fn send_patch_to_run_writer(
-        &self,
-        section_id: &str,
-        content: &str,
-        proposal: bool,
-    ) -> Result<(), String> {
-        use ractor::call;
-
-        let (run_writer, run_id) = match (&self.run_writer_actor, &self.run_id) {
-            (Some(rw), Some(rid)) => (rw, rid),
-            _ => return Err("RunWriterActor not configured".to_string()),
-        };
-
-        let ops = vec![PatchOp {
-            kind: PatchOpKind::Append,
-            position: None,
-            text: Some(content.to_string()),
-        }];
-
-        let result = call!(run_writer, |reply| RunWriterMsg::ApplyPatch {
-            run_id: run_id.clone(),
-            source: "researcher".to_string(),
-            section_id: section_id.to_string(),
-            ops,
-            proposal,
-            reply,
-        })
-        .map_err(|e| format!("RunWriterActor call failed: {e}"))?;
-
-        result.map(|_| ()).map_err(|e| e.to_string())
-    }
-
     fn resolve_writer_section(section_hint: Option<&str>) -> String {
         match section_hint
             .map(|s| s.trim().to_ascii_lowercase())
@@ -227,11 +203,21 @@ impl ResearcherAdapter {
         &self,
         tool_call: &AgentToolCall,
     ) -> Result<ToolExecution, HarnessError> {
-        use ractor::call;
-
         let start_time = tokio::time::Instant::now();
-        let (run_writer, run_id) = match (&self.run_writer_actor, &self.run_id) {
-            (Some(actor), Some(run_id)) => (actor, run_id),
+        let writer_actor = match &self.writer_actor {
+            Some(actor) => actor,
+            None => {
+                return Ok(ToolExecution {
+                    tool_name: tool_call.tool_name.clone(),
+                    success: false,
+                    output: String::new(),
+                    error: Some("WriterActor not configured for this run".to_string()),
+                    execution_time_ms: start_time.elapsed().as_millis() as u64,
+                });
+            }
+        };
+        let (run_writer_actor, run_id) = match (&self.run_writer_actor, &self.run_id) {
+            (Some(actor), Some(run_id)) => (actor.clone(), run_id.clone()),
             _ => {
                 return Ok(ToolExecution {
                     tool_name: tool_call.tool_name.clone(),
@@ -264,21 +250,24 @@ impl ResearcherAdapter {
                 if content.trim().is_empty() {
                     Err("message_writer progress mode requires content".to_string())
                 } else {
-                    call!(run_writer, |reply| RunWriterMsg::ReportSectionProgress {
+                    ractor::call!(writer_actor, |reply| WriterMsg::ReportProgress {
+                        run_writer_actor: run_writer_actor.clone(),
                         run_id: run_id.clone(),
-                        source: "researcher".to_string(),
                         section_id: section_id.clone(),
+                        source: WriterSource::Researcher,
                         phase,
                         message: content.clone(),
                         reply,
                     })
-                    .map_err(|e| format!("RunWriterActor call failed: {e}"))
+                    .map_err(|e| format!("WriterActor call failed: {e}"))
                     .and_then(|inner| inner.map_err(|e| e.to_string()))
-                    .map(|rev| serde_json::json!({
-                        "mode": "progress",
-                        "section_id": section_id,
-                        "revision": rev,
-                    }))
+                    .map(|rev| {
+                        serde_json::json!({
+                            "mode": "progress",
+                            "section_id": section_id,
+                            "revision": rev,
+                        })
+                    })
                 }
             }
             "state" => {
@@ -287,18 +276,21 @@ impl ResearcherAdapter {
                         .to_string()
                 });
                 match state {
-                    Ok(state) => call!(run_writer, |reply| RunWriterMsg::MarkSectionState {
+                    Ok(state) => ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
+                        run_writer_actor: run_writer_actor.clone(),
                         run_id: run_id.clone(),
                         section_id: section_id.clone(),
                         state,
                         reply,
                     })
-                    .map_err(|e| format!("RunWriterActor call failed: {e}"))
+                    .map_err(|e| format!("WriterActor call failed: {e}"))
                     .and_then(|inner| inner.map_err(|e| e.to_string()))
-                    .map(|_| serde_json::json!({
-                        "mode": "state",
-                        "section_id": section_id,
-                    })),
+                    .map(|_| {
+                        serde_json::json!({
+                            "mode": "state",
+                            "section_id": section_id,
+                        })
+                    }),
                     Err(e) => Err(e),
                 }
             }
@@ -306,28 +298,48 @@ impl ResearcherAdapter {
                 if content.trim().is_empty() {
                     Err("message_writer canon_append mode requires content".to_string())
                 } else {
-                    self.send_patch_to_run_writer(&section_id, &content, false)
-                        .await
-                        .map(|_| {
-                            serde_json::json!({
-                                "mode": "canon_append",
-                                "section_id": section_id,
-                            })
+                    ractor::call!(writer_actor, |reply| WriterMsg::ApplyText {
+                        run_writer_actor: run_writer_actor.clone(),
+                        run_id: run_id.clone(),
+                        section_id: section_id.clone(),
+                        source: WriterSource::Researcher,
+                        content: content.clone(),
+                        proposal: false,
+                        reply,
+                    })
+                    .map_err(|e| format!("WriterActor call failed: {e}"))
+                    .and_then(|inner| inner.map_err(|e| e.to_string()))
+                    .map(|revision| {
+                        serde_json::json!({
+                            "mode": "canon_append",
+                            "section_id": section_id,
+                            "revision": revision,
                         })
+                    })
                 }
             }
             "proposal_append" => {
                 if content.trim().is_empty() {
                     Err("message_writer proposal_append mode requires content".to_string())
                 } else {
-                    self.send_patch_to_run_writer(&section_id, &content, true)
-                        .await
-                        .map(|_| {
-                            serde_json::json!({
-                                "mode": "proposal_append",
-                                "section_id": section_id,
-                            })
+                    ractor::call!(writer_actor, |reply| WriterMsg::ApplyText {
+                        run_writer_actor: run_writer_actor.clone(),
+                        run_id: run_id.clone(),
+                        section_id: section_id.clone(),
+                        source: WriterSource::Researcher,
+                        content: content.clone(),
+                        proposal: true,
+                        reply,
+                    })
+                    .map_err(|e| format!("WriterActor call failed: {e}"))
+                    .and_then(|inner| inner.map_err(|e| e.to_string()))
+                    .map(|revision| {
+                        serde_json::json!({
+                            "mode": "proposal_append",
+                            "section_id": section_id,
+                            "revision": revision,
                         })
+                    })
                 }
             }
             _ => Err(format!(

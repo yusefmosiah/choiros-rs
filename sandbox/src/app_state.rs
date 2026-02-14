@@ -7,6 +7,7 @@ use crate::actors::desktop::{DesktopActorMsg, DesktopArguments};
 use crate::actors::event_store::EventStoreMsg;
 use crate::actors::researcher::ResearcherMsg;
 use crate::actors::terminal::TerminalMsg;
+use crate::actors::writer::WriterMsg;
 use crate::supervisor::{ApplicationSupervisor, ApplicationSupervisorMsg};
 
 #[derive(Clone)]
@@ -105,6 +106,26 @@ impl AppState {
         .map_err(|e| e.to_string())?
     }
 
+    pub async fn get_or_create_writer(
+        &self,
+        writer_id: String,
+        user_id: String,
+        researcher_actor: Option<ActorRef<ResearcherMsg>>,
+        terminal_actor: Option<ActorRef<TerminalMsg>>,
+    ) -> Result<ActorRef<WriterMsg>, String> {
+        let supervisor = self.ensure_supervisor().await?;
+        ractor::call!(supervisor, |reply| {
+            ApplicationSupervisorMsg::GetOrCreateWriter {
+                writer_id,
+                user_id,
+                researcher_actor,
+                terminal_actor,
+                reply,
+            }
+        })
+        .map_err(|e| e.to_string())?
+    }
+
     pub async fn get_or_create_terminal_with_args(
         &self,
         args: crate::actors::terminal::TerminalArguments,
@@ -178,6 +199,22 @@ impl AppState {
             }
         };
 
+        let writer_actor = match self
+            .get_or_create_writer(
+                "conductor-writer".to_string(),
+                "system".to_string(),
+                researcher_actor.clone(),
+                terminal_actor.clone(),
+            )
+            .await
+        {
+            Ok(actor) => Some(actor),
+            Err(err) => {
+                worker_errors.push(format!("writer unavailable: {err}"));
+                None
+            }
+        };
+
         if researcher_actor.is_none() && terminal_actor.is_none() {
             let detail = if worker_errors.is_empty() {
                 "unknown worker creation failure".to_string()
@@ -196,6 +233,7 @@ impl AppState {
                 event_store: self.inner.event_store.clone(),
                 researcher_actor,
                 terminal_actor,
+                writer_actor,
             },
         )
         .await

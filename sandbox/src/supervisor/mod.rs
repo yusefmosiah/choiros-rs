@@ -26,6 +26,7 @@ pub mod desktop;
 pub mod researcher;
 pub mod session;
 pub mod terminal;
+pub mod writer;
 
 // Re-export from session module
 pub use session::{
@@ -48,6 +49,9 @@ pub use researcher::{
 pub use terminal::{
     get_or_create_terminal, get_terminal_info, list_terminals, remove_terminal, TerminalSupervisor,
     TerminalSupervisorArgs, TerminalSupervisorMsg, TerminalSupervisorState,
+};
+pub use writer::{
+    WriterSupervisor, WriterSupervisorArgs, WriterSupervisorMsg, WriterSupervisorState,
 };
 
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort, SupervisionEvent};
@@ -186,6 +190,14 @@ pub enum ApplicationSupervisorMsg {
         reply: RpcReplyPort<
             Result<ractor::ActorRef<crate::actors::researcher::ResearcherMsg>, String>,
         >,
+    },
+    /// Get or create a writer actor
+    GetOrCreateWriter {
+        writer_id: String,
+        user_id: String,
+        researcher_actor: Option<ractor::ActorRef<crate::actors::researcher::ResearcherMsg>>,
+        terminal_actor: Option<ractor::ActorRef<crate::actors::terminal::TerminalMsg>>,
+        reply: RpcReplyPort<Result<ractor::ActorRef<crate::actors::writer::WriterMsg>, String>>,
     },
     /// Ingest a typed worker turn report and emit canonical signal events.
     IngestWorkerTurnReport {
@@ -699,6 +711,101 @@ impl Actor for ApplicationSupervisor {
                                 ),
                                 serde_json::json!({
                                     "researcher_id": researcher_id,
+                                    "user_id": user_id,
+                                    "error": e.to_string(),
+                                    "supervisor_id": myself.get_id().to_string(),
+                                }),
+                                correlation_id,
+                            )
+                            .await;
+                            let _ = reply.send(Err(e.to_string()));
+                            return Ok(());
+                        }
+                    }
+                } else {
+                    let _ = reply.send(Err("SessionSupervisor not available".to_string()));
+                    return Ok(());
+                }
+            }
+            ApplicationSupervisorMsg::GetOrCreateWriter {
+                writer_id,
+                user_id,
+                researcher_actor,
+                terminal_actor,
+                reply,
+            } => {
+                let correlation_id = ulid::Ulid::new().to_string();
+                self.emit_request_event(
+                    state,
+                    "supervisor.writer.get_or_create.started",
+                    EventType::Custom("supervisor.writer.get_or_create.started".to_string()),
+                    serde_json::json!({
+                        "writer_id": writer_id,
+                        "user_id": user_id,
+                        "supervisor_id": myself.get_id().to_string(),
+                    }),
+                    correlation_id.clone(),
+                )
+                .await;
+
+                if let Some(ref session_supervisor) = state.session_supervisor {
+                    match ractor::call!(session_supervisor, |ss_reply| {
+                        SessionSupervisorMsg::GetOrCreateWriter {
+                            writer_id: writer_id.clone(),
+                            user_id: user_id.clone(),
+                            researcher_actor: researcher_actor.clone(),
+                            terminal_actor: terminal_actor.clone(),
+                            reply: ss_reply,
+                        }
+                    }) {
+                        Ok(result) => match result {
+                            Ok(actor_ref) => {
+                                self.emit_request_event(
+                                    state,
+                                    "supervisor.writer.get_or_create.completed",
+                                    EventType::Custom(
+                                        "supervisor.writer.get_or_create.completed".to_string(),
+                                    ),
+                                    serde_json::json!({
+                                        "writer_id": writer_id,
+                                        "user_id": user_id,
+                                        "writer_ref": actor_ref.get_id().to_string(),
+                                        "supervisor_id": myself.get_id().to_string(),
+                                    }),
+                                    correlation_id,
+                                )
+                                .await;
+                                let _ = reply.send(Ok(actor_ref));
+                            }
+                            Err(e) => {
+                                self.emit_request_event(
+                                    state,
+                                    "supervisor.writer.get_or_create.failed",
+                                    EventType::Custom(
+                                        "supervisor.writer.get_or_create.failed".to_string(),
+                                    ),
+                                    serde_json::json!({
+                                        "writer_id": writer_id,
+                                        "user_id": user_id,
+                                        "error": e,
+                                        "supervisor_id": myself.get_id().to_string(),
+                                    }),
+                                    correlation_id,
+                                )
+                                .await;
+                                let _ = reply.send(Err(e));
+                                return Ok(());
+                            }
+                        },
+                        Err(e) => {
+                            self.emit_request_event(
+                                state,
+                                "supervisor.writer.get_or_create.failed",
+                                EventType::Custom(
+                                    "supervisor.writer.get_or_create.failed".to_string(),
+                                ),
+                                serde_json::json!({
+                                    "writer_id": writer_id,
                                     "user_id": user_id,
                                     "error": e.to_string(),
                                     "supervisor_id": myself.get_id().to_string(),
