@@ -533,6 +533,10 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
     let current_preview_html = preview_html();
     let current_run_status = run_status();
     let current_active_run_id = active_run_id();
+    let current_run_message = {
+        let runs = ACTIVE_WRITER_RUNS.read();
+        runs.get(&current_path).and_then(|r| r.message.clone())
+    };
 
     // Get proposal from active run
     let current_proposal = {
@@ -581,6 +585,12 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                                 }
                             }
                         }
+                    }
+                }
+                if let Some(run_message) = current_run_message {
+                    span {
+                        style: "font-size: 0.75rem; color: var(--text-secondary); max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;",
+                        "{run_message}"
                     }
                 }
 

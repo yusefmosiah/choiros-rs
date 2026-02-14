@@ -110,12 +110,30 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
             message,
             progress_pct,
         } => {
-            if let Some(run) = ACTIVE_WRITER_RUNS.write().get_mut(&base.document_path) {
+            let mut runs = ACTIVE_WRITER_RUNS.write();
+            if let Some(run) = runs.get_mut(&base.document_path) {
                 run.revision = base.revision;
                 run.status = WriterRunStatusKind::Running;
                 run.phase = Some(phase.clone());
                 run.message = Some(message.clone());
                 run.progress_pct = *progress_pct;
+            } else {
+                runs.insert(
+                    base.document_path.clone(),
+                    ActiveWriterRun {
+                        run_id: base.run_id.clone(),
+                        document_path: base.document_path.clone(),
+                        revision: base.revision,
+                        status: WriterRunStatusKind::Running,
+                        objective: None,
+                        phase: Some(phase.clone()),
+                        message: Some(message.clone()),
+                        progress_pct: *progress_pct,
+                        proposal: None,
+                        pending_patches: Vec::new(),
+                        last_applied_revision: 0,
+                    },
+                );
             }
         }
         WsEvent::WriterRunStatus {
@@ -123,12 +141,30 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
             status,
             message,
         } => {
-            if let Some(run) = ACTIVE_WRITER_RUNS.write().get_mut(&base.document_path) {
+            let mut runs = ACTIVE_WRITER_RUNS.write();
+            if let Some(run) = runs.get_mut(&base.document_path) {
                 run.revision = base.revision;
                 run.status = *status;
                 if let Some(msg) = message {
                     run.message = Some(msg.clone());
                 }
+            } else {
+                runs.insert(
+                    base.document_path.clone(),
+                    ActiveWriterRun {
+                        run_id: base.run_id.clone(),
+                        document_path: base.document_path.clone(),
+                        revision: base.revision,
+                        status: *status,
+                        objective: None,
+                        phase: None,
+                        message: message.clone(),
+                        progress_pct: None,
+                        proposal: None,
+                        pending_patches: Vec::new(),
+                        last_applied_revision: 0,
+                    },
+                );
             }
         }
         WsEvent::WriterRunFailed {
@@ -137,10 +173,28 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
             error_message,
             failure_kind: _,
         } => {
-            if let Some(run) = ACTIVE_WRITER_RUNS.write().get_mut(&base.document_path) {
+            let mut runs = ACTIVE_WRITER_RUNS.write();
+            if let Some(run) = runs.get_mut(&base.document_path) {
                 run.revision = base.revision;
                 run.status = WriterRunStatusKind::Failed;
                 run.message = Some(error_message.clone());
+            } else {
+                runs.insert(
+                    base.document_path.clone(),
+                    ActiveWriterRun {
+                        run_id: base.run_id.clone(),
+                        document_path: base.document_path.clone(),
+                        revision: base.revision,
+                        status: WriterRunStatusKind::Failed,
+                        objective: None,
+                        phase: None,
+                        message: Some(error_message.clone()),
+                        progress_pct: None,
+                        proposal: None,
+                        pending_patches: Vec::new(),
+                        last_applied_revision: 0,
+                    },
+                );
             }
         }
         _ => {}

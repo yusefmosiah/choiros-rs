@@ -89,6 +89,7 @@ pub struct ModelPolicy {
     pub chat_default_model: Option<String>,
     pub terminal_default_model: Option<String>,
     pub conductor_default_model: Option<String>,
+    pub writer_default_model: Option<String>,
     pub researcher_default_model: Option<String>,
     pub summarizer_default_model: Option<String>,
     pub allow_request_override: Option<bool>,
@@ -96,6 +97,7 @@ pub struct ModelPolicy {
     pub chat_allowed_models: Option<Vec<String>>,
     pub terminal_allowed_models: Option<Vec<String>>,
     pub conductor_allowed_models: Option<Vec<String>>,
+    pub writer_allowed_models: Option<Vec<String>>,
     pub researcher_allowed_models: Option<Vec<String>>,
     pub summarizer_allowed_models: Option<Vec<String>>,
 }
@@ -236,6 +238,7 @@ impl ModelRegistry {
             "chat" => policy.chat_default_model.clone(),
             "terminal" => policy.terminal_default_model.clone(),
             "conductor" => policy.conductor_default_model.clone(),
+            "writer" => policy.writer_default_model.clone(),
             "researcher" => policy.researcher_default_model.clone(),
             "summarizer" => policy.summarizer_default_model.clone(),
             _ => None,
@@ -270,6 +273,11 @@ impl ModelRegistry {
                     .unwrap_or(true),
                 "conductor" => policy
                     .conductor_allowed_models
+                    .as_ref()
+                    .map(|models| models.iter().any(|m| m == model_id))
+                    .unwrap_or(true),
+                "writer" => policy
+                    .writer_allowed_models
                     .as_ref()
                     .map(|models| models.iter().any(|m| m == model_id))
                     .unwrap_or(true),
@@ -793,7 +801,7 @@ terminal_default_model = "KimiK25"
     }
 
     #[test]
-    fn test_resolve_for_role_uses_conductor_researcher_and_summarizer_defaults() {
+    fn test_resolve_for_role_uses_conductor_writer_researcher_and_summarizer_defaults() {
         let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
         let temp_dir = tempfile::tempdir().expect("tempdir");
         let policy_path = temp_dir.path().join("model-policy.toml");
@@ -802,9 +810,11 @@ terminal_default_model = "KimiK25"
             r#"
 default_model = "ClaudeBedrockSonnet45"
 conductor_default_model = "ClaudeBedrockOpus46"
+writer_default_model = "KimiK25"
 researcher_default_model = "ZaiGLM47"
 summarizer_default_model = "ZaiGLM47Flash"
 conductor_allowed_models = ["ClaudeBedrockOpus46"]
+writer_allowed_models = ["KimiK25"]
 researcher_allowed_models = ["ZaiGLM47"]
 summarizer_allowed_models = ["ZaiGLM47Flash"]
 "#,
@@ -827,6 +837,11 @@ summarizer_allowed_models = ["ZaiGLM47Flash"]
             .resolve_for_role("researcher", &ModelResolutionContext::default())
             .expect("resolve researcher");
         assert_eq!(researcher.config.id, "ZaiGLM47");
+
+        let writer = registry
+            .resolve_for_role("writer", &ModelResolutionContext::default())
+            .expect("resolve writer");
+        assert_eq!(writer.config.id, "KimiK25");
 
         let summarizer = registry
             .resolve_for_role("summarizer", &ModelResolutionContext::default())

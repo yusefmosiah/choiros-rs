@@ -8,12 +8,16 @@
 use async_trait::async_trait;
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashSet, VecDeque};
 use tokio::sync::mpsc;
 
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
+use crate::actors::model_config::{ModelRegistry, ModelResolutionContext};
 use crate::actors::researcher::{ResearcherMsg, ResearcherProgress, ResearcherResult};
 use crate::actors::run_writer::{PatchOp, PatchOpKind, RunWriterMsg, SectionState};
 use crate::actors::terminal::{TerminalAgentProgress, TerminalAgentResult, TerminalMsg};
+use crate::baml_client::B;
+use crate::observability::llm_trace::{LlmCallScope, LlmTraceEmitter};
 
 #[derive(Debug, Default)]
 pub struct WriterActor;
@@ -33,6 +37,31 @@ pub struct WriterState {
     event_store: ActorRef<EventStoreMsg>,
     researcher_actor: Option<ActorRef<ResearcherMsg>>,
     terminal_actor: Option<ActorRef<TerminalMsg>>,
+    model_registry: ModelRegistry,
+    inbox_queue: VecDeque<WriterInboxMessage>,
+    seen_message_ids: HashSet<String>,
+    seen_order: VecDeque<String>,
+    inbox_processing: bool,
+}
+
+#[derive(Debug, Clone)]
+struct WriterInboxMessage {
+    message_id: String,
+    kind: String,
+    run_writer_actor: ActorRef<RunWriterMsg>,
+    run_id: String,
+    section_id: String,
+    source: WriterSource,
+    content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WriterQueueAck {
+    pub message_id: String,
+    pub accepted: bool,
+    pub duplicate: bool,
+    pub queue_len: usize,
+    pub revision: u64,
 }
 
 #[derive(Debug)]
@@ -72,6 +101,21 @@ pub enum WriterMsg {
         comment: String,
         reply: RpcReplyPort<Result<u64, WriterError>>,
     },
+    /// Queue an inbound worker/human message for writer-agent synthesis.
+    ///
+    /// Control flow uses this actor message path; EventStore remains trace-only.
+    EnqueueInbound {
+        message_id: String,
+        kind: String,
+        run_writer_actor: ActorRef<RunWriterMsg>,
+        run_id: String,
+        section_id: String,
+        source: WriterSource,
+        content: String,
+        reply: RpcReplyPort<Result<WriterQueueAck, WriterError>>,
+    },
+    /// Internal wake to process the next queued inbox item.
+    ProcessInbox,
     /// Delegate multi-step work to a worker actor.
     DelegateTask {
         capability: WriterDelegateCapability,
@@ -130,6 +174,10 @@ pub enum WriterError {
     WorkerFailed(String),
     #[error("run writer failed: {0}")]
     RunWriterFailed(String),
+    #[error("model resolution failed: {0}")]
+    ModelResolution(String),
+    #[error("writer llm failed: {0}")]
+    WriterLlmFailed(String),
 }
 
 #[async_trait]
@@ -149,12 +197,17 @@ impl Actor for WriterActor {
             event_store: args.event_store,
             researcher_actor: args.researcher_actor,
             terminal_actor: args.terminal_actor,
+            model_registry: ModelRegistry::new(),
+            inbox_queue: VecDeque::new(),
+            seen_message_ids: HashSet::new(),
+            seen_order: VecDeque::new(),
+            inbox_processing: false,
         })
     }
 
     async fn handle(
         &self,
-        _myself: ActorRef<Self::Msg>,
+        myself: ActorRef<Self::Msg>,
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
@@ -231,6 +284,35 @@ impl Actor for WriterActor {
                 .await;
                 let _ = reply.send(result);
             }
+            WriterMsg::EnqueueInbound {
+                message_id,
+                kind,
+                run_writer_actor,
+                run_id,
+                section_id,
+                source,
+                content,
+                reply,
+            } => {
+                let result = Self::enqueue_inbound(
+                    &myself,
+                    state,
+                    WriterInboxMessage {
+                        message_id,
+                        kind,
+                        run_writer_actor,
+                        run_id,
+                        section_id,
+                        source,
+                        content,
+                    },
+                )
+                .await;
+                let _ = reply.send(result);
+            }
+            WriterMsg::ProcessInbox => {
+                Self::process_inbox(&myself, state).await;
+            }
             WriterMsg::DelegateTask {
                 capability,
                 objective,
@@ -252,6 +334,8 @@ impl Actor for WriterActor {
 }
 
 impl WriterActor {
+    const MAX_SEEN_IDS: usize = 4096;
+
     fn emit_event(state: &WriterState, event_type: &str, payload: serde_json::Value) {
         let event = AppendEvent {
             event_type: event_type.to_string(),
@@ -262,6 +346,246 @@ impl WriterActor {
         let _ = state
             .event_store
             .send_message(EventStoreMsg::AppendAsync { event });
+    }
+
+    fn remember_message_id(state: &mut WriterState, message_id: &str) {
+        if state.seen_message_ids.insert(message_id.to_string()) {
+            state.seen_order.push_back(message_id.to_string());
+        }
+        while state.seen_order.len() > Self::MAX_SEEN_IDS {
+            if let Some(evicted) = state.seen_order.pop_front() {
+                state.seen_message_ids.remove(&evicted);
+            }
+        }
+    }
+
+    fn format_inbox_note(inbound: &WriterInboxMessage) -> String {
+        format!(
+            "> [{source}] {kind} ({id})\n{content}\n",
+            source = inbound.source.as_str(),
+            kind = inbound.kind,
+            id = inbound.message_id,
+            content = inbound.content
+        )
+    }
+
+    async fn enqueue_inbound(
+        myself: &ActorRef<WriterMsg>,
+        state: &mut WriterState,
+        inbound: WriterInboxMessage,
+    ) -> Result<WriterQueueAck, WriterError> {
+        if inbound.content.trim().is_empty() {
+            return Err(WriterError::Validation(
+                "inbound content cannot be empty".to_string(),
+            ));
+        }
+
+        if state.seen_message_ids.contains(&inbound.message_id) {
+            return Ok(WriterQueueAck {
+                message_id: inbound.message_id,
+                accepted: true,
+                duplicate: true,
+                queue_len: state.inbox_queue.len(),
+                revision: 0,
+            });
+        }
+
+        let initial_revision = Self::apply_text(
+            state,
+            inbound.run_writer_actor.clone(),
+            inbound.run_id.clone(),
+            inbound.section_id.clone(),
+            inbound.source,
+            Self::format_inbox_note(&inbound),
+            true,
+        )
+        .await?;
+
+        Self::remember_message_id(state, &inbound.message_id);
+        state.inbox_queue.push_back(inbound.clone());
+        Self::emit_event(
+            state,
+            "writer.actor.inbox.enqueued",
+            serde_json::json!({
+                "run_id": inbound.run_id,
+                "section_id": inbound.section_id,
+                "source": inbound.source.as_str(),
+                "kind": inbound.kind,
+                "message_id": inbound.message_id,
+                "queue_len": state.inbox_queue.len(),
+                "revision": initial_revision,
+            }),
+        );
+
+        if !state.inbox_processing {
+            let _ = myself.send_message(WriterMsg::ProcessInbox);
+        }
+
+        Ok(WriterQueueAck {
+            message_id: inbound.message_id,
+            accepted: true,
+            duplicate: false,
+            queue_len: state.inbox_queue.len(),
+            revision: initial_revision,
+        })
+    }
+
+    async fn process_inbox(myself: &ActorRef<WriterMsg>, state: &mut WriterState) {
+        if state.inbox_processing {
+            return;
+        }
+
+        let Some(inbound) = state.inbox_queue.pop_front() else {
+            return;
+        };
+        state.inbox_processing = true;
+
+        let synthesis = Self::synthesize_with_llm(state, &inbound).await;
+        match synthesis {
+            Ok(Some(markdown)) => {
+                let _ = Self::apply_text(
+                    state,
+                    inbound.run_writer_actor.clone(),
+                    inbound.run_id.clone(),
+                    inbound.section_id.clone(),
+                    WriterSource::Writer,
+                    markdown,
+                    false,
+                )
+                .await;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                Self::emit_event(
+                    state,
+                    "writer.actor.inbox.synthesis_failed",
+                    serde_json::json!({
+                        "run_id": inbound.run_id,
+                        "section_id": inbound.section_id,
+                        "message_id": inbound.message_id,
+                        "error": error.to_string(),
+                    }),
+                );
+            }
+        }
+
+        state.inbox_processing = false;
+        if !state.inbox_queue.is_empty() {
+            let _ = myself.send_message(WriterMsg::ProcessInbox);
+        }
+    }
+
+    async fn synthesize_with_llm(
+        state: &WriterState,
+        inbound: &WriterInboxMessage,
+    ) -> Result<Option<String>, WriterError> {
+        let doc = match ractor::call!(inbound.run_writer_actor, |reply| {
+            RunWriterMsg::GetDocument { reply }
+        }) {
+            Ok(Ok(doc)) => doc,
+            Ok(Err(error)) => return Err(WriterError::RunWriterFailed(error.to_string())),
+            Err(error) => return Err(WriterError::RunWriterFailed(error.to_string())),
+        };
+
+        let resolved = state
+            .model_registry
+            .resolve_for_role("writer", &ModelResolutionContext::default())
+            .map_err(|e| WriterError::ModelResolution(e.to_string()))?;
+        let model_id = resolved.config.id.clone();
+        let client_registry = state
+            .model_registry
+            .create_runtime_client_registry_for_model(&model_id)
+            .map_err(|e| WriterError::ModelResolution(e.to_string()))?;
+
+        let prompt = format!(
+            "You are WriterActor.\n\
+             Produce a concise markdown update to append to section '{section}'.\n\
+             Use the new inbox message and current document context.\n\
+             Requirements:\n\
+             - 3-8 bullet points or short paragraphs\n\
+             - preserve factual claims from the inbox message\n\
+             - do not repeat the entire document\n\
+             - output markdown only\n\n\
+             Inbox message id: {message_id}\n\
+             Message kind: {kind}\n\
+             Message source: {source}\n\
+             Message content:\n{content}",
+            section = inbound.section_id,
+            message_id = inbound.message_id,
+            kind = inbound.kind,
+            source = inbound.source.as_str(),
+            content = inbound.content
+        );
+        let history = if doc.len() > 12_000 {
+            doc.chars()
+                .rev()
+                .take(12_000)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect()
+        } else {
+            doc
+        };
+
+        let trace = LlmTraceEmitter::new(state.event_store.clone());
+        let trace_ctx = trace.start_call(
+            "writer",
+            "QuickResponse",
+            &state.writer_id,
+            &model_id,
+            None,
+            "Writer inbox synthesis",
+            &serde_json::json!({
+                "run_id": inbound.run_id,
+                "section_id": inbound.section_id,
+                "message_id": inbound.message_id,
+                "kind": inbound.kind,
+            }),
+            "Writer synthesizes queued inbound message",
+            Some(LlmCallScope {
+                run_id: Some(inbound.run_id.clone()),
+                task_id: Some(inbound.message_id.clone()),
+                call_id: None,
+                session_id: None,
+                thread_id: None,
+            }),
+        );
+
+        let result = B
+            .QuickResponse
+            .with_client_registry(&client_registry)
+            .call(prompt, history)
+            .await;
+
+        match result {
+            Ok(output) => {
+                trace.complete_call(
+                    &trace_ctx,
+                    &model_id,
+                    None,
+                    &serde_json::json!({ "output": output }),
+                    "writer synthesis complete",
+                );
+                let trimmed = output.trim();
+                if trimmed.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(format!("\n<!-- writer_synthesis -->\n{trimmed}\n")))
+                }
+            }
+            Err(error) => {
+                trace.fail_call(
+                    &trace_ctx,
+                    &model_id,
+                    None,
+                    None,
+                    &error.to_string(),
+                    Some(shared_types::FailureKind::Unknown),
+                );
+                Err(WriterError::WriterLlmFailed(error.to_string()))
+            }
+        }
     }
 
     async fn apply_text(

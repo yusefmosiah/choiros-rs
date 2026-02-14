@@ -7,8 +7,60 @@ use crate::actors::conductor::{
     protocol::{CapabilityWorkerOutput, ConductorError},
 };
 use crate::actors::run_writer::{RunWriterMsg, SectionState};
+use crate::actors::writer::{WriterMsg, WriterSource};
 
 impl ConductorActor {
+    fn writer_source_for_section(section: &str) -> WriterSource {
+        match section {
+            "researcher" => WriterSource::Researcher,
+            "terminal" => WriterSource::Terminal,
+            "user" => WriterSource::User,
+            _ => WriterSource::Conductor,
+        }
+    }
+
+    async fn enqueue_writer_message(
+        state: &ConductorState,
+        run_id: &str,
+        call_id: &str,
+        section_id: &str,
+        kind: &str,
+        content: &str,
+        run_writer: &Option<ractor::ActorRef<RunWriterMsg>>,
+    ) {
+        let Some(writer_actor) = state.writer_actor.clone() else {
+            return;
+        };
+        let Some(run_writer_actor) = run_writer.clone() else {
+            return;
+        };
+        if content.trim().is_empty() {
+            return;
+        }
+
+        let message_id = format!("{call_id}:{section_id}:{kind}");
+        let source = Self::writer_source_for_section(section_id);
+        let result = ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+            message_id: message_id.clone(),
+            kind: kind.to_string(),
+            run_writer_actor: run_writer_actor.clone(),
+            run_id: run_id.to_string(),
+            section_id: section_id.to_string(),
+            source,
+            content: content.to_string(),
+            reply,
+        });
+        if let Err(error) = result {
+            tracing::warn!(
+                run_id = %run_id,
+                section_id = %section_id,
+                message_id = %message_id,
+                error = %error,
+                "Failed to enqueue writer inbox message"
+            );
+        }
+    }
+
     pub(crate) async fn handle_capability_call_finished(
         &self,
         state: &mut ConductorState,
@@ -62,6 +114,16 @@ impl ConductorActor {
                     .tasks
                     .add_artifact(&run_id, artifact)
                     .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+                Self::enqueue_writer_message(
+                    state,
+                    &run_id,
+                    &call_id,
+                    "researcher",
+                    "worker_summary",
+                    &output.summary,
+                    &run_writer,
+                )
+                .await;
 
                 events::emit_capability_completed(
                     &state.event_store,
@@ -127,6 +189,16 @@ impl ConductorActor {
                         .tasks
                         .add_artifact(&run_id, artifact)
                         .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+                    Self::enqueue_writer_message(
+                        state,
+                        &run_id,
+                        &call_id,
+                        "terminal",
+                        "worker_summary",
+                        &output.summary,
+                        &run_writer,
+                    )
+                    .await;
 
                     events::emit_capability_completed(
                         &state.event_store,
@@ -154,6 +226,16 @@ impl ConductorActor {
                     }
                 } else {
                     let err = output.summary.clone();
+                    Self::enqueue_writer_message(
+                        state,
+                        &run_id,
+                        &call_id,
+                        "terminal",
+                        "worker_failure",
+                        &err,
+                        &run_writer,
+                    )
+                    .await;
                     state
                         .tasks
                         .update_capability_call(
@@ -216,6 +298,20 @@ impl ConductorActor {
                 };
 
                 let err_text = err.to_string();
+                Self::enqueue_writer_message(
+                    state,
+                    &run_id,
+                    &call_id,
+                    match section_id.as_str() {
+                        "researcher" => "researcher",
+                        "terminal" => "terminal",
+                        _ => "conductor",
+                    },
+                    "worker_error",
+                    &err_text,
+                    &run_writer,
+                )
+                .await;
                 state
                     .tasks
                     .update_capability_call(&run_id, &call_id, call_status, Some(err_text.clone()))
