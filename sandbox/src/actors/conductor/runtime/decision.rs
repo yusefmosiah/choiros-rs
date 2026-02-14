@@ -231,7 +231,7 @@ impl ConductorActor {
                             objective,
                             Some(60_000),
                             Some(8),
-                            Some(8),
+                            Some(100),
                             progress_tx,
                             writer.clone(),
                             run_writer.clone(),

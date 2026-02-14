@@ -62,36 +62,40 @@ pub struct ContentSegment {
     pub is_deleted: bool,
 }
 
-/// Parse proposal text into segments for rendering
-/// Lines starting with '-' are deletions (gray + strikethrough)
-/// Lines starting with '+' are additions (gray)
-/// Other lines are context (normal)
-fn parse_proposal_segments(proposal: &str) -> Vec<ContentSegment> {
-    proposal
-        .lines()
-        .map(|line| {
-            let trimmed = line.trim_start();
-            if trimmed.starts_with('-') && !trimmed.starts_with("---") {
-                ContentSegment {
-                    text: line.to_string(),
-                    is_proposal: false,
-                    is_deleted: true,
-                }
-            } else if trimmed.starts_with('+') && !trimmed.starts_with("+++") {
-                ContentSegment {
-                    text: line.to_string(),
-                    is_proposal: true,
-                    is_deleted: false,
-                }
-            } else {
-                ContentSegment {
-                    text: line.to_string(),
-                    is_proposal: false,
-                    is_deleted: false,
-                }
-            }
-        })
-        .collect()
+/// Parse full document into segments with inline proposal styling.
+///
+/// Proposal mode begins at `<!-- proposal -->` and ends at next `##` section header.
+/// Lines inside proposal mode are rendered gray. Deletions (`- ...`) are gray + strikethrough.
+fn parse_document_segments(document: &str) -> Vec<ContentSegment> {
+    let mut segments = Vec::new();
+    let mut in_proposal_block = false;
+
+    for line in document.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("## ") {
+            in_proposal_block = false;
+        }
+
+        if trimmed == "<!-- proposal -->" {
+            in_proposal_block = true;
+            segments.push(ContentSegment {
+                text: line.to_string(),
+                is_proposal: true,
+                is_deleted: false,
+            });
+            continue;
+        }
+
+        let is_deleted =
+            in_proposal_block && trimmed.starts_with('-') && !trimmed.starts_with("---");
+        segments.push(ContentSegment {
+            text: line.to_string(),
+            is_proposal: in_proposal_block,
+            is_deleted,
+        });
+    }
+
+    segments
 }
 
 /// Apply patch operations to content
@@ -537,12 +541,8 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
         let runs = ACTIVE_WRITER_RUNS.read();
         runs.get(&current_path).and_then(|r| r.message.clone())
     };
-
-    // Get proposal from active run
-    let current_proposal = {
-        let runs = ACTIVE_WRITER_RUNS.read();
-        runs.get(&current_path).and_then(|r| r.proposal.clone())
-    };
+    let has_inline_proposals =
+        current_active_run_id.is_some() && current_content.contains("<!-- proposal -->");
 
     rsx! {
         div {
@@ -578,7 +578,10 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                             rsx! {
                                 span {
                                     style: "font-size: 0.75rem; color: {status_color}; padding: 0.125rem 0.375rem; background: rgba(255, 255, 255, 0.05); border-radius: 0.25rem; display: flex; align-items: center; gap: 0.25rem;",
-                                    if status != WriterRunStatusKind::Completed && status != WriterRunStatusKind::Failed {
+                                    if status != WriterRunStatusKind::Completed
+                                        && status != WriterRunStatusKind::Failed
+                                        && status != WriterRunStatusKind::Blocked
+                                    {
                                         span { style: "animation: spin 1s linear infinite; display: inline-block;", "◐" }
                                     }
                                     "{status_text}"
@@ -699,20 +702,17 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                 }
             }
 
-            // Proposal banner - shows pending changes from agent
-            if let Some(ref proposal) = current_proposal {
-                if current_active_run_id.is_some() {
-                    {
-                        let segments = parse_proposal_segments(proposal);
-                        rsx! {
-                            div {
-                                style: "padding: 0.5rem 1rem; background: rgba(59, 130, 246, 0.1); border-bottom: 1px solid var(--border-color); font-size: 0.875rem;",
+            // Main content area
+            div {
+                style: "flex: 1; overflow: hidden; display: flex;",
+
+                match current_view_mode {
+                    ViewMode::Edit => {
+                        if has_inline_proposals {
+                            let segments = parse_document_segments(&current_content);
+                            rsx! {
                                 div {
-                                    style: "display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;",
-                                    span { style: "color: var(--accent-bg);", "📝 Proposed change:" }
-                                }
-                                div {
-                                    style: "font-family: ui-monospace, monospace; font-size: 0.8rem; white-space: pre-wrap; max-height: 120px; overflow-y: auto;",
+                                    style: "flex: 1; width: 100%; height: 100%; padding: 1rem; background: var(--input-bg, var(--window-bg)); border: 1px solid var(--border-color); border-radius: 0.25rem; margin: 0.5rem; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; line-height: 1.6; white-space: pre-wrap;",
                                     for segment in segments {
                                         {
                                             let style = if segment.is_deleted {
@@ -720,34 +720,32 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                                             } else if segment.is_proposal {
                                                 "color: #94a3b8;"
                                             } else {
-                                                "color: var(--text-muted);"
+                                                "color: var(--text-primary);"
+                                            };
+                                            let display_text = if segment.text.is_empty() {
+                                                " ".to_string()
+                                            } else {
+                                                segment.text.clone()
                                             };
                                             rsx! {
-                                                div { style: "{style}", "{segment.text}" }
+                                                div { style: "{style}", "{display_text}" }
                                             }
                                         }
                                     }
                                 }
                             }
+                        } else {
+                            rsx! {
+                                textarea {
+                                    style: "flex: 1; width: 100%; height: 100%; padding: 1rem; background: var(--input-bg, var(--window-bg)); color: var(--text-primary); border: 1px solid var(--border-color); resize: none; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; line-height: 1.6; outline: none; border-radius: 0.25rem; margin: 0.5rem;",
+                                    value: "{current_content}",
+                                    readonly: current_readonly,
+                                    oninput: move |e: FormEvent| on_content_change.call(e.value()),
+                                    onkeydown: move |e: KeyboardEvent| on_keydown.call(e),
+                                }
+                            }
                         }
                     }
-                }
-            }
-
-            // Main content area
-            div {
-                style: "flex: 1; overflow: hidden; display: flex;",
-
-                match current_view_mode {
-                    ViewMode::Edit => rsx! {
-                        textarea {
-                            style: "flex: 1; width: 100%; height: 100%; padding: 1rem; background: var(--input-bg, var(--window-bg)); color: var(--text-primary); border: 1px solid var(--border-color); resize: none; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; line-height: 1.6; outline: none; border-radius: 0.25rem; margin: 0.5rem;",
-                            value: "{current_content}",
-                            readonly: current_readonly,
-                            oninput: move |e: FormEvent| on_content_change.call(e.value()),
-                            onkeydown: move |e: KeyboardEvent| on_keydown.call(e),
-                        }
-                    },
                     ViewMode::Preview => rsx! {
                         div {
                             style: "flex: 1; overflow: auto; padding: 1.5rem; background: var(--window-bg); font-family: system-ui, -apple-system, sans-serif;",

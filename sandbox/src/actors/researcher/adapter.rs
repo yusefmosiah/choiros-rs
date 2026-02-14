@@ -199,6 +199,27 @@ impl ResearcherAdapter {
         }
     }
 
+    fn writer_context(&self) -> Option<(ActorRef<WriterMsg>, ActorRef<RunWriterMsg>, String)> {
+        Some((
+            self.writer_actor.clone()?,
+            self.run_writer_actor.clone()?,
+            self.run_id.clone()?,
+        ))
+    }
+
+    async fn writer_set_state(&self, state: SectionState) {
+        let Some((writer_actor, run_writer_actor, run_id)) = self.writer_context() else {
+            return;
+        };
+        let _ = ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
+            run_writer_actor,
+            run_id,
+            section_id: "researcher".to_string(),
+            state,
+            reply,
+        });
+    }
+
     fn terminal_decision_has_required_writer_message(
         writer_mode_active: bool,
         tool_executions: &[ToolExecution],
@@ -1002,6 +1023,18 @@ Guidelines:
             });
         }
 
+        match report.status {
+            shared_types::WorkerTurnStatus::Completed => {
+                self.writer_set_state(SectionState::Complete).await;
+            }
+            shared_types::WorkerTurnStatus::Failed | shared_types::WorkerTurnStatus::Blocked => {
+                self.writer_set_state(SectionState::Failed).await;
+            }
+            shared_types::WorkerTurnStatus::Running => {
+                self.writer_set_state(SectionState::Running).await;
+            }
+        }
+
         Ok(())
     }
 
@@ -1024,6 +1057,13 @@ Guidelines:
             "timestamp": &progress.timestamp,
         });
         self.emit_event("worker.task.progress", payload);
+
+        match progress.phase.as_str() {
+            "started" => self.writer_set_state(SectionState::Running).await,
+            "completed" => self.writer_set_state(SectionState::Complete).await,
+            "failed" => self.writer_set_state(SectionState::Failed).await,
+            _ => {}
+        }
 
         Ok(())
     }
