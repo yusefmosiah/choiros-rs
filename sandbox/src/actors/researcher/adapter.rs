@@ -431,6 +431,21 @@ impl WorkerPort for ResearcherAdapter {
    - new_text: string (optional) - mode argument:
      - progress: phase string
      - state: pending|running|complete|failed
+   Required behavior in run writer mode:
+   - Use message_writer with old_text=\"proposal_append\" for substantive updates
+   - Publish first substantive update by step 2 at latest
+   - Publish again whenever you have new findings or changed conclusions
+   - Before Complete/Block, publish a final proposal_append summary
+   Examples:
+   - Initial note:
+     tool=message_writer, path=\"researcher\", old_text=\"proposal_append\",
+     content=\"Starting research plan: focus on X, Y, Z\"
+   - Findings update:
+     tool=message_writer, path=\"researcher\", old_text=\"proposal_append\",
+     content=\"Top findings:\\n- ...\\nSources: [name](url)\"
+   - Final handoff:
+     tool=message_writer, path=\"researcher\", old_text=\"proposal_append\",
+     content=\"Final synthesis:\\n- ...\\nOpen questions: ...\"
 "#
         .to_string()
     }
@@ -464,15 +479,22 @@ Guidelines:
 - Use file_write to create your working draft (overwrites existing)
 - Use file_edit to refine specific sections without rewriting everything
 - Use message_writer for run-document updates when run writer mode is active
-- When run writer mode is active, every substantial finding/update should go through
-  message_writer (proposal_append). Do not wait until the final step to publish updates.
-- Before returning Complete or Block, send at least one message_writer update summarizing
-  the current outcome/state for the researcher section.
+- Run writer mode protocol (strict):
+  - Treat message_writer as your output channel to the researcher section.
+  - Use mode proposal_append for substantive content updates.
+  - Emit first substantive proposal_append by step 2 (latest).
+  - Emit another proposal_append whenever findings materially change.
+  - Emit a final proposal_append immediately before Complete or Block.
+  - Never return Complete/Block with zero successful message_writer calls.
 - Maintain your working draft - it should evolve as you learn
 - Write findings immediately - don't wait until the end
 - Cite sources inline as markdown links: [title](url)
 - Put the most important finding first (don't bury the lede)
 - Use freeform markdown - no forced structure
+- Recommended loop shape in run writer mode:
+  1) web_search/fetch_url for evidence
+  2) message_writer proposal_append with concise findings + citations
+  3) repeat until objective is satisfied, then final proposal_append and Complete
 {}
 "#,
             ctx.step_number, ctx.max_steps, ctx.model_used, ctx.objective, run_doc_hint
