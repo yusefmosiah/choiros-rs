@@ -199,6 +199,18 @@ impl ResearcherAdapter {
         }
     }
 
+    fn terminal_decision_has_required_writer_message(
+        writer_mode_active: bool,
+        tool_executions: &[ToolExecution],
+    ) -> bool {
+        if !writer_mode_active {
+            return true;
+        }
+        tool_executions
+            .iter()
+            .any(|exec| exec.tool_name == "message_writer" && exec.success)
+    }
+
     async fn execute_message_writer(
         &self,
         tool_call: &AgentToolCall,
@@ -927,6 +939,23 @@ Guidelines:
         false
     }
 
+    fn validate_terminal_decision(
+        &self,
+        _ctx: &ExecutionContext,
+        _decision: &crate::baml_client::types::AgentDecision,
+        tool_executions: &[ToolExecution],
+    ) -> Result<(), String> {
+        let writer_mode_active = self.writer_actor.is_some() && self.has_run_writer();
+        if !Self::terminal_decision_has_required_writer_message(writer_mode_active, tool_executions)
+        {
+            return Err(
+                "Run writer mode requires at least one successful message_writer tool call before completion"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+
     async fn emit_worker_report(
         &self,
         ctx: &ExecutionContext,
@@ -1037,5 +1066,23 @@ mod tests {
             Some(SectionState::Failed)
         );
         assert_eq!(ResearcherAdapter::parse_section_state(Some("bogus")), None);
+    }
+
+    #[test]
+    fn terminal_decision_requires_message_writer_when_writer_mode_active() {
+        assert!(!ResearcherAdapter::terminal_decision_has_required_writer_message(true, &[]));
+        assert!(ResearcherAdapter::terminal_decision_has_required_writer_message(false, &[]));
+        assert!(
+            ResearcherAdapter::terminal_decision_has_required_writer_message(
+                true,
+                &[ToolExecution {
+                    tool_name: "message_writer".to_string(),
+                    success: true,
+                    output: "{}".to_string(),
+                    error: None,
+                    execution_time_ms: 1,
+                }]
+            )
+        );
     }
 }

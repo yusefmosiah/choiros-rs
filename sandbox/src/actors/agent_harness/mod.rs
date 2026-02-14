@@ -282,6 +282,18 @@ pub trait WorkerPort: Send + Sync {
             created_at: Some(chrono::Utc::now().to_rfc3339()),
         }
     }
+
+    /// Validate whether a terminal decision (Complete/Block) is allowed.
+    ///
+    /// Adapters can enforce capability-specific completion invariants.
+    fn validate_terminal_decision(
+        &self,
+        _ctx: &ExecutionContext,
+        _decision: &AgentDecision,
+        _tool_executions: &[ToolExecution],
+    ) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// Backward-compatible alias for older call sites.
@@ -514,6 +526,29 @@ impl<W: WorkerPort> AgentHarness<W> {
                     // Continue loop for next decision
                 }
                 Action::Complete => {
+                    if let Err(reason) = self.worker_port.validate_terminal_decision(
+                        &ctx,
+                        &decision,
+                        &tool_executions,
+                    ) {
+                        self.emit_progress_internal(
+                            &ctx,
+                            &progress_tx,
+                            "completion_guard",
+                            &reason,
+                            Some(step_count),
+                            Some(self.config.max_steps),
+                        )
+                        .await?;
+                        messages.push(BamlMessage {
+                            role: "assistant".to_string(),
+                            content: format!(
+                                "Completion rejected by worker guard: {reason}\n\
+                                 Continue and use tools to satisfy this requirement."
+                            ),
+                        });
+                        continue;
+                    }
                     final_summary = decision.summary.unwrap_or_default();
                     objective_status = ObjectiveStatus::Complete;
                     completion_reason = decision.reason.unwrap_or_default();
@@ -521,6 +556,29 @@ impl<W: WorkerPort> AgentHarness<W> {
                     break;
                 }
                 Action::Block => {
+                    if let Err(reason) = self.worker_port.validate_terminal_decision(
+                        &ctx,
+                        &decision,
+                        &tool_executions,
+                    ) {
+                        self.emit_progress_internal(
+                            &ctx,
+                            &progress_tx,
+                            "completion_guard",
+                            &reason,
+                            Some(step_count),
+                            Some(self.config.max_steps),
+                        )
+                        .await?;
+                        messages.push(BamlMessage {
+                            role: "assistant".to_string(),
+                            content: format!(
+                                "Block rejected by worker guard: {reason}\n\
+                                 Continue and use tools to satisfy this requirement."
+                            ),
+                        });
+                        continue;
+                    }
                     let reason = decision
                         .reason
                         .unwrap_or_else(|| "Blocked without reason".to_string());
