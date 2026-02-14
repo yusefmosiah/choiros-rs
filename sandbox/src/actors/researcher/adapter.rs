@@ -457,16 +457,18 @@ impl WorkerPort for ResearcherAdapter {
    - Publish first substantive update by step 2 at latest
    - Publish again whenever you have new findings or changed conclusions
    - Before Complete/Block, publish a final proposal_append summary
+   - Keep each update concise and incremental (delta from prior update), not a full report
+   - If evidence conflicts with earlier claims, explicitly mark the old claim as superseded
    Examples:
    - Initial note:
      tool=message_writer, path=\"researcher\", old_text=\"proposal_append\",
-     content=\"Starting research plan: focus on X, Y, Z\"
+     content=\"Plan: verify repo URL, compare architecture, then benchmark/runtime differences.\"
    - Findings update:
      tool=message_writer, path=\"researcher\", old_text=\"proposal_append\",
-     content=\"Top findings:\\n- ...\\nSources: [name](url)\"
+     content=\"New findings:\\n- ...\\n- ...\\nSources: [name](url)\"
    - Final handoff:
      tool=message_writer, path=\"researcher\", old_text=\"proposal_append\",
-     content=\"Final synthesis:\\n- ...\\nOpen questions: ...\"
+     content=\"Final delta summary:\\n- ...\\nUncertainty: ...\\nSources: ...\"
 "#
         .to_string()
     }
@@ -507,6 +509,12 @@ Guidelines:
   - Emit another proposal_append whenever findings materially change.
   - Emit a final proposal_append immediately before Complete or Block.
   - Never return Complete/Block with zero successful message_writer calls.
+- Content quality protocol:
+  - Do not output long, rigid report templates from researcher.
+  - Send concise evidence deltas (what changed since last update).
+  - Include source links for factual claims.
+  - If a later fetch/search contradicts earlier text, explicitly mark the earlier claim as superseded.
+  - Prefer uncertainty over false certainty when evidence is incomplete.
 - Maintain your working draft - it should evolve as you learn
 - Write findings immediately - don't wait until the end
 - Cite sources inline as markdown links: [title](url)

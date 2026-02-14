@@ -502,9 +502,13 @@ impl WriterActor {
              Produce a concise markdown update to append to section '{section}'.\n\
              Use the new inbox message and current document context.\n\
              Requirements:\n\
-             - 3-8 bullet points or short paragraphs\n\
-             - preserve factual claims from the inbox message\n\
+             - prioritize readability for humans\n\
+             - prefer concise paragraphs/bullets over rigid report templates\n\
+             - preserve factual claims from the inbox message, but reconcile contradictions with existing document context\n\
+             - if a new claim conflicts with earlier text, explicitly correct/supersede the earlier claim\n\
+             - avoid duplicating stale or disproven claims\n\
              - do not repeat the entire document\n\
+             - keep updates incremental (delta-style)\n\
              - output markdown only\n\n\
              Inbox message id: {message_id}\n\
              Message kind: {kind}\n\
