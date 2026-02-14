@@ -21,11 +21,11 @@ use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 
 use crate::actors::agent_harness::{
-    AgentAdapter, AgentProgress, ExecutionContext, HarnessError, ToolExecution,
+    AgentProgress, ExecutionContext, HarnessError, ToolExecution, WorkerPort,
 };
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::ModelRegistry;
-use crate::actors::run_writer::{PatchOp, PatchOpKind, RunWriterMsg};
+use crate::actors::run_writer::{PatchOp, PatchOpKind, RunWriterMsg, SectionState};
 use crate::baml_client::types::AgentToolCall;
 
 use super::{
@@ -199,10 +199,165 @@ impl ResearcherAdapter {
 
         result.map(|_| ()).map_err(|e| e.to_string())
     }
+
+    fn resolve_writer_section(section_hint: Option<&str>) -> String {
+        match section_hint
+            .map(|s| s.trim().to_ascii_lowercase())
+            .filter(|s| !s.is_empty())
+            .as_deref()
+        {
+            Some("conductor") => "conductor".to_string(),
+            Some("terminal") => "terminal".to_string(),
+            Some("user") => "user".to_string(),
+            _ => "researcher".to_string(),
+        }
+    }
+
+    fn parse_section_state(raw: Option<&str>) -> Option<SectionState> {
+        match raw.map(|s| s.trim().to_ascii_lowercase())?.as_str() {
+            "pending" => Some(SectionState::Pending),
+            "running" => Some(SectionState::Running),
+            "complete" | "completed" => Some(SectionState::Complete),
+            "failed" => Some(SectionState::Failed),
+            _ => None,
+        }
+    }
+
+    async fn execute_message_writer(
+        &self,
+        tool_call: &AgentToolCall,
+    ) -> Result<ToolExecution, HarnessError> {
+        use ractor::call;
+
+        let start_time = tokio::time::Instant::now();
+        let (run_writer, run_id) = match (&self.run_writer_actor, &self.run_id) {
+            (Some(actor), Some(run_id)) => (actor, run_id),
+            _ => {
+                return Ok(ToolExecution {
+                    tool_name: tool_call.tool_name.clone(),
+                    success: false,
+                    output: String::new(),
+                    error: Some("RunWriterActor not configured for this run".to_string()),
+                    execution_time_ms: start_time.elapsed().as_millis() as u64,
+                });
+            }
+        };
+
+        let args = &tool_call.tool_args;
+        let section_id = Self::resolve_writer_section(args.path.as_deref());
+        let content = args.content.clone().unwrap_or_default();
+        let mode = args
+            .old_text
+            .clone()
+            .unwrap_or_else(|| "proposal_append".to_string())
+            .trim()
+            .to_ascii_lowercase();
+        let mode_arg = args.new_text.clone();
+
+        let result = match mode.as_str() {
+            "progress" => {
+                let phase = mode_arg
+                    .clone()
+                    .unwrap_or_else(|| "update".to_string())
+                    .trim()
+                    .to_string();
+                if content.trim().is_empty() {
+                    Err("message_writer progress mode requires content".to_string())
+                } else {
+                    call!(run_writer, |reply| RunWriterMsg::ReportSectionProgress {
+                        run_id: run_id.clone(),
+                        source: "researcher".to_string(),
+                        section_id: section_id.clone(),
+                        phase,
+                        message: content.clone(),
+                        reply,
+                    })
+                    .map_err(|e| format!("RunWriterActor call failed: {e}"))
+                    .and_then(|inner| inner.map_err(|e| e.to_string()))
+                    .map(|rev| serde_json::json!({
+                        "mode": "progress",
+                        "section_id": section_id,
+                        "revision": rev,
+                    }))
+                }
+            }
+            "state" => {
+                let state = Self::parse_section_state(mode_arg.as_deref()).ok_or_else(|| {
+                    "message_writer state mode requires new_text in {pending|running|complete|failed}"
+                        .to_string()
+                });
+                match state {
+                    Ok(state) => call!(run_writer, |reply| RunWriterMsg::MarkSectionState {
+                        run_id: run_id.clone(),
+                        section_id: section_id.clone(),
+                        state,
+                        reply,
+                    })
+                    .map_err(|e| format!("RunWriterActor call failed: {e}"))
+                    .and_then(|inner| inner.map_err(|e| e.to_string()))
+                    .map(|_| serde_json::json!({
+                        "mode": "state",
+                        "section_id": section_id,
+                    })),
+                    Err(e) => Err(e),
+                }
+            }
+            "canon_append" => {
+                if content.trim().is_empty() {
+                    Err("message_writer canon_append mode requires content".to_string())
+                } else {
+                    self.send_patch_to_run_writer(&section_id, &content, false)
+                        .await
+                        .map(|_| {
+                            serde_json::json!({
+                                "mode": "canon_append",
+                                "section_id": section_id,
+                            })
+                        })
+                }
+            }
+            "proposal_append" => {
+                if content.trim().is_empty() {
+                    Err("message_writer proposal_append mode requires content".to_string())
+                } else {
+                    self.send_patch_to_run_writer(&section_id, &content, true)
+                        .await
+                        .map(|_| {
+                            serde_json::json!({
+                                "mode": "proposal_append",
+                                "section_id": section_id,
+                            })
+                        })
+                }
+            }
+            _ => Err(format!(
+                "Unknown message_writer mode '{}'. Supported: proposal_append, canon_append, progress, state",
+                mode
+            )),
+        };
+
+        let elapsed = start_time.elapsed().as_millis() as u64;
+        match result {
+            Ok(output) => Ok(ToolExecution {
+                tool_name: tool_call.tool_name.clone(),
+                success: true,
+                output: output.to_string(),
+                error: None,
+                execution_time_ms: elapsed,
+            }),
+            Err(error) => Ok(ToolExecution {
+                tool_name: tool_call.tool_name.clone(),
+                success: false,
+                output: String::new(),
+                error: Some(error),
+                execution_time_ms: elapsed,
+            }),
+        }
+    }
 }
 
 #[async_trait]
-impl AgentAdapter for ResearcherAdapter {
+impl WorkerPort for ResearcherAdapter {
     fn get_model_role(&self) -> &str {
         "researcher"
     }
@@ -238,6 +393,15 @@ impl AgentAdapter for ResearcherAdapter {
    - path: string (required) - Relative path from sandbox root
    - old_text: string (required) - Text to find and replace
    - new_text: string (required) - Replacement text
+
+6. message_writer - Send a typed actor message to the run writer
+   Args:
+   - path: string (optional) - section_id: conductor|researcher|terminal|user (default: researcher)
+   - content: string (required for append/progress)
+   - old_text: string (optional) - mode: proposal_append|canon_append|progress|state (default: proposal_append)
+   - new_text: string (optional) - mode argument:
+     - progress: phase string
+     - state: pending|running|complete|failed
 "#
         .to_string()
     }
@@ -247,7 +411,8 @@ impl AgentAdapter for ResearcherAdapter {
             .run_document_path()
             .map(|path| {
                 format!(
-                    "- Run writer mode is active: route all draft mutations to `{path}`\n\
+                    "- Run writer mode is active: use `message_writer` for run-document updates\n\
+                     - Canonical run document path: `{path}`\n\
                      - Do not create alternate draft files for conductor runs"
                 )
             })
@@ -269,6 +434,7 @@ Guidelines:
 - Use file_read to reference existing documents, code, or previous research
 - Use file_write to create your working draft (overwrites existing)
 - Use file_edit to refine specific sections without rewriting everything
+- Use message_writer for run-document updates when run writer mode is active
 - Maintain your working draft - it should evolve as you learn
 - Write findings immediately - don't wait until the end
 - Cite sources inline as markdown links: [title](url)
@@ -288,6 +454,8 @@ Guidelines:
         let start_time = tokio::time::Instant::now();
 
         match tool_call.tool_name.as_str() {
+            "message_writer" => self.execute_message_writer(tool_call).await,
+
             "web_search" => {
                 let args = &tool_call.tool_args;
                 let query = args
@@ -526,52 +694,30 @@ Guidelines:
                     });
                 }
 
-                if self.has_run_writer() {
-                    let effective_path =
-                        self.run_document_path().unwrap_or_else(|| path.to_string());
-                    match self
-                        .send_patch_to_run_writer("researcher", content, true)
-                        .await
-                    {
-                        Ok(_) => {
-                            let elapsed = start_time.elapsed().as_millis() as u64;
-                            let output = serde_json::json!({
-                                "path": effective_path,
-                                "requested_path": path,
-                                "size": content.len(),
-                                "via_run_writer": true,
-                                "redirected": path != &effective_path,
-                            });
-
-                            self.emit_document_update(&ctx.loop_id, &effective_path, content);
-
-                            Ok(ToolExecution {
-                                tool_name: tool_call.tool_name.clone(),
-                                success: true,
-                                output: output.to_string(),
-                                error: None,
-                                execution_time_ms: elapsed,
-                            })
-                        }
-                        Err(e) => {
-                            let elapsed = start_time.elapsed().as_millis() as u64;
-                            Ok(ToolExecution {
-                                tool_name: tool_call.tool_name.clone(),
-                                success: false,
-                                output: String::new(),
-                                error: Some(format!("RunWriterActor patch failed: {}", e)),
-                                execution_time_ms: elapsed,
-                            })
-                        }
-                    }
-                } else if is_run_document_path(path) {
+                let is_run_doc_path = is_run_document_path(path)
+                    || self
+                        .run_document_path()
+                        .as_ref()
+                        .map(|p| p == path)
+                        .unwrap_or(false);
+                if is_run_doc_path && self.has_run_writer() {
+                    let elapsed = start_time.elapsed().as_millis() as u64;
+                    Ok(ToolExecution {
+                        tool_name: tool_call.tool_name.clone(),
+                        success: false,
+                        output: String::new(),
+                        error: Some("Run document writes must use message_writer tool".to_string()),
+                        execution_time_ms: elapsed,
+                    })
+                } else if is_run_doc_path {
                     let elapsed = start_time.elapsed().as_millis() as u64;
                     Ok(ToolExecution {
                         tool_name: tool_call.tool_name.clone(),
                         success: false,
                         output: String::new(),
                         error: Some(
-                            "Run document writes must go through RunWriterActor".to_string(),
+                            "Run document writes are unavailable without RunWriterActor"
+                                .to_string(),
                         ),
                         execution_time_ms: elapsed,
                     })
@@ -649,51 +795,29 @@ Guidelines:
                     });
                 }
 
-                if self.has_run_writer() {
-                    let effective_path =
-                        self.run_document_path().unwrap_or_else(|| path.to_string());
-                    let edit_content =
-                        format!("\n[EDIT] Replace:\n{}\n\nWith:\n{}\n", old_text, new_text);
-                    match self
-                        .send_patch_to_run_writer("researcher", &edit_content, true)
-                        .await
-                    {
-                        Ok(_) => {
-                            let elapsed = start_time.elapsed().as_millis() as u64;
-                            let output = serde_json::json!({
-                                "path": effective_path,
-                                "requested_path": path,
-                                "via_run_writer": true,
-                                "redirected": path != &effective_path,
-                            });
-
-                            Ok(ToolExecution {
-                                tool_name: tool_call.tool_name.clone(),
-                                success: true,
-                                output: output.to_string(),
-                                error: None,
-                                execution_time_ms: elapsed,
-                            })
-                        }
-                        Err(e) => {
-                            let elapsed = start_time.elapsed().as_millis() as u64;
-                            Ok(ToolExecution {
-                                tool_name: tool_call.tool_name.clone(),
-                                success: false,
-                                output: String::new(),
-                                error: Some(format!("RunWriterActor patch failed: {}", e)),
-                                execution_time_ms: elapsed,
-                            })
-                        }
-                    }
-                } else if is_run_document_path(path) {
+                let is_run_doc_path = is_run_document_path(path)
+                    || self
+                        .run_document_path()
+                        .as_ref()
+                        .map(|p| p == path)
+                        .unwrap_or(false);
+                if is_run_doc_path && self.has_run_writer() {
+                    let elapsed = start_time.elapsed().as_millis() as u64;
+                    Ok(ToolExecution {
+                        tool_name: tool_call.tool_name.clone(),
+                        success: false,
+                        output: String::new(),
+                        error: Some("Run document edits must use message_writer tool".to_string()),
+                        execution_time_ms: elapsed,
+                    })
+                } else if is_run_doc_path {
                     let elapsed = start_time.elapsed().as_millis() as u64;
                     Ok(ToolExecution {
                         tool_name: tool_call.tool_name.clone(),
                         success: false,
                         output: String::new(),
                         error: Some(
-                            "Run document edits must go through RunWriterActor".to_string(),
+                            "Run document edits are unavailable without RunWriterActor".to_string(),
                         ),
                         execution_time_ms: elapsed,
                     })
@@ -830,5 +954,67 @@ Guidelines:
         self.emit_event("worker.task.progress", payload);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_writer_section_defaults_to_researcher() {
+        assert_eq!(
+            ResearcherAdapter::resolve_writer_section(None),
+            "researcher".to_string()
+        );
+        assert_eq!(
+            ResearcherAdapter::resolve_writer_section(Some("")),
+            "researcher".to_string()
+        );
+        assert_eq!(
+            ResearcherAdapter::resolve_writer_section(Some("unknown")),
+            "researcher".to_string()
+        );
+    }
+
+    #[test]
+    fn resolve_writer_section_allows_known_sections() {
+        assert_eq!(
+            ResearcherAdapter::resolve_writer_section(Some("Conductor")),
+            "conductor".to_string()
+        );
+        assert_eq!(
+            ResearcherAdapter::resolve_writer_section(Some("terminal")),
+            "terminal".to_string()
+        );
+        assert_eq!(
+            ResearcherAdapter::resolve_writer_section(Some("user")),
+            "user".to_string()
+        );
+    }
+
+    #[test]
+    fn parse_section_state_handles_supported_values() {
+        assert_eq!(
+            ResearcherAdapter::parse_section_state(Some("pending")),
+            Some(SectionState::Pending)
+        );
+        assert_eq!(
+            ResearcherAdapter::parse_section_state(Some("running")),
+            Some(SectionState::Running)
+        );
+        assert_eq!(
+            ResearcherAdapter::parse_section_state(Some("complete")),
+            Some(SectionState::Complete)
+        );
+        assert_eq!(
+            ResearcherAdapter::parse_section_state(Some("completed")),
+            Some(SectionState::Complete)
+        );
+        assert_eq!(
+            ResearcherAdapter::parse_section_state(Some("failed")),
+            Some(SectionState::Failed)
+        );
+        assert_eq!(ResearcherAdapter::parse_section_state(Some("bogus")), None);
     }
 }

@@ -13,13 +13,13 @@
 //!
 //! ## Usage
 //!
-//! Implement the `AgentAdapter` trait for your specific worker type, then use
+//! Implement the `WorkerPort` trait for your specific worker type, then use
 //! `AgentHarness::run()` to execute the agentic loop.
 //!
 //! ```rust,ignore
 //! pub struct MyAdapter;
 //!
-//! impl AgentAdapter for MyAdapter {
+//! impl WorkerPort for MyAdapter {
 //!     fn get_model_role(&self) -> &str { "my_worker" }
 //!     // ... other methods
 //! }
@@ -195,16 +195,16 @@ impl From<ModelConfigError> for HarnessError {
 }
 
 // ============================================================================
-// AgentAdapter Trait
+// WorkerPort Trait
 // ============================================================================
 
 /// Trait for adapting the harness to specific worker types
 ///
 /// Implement this trait to customize the harness behavior for your worker.
-/// The adapter provides worker-specific logic while the harness handles
+/// The worker port provides worker-specific logic while the harness handles
 /// the common loop control flow.
 #[async_trait]
-pub trait AgentAdapter: Send + Sync {
+pub trait WorkerPort: Send + Sync {
     /// Returns the model role identifier for this worker type
     /// (e.g., "terminal", "researcher")
     fn get_model_role(&self) -> &str;
@@ -284,6 +284,12 @@ pub trait AgentAdapter: Send + Sync {
     }
 }
 
+/// Backward-compatible alias for older call sites.
+///
+/// New code should implement/use `WorkerPort`.
+pub trait AgentAdapter: WorkerPort {}
+impl<T: WorkerPort + ?Sized> AgentAdapter for T {}
+
 // ============================================================================
 // AgentHarness
 // ============================================================================
@@ -291,20 +297,24 @@ pub trait AgentAdapter: Send + Sync {
 /// The unified agent harness
 ///
 /// This struct provides the core agentic loop implementation.
-/// It is generic over the `AgentAdapter` trait to allow customization
+/// It is generic over the `WorkerPort` trait to allow customization
 /// for different worker types.
-pub struct AgentHarness<A: AgentAdapter> {
-    adapter: A,
+pub struct AgentHarness<W: WorkerPort> {
+    worker_port: W,
     model_registry: ModelRegistry,
     config: HarnessConfig,
     trace_emitter: LlmTraceEmitter,
 }
 
-impl<A: AgentAdapter> AgentHarness<A> {
-    /// Create a new agent harness with the given adapter and model registry
-    pub fn new(adapter: A, model_registry: ModelRegistry, trace_emitter: LlmTraceEmitter) -> Self {
+impl<W: WorkerPort> AgentHarness<W> {
+    /// Create a new agent harness with the given worker port and model registry
+    pub fn new(
+        worker_port: W,
+        model_registry: ModelRegistry,
+        trace_emitter: LlmTraceEmitter,
+    ) -> Self {
         Self {
-            adapter,
+            worker_port,
             model_registry,
             config: HarnessConfig::default(),
             trace_emitter,
@@ -312,13 +322,13 @@ impl<A: AgentAdapter> AgentHarness<A> {
     }
 
     pub fn with_config(
-        adapter: A,
+        worker_port: W,
         model_registry: ModelRegistry,
         config: HarnessConfig,
         trace_emitter: LlmTraceEmitter,
     ) -> Self {
         Self {
-            adapter,
+            worker_port,
             model_registry,
             config,
             trace_emitter,
@@ -349,7 +359,7 @@ impl<A: AgentAdapter> AgentHarness<A> {
         let resolved_model = self
             .model_registry
             .resolve_for_role(
-                self.adapter.get_model_role(),
+                self.worker_port.get_model_role(),
                 &ModelResolutionContext {
                     request_model: model_override,
                     app_preference: None,
@@ -362,7 +372,7 @@ impl<A: AgentAdapter> AgentHarness<A> {
         info!(
             loop_id = %loop_id,
             worker_id = %worker_id,
-            role = %self.adapter.get_model_role(),
+            role = %self.worker_port.get_model_role(),
             model = %model_used,
             "Starting agentic loop"
         );
@@ -432,7 +442,7 @@ impl<A: AgentAdapter> AgentHarness<A> {
                 Action::ToolCall => {
                     // Execute tools from decision.tool_calls
                     for tool_call in &decision.tool_calls {
-                        if self.adapter.should_defer(&tool_call.tool_name) {
+                        if self.worker_port.should_defer(&tool_call.tool_name) {
                             debug!(tool = %tool_call.tool_name, "Tool deferred");
                             continue;
                         }
@@ -458,7 +468,7 @@ impl<A: AgentAdapter> AgentHarness<A> {
                             "debug": format!("{:?}", tool_call.tool_args),
                         });
                         let tool_ctx = self.trace_emitter.start_tool_call(
-                            self.adapter.get_model_role(),
+                            self.worker_port.get_model_role(),
                             &ctx.worker_id,
                             &tool_call.tool_name,
                             &tool_args_json,
@@ -466,7 +476,7 @@ impl<A: AgentAdapter> AgentHarness<A> {
                             Some(tool_scope),
                         );
 
-                        let tool_result = self.adapter.execute_tool_call(&ctx, tool_call).await;
+                        let tool_result = self.worker_port.execute_tool_call(&ctx, tool_call).await;
 
                         match tool_result {
                             Ok(execution) => {
@@ -538,13 +548,13 @@ impl<A: AgentAdapter> AgentHarness<A> {
 
         // Build and emit WorkerTurnReport
         let worker_report = if self.config.emit_worker_report {
-            let report = self.adapter.build_worker_report(
+            let report = self.worker_port.build_worker_report(
                 &ctx,
                 &final_summary,
                 objective_status != ObjectiveStatus::Blocked,
             );
 
-            self.adapter
+            self.worker_port
                 .emit_worker_report(&ctx, report.clone())
                 .await?;
             Some(report)
@@ -590,8 +600,8 @@ impl<A: AgentAdapter> AgentHarness<A> {
         messages: &[BamlMessage],
         ctx: &ExecutionContext,
     ) -> Result<AgentDecision, HarnessError> {
-        let system_context = self.adapter.get_system_context(ctx);
-        let tools_description = self.adapter.get_tool_description();
+        let system_context = self.worker_port.get_system_context(ctx);
+        let tools_description = self.worker_port.get_tool_description();
 
         let input = serde_json::json!({
             "message_count": messages.len(),
@@ -608,7 +618,7 @@ impl<A: AgentAdapter> AgentHarness<A> {
         let provider: Option<&str> = None;
 
         let trace_ctx = self.trace_emitter.start_call(
-            self.adapter.get_model_role(),
+            self.worker_port.get_model_role(),
             "Decide",
             &ctx.worker_id,
             model_used,
@@ -661,14 +671,14 @@ impl<A: AgentAdapter> AgentHarness<A> {
     }
 
     async fn emit_started(&self, ctx: &ExecutionContext) -> Result<(), HarnessError> {
-        self.adapter
+        self.worker_port
             .emit_progress(
                 ctx,
                 AgentProgress {
                     phase: "started".to_string(),
                     message: format!(
                         "{} agent started objective execution",
-                        self.adapter.get_model_role()
+                        self.worker_port.get_model_role()
                     ),
                     step_index: Some(0),
                     step_total: Some(ctx.max_steps),
@@ -687,7 +697,7 @@ impl<A: AgentAdapter> AgentHarness<A> {
         ctx: &ExecutionContext,
         summary: &str,
     ) -> Result<(), HarnessError> {
-        self.adapter
+        self.worker_port
             .emit_progress(
                 ctx,
                 AgentProgress {
@@ -704,7 +714,7 @@ impl<A: AgentAdapter> AgentHarness<A> {
     }
 
     async fn emit_failed(&self, ctx: &ExecutionContext, error: &str) -> Result<(), HarnessError> {
-        self.adapter
+        self.worker_port
             .emit_progress(
                 ctx,
                 AgentProgress {
@@ -745,7 +755,7 @@ impl<A: AgentAdapter> AgentHarness<A> {
         }
 
         // Emit via adapter
-        self.adapter.emit_progress(ctx, progress).await
+        self.worker_port.emit_progress(ctx, progress).await
     }
 }
 
@@ -913,7 +923,7 @@ impl DefaultAdapter {
 }
 
 #[async_trait]
-impl AgentAdapter for DefaultAdapter {
+impl WorkerPort for DefaultAdapter {
     fn get_model_role(&self) -> &str {
         &self.model_role
     }

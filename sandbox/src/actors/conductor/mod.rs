@@ -33,7 +33,6 @@
 
 pub mod actor;
 pub mod events;
-pub mod file_tools;
 pub mod model_gateway;
 pub mod output;
 pub mod protocol;

@@ -24,7 +24,7 @@ use std::io::{Read, Write};
 use tokio::sync::{broadcast, mpsc};
 
 use crate::actors::agent_harness::{
-    AgentAdapter, AgentHarness, AgentProgress, ExecutionContext, HarnessConfig, ToolExecution,
+    AgentHarness, AgentProgress, ExecutionContext, HarnessConfig, ToolExecution, WorkerPort,
 };
 use crate::actors::event_store::EventStoreMsg;
 use crate::actors::model_config::ModelRegistry;
@@ -195,7 +195,7 @@ impl TerminalAdapter {
 }
 
 #[async_trait]
-impl AgentAdapter for TerminalAdapter {
+impl WorkerPort for TerminalAdapter {
     fn get_model_role(&self) -> &str {
         "terminal"
     }

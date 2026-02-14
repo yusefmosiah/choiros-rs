@@ -92,7 +92,11 @@ impl Actor for RunWriterActor {
             .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
         let document_path = root_dir.join(&document_path_relative);
 
-        let (document, revision) = Self::load_or_create_document(&document_path).await?;
+        let (mut document, revision) =
+            Self::load_or_create_document(&document_path, &args.objective).await?;
+        if document.objective.trim().is_empty() {
+            document.objective = args.objective.clone();
+        }
 
         tracing::info!(
             actor_id = %myself.get_id(),
@@ -214,6 +218,7 @@ impl Actor for RunWriterActor {
 impl RunWriterActor {
     async fn load_or_create_document(
         path: &PathBuf,
+        objective: &str,
     ) -> Result<(RunDocument, u64), ActorProcessingErr> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await.ok();
@@ -244,7 +249,7 @@ impl RunWriterActor {
             }
         }
 
-        Ok((RunDocument::default(), 0))
+        Ok((RunDocument::new(objective), 0))
     }
 
     fn extract_revision_from_content(content: &str) -> u64 {
@@ -453,7 +458,7 @@ impl RunWriterActor {
             .ok_or_else(|| RunWriterError::SectionNotFound(section_id.clone()))?;
 
         let target = if proposal {
-            section.proposal.as_mut().unwrap_or(&mut section.content)
+            section.proposal.get_or_insert_with(String::new)
         } else {
             &mut section.content
         };
@@ -636,10 +641,7 @@ impl RunWriterActor {
             .ok_or_else(|| RunWriterError::SectionNotFound(section_id.clone()))?;
 
         section.state = section_state.clone();
-        let proposal_snapshot = section.proposal.clone();
         let status_message = format!("{section_id} -> {:?}", section_state);
-
-        Self::persist_document(state).await?;
         let status = match section_state {
             SectionState::Pending => shared_types::WriterRunStatusKind::WaitingForWorker,
             SectionState::Running => shared_types::WriterRunStatusKind::Running,
@@ -647,7 +649,6 @@ impl RunWriterActor {
             SectionState::Failed => shared_types::WriterRunStatusKind::Failed,
         };
         Self::emit_status_event(state, status, Some(status_message)).await;
-        Self::emit_patch_event(state, "system", Some(&section_id), proposal_snapshot).await;
 
         Ok(())
     }
