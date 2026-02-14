@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 use shared_types::{
-    ConductorError, ConductorExecuteResponse, ConductorOutputMode, ConductorTaskStatus,
+    ConductorError, ConductorExecuteResponse, ConductorOutputMode, ConductorRunStatus,
     ConductorToastPayload, EventImportance, WindowState, WriterWindowProps,
 };
 
@@ -251,13 +251,13 @@ pub enum ConductorSubmissionState {
     Idle,
     Submitting,
     OpeningWriter {
-        task_id: String,
+        run_id: String,
     },
     Success {
-        task_id: String,
+        run_id: String,
     },
     ToastReady {
-        task_id: String,
+        run_id: String,
         toast: ConductorToastPayload,
     },
     Failed {
@@ -319,21 +319,22 @@ enum TaskLifecycleDecision {
     Failed,
 }
 
-fn classify_task_status(status: ConductorTaskStatus) -> TaskLifecycleDecision {
+fn classify_run_status(status: ConductorRunStatus) -> TaskLifecycleDecision {
     match status {
-        ConductorTaskStatus::Queued
-        | ConductorTaskStatus::Running
-        | ConductorTaskStatus::WaitingWorker => TaskLifecycleDecision::Running,
-        ConductorTaskStatus::Completed => TaskLifecycleDecision::Completed,
-        ConductorTaskStatus::Failed => TaskLifecycleDecision::Failed,
+        ConductorRunStatus::Initializing
+        | ConductorRunStatus::Running
+        | ConductorRunStatus::WaitingForCalls
+        | ConductorRunStatus::Completing => TaskLifecycleDecision::Running,
+        ConductorRunStatus::Completed => TaskLifecycleDecision::Completed,
+        ConductorRunStatus::Failed | ConductorRunStatus::Blocked => TaskLifecycleDecision::Failed,
     }
 }
 
 fn failure_from_error(error: Option<ConductorError>) -> (String, String) {
     error.map(|e| (e.code, e.message)).unwrap_or_else(|| {
         (
-            "TASK_FAILED".to_string(),
-            "Task failed without error details".to_string(),
+            "RUN_FAILED".to_string(),
+            "Run failed without error details".to_string(),
         )
     })
 }
@@ -382,7 +383,7 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
 
         spawn(async move {
             // Execute conductor task
-            match execute_conductor(&objective, &desktop_id, ConductorOutputMode::Auto, None).await
+            match execute_conductor(&objective, &desktop_id, ConductorOutputMode::Auto).await
             {
                 Ok(response) => {
                     handle_conductor_response(response, state, desktop_id).await;
@@ -402,10 +403,10 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
         mut state: Signal<ConductorSubmissionState>,
         desktop_id: String,
     ) {
-        match classify_task_status(response.status) {
+        match classify_run_status(response.status) {
             TaskLifecycleDecision::Running => {
                 state.set(ConductorSubmissionState::OpeningWriter {
-                    task_id: response.task_id.clone(),
+                    run_id: response.run_id.clone(),
                 });
 
                 if let Err(e) = open_writer_window(&desktop_id, response.writer_window_props).await {
@@ -415,19 +416,19 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
                     });
                 } else {
                     state.set(ConductorSubmissionState::Success {
-                        task_id: response.task_id,
+                        run_id: response.run_id,
                     });
                 }
             }
             TaskLifecycleDecision::Completed => {
                 if let Some(toast) = response.toast {
                     state.set(ConductorSubmissionState::ToastReady {
-                        task_id: response.task_id,
+                        run_id: response.run_id,
                         toast,
                     });
                 } else {
                     state.set(ConductorSubmissionState::OpeningWriter {
-                        task_id: response.task_id.clone(),
+                        run_id: response.run_id.clone(),
                     });
 
                     if let Err(e) =
@@ -439,7 +440,7 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
                         });
                     } else {
                         state.set(ConductorSubmissionState::Success {
-                            task_id: response.task_id,
+                            run_id: response.run_id,
                         });
                     }
                 }
@@ -696,33 +697,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn classify_task_status_failed_on_error() {
+    fn classify_run_status_failed_on_error() {
         assert_eq!(
-            classify_task_status(ConductorTaskStatus::Failed),
+            classify_run_status(ConductorRunStatus::Failed),
+            TaskLifecycleDecision::Failed
+        );
+        assert_eq!(
+            classify_run_status(ConductorRunStatus::Blocked),
             TaskLifecycleDecision::Failed
         );
     }
 
     #[test]
-    fn classify_task_status_running_for_non_terminal_statuses() {
+    fn classify_run_status_running_for_non_terminal_statuses() {
         assert_eq!(
-            classify_task_status(ConductorTaskStatus::Queued),
+            classify_run_status(ConductorRunStatus::Initializing),
             TaskLifecycleDecision::Running
         );
         assert_eq!(
-            classify_task_status(ConductorTaskStatus::Running),
+            classify_run_status(ConductorRunStatus::Running),
             TaskLifecycleDecision::Running
         );
         assert_eq!(
-            classify_task_status(ConductorTaskStatus::WaitingWorker),
+            classify_run_status(ConductorRunStatus::WaitingForCalls),
+            TaskLifecycleDecision::Running
+        );
+        assert_eq!(
+            classify_run_status(ConductorRunStatus::Completing),
             TaskLifecycleDecision::Running
         );
     }
 
     #[test]
-    fn classify_task_status_completed_for_completed_status() {
+    fn classify_run_status_completed_for_completed_status() {
         assert_eq!(
-            classify_task_status(ConductorTaskStatus::Completed),
+            classify_run_status(ConductorRunStatus::Completed),
             TaskLifecycleDecision::Completed
         );
     }

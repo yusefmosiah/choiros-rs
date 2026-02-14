@@ -318,7 +318,7 @@ pub fn LogsView(desktop_id: String, window_id: String) -> Element {
             style: "padding: 0.75rem; overflow: auto;",
             div {
                 class: "chat-header",
-                h3 { "Watcher Logs" }
+                h3 { "Logs" }
                 span {
                     class: "chat-status",
                     style: if connected() {
@@ -474,20 +474,11 @@ fn run_key_for_event(event: &LogsEvent) -> Option<String> {
         .or_else(|| {
             event
                 .payload
-                .get("task_id")
+                .get("run_id")
                 .and_then(|v| v.as_str())
-                .or_else(|| data.get("task_id").and_then(|v| v.as_str()))
-                .or_else(|| event.payload.get("run_id").and_then(|v| v.as_str()))
                 .or_else(|| data.get("run_id").and_then(|v| v.as_str()))
-                .or_else(|| {
-                    event
-                        .payload
-                        .get("task")
-                        .and_then(|task| task.get("task_id"))
-                        .and_then(|v| v.as_str())
-                })
                 .filter(|value| !value.trim().is_empty())
-                .map(|value| format!("task:{value}"))
+                .map(|value| format!("run:{value}"))
         })
 }
 
@@ -505,8 +496,7 @@ fn derive_runs(entries: &[LogFeedEntry]) -> Vec<RunListEntry> {
         let status = match entry.event.event_type.as_str() {
             "worker.task.failed"
             | "conductor.task.failed"
-            | "conductor.capability.failed"
-            | "watcher.review.failed" => "failed",
+            | "conductor.capability.failed" => "failed",
             "worker.task.completed" | "conductor.task.completed" => "completed",
             "worker.task.started"
             | "worker.task.progress"
@@ -518,9 +508,7 @@ fn derive_runs(entries: &[LogFeedEntry]) -> Vec<RunListEntry> {
             | "conductor.capability.completed"
             | "conductor.capability.blocked"
             | "conductor.decision"
-            | "conductor.progress"
-            | "watcher.escalation"
-            | "watcher.review.completed" => "running",
+            | "conductor.progress" => "running",
             _ => "active",
         }
         .to_string();
@@ -562,11 +550,11 @@ async fn open_run_markdown_from_logs(desktop_id: String, run: RunListEntry) -> R
             url_encode(&run.actor_id),
             url_encode(correlation_id)
         )
-    } else if let Some(task_id) = run.run_id.strip_prefix("task:") {
+    } else if let Some(run_id) = run.run_id.strip_prefix("run:") {
         format!(
-            "actor_id={}&task_id={}",
+            "actor_id={}&run_id={}",
             url_encode(&run.actor_id),
-            url_encode(task_id)
+            url_encode(run_id)
         )
     } else {
         format!("actor_id={}", url_encode(&run.actor_id))
@@ -619,10 +607,7 @@ fn should_display_event(event: &LogsEvent) -> bool {
         | "conductor.tool.call"
         | "conductor.tool.result"
         | "conductor.worker.call"
-        | "conductor.worker.result"
-        | "watcher.review.completed"
-        | "watcher.review.failed"
-        | "watcher.escalation" => true,
+        | "conductor.worker.result" => true,
         "worker.task.progress" => {
             let phase = event
                 .payload
@@ -653,11 +638,7 @@ fn should_display_event(event: &LogsEvent) -> bool {
                 .unwrap_or_default();
             matches!(phase, "routing" | "worker_execution")
         }
-        other => {
-            other.starts_with("watcher.alert")
-                || other.starts_with("conductor.")
-                || other.starts_with("worker.task")
-        }
+        other => other.starts_with("conductor.") || other.starts_with("worker.task"),
     }
 }
 
@@ -900,45 +881,6 @@ fn event_headline(event: &LogsEvent) -> String {
                 soften(&trim_snippet(reason, 160))
             )
         }
-        "watcher.review.completed" => {
-            let status = payload
-                .get("review_status")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            let escalations = payload
-                .get("escalation_count")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
-            format!("{actor} watcher review status={status} escalations={escalations}")
-        }
-        "watcher.review.failed" => {
-            let error = payload
-                .get("error")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default();
-            format!(
-                "{actor} watcher review failed {}",
-                soften(&trim_snippet(error, 160))
-            )
-        }
-        "watcher.escalation" => {
-            let kind = payload
-                .get("kind")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            let urgency = payload
-                .get("urgency")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            let description = payload
-                .get("description")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default();
-            format!(
-                "{actor} watcher escalation kind={kind} urgency={urgency} {}",
-                soften(&trim_snippet(description, 150))
-            )
-        }
         "conductor.worker.call" => {
             let worker_type = payload
                 .get("worker_type")
@@ -990,28 +932,6 @@ fn event_headline(event: &LogsEvent) -> String {
             format!(
                 "{actor} conductor task failed code={code} message={}",
                 soften(&trim_snippet(message, 160))
-            )
-        }
-        event_type if event_type.starts_with("watcher.alert") => {
-            let summary = payload
-                .get("summary")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Watcher alert");
-            let threshold = payload
-                .get("threshold")
-                .and_then(|v| v.as_i64())
-                .map(|v| v.to_string())
-                .unwrap_or_else(|| "n/a".to_string());
-            let window = payload
-                .get("window_ms")
-                .and_then(|v| v.as_i64())
-                .map(|v| format!("{v}ms"))
-                .unwrap_or_else(|| "n/a".to_string());
-            format!(
-                "{actor} watcher alert {} threshold {} window {}",
-                soften(summary),
-                threshold,
-                window
             )
         }
         _ => format!("{actor} {}", soften(&event.event_type)),

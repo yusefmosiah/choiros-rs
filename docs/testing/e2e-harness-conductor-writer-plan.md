@@ -206,7 +206,7 @@ just dev-ui       # Terminal 2
 
 ## Known Gaps
 
-1. **Conductor file tools** - Not yet implemented (Task 15)
+1. **Writer harness file authority** - Writer app-agent harness ownership cutover still pending (Task 15)
 2. **Live document UI** - Frontend needs document_update handler (Task 16)
 3. **BAML culling** - Complex types still in use (Task 17)
 4. **Writer diff** - Diff computation not implemented

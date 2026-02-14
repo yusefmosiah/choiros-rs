@@ -408,8 +408,8 @@ fn parse_runlog_uri(uri: &str) -> Option<RunLogQuery> {
         user_id: None,
         session_id: None,
         thread_id: None,
+        run_id: None,
         correlation_id: None,
-        task_id: None,
     };
 
     for pair in query.split('&') {
@@ -421,8 +421,8 @@ fn parse_runlog_uri(uri: &str) -> Option<RunLogQuery> {
             "user_id" => out.user_id = Some(value.to_string()),
             "session_id" => out.session_id = Some(value.to_string()),
             "thread_id" => out.thread_id = Some(value.to_string()),
+            "run_id" => out.run_id = Some(value.to_string()),
             "correlation_id" => out.correlation_id = Some(value.to_string()),
-            "task_id" => out.task_id = Some(value.to_string()),
             _ => {}
         }
     }

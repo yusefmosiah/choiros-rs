@@ -1,6 +1,6 @@
 # Roadmap Progress
 
-Date: 2026-02-09
+Date: 2026-02-14
 Source roadmap:
 - `docs/architecture/roadmap-dependency-tree.md`
 - `docs/architecture/roadmap-critical-analysis.md`
@@ -19,43 +19,51 @@ This section tracks intentional corrections to roadmap documentation to maintain
 | Logging/Watcher/Model Policy | Active execution lane | **FOUNDATION COMPLETE** - available for use |
 | Researcher | Blocked on model policy | **BASELINE LIVE** - delegated web_search active |
 | Prompt Bar -> Conductor | Listed as future item | **CURRENT EXECUTION LANE** - primary orchestration path |
-| Chat | Primary orchestration surface | **COMPATIBILITY SURFACE ONLY** - escalates to Conductor |
+| Living Document UX | Emerging primary human interface | **PRIMARY HUMAN SURFACE** - hands off to Conductor |
 
 ### What Is Stale/Archived
 - "Historical Execution Lane (2026-02-08)" — Logging/Watcher/Model Policy are no longer active milestones; they are operational foundations
-- Any language suggesting Chat is the primary planner/orchestrator
+- Any language suggesting a standalone chat app is the primary human interface
 - References to Files/Writer as "in progress" or "viewer shells"
+- Legacy `chat/*` notes in archived sections below are retained only as implementation history.
 
-### Explicit Next 3 Milestones
+### Explicit Next 4 Milestones
 
 1. **Milestone A: Conductor Backend MVP for Report Generation**
    - Typed Conductor actor with capability routing
    - Markdown report generation endpoint
    - Integration with Files/Writer for output delivery
-   - NO ADHOC WORKFLOW: all routing via typed protocol fields
+   - Model-led control flow on typed safety rails
 
 2. **Milestone B: Prompt Bar Routing to Conductor**
    - Prompt Bar captures universal input
-   - Routes to Conductor (not Chat) for multi-step planning
-   - Chat remains available as compatibility fallback
+   - Routes living-document intent to Conductor for multi-step planning
+   - Living-document UX is canonical for human interaction
 
 3. **Milestone C: Writer Auto-Open in Markdown Preview**
    - Conductor-generated reports auto-open in Writer
    - Writer launches in preview mode for .md files
    - Backend-driven UI state (not browser localStorage)
 
+4. **Milestone D: Conductor Wake Context (`agent_tree_snapshot`)**
+   - Typed bounded agent-tree snapshot on every conductor wake
+   - Deterministic truncation + freshness markers
+   - Non-blocking/no-polling runtime enforcement
+   - Contract: `docs/architecture/2026-02-14-agent-tree-snapshot-contract.md`
+
  ### Architecture Principles Enforced
-- **NO ADHOC WORKFLOW**: LLM planners output typed enums (BAML), runtime acts on those - no string parsing of free text to guess state
-- **Chat is compatibility; Conductor is orchestrator**
+- **Model-Led Control Flow**: LLM planners manage orchestration by default; runtime enforces typed safety/operability rails
+- **Non-Blocking Subagent Pillar**: Conductor treats app/workers as logical subagents but never polls or blocks on child completion
+- **Living document is the human interface; Conductor is orchestrator**
 
 ## Narrative Summary (1-minute read)
 
-Execution order is explicitly reset to avoid architecture drift: ship real desktop file apps first (`Files` + `Writer` in one sandbox-root universe), then finish `Prompt Bar -> Conductor` orchestration, then move Chat to conductor escalation + identity UX. Chat remains a compatibility interface during this transition.
+Execution order is explicitly reset to avoid architecture drift: ship real desktop file apps first (`Files` + `Writer` in one sandbox-root universe), then finish `Prompt Bar -> Conductor` orchestration through living-document UX, then harden identity and domain-facing product surfaces.
 
 ## What Changed (2026-02-09, latest)
 
 - Pathway reset decisions:
-  - Prioritize product-legible desktop behavior over deeper chat orchestration hacks.
+  - Prioritize product-legible desktop behavior over legacy chat-oriented orchestration.
   - `Files` and `Writer` must stop behaving like generic markdown/viewer shells.
   - Conductor is the orchestration authority; app actors are capability endpoints.
   - App prompt bars route intent to Conductor; they do not bypass orchestration.
@@ -64,7 +72,7 @@ Execution order is explicitly reset to avoid architecture drift: ship real deskt
   - `Writer` app implementation COMPLETE with 3 REST API endpoints, revision-based conflict handling, 16 integration tests, and Dioxus frontend with editor UX.
   - `Files` and `Writer` share sandbox scope and open sandbox-root resources.
   - Both apps now have app-specific UX (not generic viewer shells).
-  - Chat-to-conductor escalation refactor is queued behind prompt-bar/conductor stabilization.
+  - Living-document-to-conductor handoff hardening is queued behind prompt-bar/conductor stabilization.
 
 ## Files App Implementation Status (2026-02-09) - COMPLETE
 
@@ -124,7 +132,8 @@ Execution order is explicitly reset to avoid architecture drift: ship real deskt
 3. **Milestone A**: Conductor backend MVP for report generation
 4. **Milestone B**: Prompt bar routing to Conductor
 5. **Milestone C**: Writer auto-open in markdown preview mode
-6. Chat compatibility escalation into conductor (post-conductor stabilization)
+6. **Milestone D**: Conductor wake context (`agent_tree_snapshot`)
+7. Living-document UX hardening + identity/domain polish (post-conductor stabilization)
 
 ## What To Do Next
 
@@ -133,21 +142,25 @@ Execution order is explicitly reset to avoid architecture drift: ship real deskt
 3. **Implement Milestone A**: Conductor backend MVP
    - ConductorActor with capability dispatch
    - Markdown report generation
-   - Typed protocol for actor routing (NO ADHOC WORKFLOW)
+   - Typed protocol for actor routing (model-led control flow)
 4. **Implement Milestone B**: Prompt bar routes to Conductor
-   - Universal input capture
-   - Conductor-first orchestration
-   - Chat as compatibility fallback only
+    - Universal input capture
+    - Conductor-first orchestration
+    - Living-document UX as canonical human surface
 5. **Implement Milestone C**: Writer auto-open in preview
    - Backend-driven file open
    - Preview mode for generated reports
+6. **Implement Milestone D**: Typed conductor wake context
+   - Add bounded `agent_tree_snapshot` to every conductor wake
+   - Enforce deterministic truncation and freshness metadata
+   - Validate no child polling/no blocking in conductor turns
 
 ## Historical Execution Lane (2026-02-08, archived)
 
 1. Logging
 2. Watcher
 3. Model Policy
-4. Worker Signal Contract
+4. Worker Live-Update Event Model
 5. Researcher
 
 **Note**: Logging, Watcher, Model Policy, and Researcher baseline are now **operational foundations**, not active milestones. They are available for use by the Prompt Bar -> Conductor execution lane.
@@ -199,7 +212,7 @@ Next:
 
 ## Narrative Summary (Legacy Observability Slice)
 
-Logging + Watcher + Model Policy are now at a strong foundation level for operations, and Researcher moved from design-only to live delegated execution for chat `web_search`. We now have run-scoped observability (not just raw event tails), markdown run projection, structured worker failure telemetry, deterministic watcher rules (including network-spike detection), and timestamped prompt context to improve model temporal awareness. The current highest-value next build target is Researcher hardening + Worker Signal quality, with Prompt Bar + Conductor as the next orchestration layer once researcher lifecycle and signals are stable.
+Logging + Watcher + Model Policy are now at a strong foundation level for operations, and Researcher moved from design-only to live delegated execution for chat `web_search`. We now have run-scoped observability (not just raw event tails), markdown run projection, structured worker failure telemetry, deterministic watcher rules (including network-spike detection), and timestamped prompt context to improve model temporal awareness. The current highest-value next build target is Researcher hardening + worker live-update event quality, with Prompt Bar + Conductor as the next orchestration layer once researcher lifecycle and signals are stable.
 
 ## Matrix Eval Update (2026-02-08, async researcher flow)
 
@@ -309,9 +322,9 @@ Implication:
    - finish Brave + Exa live-provider hardening and failure-path observability,
    - tune parallel fanout quality/reranking for low-signal result suppression,
    - verify websocket ordering and run-level replay under parallel provider calls.
-4. Worker Signal Contract implementation:
-   - typed turn report ingestion, validation, anti-spam gates,
-   - escalation signaling semantics into Conductor control plane.
+4. Worker live-update event model hardening:
+   - typed worker event ingestion/validation and anti-spam gates,
+   - request-message signaling semantics into Conductor control plane.
 5. Prompt Bar + Conductor:
    - route universal input to actors (not chat-only),
    - maintain directives/checklist state at a glance,
@@ -332,7 +345,7 @@ Completed in docs:
   - `uactor -> actor` delegation envelope for orchestration,
   - `appactor -> toolactor` typed `web_search` surface for app actors,
   - provider isolation behind Researcher (Tavily, Brave, Exa),
-  - typed findings/learnings/escalations via worker signal contract.
+  - typed worker events via live-update event model.
 - Locked required observability fields for researcher events:
   - scope IDs, correlation/trace/span IDs, interface kind, model requested/used.
 
@@ -347,7 +360,7 @@ Now:
   - close observability gap where watcher/log panels can appear empty
 
 Next:
-- Complete Worker Signal Contract docs gate, then implement typed report validation/event mapping before Researcher.
+- Complete worker live-update event model docs gate, then implement typed event validation/mapping before Researcher.
 
 Later:
 - Implement ResearcherActor with full lifecycle + citation event streaming.
@@ -355,33 +368,33 @@ Later:
 Blocked:
 - Researcher milestone start is blocked by reconciliation criticals.
 - Researcher is additionally blocked on Model Policy milestone completion.
-- Researcher is additionally blocked on Worker Signal Contract implementation gate.
+- Researcher is additionally blocked on worker live-update event model implementation gate.
 
-## Worker Signal Contract Decision Update (2026-02-08, latest)
+## Worker Live-Update Event Model Decision Update (2026-02-08, latest)
 
 Completed in docs:
-- Added contract doc: `docs/architecture/worker-signal-contract.md`.
+- Added runtime model doc: `docs/architecture/2026-02-14-worker-live-update-event-model.md`.
 - Locked plane split:
-  - control plane: worker escalations to Conductor (`blocker|help|approval|conflict`)
-  - observability plane: findings/learnings/progress/artifacts as durable events
+  - control plane: worker `request` messages to Conductor/app agents
+  - observability plane: progress/results/failures/artifacts as durable events
 - Locked transport decision:
-  - workers emit typed turn report envelopes
+  - workers emit canonical event kinds (`progress|result|failed|request`)
   - runtime validates, dedups, applies cooldowns, then emits canonical events
 - Locked anti-spam strategy:
   - prompt defaults to sparse emission
-  - schema caps (`findings<=2`, `learnings<=1`, `escalations<=1`)
-  - runtime rejection events (`worker.signal.rejected`) with reason
+  - schema caps for repeated request/progress noise
+  - runtime rejection events (`worker.request.rejected`) with reason
 
 Next implementation tasks:
-- Add typed BAML schema for turn reports.
+- Add typed BAML schema for worker event envelopes.
 - Add Rust validator + governance layer (confidence thresholds, dedup, cooldown).
 - Add event mapping:
   - `worker.report.received`
   - `research.finding.created`
   - `research.learning.created`
-  - `worker.signal.escalation_requested`
-  - `worker.signal.rejected`
-- Add tests proving non-spam behavior and escalation routing correctness.
+  - `worker.request.sent`
+  - `worker.request.rejected`
+- Add tests proving non-spam behavior and request routing correctness.
 
 ## Reconciliation Gate (2026-02-08, from architecture review)
 

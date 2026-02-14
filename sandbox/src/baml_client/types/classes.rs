@@ -5,6 +5,7 @@
 
 //! Generated class types.
 
+use super::enums::{EscalationAction, EscalationKind, ReviewStatus, RiskCategory, UrgencyLevel};
 use super::*;
 use baml::{BamlDecode, BamlEncode};
 

@@ -5,13 +5,13 @@ Status: Authoritative implementation + hardening runbook (current architecture a
 
 ## Narrative Summary (1-minute read)
 
-Researcher baseline is now running in the runtime path after Logging, Watcher, and Model Policy gates.
+Researcher baseline is now running in the runtime path under the model-led control-plane baseline.
 This runbook keeps the **dual contract** by design:
 
 1. `uactor -> actor`: universal orchestration delegates natural-language objectives to Researcher.
-2. `appactor -> toolactor`: app-facing actors (for example Chat) invoke typed Researcher tools, not raw terminal/web APIs.
+2. `appactor -> toolactor`: app-facing agents (for example Writer/Coder) invoke typed Researcher tools, not raw terminal/web APIs.
 
-Researcher owns web search capabilities (Tavily, Brave, Exa). Chat and Terminal do not call those providers directly.
+Researcher owns web search capabilities (Tavily, Brave, Exa). Other agents do not call those providers directly.
 All researcher execution and signals are EventStore-first, then relayed to EventBus.
 
 ## What Changed
@@ -27,8 +27,8 @@ All researcher execution and signals are EventStore-first, then relayed to Event
   - EventStore is canonical, EventBus is delivery plane.
 - Replaced outdated file paths and module assumptions with current tree:
   - `sandbox/src/supervisor/mod.rs`, `sandbox/src/actors/*`, `baml_src/*`, existing logs/ws APIs.
-- Aligned signaling to `worker-signal-contract.md`:
-  - typed worker turn reports, anti-spam gates, escalation semantics.
+- Aligned signaling to live worker event model:
+  - canonical worker events (`progress/result/failed/request`) and live document update semantics.
 - Aligned to model policy gate:
   - researcher role must be policy-routed and model-attributed in events.
 - Removed oversized speculative checklist items and kept only near-term, implementable steps.
@@ -73,7 +73,7 @@ All researcher execution and signals are EventStore-first, then relayed to Event
   - Brave Search
   - Exa
 - Deterministic normalized result/citation shape.
-- Worker signal report emission for findings/learnings/escalations.
+- Worker event emission for `progress/result/failed/request`.
 - Full observability in run logs (`/logs/events`, `/ws/logs/events`, `/logs/run.md`).
 
 ### Out of Scope (v1)
@@ -109,12 +109,12 @@ Return payload includes:
 
 - summary
 - citations
-- findings/learnings/escalations (typed worker report)
+- worker event stream (`progress/result/failed/request`)
 - execution metadata (provider calls, durations, errors)
 
 ## 2.2 `appactor -> toolactor` (typed tool calls)
 
-Use for app-level invocation (for example Chat tool surface).
+Use for app-level invocation (for example Writer/Coder tool surfaces).
 
 Initial app-facing tool surface:
 
@@ -152,12 +152,12 @@ Researcher events are persisted to EventStore first. EventRelay may publish to E
 - `research.provider.result`
 - `research.provider.error`
 
-### 3.3 Worker signal events (from typed report contract)
+### 3.3 Worker request/event signals
 
 - `research.finding.created`
 - `research.learning.created`
-- `worker.signal.escalation_requested`
-- `worker.signal.rejected`
+- `worker.request.sent`
+- `worker.request.rejected`
 
 ### 3.4 Required metadata in all researcher events
 
@@ -262,19 +262,19 @@ Acceptance:
 10. Add deterministic fallback/routing logic for `provider=auto`.
 11. Emit per-provider call/result/error events with latency and count metadata.
 
-## Phase D: Worker Signal Integration
+## Phase D: Worker Event Model Integration
 
-12. Emit typed worker turn reports from Researcher turns.
-13. Apply runtime anti-spam gates from worker signal contract:
+12. Emit canonical worker events from Researcher turns (`progress/result/failed/request`).
+13. Apply runtime anti-spam and quality gates:
     - per-turn caps
     - confidence thresholds
     - dedup hashes
-    - escalation cooldown
-14. Map accepted/rejected signals into canonical events.
+    - request cooldown
+14. Map accepted/rejected request signals into canonical events.
 
 ## Phase E: API + Observability Wiring
 
-15. Ensure chat/websocket surfaces receive researcher events in order.
+15. Ensure app/websocket surfaces receive researcher events in order.
 16. Ensure run markdown export (`/logs/run.md`) includes researcher lifecycle and citations.
 17. Ensure logs websocket (`/ws/logs/events`) can filter by `research.` prefixes.
 
@@ -303,7 +303,7 @@ Acceptance:
 - `provider=auto` fallback works when first provider fails
 - event stream order is monotonic per run:
   - started -> progress -> completed/failed
-- worker signal anti-spam gates reject duplicates and log rejection reason
+- worker request anti-spam gates reject duplicates and log rejection reason
 
 ## 7.3 Run-log/WS
 
@@ -329,7 +329,7 @@ No provider-specific weather assumptions in tests.
 - Total provider failure:
   - emit `research.task.failed` with attempted providers and error summary
 - Signal spam:
-  - reject and emit `worker.signal.rejected`
+  - reject and emit `worker.request.rejected`
 - Missing model policy mapping:
   - fallback to allowed model only, emit diagnostic event
 
@@ -338,9 +338,9 @@ No provider-specific weather assumptions in tests.
 ## 9) Acceptance Criteria (Gate to Merge)
 
 1. Researcher can be invoked through both contracts.
-2. Provider APIs are isolated behind Researcher (no direct chat/provider calls).
+2. Provider APIs are isolated behind Researcher (no direct app-agent/provider calls).
 3. EventStore contains complete researcher lifecycle and provider call trail.
-4. Worker findings/learnings/escalations are typed, validated, and replayable.
+4. Worker events (`progress/result/failed/request`) are typed, validated, and replayable.
 5. Run markdown export shows a coherent researcher timeline with citations.
 6. Tests pass:
    - mapping units
@@ -353,7 +353,7 @@ No provider-specific weather assumptions in tests.
 ## 10) References
 
 - `/Users/wiz/choiros-rs/docs/architecture/adr-0001-eventstore-eventbus-reconciliation.md`
-- `/Users/wiz/choiros-rs/docs/architecture/worker-signal-contract.md`
+- `/Users/wiz/choiros-rs/docs/architecture/2026-02-14-worker-live-update-event-model.md`
 - `/Users/wiz/choiros-rs/docs/architecture/actor-network-orientation.md`
 - `/Users/wiz/choiros-rs/docs/architecture/roadmap-dependency-tree.md`
 - `/Users/wiz/choiros-rs/roadmap_progress.md`

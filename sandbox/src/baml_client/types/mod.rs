@@ -6,12 +6,18 @@
 //! Generated BAML types.
 
 mod classes;
-mod enums;
+pub(crate) mod enums;
 mod type_aliases;
 mod unions;
 
-pub use classes::*;
-pub use enums::*;
+pub use classes::{
+    AgentDecision, AgentToolArgs, AgentToolCall, BashToolArgs, ConductorBootstrapInput,
+    ConductorBootstrapOutput, ConductorDecision, ConductorDecisionInput,
+    ConductorObjectiveRefineInput, ConductorObjectiveRefineOutput, ListFilesToolArgs, Message,
+    ReadFileToolArgs, ResearcherPlanInput, ResearcherPlanOutput, Resume, SearchFilesToolArgs,
+    StreamChunk, ToolResult, WebSearchToolArgs, WriteFileToolArgs,
+};
+pub use enums::{Action, ConductorAction, ResearchAction, ResearchStatus};
 pub use type_aliases::*;
 pub use unions::*;
 
@@ -29,8 +35,6 @@ pub enum Types {
 
     AgentToolCall(AgentToolCall),
 
-    AlternativeAction(AlternativeAction),
-
     BashToolArgs(BashToolArgs),
 
     ConductorBootstrapInput(ConductorBootstrapInput),
@@ -45,10 +49,6 @@ pub enum Types {
 
     ConductorObjectiveRefineOutput(ConductorObjectiveRefineOutput),
 
-    DetectedAnomaly(DetectedAnomaly),
-
-    HistoricalResolution(HistoricalResolution),
-
     ListFilesToolArgs(ListFilesToolArgs),
 
     Message(Message),
@@ -61,29 +61,11 @@ pub enum Types {
 
     Resume(Resume),
 
-    ReviewScope(ReviewScope),
-
-    RiskItem(RiskItem),
-
-    RunStateSnapshot(RunStateSnapshot),
-
     SearchFilesToolArgs(SearchFilesToolArgs),
 
     StreamChunk(StreamChunk),
 
     ToolResult(ToolResult),
-
-    WatcherEscalation(WatcherEscalation),
-
-    WatcherEvent(WatcherEvent),
-
-    WatcherLogWindowInput(WatcherLogWindowInput),
-
-    WatcherMitigationInput(WatcherMitigationInput),
-
-    WatcherMitigationOutput(WatcherMitigationOutput),
-
-    WatcherReviewOutput(WatcherReviewOutput),
 
     WebSearchToolArgs(WebSearchToolArgs),
 
@@ -93,19 +75,9 @@ pub enum Types {
 
     ConductorAction(ConductorAction),
 
-    EscalationAction(EscalationAction),
-
-    EscalationKind(EscalationKind),
-
     ResearchAction(ResearchAction),
 
     ResearchStatus(ResearchStatus),
-
-    ReviewStatus(ReviewStatus),
-
-    RiskCategory(RiskCategory),
-
-    UrgencyLevel(UrgencyLevel),
 }
 
 impl baml::KnownTypes for Types {
@@ -121,8 +93,6 @@ impl baml::KnownTypes for Types {
 
             Types::AgentToolCall(_) => "AgentToolCall",
 
-            Types::AlternativeAction(_) => "AlternativeAction",
-
             Types::BashToolArgs(_) => "BashToolArgs",
 
             Types::ConductorBootstrapInput(_) => "ConductorBootstrapInput",
@@ -137,10 +107,6 @@ impl baml::KnownTypes for Types {
 
             Types::ConductorObjectiveRefineOutput(_) => "ConductorObjectiveRefineOutput",
 
-            Types::DetectedAnomaly(_) => "DetectedAnomaly",
-
-            Types::HistoricalResolution(_) => "HistoricalResolution",
-
             Types::ListFilesToolArgs(_) => "ListFilesToolArgs",
 
             Types::Message(_) => "Message",
@@ -153,29 +119,11 @@ impl baml::KnownTypes for Types {
 
             Types::Resume(_) => "Resume",
 
-            Types::ReviewScope(_) => "ReviewScope",
-
-            Types::RiskItem(_) => "RiskItem",
-
-            Types::RunStateSnapshot(_) => "RunStateSnapshot",
-
             Types::SearchFilesToolArgs(_) => "SearchFilesToolArgs",
 
             Types::StreamChunk(_) => "StreamChunk",
 
             Types::ToolResult(_) => "ToolResult",
-
-            Types::WatcherEscalation(_) => "WatcherEscalation",
-
-            Types::WatcherEvent(_) => "WatcherEvent",
-
-            Types::WatcherLogWindowInput(_) => "WatcherLogWindowInput",
-
-            Types::WatcherMitigationInput(_) => "WatcherMitigationInput",
-
-            Types::WatcherMitigationOutput(_) => "WatcherMitigationOutput",
-
-            Types::WatcherReviewOutput(_) => "WatcherReviewOutput",
 
             Types::WebSearchToolArgs(_) => "WebSearchToolArgs",
 
@@ -185,19 +133,9 @@ impl baml::KnownTypes for Types {
 
             Types::ConductorAction(_) => "ConductorAction",
 
-            Types::EscalationAction(_) => "EscalationAction",
-
-            Types::EscalationKind(_) => "EscalationKind",
-
             Types::ResearchAction(_) => "ResearchAction",
 
             Types::ResearchStatus(_) => "ResearchStatus",
-
-            Types::ReviewStatus(_) => "ReviewStatus",
-
-            Types::RiskCategory(_) => "RiskCategory",
-
-            Types::UrgencyLevel(_) => "UrgencyLevel",
         }
     }
 }

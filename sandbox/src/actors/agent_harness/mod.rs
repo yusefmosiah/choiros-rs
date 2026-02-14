@@ -206,7 +206,7 @@ impl From<ModelConfigError> for HarnessError {
 #[async_trait]
 pub trait AgentAdapter: Send + Sync {
     /// Returns the model role identifier for this worker type
-    /// (e.g., "terminal", "researcher", "watcher")
+    /// (e.g., "terminal", "researcher")
     fn get_model_role(&self) -> &str;
 
     /// Returns the tool description for BAML planning

@@ -18,7 +18,7 @@ This document provides historical gap analysis for the ChoirOS roadmap. The curr
 1. Complete observability foundations (Logging, Watcher) before expanding behavior.
 2. Implement Researcher with full event lifecycle visibility.
 3. Defer PromptBar/Conductor orchestration until after Researcher baseline.
-4. Apply NO ADHOC WORKFLOW policy: encode control flow in typed protocols, not string matching.
+4. Apply Model-Led Control Flow policy: model-managed orchestration with typed safety rails.
 
 ---
 
@@ -545,7 +545,7 @@ Roadmap correctly identifies the need for SandboxFS but places it as "later". Ho
 - Integrate ChatAgent as compatibility surface (escalates multi-step planning to Conductor)
 - Implement Conductor as primary orchestration surface
 - Write tests for graceful degradation
-- Apply NO ADHOC WORKFLOW: encode control flow in typed protocols, not string matching
+- Apply Model-Led Control Flow: model-managed orchestration with typed safety rails
 - Update Phase C status to 80%
 
 **Phase 4: Context Broker v1 (3-4 weeks)**

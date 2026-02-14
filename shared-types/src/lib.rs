@@ -306,64 +306,6 @@ pub struct ToolCall {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
-pub enum DelegatedTaskKind {
-    TerminalCommand,
-    ResearchQuery,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
-pub struct DelegatedTask {
-    pub task_id: String,
-    pub correlation_id: String,
-    pub actor_id: String,
-    pub session_id: Option<String>,
-    pub thread_id: Option<String>,
-    pub kind: DelegatedTaskKind,
-    #[ts(type = "unknown")]
-    pub payload: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
-pub enum DelegatedTaskStatus {
-    Accepted,
-    Running,
-    Completed,
-    Failed,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
-pub struct DelegatedTaskResult {
-    pub task_id: String,
-    pub correlation_id: String,
-    pub status: DelegatedTaskStatus,
-    pub output: Option<String>,
-    pub outcome: Option<DelegatedTaskOutcome>,
-    pub error: Option<String>,
-    pub failure_kind: Option<FailureKind>,
-    pub error_code: Option<i32>,
-    pub started_at: String,
-    pub finished_at: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
-pub struct DelegatedTaskOutcome {
-    pub objective_status: Option<ObjectiveStatus>,
-    pub completion_reason: Option<String>,
-    pub recommended_next_capability: Option<String>,
-    pub recommended_next_objective: Option<String>,
-    pub summary: Option<String>,
-    #[ts(type = "unknown")]
-    pub payload: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub enum WorkerTurnStatus {
     Running,
     Completed,
@@ -624,15 +566,15 @@ pub enum NextActionType {
 // Conductor Runtime Types (Phase A: Agentic Readiness)
 // ============================================================================
 
-/// Wake policy for events - determines if event should trigger conductor wake
+/// Event lane metadata for conductor/runtime processing.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
-pub enum WakePolicy {
-    /// Event should wake the conductor for decision-making
-    Wake,
-    /// Event is display-only telemetry, no wake
-    DisplayOnly,
+pub enum EventLane {
+    /// Event is part of orchestration control flow.
+    Control,
+    /// Event is telemetry only.
+    Telemetry,
 }
 
 /// Importance level for events
@@ -645,18 +587,16 @@ pub enum EventImportance {
     High,
 }
 
-/// Event metadata for wake/display lane separation
+/// Event metadata for control/telemetry lane separation
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct EventMetadata {
-    /// Wake policy for this event
-    pub wake_policy: WakePolicy,
+    /// Control/telemetry lane for this event
+    pub lane: EventLane,
     /// Importance level
     pub importance: EventImportance,
     /// Run ID for grouping related work
     pub run_id: Option<String>,
-    /// Task ID within the run
-    pub task_id: Option<String>,
     /// Capability call ID
     pub call_id: Option<String>,
     /// Which capability produced this event
@@ -668,10 +608,9 @@ pub struct EventMetadata {
 impl Default for EventMetadata {
     fn default() -> Self {
         Self {
-            wake_policy: WakePolicy::DisplayOnly,
+            lane: EventLane::Telemetry,
             importance: EventImportance::Normal,
             run_id: None,
-            task_id: None,
             call_id: None,
             capability: None,
             phase: None,
@@ -680,19 +619,19 @@ impl Default for EventMetadata {
 }
 
 impl EventMetadata {
-    /// Create a wake event with high importance
-    pub fn wake() -> Self {
+    /// Create a control-lane event with high importance
+    pub fn control() -> Self {
         Self {
-            wake_policy: WakePolicy::Wake,
+            lane: EventLane::Control,
             importance: EventImportance::High,
             ..Default::default()
         }
     }
 
-    /// Create a display-only event with normal importance
-    pub fn display() -> Self {
+    /// Create a telemetry-lane event with normal importance
+    pub fn telemetry() -> Self {
         Self {
-            wake_policy: WakePolicy::DisplayOnly,
+            lane: EventLane::Telemetry,
             importance: EventImportance::Normal,
             ..Default::default()
         }
@@ -701,12 +640,6 @@ impl EventMetadata {
     /// Set the run_id
     pub fn with_run_id(mut self, run_id: impl Into<String>) -> Self {
         self.run_id = Some(run_id.into());
-        self
-    }
-
-    /// Set the task_id
-    pub fn with_task_id(mut self, task_id: impl Into<String>) -> Self {
-        self.task_id = Some(task_id.into());
         self
     }
 
@@ -850,7 +783,6 @@ pub enum DecisionType {
 #[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct ConductorRunState {
     pub run_id: String,
-    pub task_id: String,
     pub objective: String,
     pub status: ConductorRunStatus,
     pub created_at: DateTime<Utc>,
@@ -870,8 +802,6 @@ pub struct ConductorRunState {
     pub output_mode: ConductorOutputMode,
     /// Desktop ID for UI coordination
     pub desktop_id: String,
-    /// Correlation ID for tracing
-    pub correlation_id: String,
 }
 
 /// Status of a conductor run
@@ -923,50 +853,16 @@ pub struct ConductorToastPayload {
     pub report_path: Option<String>,
 }
 
-/// Worker types the Conductor can orchestrate.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
-pub enum ConductorWorkerType {
-    Researcher,
-    Terminal,
-}
-
-/// One typed worker step in a Conductor execution plan.
+/// Request to execute a Conductor run.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
-pub struct ConductorWorkerStep {
-    pub worker_type: ConductorWorkerType,
-    pub objective: Option<String>,
-    pub terminal_command: Option<String>,
-    pub timeout_ms: Option<u64>,
-    pub max_results: Option<u32>,
-    pub max_steps: Option<u8>,
-}
-
-/// Status of a Conductor task
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
-pub enum ConductorTaskStatus {
-    Queued,
-    Running,
-    WaitingWorker,
-    Completed,
-    Failed,
-}
-
-/// Request to execute a Conductor task
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
 #[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct ConductorExecuteRequest {
     pub objective: String,
     pub desktop_id: String,
     pub output_mode: ConductorOutputMode,
-    pub worker_plan: Option<Vec<ConductorWorkerStep>>,
     #[ts(type = "unknown")]
     pub hints: Option<serde_json::Value>,
-    pub correlation_id: Option<String>,
 }
 
 /// Typed error for Conductor task failures
@@ -982,13 +878,11 @@ pub struct ConductorError {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct ConductorExecuteResponse {
-    pub task_id: String,
-    pub run_id: Option<String>,
-    pub status: ConductorTaskStatus,
+    pub run_id: String,
+    pub status: ConductorRunStatus,
     pub document_path: Option<String>,
     pub writer_window_props: Option<WriterWindowProps>,
     pub toast: Option<ConductorToastPayload>,
-    pub correlation_id: String,
     pub error: Option<ConductorError>,
 }
 
@@ -1111,19 +1005,19 @@ pub enum WriterRunEvent {
     },
 }
 
-/// State tracking for a Conductor task
+/// State tracking for a Conductor run via API
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
-pub struct ConductorTaskState {
-    pub task_id: String,
-    pub status: ConductorTaskStatus,
+pub struct ConductorRunStatusResponse {
+    pub run_id: String,
+    pub status: ConductorRunStatus,
     pub objective: String,
     pub desktop_id: String,
     pub output_mode: ConductorOutputMode,
-    pub correlation_id: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
+    pub document_path: String,
     pub report_path: Option<String>,
     pub toast: Option<ConductorToastPayload>,
     pub error: Option<ConductorError>,
@@ -1363,15 +1257,12 @@ mod tests {
         ConductorOutputMode::export(&config).unwrap();
         ConductorToastTone::export(&config).unwrap();
         ConductorToastPayload::export(&config).unwrap();
-        ConductorWorkerType::export(&config).unwrap();
-        ConductorWorkerStep::export(&config).unwrap();
-        ConductorTaskStatus::export(&config).unwrap();
         ConductorExecuteRequest::export(&config).unwrap();
         ConductorExecuteResponse::export(&config).unwrap();
         ConductorError::export(&config).unwrap();
-        ConductorTaskState::export(&config).unwrap();
+        ConductorRunStatusResponse::export(&config).unwrap();
         // New runtime types
-        WakePolicy::export(&config).unwrap();
+        EventLane::export(&config).unwrap();
         EventImportance::export(&config).unwrap();
         EventMetadata::export(&config).unwrap();
         CapabilityCallStatus::export(&config).unwrap();

@@ -49,7 +49,14 @@ async fn json_response(app: &axum::Router, req: Request<Body>) -> (StatusCode, V
         .await
         .expect("Failed to read body")
         .to_bytes();
-    let value: Value = serde_json::from_slice(&body).expect("Invalid JSON response");
+    let value: Value = serde_json::from_slice(&body).unwrap_or_else(|_| {
+        let text = String::from_utf8_lossy(&body).to_string();
+        json!({
+            "error": {
+                "message": text
+            }
+        })
+    });
     (status, value)
 }
 
@@ -147,30 +154,30 @@ async fn test_conductor_execute_validation_whitespace_desktop_id() {
 }
 
 #[tokio::test]
-async fn test_conductor_get_task_status_not_found() {
+async fn test_conductor_get_run_status_not_found() {
     let (app, _temp_dir) = setup_test_app().await;
 
     let req = Request::builder()
         .method("GET")
-        .uri("/conductor/tasks/non-existent-task-id")
+        .uri("/conductor/runs/non-existent-run-id")
         .body(Body::empty())
         .unwrap();
 
     let (status, body) = json_response(&app, req).await;
 
     assert_eq!(status, StatusCode::NOT_FOUND);
-    assert_eq!(body["error"]["code"], "TASK_NOT_FOUND");
-    assert_eq!(body["error"]["message"], "Task not found");
-    assert_eq!(body["task_id"], "non-existent-task-id");
+    assert_eq!(body["error"]["code"], "RUN_NOT_FOUND");
+    assert_eq!(body["error"]["message"], "Run not found");
+    assert_eq!(body["run_id"], "non-existent-run-id");
 }
 
 #[tokio::test]
-async fn test_conductor_get_task_status_empty_task_id() {
+async fn test_conductor_get_run_status_empty_run_id() {
     let (app, _temp_dir) = setup_test_app().await;
 
     let req = Request::builder()
         .method("GET")
-        .uri("/conductor/tasks/")
+        .uri("/conductor/runs/")
         .body(Body::empty())
         .unwrap();
 
@@ -200,8 +207,8 @@ async fn test_conductor_error_response_structure() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
     assert!(
-        body["task_id"].is_string(),
-        "task_id should be present in error response"
+        body["run_id"].is_string(),
+        "run_id should be present in error response"
     );
     assert_eq!(body["status"], "failed");
     assert!(body["error"].is_object(), "error should be an object");
@@ -265,12 +272,12 @@ async fn test_conductor_execute_get_not_allowed() {
 }
 
 #[tokio::test]
-async fn test_conductor_tasks_post_not_allowed() {
+async fn test_conductor_runs_post_not_allowed() {
     let (app, _temp_dir) = setup_test_app().await;
 
     let req = Request::builder()
         .method("POST")
-        .uri("/conductor/tasks/some-task-id")
+        .uri("/conductor/runs/some-run-id")
         .body(Body::empty())
         .unwrap();
 
@@ -319,12 +326,12 @@ async fn test_conductor_execute_response_has_no_update_draft_action() {
 }
 
 #[tokio::test]
-async fn test_conductor_worker_plan_deprecated_rejected() {
+async fn test_conductor_execute_rejects_legacy_worker_plan_field() {
     let (app, _temp_dir) = setup_test_app().await;
 
     let execute_req = json!({
-        "objective": "Test worker plan rejection",
-        "desktop_id": "test-desktop-deprecated",
+        "objective": "Test legacy field rejection",
+        "desktop_id": "test-desktop-legacy",
         "output_mode": "markdown_report_to_writer",
         "worker_plan": [{
             "worker_type": "terminal",
@@ -344,11 +351,11 @@ async fn test_conductor_worker_plan_deprecated_rejected() {
 
     let (status, body) = json_response(&app, req).await;
 
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(body["error"]["message"]
         .as_str()
-        .unwrap()
-        .contains("deprecated"));
+        .unwrap_or_default()
+        .contains("unknown field"));
 }
 
 #[tokio::test]
@@ -385,8 +392,7 @@ async fn test_conductor_execute_returns_writer_start_fields() {
     let execute_req = json!({
         "objective": "Generate a terminal-backed report for Writer",
         "desktop_id": "test-desktop-writer-fields",
-        "output_mode": "markdown_report_to_writer",
-        "correlation_id": "writer-fields-test"
+        "output_mode": "markdown_report_to_writer"
     });
 
     let req = Request::builder()
@@ -399,11 +405,6 @@ async fn test_conductor_execute_returns_writer_start_fields() {
     let (status, body) = json_response(&app, req).await;
 
     assert_eq!(status, StatusCode::ACCEPTED);
-
-    assert!(
-        body["task_id"].is_string() && !body["task_id"].as_str().unwrap().is_empty(),
-        "task_id must be present and non-empty"
-    );
 
     assert!(
         body["run_id"].is_string(),
@@ -428,16 +429,13 @@ async fn test_conductor_execute_returns_writer_start_fields() {
         "writer_window_props.path must be present and non-empty"
     );
 
-    assert!(
-        body["correlation_id"].is_string(),
-        "correlation_id must be present"
-    );
-    assert_eq!(body["correlation_id"], "writer-fields-test");
-
     assert!(body["status"].is_string(), "status must be present");
     let status_str = body["status"].as_str().unwrap();
     assert!(
-        matches!(status_str, "queued" | "running" | "waiting_worker"),
+        matches!(
+            status_str,
+            "initializing" | "running" | "waiting_for_calls" | "completing"
+        ),
         "status for accepted run should be a non-terminal state, got {}",
         status_str
     );

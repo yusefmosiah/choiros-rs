@@ -105,6 +105,17 @@ fn pointer_buttons(e: &PointerEvent) -> u16 {
         .unwrap_or(1)
 }
 
+fn pointer_is_mouse(e: &PointerEvent) -> bool {
+    e.data()
+        .try_as_web_event()
+        .and_then(|event| {
+            event
+                .dyn_ref::<web_sys::PointerEvent>()
+                .map(|pointer| pointer.pointer_type() == "mouse")
+        })
+        .unwrap_or(true)
+}
+
 fn pointer_target_is_window_control(e: &PointerEvent) -> bool {
     e.data()
         .try_as_web_event()
@@ -118,23 +129,38 @@ fn pointer_target_is_window_control(e: &PointerEvent) -> bool {
 }
 
 fn capture_window_pointer(e: &PointerEvent, pointer_id: i32) {
-    let _ = e
+    if let Some(current_target) = e
         .data()
         .try_as_web_event()
         .and_then(|event| event.current_target())
         .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
-        .and_then(|element| element.closest(".floating-window").ok().flatten())
-        .map(|window| window.set_pointer_capture(pointer_id));
+    {
+        if current_target.set_pointer_capture(pointer_id).is_ok() {
+            return;
+        }
+
+        let _ = current_target
+            .closest(".floating-window")
+            .ok()
+            .flatten()
+            .map(|window| window.set_pointer_capture(pointer_id));
+    }
 }
 
 fn release_window_pointer(e: &PointerEvent, pointer_id: i32) {
-    let _ = e
+    if let Some(current_target) = e
         .data()
         .try_as_web_event()
         .and_then(|event| event.current_target())
         .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
-        .and_then(|element| element.closest(".floating-window").ok().flatten())
-        .map(|window| window.release_pointer_capture(pointer_id));
+    {
+        let _ = current_target.release_pointer_capture(pointer_id);
+        let _ = current_target
+            .closest(".floating-window")
+            .ok()
+            .flatten()
+            .map(|window| window.release_pointer_capture(pointer_id));
+    }
 }
 
 #[component]
@@ -322,7 +348,7 @@ pub fn FloatingWindow(
 
                 // Pointer capture can occasionally be lost across browser focus transitions.
                 // If no buttons are held, end interaction immediately to avoid sticky drag mode.
-                if pointer_buttons(&e) == 0 {
+                if pointer_is_mouse(&e) && pointer_buttons(&e) == 0 {
                     let final_bounds = live_bounds().unwrap_or(active.start_bounds);
                     match active.mode {
                         InteractionMode::Drag => {
@@ -477,7 +503,7 @@ pub fn FloatingWindow(
                         }
                     },
                     onpointerdown: move |e| {
-                        if window.maximized || is_mobile {
+                        if window.maximized {
                             return;
                         }
                         if pointer_target_is_window_control(&e) {
@@ -608,14 +634,11 @@ pub fn FloatingWindow(
                 }
             }
 
-            if !is_mobile && !window.maximized {
+            if !window.maximized {
                 div {
                     class: "resize-handle",
-                    style: "position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: se-resize;",
+                    style: "position: absolute; right: 0; bottom: 0; width: 24px; height: 24px; cursor: se-resize; touch-action: none;",
                     onpointerdown: move |e| {
-                        if is_mobile {
-                            return;
-                        }
                         if !is_active {
                             on_focus.call(window_id_for_resize_pointer.clone());
                         }

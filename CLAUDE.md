@@ -3,41 +3,61 @@
 ## Current Architecture Snapshot (2026-02-07)
 
 - Runtime is supervision-tree-first:
-  - `ApplicationSupervisor -> SessionSupervisor -> {ChatSupervisor, TerminalSupervisor, DesktopSupervisor}`
-- `bash` tool execution is delegated through TerminalActor paths (no direct ChatAgent shell execution).
+  - `ApplicationSupervisor -> SessionSupervisor -> {ConductorSupervisor, TerminalSupervisor, DesktopSupervisor}`
+- `bash` tool execution is delegated through TerminalActor paths (no direct Conductor tool execution).
 - Terminal work emits worker lifecycle + progress telemetry and streams as websocket `actor_call` chunks.
-- Scope isolation (`session_id`, `thread_id`) is required for chat/tool event retrieval to prevent cross-instance bleed.
+- Scope isolation (`session_id`, `thread_id`) is required for human/tool event retrieval to prevent cross-instance bleed.
 - EventBus/EventStore are the observability backbone for worker/task tracing.
 - Model policy defaults (current):
-  - Chat: `ClaudeBedrockSonnet45`
+  - Human Interface: `ClaudeBedrockSonnet45`
   - Conductor: `ClaudeBedrockOpus46`
   - Summarizer: `ZaiGLM47Flash`
 
 ## Execution Direction (2026-02-09)
 
 - Primary orchestration path is `Prompt Bar -> Conductor`.
-- Chat should remain a thin compatibility surface and escalate multi-step planning to conductor.
-- Build reliability through skills and typed contracts, not chat-special-case logic.
+- Living-document UX surfaces should remain thin and hand off multi-step planning to conductor.
+- Build reliability through skills and typed contracts, not app-specific special-case logic.
 
-## NO ADHOC WORKFLOW (Hard Rule)
+## Model-Led Control Flow (Hard Rule)
 
-- Do not implement workflow state transitions via natural-language string matching.
-- Do not add task-specific one-off routing/prompt hacks in chat actors.
-- Encode control flow in typed protocol fields (BAML/shared-types) and actor messages.
-- Phrase matching is allowed only for input normalization or UI text shaping, never control authority.
+- Default to model-managed control flow for multi-step orchestration.
+- Do not encode brittle, step-by-step deterministic workflows where model planning is expected.
+- Conductor treats workers and app agents as logical subagents via actor messaging.
+- Conductor turns must be non-blocking and finite: never poll child agents and never wait in
+  blocking loops for child completion.
+- Keep deterministic logic only for safety and operability rails:
+  identity/routing, capability boundaries, budgets/timeouts/cancellation,
+  idempotency/loop prevention, and audit/trace persistence.
+- Natural-language messages carry objectives/context; control authority must be expressed
+  through typed actor message metadata.
+- Conductor is orchestration-only and does not execute tools directly.
+- Tool schemas are defined once in shared contracts and granted per agent/worker.
+- Default worker profile grants Terminal and Researcher file tools (`file_read`, `file_write`,
+  `file_edit`) as a permanent baseline.
+- Writer remains canonical for living-document/revision mutation authority.
+- Every conductor wake should include a bounded system agent-tree state digest
+  (roles, leases, status, last signal timestamps, and correlation handles).
+- Phrase matching is allowed only for input normalization or UI text shaping, never as
+  orchestration authority.
 
 ## Current High-Priority Development Targets
 
 1. Typed worker event schema for actor-call rendering (`spawned/progress/complete/failed`).
 2. Terminal loop event enrichment (`tool_call`, `tool_result`, durations, retry/error metadata).
-3. WatcherActor prototype for timeout/failure escalation signals to supervisors.
+3. Direct worker/app-to-conductor request-message contract (typed envelopes,
+   minimal request kinds, and correlation metadata).
 4. Ordered websocket integration tests for scoped multi-instance streams.
-5. Model policy system before Researcher rollout (policy-resolved model routing + audit events).
+5. Writer app-agent harness completion and contract hardening.
+6. Tracing app rollout sequence: human UX first, then headless API, then app-agent harness.
+7. Conductor wake-context hardening with bounded system agent-tree snapshots.
+8. Harness simplification: one while-loop runtime model and `adapter -> worker_port`
+   execution-boundary narrowing.
 
 ## Naming Reconciliation (Authoritative)
 
 - `Logging`: Event capture/persistence/transport only.
-- `Watcher`: Deterministic detection/alerting over logs.
+- `Watcher`: Optional recurring-event detection/alerting actor; not core run-step authority.
 - `Summarizer`: Human-readable compression over event batches/windows.
 
 Do not overload these terms in docs/code reviews.
@@ -178,7 +198,7 @@ choiros-rs/
 ├── sandbox/             # Backend API + actors
 │   ├── src/
 │   │   ├── main.rs      # Server entry point
-│   │   ├── actors/      # Ractor actors (chat, desktop, events, terminal)
+│   │   ├── actors/      # Ractor actors (conductor, desktop, events, terminal, workers)
 │   │   ├── api/         # HTTP/WebSocket endpoints
 │   │   ├── tools/       # Agent tool system
 │   │   └── baml_client/ # LLM integration
@@ -247,7 +267,7 @@ agent-browser screenshot tests/screenshots/result.png
 - Use Axum router + `tower::ServiceExt::oneshot`
 - Use temp directories for isolated databases
 - Example pattern: `tests/desktop_api_test.rs`
-- For websocket chat flows, prefer `tokio_tungstenite` integration tests over manual curl loops.
+- For websocket conductor/living-document flows, prefer `tokio_tungstenite` integration tests over manual curl loops.
 - Assert `actor_call` chunks for delegated terminal tasks when validating multi-agent observability.
 - Keep tests provider-agnostic: do not hardcode assumptions to a single external weather/API service.
 
@@ -258,8 +278,8 @@ agent-browser screenshot tests/screenshots/result.png
 ./scripts/sandbox-test.sh --test desktop_api_test test_create_desktop
 ./scripts/sandbox-test.sh --lib conductor
 
-# Run websocket chat integration suite
-cargo test -p sandbox --test websocket_chat_test -- --nocapture
+# Run websocket integration suite (exact binary)
+cargo test -p sandbox --test <exact_integration_binary> -- --nocapture
 
 # Run supervision delegation suite
 cargo test -p sandbox --features supervision_refactor --test supervision_test -- --nocapture
@@ -267,11 +287,7 @@ cargo test -p sandbox --features supervision_refactor --test supervision_test --
 # Important: NEVER use broad filtered runs like this:
 # cargo test -p sandbox <filter>
 # They spin through many test binaries and are slow/noisy.
-# Always select exact target binaries:
-cargo test -p sandbox --test chat_superbowl_live_matrix_test -- --nocapture
-
-# Or target one test function inside that integration binary:
-cargo test -p sandbox --test chat_superbowl_live_matrix_test test_chat_superbowl_weather_live_model_provider_matrix -- --nocapture
+# Always select exact target binaries and avoid broad filtered runs.
 ```
 
 ## Key Dependencies

@@ -131,10 +131,7 @@ pub fn router() -> Router<ApiState> {
         .route("/writer/preview", post(writer::preview_markdown))
         // Conductor API routes
         .route("/conductor/execute", post(conductor::execute_task))
-        .route(
-            "/conductor/tasks/{task_id}",
-            get(conductor::get_task_status),
-        )
+        .route("/conductor/runs/{run_id}", get(conductor::get_run_status))
 }
 
 /// Health check endpoint

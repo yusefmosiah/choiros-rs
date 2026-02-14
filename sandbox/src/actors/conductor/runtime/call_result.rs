@@ -1,16 +1,16 @@
-use ractor::{ActorProcessingErr, ActorRef};
+use ractor::ActorProcessingErr;
+use std::collections::BTreeSet;
 
 use crate::actors::conductor::actor::{ConductorActor, ConductorState};
 use crate::actors::conductor::{
     events,
-    protocol::{CapabilityWorkerOutput, ConductorError, ConductorMsg},
+    protocol::{CapabilityWorkerOutput, ConductorError},
 };
 use crate::actors::run_writer::{RunWriterMsg, SectionState};
 
 impl ConductorActor {
     pub(crate) async fn handle_capability_call_finished(
         &self,
-        myself: &ActorRef<ConductorMsg>,
         state: &mut ConductorState,
         run_id: String,
         call_id: String,
@@ -18,11 +18,6 @@ impl ConductorActor {
         capability: String,
         result: Result<CapabilityWorkerOutput, ConductorError>,
     ) -> Result<(), ActorProcessingErr> {
-        let (task_id, correlation_id) = if let Some(run) = state.tasks.get_run(&run_id) {
-            (run.task_id.clone(), run.correlation_id.clone())
-        } else {
-            (run_id.clone(), run_id.clone())
-        };
         let run_writer = state.run_writers.get(&run_id).cloned();
         let section_id = capability.to_ascii_lowercase();
 
@@ -71,7 +66,6 @@ impl ConductorActor {
                 events::emit_capability_completed(
                     &state.event_store,
                     &run_id,
-                    &task_id,
                     &call_id,
                     &capability,
                     "research capability completed",
@@ -79,8 +73,7 @@ impl ConductorActor {
                 .await;
                 events::emit_worker_result(
                     &state.event_store,
-                    &task_id,
-                    &correlation_id,
+                    &run_id,
                     "researcher",
                     true,
                     "research capability completed",
@@ -138,7 +131,6 @@ impl ConductorActor {
                     events::emit_capability_completed(
                         &state.event_store,
                         &run_id,
-                        &task_id,
                         &call_id,
                         &capability,
                         "terminal capability completed",
@@ -146,8 +138,7 @@ impl ConductorActor {
                     .await;
                     events::emit_worker_result(
                         &state.event_store,
-                        &task_id,
-                        &correlation_id,
+                        &run_id,
                         "terminal",
                         true,
                         "terminal capability completed",
@@ -184,7 +175,6 @@ impl ConductorActor {
                     events::emit_capability_failed(
                         &state.event_store,
                         &run_id,
-                        &task_id,
                         &call_id,
                         &capability,
                         &err,
@@ -193,8 +183,7 @@ impl ConductorActor {
                     .await;
                     events::emit_worker_result(
                         &state.event_store,
-                        &task_id,
-                        &correlation_id,
+                        &run_id,
                         "terminal",
                         false,
                         &err,
@@ -240,7 +229,6 @@ impl ConductorActor {
                     events::emit_capability_blocked(
                         &state.event_store,
                         &run_id,
-                        &task_id,
                         &call_id,
                         &capability,
                         &reason,
@@ -250,7 +238,6 @@ impl ConductorActor {
                     events::emit_capability_failed(
                         &state.event_store,
                         &run_id,
-                        &task_id,
                         &call_id,
                         &capability,
                         &err_text,
@@ -260,8 +247,7 @@ impl ConductorActor {
                 }
                 events::emit_worker_result(
                     &state.event_store,
-                    &task_id,
-                    &correlation_id,
+                    &run_id,
                     &capability,
                     false,
                     &err_text,
@@ -282,10 +268,135 @@ impl ConductorActor {
             }
         }
 
-        let _ = state
+        self.finalize_run_if_quiescent(state, &run_id).await?;
+        Ok(())
+    }
+
+    async fn finalize_run_if_quiescent(
+        &self,
+        state: &mut ConductorState,
+        run_id: &str,
+    ) -> Result<(), ActorProcessingErr> {
+        let active_calls = state.tasks.get_run_active_calls(run_id).len();
+        if active_calls > 0 {
+            let _ = state
+                .tasks
+                .transition_run_status(run_id, shared_types::ConductorRunStatus::WaitingForCalls);
+            return Ok(());
+        }
+
+        let run = state
             .tasks
-            .transition_run_status(&run_id, shared_types::ConductorRunStatus::Running);
-        let _ = myself.send_message(ConductorMsg::DispatchReady { run_id });
+            .get_run(run_id)
+            .cloned()
+            .ok_or_else(|| ActorProcessingErr::from(format!("run not found: {run_id}")))?;
+
+        if let Some(run_writer) = state.run_writers.get(run_id).cloned() {
+            let sections: BTreeSet<String> = run
+                .agenda
+                .iter()
+                .map(|item| item.capability.to_ascii_lowercase())
+                .filter(|capability| capability == "researcher" || capability == "terminal")
+                .collect();
+
+            for section in sections {
+                match ractor::call!(run_writer, |reply| RunWriterMsg::CommitProposal {
+                    section_id: section.clone(),
+                    reply,
+                }) {
+                    Ok(Ok(revision)) => {
+                        tracing::info!(
+                            run_id = %run_id,
+                            section = %section,
+                            revision = revision,
+                            "Writer proposal committed"
+                        );
+                    }
+                    Ok(Err(error)) => {
+                        tracing::warn!(
+                            run_id = %run_id,
+                            section = %section,
+                            error = %error,
+                            "Writer proposal commit failed"
+                        );
+                        state
+                            .tasks
+                            .transition_run_status(
+                                run_id,
+                                shared_types::ConductorRunStatus::Blocked,
+                            )
+                            .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+                        self.finalize_run_as_blocked(
+                            state,
+                            run_id,
+                            Some(format!(
+                                "writer failed to commit section '{section}': {error}"
+                            )),
+                        )
+                        .await
+                        .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+                        return Ok(());
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            run_id = %run_id,
+                            section = %section,
+                            error = %error,
+                            "Writer commit RPC failed"
+                        );
+                        state
+                            .tasks
+                            .transition_run_status(
+                                run_id,
+                                shared_types::ConductorRunStatus::Blocked,
+                            )
+                            .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+                        self.finalize_run_as_blocked(
+                            state,
+                            run_id,
+                            Some(format!("writer RPC failed while committing '{section}'")),
+                        )
+                        .await
+                        .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        let has_failed_items = run.agenda.iter().any(|item| {
+            matches!(
+                item.status,
+                shared_types::AgendaItemStatus::Failed | shared_types::AgendaItemStatus::Blocked
+            )
+        });
+
+        if has_failed_items {
+            state
+                .tasks
+                .transition_run_status(run_id, shared_types::ConductorRunStatus::Blocked)
+                .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+            self.finalize_run_as_blocked(
+                state,
+                run_id,
+                Some("one or more worker calls failed".to_string()),
+            )
+            .await
+            .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+            return Ok(());
+        }
+
+        state
+            .tasks
+            .transition_run_status(run_id, shared_types::ConductorRunStatus::Completed)
+            .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+        self.finalize_run_as_completed(
+            state,
+            run_id,
+            Some("all worker calls completed; writer committed proposals".to_string()),
+        )
+        .await
+        .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
         Ok(())
     }
 }

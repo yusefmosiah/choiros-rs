@@ -11,7 +11,13 @@ mod classes;
 mod type_aliases;
 mod unions;
 
-pub use classes::*;
+pub use classes::{
+    AgentDecision, AgentToolArgs, AgentToolCall, BashToolArgs, ConductorBootstrapInput,
+    ConductorBootstrapOutput, ConductorDecision, ConductorDecisionInput,
+    ConductorObjectiveRefineInput, ConductorObjectiveRefineOutput, ListFilesToolArgs, Message,
+    ReadFileToolArgs, ResearcherPlanInput, ResearcherPlanOutput, Resume, SearchFilesToolArgs,
+    StreamChunk, ToolResult, WebSearchToolArgs, WriteFileToolArgs,
+};
 pub use type_aliases::*;
 pub use unions::*;
 
@@ -23,8 +29,6 @@ pub enum StreamTypes {
     AgentToolArgs(AgentToolArgs),
 
     AgentToolCall(AgentToolCall),
-
-    AlternativeAction(AlternativeAction),
 
     BashToolArgs(BashToolArgs),
 
@@ -40,10 +44,6 @@ pub enum StreamTypes {
 
     ConductorObjectiveRefineOutput(ConductorObjectiveRefineOutput),
 
-    DetectedAnomaly(DetectedAnomaly),
-
-    HistoricalResolution(HistoricalResolution),
-
     ListFilesToolArgs(ListFilesToolArgs),
 
     Message(Message),
@@ -56,29 +56,11 @@ pub enum StreamTypes {
 
     Resume(Resume),
 
-    ReviewScope(ReviewScope),
-
-    RiskItem(RiskItem),
-
-    RunStateSnapshot(RunStateSnapshot),
-
     SearchFilesToolArgs(SearchFilesToolArgs),
 
     StreamChunk(StreamChunk),
 
     ToolResult(ToolResult),
-
-    WatcherEscalation(WatcherEscalation),
-
-    WatcherEvent(WatcherEvent),
-
-    WatcherLogWindowInput(WatcherLogWindowInput),
-
-    WatcherMitigationInput(WatcherMitigationInput),
-
-    WatcherMitigationOutput(WatcherMitigationOutput),
-
-    WatcherReviewOutput(WatcherReviewOutput),
 
     WebSearchToolArgs(WebSearchToolArgs),
 
@@ -98,8 +80,6 @@ impl baml::KnownTypes for StreamTypes {
 
             StreamTypes::AgentToolCall(_) => "AgentToolCall",
 
-            StreamTypes::AlternativeAction(_) => "AlternativeAction",
-
             StreamTypes::BashToolArgs(_) => "BashToolArgs",
 
             StreamTypes::ConductorBootstrapInput(_) => "ConductorBootstrapInput",
@@ -114,10 +94,6 @@ impl baml::KnownTypes for StreamTypes {
 
             StreamTypes::ConductorObjectiveRefineOutput(_) => "ConductorObjectiveRefineOutput",
 
-            StreamTypes::DetectedAnomaly(_) => "DetectedAnomaly",
-
-            StreamTypes::HistoricalResolution(_) => "HistoricalResolution",
-
             StreamTypes::ListFilesToolArgs(_) => "ListFilesToolArgs",
 
             StreamTypes::Message(_) => "Message",
@@ -130,29 +106,11 @@ impl baml::KnownTypes for StreamTypes {
 
             StreamTypes::Resume(_) => "Resume",
 
-            StreamTypes::ReviewScope(_) => "ReviewScope",
-
-            StreamTypes::RiskItem(_) => "RiskItem",
-
-            StreamTypes::RunStateSnapshot(_) => "RunStateSnapshot",
-
             StreamTypes::SearchFilesToolArgs(_) => "SearchFilesToolArgs",
 
             StreamTypes::StreamChunk(_) => "StreamChunk",
 
             StreamTypes::ToolResult(_) => "ToolResult",
-
-            StreamTypes::WatcherEscalation(_) => "WatcherEscalation",
-
-            StreamTypes::WatcherEvent(_) => "WatcherEvent",
-
-            StreamTypes::WatcherLogWindowInput(_) => "WatcherLogWindowInput",
-
-            StreamTypes::WatcherMitigationInput(_) => "WatcherMitigationInput",
-
-            StreamTypes::WatcherMitigationOutput(_) => "WatcherMitigationOutput",
-
-            StreamTypes::WatcherReviewOutput(_) => "WatcherReviewOutput",
 
             StreamTypes::WebSearchToolArgs(_) => "WebSearchToolArgs",
 

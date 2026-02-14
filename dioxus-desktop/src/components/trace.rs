@@ -100,7 +100,6 @@ struct RunGraphSummary {
     conductor_calls: usize,
     researcher_calls: usize,
     terminal_calls: usize,
-    watcher_calls: usize,
     tool_calls: usize,
     tool_failures: usize,
 }
@@ -394,7 +393,6 @@ fn build_run_graph_summaries(
                 conductor_calls: 0,
                 researcher_calls: 0,
                 terminal_calls: 0,
-                watcher_calls: 0,
                 tool_calls: 0,
                 tool_failures: 0,
             });
@@ -417,7 +415,6 @@ fn build_run_graph_summaries(
                 conductor_calls: 0,
                 researcher_calls: 0,
                 terminal_calls: 0,
-                watcher_calls: 0,
                 tool_calls: 0,
                 tool_failures: 0,
             });
@@ -426,7 +423,6 @@ fn build_run_graph_summaries(
             "conductor" => entry.conductor_calls += 1,
             "researcher" => entry.researcher_calls += 1,
             "terminal" => entry.terminal_calls += 1,
-            "watcher" => entry.watcher_calls += 1,
             _ => {}
         }
         let ts = trace.timestamp();
@@ -448,7 +444,6 @@ fn build_run_graph_summaries(
                 conductor_calls: 0,
                 researcher_calls: 0,
                 terminal_calls: 0,
-                watcher_calls: 0,
                 tool_calls: 0,
                 tool_failures: 0,
             });
@@ -921,7 +916,6 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                         line { x1: "140", y1: "70", x2: "300", y2: "70", stroke: "#475569", stroke_width: "2" }
                                         line { x1: "440", y1: "70", x2: "590", y2: "40", stroke: "#475569", stroke_width: "2" }
                                         line { x1: "440", y1: "70", x2: "590", y2: "110", stroke: "#475569", stroke_width: "2" }
-                                        line { x1: "440", y1: "70", x2: "590", y2: "180", stroke: "#475569", stroke_width: "2" }
                                         line { x1: "710", y1: "40", x2: "790", y2: "105", stroke: "#334155", stroke_width: "2" }
                                         line { x1: "710", y1: "110", x2: "790", y2: "105", stroke: "#334155", stroke_width: "2" }
 
@@ -941,10 +935,6 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                         text { x: "602", y: "106", fill: "#fcd34d", font_size: "12", "Terminal" }
                                         text { x: "602", y: "122", fill: "#cbd5e1", font_size: "11", "{run.terminal_calls} llm" }
 
-                                        rect { x: "590", y: "156", width: "120", height: "48", rx: "8", fill: "#0b1225", stroke: "#a78bfa" }
-                                        text { x: "602", y: "176", fill: "#c4b5fd", font_size: "12", "Watcher" }
-                                        text { x: "602", y: "192", fill: "#cbd5e1", font_size: "11", "{run.watcher_calls} llm" }
-
                                         rect { x: "790", y: "81", width: "62", height: "48", rx: "8", fill: "#111827", stroke: "#06b6d4" }
                                         text { x: "797", y: "101", fill: "#67e8f9", font_size: "11", "Tools" }
                                         text { x: "797", y: "117", fill: "#cbd5e1", font_size: "10", "{run.tool_calls}" }
@@ -955,7 +945,6 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                     span { "tool failures: {run.tool_failures}" }
                                     span { "researcher llm: {run.researcher_calls}" }
                                     span { "terminal llm: {run.terminal_calls}" }
-                                    span { "watcher llm: {run.watcher_calls}" }
                                 }
                             }
                         }

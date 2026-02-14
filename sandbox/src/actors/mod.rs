@@ -10,7 +10,6 @@ pub mod model_config;
 pub mod researcher;
 pub mod run_writer;
 pub mod terminal;
-pub mod watcher;
 
 pub use conductor::{ConductorActor, ConductorArguments, ConductorMsg};
 pub use desktop::DesktopActor;
@@ -23,4 +22,3 @@ pub use run_writer::{
     RunWriterArguments, RunWriterError, RunWriterMsg, SectionState,
 };
 pub use terminal::{TerminalActor, TerminalArguments, TerminalError, TerminalInfo, TerminalMsg};
-pub use watcher::{WatcherActor, WatcherArguments, WatcherMsg};

@@ -25,17 +25,15 @@ impl ConductorActor {
 
         let output = build_worker_output_from_run(&run);
         let report_path = self
-            .write_report(&run.task_id, &output.report_content)
+            .write_report(&run.run_id, &output.report_content)
             .await?;
         let selected_mode = resolve_output_mode(run.output_mode, &output);
         let toast = build_completion_toast(selected_mode, &output, &report_path);
 
-        state.tasks.transition_to_completed(
-            &run.task_id,
-            selected_mode,
-            report_path.clone(),
-            toast.clone(),
-        )?;
+        if let Some(run_state) = state.tasks.get_run_mut(run_id) {
+            run_state.output_mode = selected_mode;
+            run_state.updated_at = chrono::Utc::now();
+        }
 
         let writer_props =
             if selected_mode == shared_types::ConductorOutputMode::MarkdownReportToWriter {
@@ -46,8 +44,7 @@ impl ConductorActor {
 
         events::emit_task_completed(
             &state.event_store,
-            &run.task_id,
-            &run.correlation_id,
+            &run.run_id,
             selected_mode,
             &report_path,
             writer_props.as_ref(),
@@ -56,15 +53,8 @@ impl ConductorActor {
         .await;
 
         if let Some(reason) = completion_reason {
-            events::emit_progress(
-                &state.event_store,
-                run_id,
-                &run.task_id,
-                "conductor",
-                &reason,
-                Some(100),
-            )
-            .await;
+            events::emit_progress(&state.event_store, run_id, "conductor", &reason, Some(100))
+                .await;
         }
 
         Ok(())
@@ -81,19 +71,16 @@ impl ConductorActor {
             .get_run(run_id)
             .cloned()
             .ok_or_else(|| ConductorError::NotFound(run_id.to_string()))?;
-        let message = reason.unwrap_or_else(|| "Run blocked by conductor policy".to_string());
+        let message =
+            reason.unwrap_or_else(|| "Run blocked by conductor model gateway".to_string());
         let shared_error = shared_types::ConductorError {
             code: "RUN_BLOCKED".to_string(),
             message: message.clone(),
             failure_kind: Some(shared_types::FailureKind::Unknown),
         };
-        state
-            .tasks
-            .transition_to_failed(&run.task_id, shared_error.clone())?;
         events::emit_task_failed(
             &state.event_store,
-            &run.task_id,
-            &run.correlation_id,
+            &run.run_id,
             &shared_error.code,
             &shared_error.message,
             shared_error.failure_kind,
@@ -104,7 +91,7 @@ impl ConductorActor {
 
     pub(crate) async fn write_report(
         &self,
-        task_id: &str,
+        run_id: &str,
         content: &str,
     ) -> Result<String, ConductorError> {
         let sandbox = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -116,19 +103,19 @@ impl ConductorActor {
             )));
         }
 
-        if task_id.contains('/') || task_id.contains('\\') || task_id.contains("..") {
+        if run_id.contains('/') || run_id.contains('\\') || run_id.contains("..") {
             return Err(ConductorError::InvalidRequest(
-                "Invalid task_id: contains path separators".to_string(),
+                "Invalid run_id: contains path separators".to_string(),
             ));
         }
 
-        let report_path = reports_dir.join(format!("{task_id}.md"));
+        let report_path = reports_dir.join(format!("{run_id}.md"));
         if let Err(e) = tokio::fs::write(&report_path, content).await {
             return Err(ConductorError::ReportWriteFailed(format!(
                 "Failed to write report: {e}"
             )));
         }
 
-        Ok(format!("reports/{task_id}.md"))
+        Ok(format!("reports/{run_id}.md"))
     }
 }

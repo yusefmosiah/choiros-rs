@@ -6,16 +6,12 @@
 use shared_types::{
     AgendaItemStatus, CapabilityCallStatus, ConductorAgendaItem, ConductorArtifact,
     ConductorCapabilityCall, ConductorDecision, ConductorRunState, ConductorRunStatus,
-    ConductorTaskState, ConductorToastPayload,
 };
 use std::collections::HashMap;
 
 /// State container for ConductorActor - new runtime model
 pub struct ConductorState {
-    /// Legacy task tracking (for compatibility)
-    tasks: HashMap<String, ConductorTaskState>,
-
-    /// New runtime model: runs indexed by run_id
+    /// Runtime model: runs indexed by run_id
     runs: HashMap<String, ConductorRunState>,
 
     /// Active capability calls by call_id (for quick lookup)
@@ -26,122 +22,9 @@ impl ConductorState {
     /// Create a new empty state
     pub fn new() -> Self {
         Self {
-            tasks: HashMap::new(),
             runs: HashMap::new(),
             active_calls: HashMap::new(),
         }
-    }
-
-    // =========================================================================
-    // Legacy Task API (for compatibility)
-    // =========================================================================
-
-    /// Insert a new task in Queued status
-    pub fn insert_task(
-        &mut self,
-        task: ConductorTaskState,
-    ) -> Result<(), super::protocol::ConductorError> {
-        if self.tasks.contains_key(&task.task_id) {
-            return Err(super::protocol::ConductorError::DuplicateTask(
-                task.task_id.clone(),
-            ));
-        }
-        self.tasks.insert(task.task_id.clone(), task);
-        Ok(())
-    }
-
-    /// Get a task by ID
-    pub fn get_task(&self, task_id: &str) -> Option<&ConductorTaskState> {
-        self.tasks.get(task_id)
-    }
-
-    /// Get a mutable task by ID
-    pub fn get_task_mut(&mut self, task_id: &str) -> Option<&mut ConductorTaskState> {
-        self.tasks.get_mut(task_id)
-    }
-
-    /// Transition a task to Running status
-    pub fn transition_to_running(
-        &mut self,
-        task_id: &str,
-    ) -> Result<&ConductorTaskState, super::protocol::ConductorError> {
-        let task = self
-            .tasks
-            .get_mut(task_id)
-            .ok_or_else(|| super::protocol::ConductorError::NotFound(task_id.to_string()))?;
-
-        task.status = shared_types::ConductorTaskStatus::Running;
-        task.updated_at = chrono::Utc::now();
-
-        Ok(&*task)
-    }
-
-    /// Transition a task to WaitingWorker status
-    pub fn transition_to_waiting_worker(
-        &mut self,
-        task_id: &str,
-    ) -> Result<&ConductorTaskState, super::protocol::ConductorError> {
-        let task = self
-            .tasks
-            .get_mut(task_id)
-            .ok_or_else(|| super::protocol::ConductorError::NotFound(task_id.to_string()))?;
-
-        task.status = shared_types::ConductorTaskStatus::WaitingWorker;
-        task.updated_at = chrono::Utc::now();
-
-        Ok(&*task)
-    }
-
-    /// Transition a task to Completed status with report path
-    pub fn transition_to_completed(
-        &mut self,
-        task_id: &str,
-        output_mode: shared_types::ConductorOutputMode,
-        report_path: String,
-        toast: Option<ConductorToastPayload>,
-    ) -> Result<&ConductorTaskState, super::protocol::ConductorError> {
-        let task = self
-            .tasks
-            .get_mut(task_id)
-            .ok_or_else(|| super::protocol::ConductorError::NotFound(task_id.to_string()))?;
-
-        task.status = shared_types::ConductorTaskStatus::Completed;
-        task.output_mode = output_mode;
-        task.report_path = Some(report_path);
-        task.toast = toast;
-        task.updated_at = chrono::Utc::now();
-        task.completed_at = Some(chrono::Utc::now());
-
-        Ok(&*task)
-    }
-
-    /// Transition a task to Failed status with error
-    pub fn transition_to_failed(
-        &mut self,
-        task_id: &str,
-        error: shared_types::ConductorError,
-    ) -> Result<&ConductorTaskState, super::protocol::ConductorError> {
-        let task = self
-            .tasks
-            .get_mut(task_id)
-            .ok_or_else(|| super::protocol::ConductorError::NotFound(task_id.to_string()))?;
-
-        task.status = shared_types::ConductorTaskStatus::Failed;
-        task.error = Some(error);
-        task.updated_at = chrono::Utc::now();
-        task.completed_at = Some(chrono::Utc::now());
-
-        Ok(&*task)
-    }
-
-    /// Get all tasks (for debugging/inspection)
-    pub fn get_all_tasks(&self) -> &HashMap<String, ConductorTaskState> {
-        &self.tasks
-    }
-
-    /// Remove a task from state
-    pub fn remove_task(&mut self, task_id: &str) -> Option<ConductorTaskState> {
-        self.tasks.remove(task_id)
     }
 
     // =========================================================================
@@ -581,12 +464,11 @@ mod tests {
     // ============================================================================
 
     #[test]
-    fn test_start_run_with_explicit_task_id() {
+    fn test_insert_run_preserves_run_id() {
         let mut state = ConductorState::new();
 
         let run = ConductorRunState {
             run_id: "run_1".to_string(),
-            task_id: "task_abc".to_string(), // Explicit task_id
             objective: "Test objective".to_string(),
             status: ConductorRunStatus::Running,
             created_at: chrono::Utc::now(),
@@ -599,25 +481,21 @@ mod tests {
             document_path: format!("conductor/runs/{}/draft.md", "run_1"),
             output_mode: shared_types::ConductorOutputMode::Auto,
             desktop_id: "desktop_1".to_string(),
-            correlation_id: "corr_1".to_string(),
         };
 
         state.insert_run(run);
 
         let retrieved = state.get_run("run_1").unwrap();
         assert_eq!(retrieved.run_id, "run_1");
-        assert_eq!(retrieved.task_id, "task_abc"); // Preserves explicit task_id
         assert_eq!(retrieved.status, ConductorRunStatus::Running);
     }
 
     #[test]
-    fn test_start_run_without_task_id_uses_run_id() {
+    fn test_start_run_uses_run_id_as_canonical_identity() {
         let mut state = ConductorState::new();
 
-        // Simulate StartRun without explicit task_id by using run_id as task_id
         let run = ConductorRunState {
             run_id: "run_only_id".to_string(),
-            task_id: "run_only_id".to_string(), // Same as run_id (backward compatibility)
             objective: "Test objective".to_string(),
             status: ConductorRunStatus::Running,
             created_at: chrono::Utc::now(),
@@ -630,14 +508,12 @@ mod tests {
             document_path: format!("conductor/runs/{}/draft.md", "run_only_id"),
             output_mode: shared_types::ConductorOutputMode::Auto,
             desktop_id: "desktop_1".to_string(),
-            correlation_id: "corr_1".to_string(),
         };
 
         state.insert_run(run);
 
         let retrieved = state.get_run("run_only_id").unwrap();
         assert_eq!(retrieved.run_id, "run_only_id");
-        assert_eq!(retrieved.task_id, "run_only_id"); // task_id = run_id for backward compat
     }
 
     #[test]
@@ -647,7 +523,6 @@ mod tests {
         // Create a run
         let run = ConductorRunState {
             run_id: "run_1".to_string(),
-            task_id: "task_1".to_string(),
             objective: "Test objective".to_string(),
             status: ConductorRunStatus::Initializing,
             created_at: chrono::Utc::now(),
@@ -660,7 +535,6 @@ mod tests {
             document_path: format!("conductor/runs/{}/draft.md", "run_1"),
             output_mode: shared_types::ConductorOutputMode::Auto,
             desktop_id: "desktop_1".to_string(),
-            correlation_id: "corr_1".to_string(),
         };
 
         state.insert_run(run);
@@ -731,7 +605,6 @@ mod tests {
 
         let run = ConductorRunState {
             run_id: "run_status_test".to_string(),
-            task_id: "task_1".to_string(),
             objective: "Test status transitions".to_string(),
             status: ConductorRunStatus::Initializing,
             created_at: chrono::Utc::now(),
@@ -744,7 +617,6 @@ mod tests {
             document_path: format!("conductor/runs/{}/draft.md", "run_status_test"),
             output_mode: shared_types::ConductorOutputMode::Auto,
             desktop_id: "desktop_1".to_string(),
-            correlation_id: "corr_1".to_string(),
         };
 
         state.insert_run(run);
@@ -778,7 +650,6 @@ mod tests {
 
         let run = ConductorRunState {
             run_id: "run_failed_test".to_string(),
-            task_id: "task_1".to_string(),
             objective: "Test failure".to_string(),
             status: ConductorRunStatus::Running,
             created_at: chrono::Utc::now(),
@@ -791,7 +662,6 @@ mod tests {
             document_path: format!("conductor/runs/{}/draft.md", "run_failed_test"),
             output_mode: shared_types::ConductorOutputMode::Auto,
             desktop_id: "desktop_1".to_string(),
-            correlation_id: "corr_1".to_string(),
         };
 
         state.insert_run(run);
@@ -810,7 +680,6 @@ mod tests {
 
         let run = ConductorRunState {
             run_id: "run_blocked_test".to_string(),
-            task_id: "task_1".to_string(),
             objective: "Test blocked".to_string(),
             status: ConductorRunStatus::Running,
             created_at: chrono::Utc::now(),
@@ -823,7 +692,6 @@ mod tests {
             document_path: format!("conductor/runs/{}/draft.md", "run_blocked_test"),
             output_mode: shared_types::ConductorOutputMode::Auto,
             desktop_id: "desktop_1".to_string(),
-            correlation_id: "corr_1".to_string(),
         };
 
         state.insert_run(run);
@@ -855,7 +723,6 @@ mod tests {
 
         let run = ConductorRunState {
             run_id: "run_no_ready".to_string(),
-            task_id: "task_1".to_string(),
             objective: "Test".to_string(),
             status: ConductorRunStatus::Running,
             created_at: chrono::Utc::now(),
@@ -878,7 +745,6 @@ mod tests {
             document_path: format!("conductor/runs/{}/draft.md", "run_no_ready"),
             output_mode: shared_types::ConductorOutputMode::Auto,
             desktop_id: "desktop_1".to_string(),
-            correlation_id: "corr_1".to_string(),
         };
 
         state.insert_run(run);
@@ -930,7 +796,6 @@ mod tests {
 
         let run = ConductorRunState {
             run_id: "run_dispatch".to_string(),
-            task_id: "task_1".to_string(),
             objective: "Test dispatch".to_string(),
             status: ConductorRunStatus::Running,
             created_at: chrono::Utc::now(),
@@ -943,7 +808,6 @@ mod tests {
             document_path: format!("conductor/runs/{}/draft.md", "run_dispatch"),
             output_mode: shared_types::ConductorOutputMode::Auto,
             desktop_id: "desktop_1".to_string(),
-            correlation_id: "corr_1".to_string(),
         };
 
         state.insert_run(run);
@@ -1001,7 +865,6 @@ mod tests {
 
         let run = ConductorRunState {
             run_id: "run_transitions".to_string(),
-            task_id: "task_1".to_string(),
             objective: "Test".to_string(),
             status: ConductorRunStatus::Running,
             created_at: chrono::Utc::now(),
@@ -1014,7 +877,6 @@ mod tests {
             document_path: format!("conductor/runs/{}/draft.md", "run_transitions"),
             output_mode: shared_types::ConductorOutputMode::Auto,
             desktop_id: "desktop_1".to_string(),
-            correlation_id: "corr_1".to_string(),
         };
 
         state.insert_run(run);
@@ -1080,7 +942,6 @@ mod tests {
 
         let run = ConductorRunState {
             run_id: "run_failed".to_string(),
-            task_id: "task_1".to_string(),
             objective: "Test".to_string(),
             status: ConductorRunStatus::Running,
             created_at: chrono::Utc::now(),
@@ -1093,7 +954,6 @@ mod tests {
             document_path: format!("conductor/runs/{}/draft.md", "run_failed"),
             output_mode: shared_types::ConductorOutputMode::Auto,
             desktop_id: "desktop_1".to_string(),
-            correlation_id: "corr_1".to_string(),
         };
 
         state.insert_run(run);
@@ -1131,7 +991,6 @@ mod tests {
 
         let run = ConductorRunState {
             run_id: "run_blocked".to_string(),
-            task_id: "task_1".to_string(),
             objective: "Test".to_string(),
             status: ConductorRunStatus::Running,
             created_at: chrono::Utc::now(),
@@ -1144,7 +1003,6 @@ mod tests {
             document_path: format!("conductor/runs/{}/draft.md", "run_blocked"),
             output_mode: shared_types::ConductorOutputMode::Auto,
             desktop_id: "desktop_1".to_string(),
-            correlation_id: "corr_1".to_string(),
         };
 
         state.insert_run(run);
@@ -1184,7 +1042,6 @@ mod tests {
 
         let run = ConductorRunState {
             run_id: "run_exists".to_string(),
-            task_id: "task_1".to_string(),
             objective: "Test".to_string(),
             status: ConductorRunStatus::Running,
             created_at: chrono::Utc::now(),
@@ -1197,7 +1054,6 @@ mod tests {
             document_path: format!("conductor/runs/{}/draft.md", "run_exists"),
             output_mode: shared_types::ConductorOutputMode::Auto,
             desktop_id: "desktop_1".to_string(),
-            correlation_id: "corr_1".to_string(),
         };
 
         state.insert_run(run);
@@ -1219,7 +1075,6 @@ mod tests {
 
         let run = ConductorRunState {
             run_id: "run_active".to_string(),
-            task_id: "task_1".to_string(),
             objective: "Test".to_string(),
             status: ConductorRunStatus::Running,
             created_at: chrono::Utc::now(),
@@ -1243,7 +1098,6 @@ mod tests {
             document_path: format!("conductor/runs/{}/draft.md", "run_active"),
             output_mode: shared_types::ConductorOutputMode::Auto,
             desktop_id: "desktop_1".to_string(),
-            correlation_id: "corr_1".to_string(),
         };
 
         state.insert_run(run);
@@ -1257,7 +1111,6 @@ mod tests {
 
         let run = ConductorRunState {
             run_id: "run_ready".to_string(),
-            task_id: "task_1".to_string(),
             objective: "Test".to_string(),
             status: ConductorRunStatus::Running,
             created_at: chrono::Utc::now(),
@@ -1280,7 +1133,6 @@ mod tests {
             document_path: format!("conductor/runs/{}/draft.md", "run_ready"),
             output_mode: shared_types::ConductorOutputMode::Auto,
             desktop_id: "desktop_1".to_string(),
-            correlation_id: "corr_1".to_string(),
         };
 
         state.insert_run(run);
@@ -1294,7 +1146,6 @@ mod tests {
 
         let run = ConductorRunState {
             run_id: "run_idle".to_string(),
-            task_id: "task_1".to_string(),
             objective: "Test".to_string(),
             status: ConductorRunStatus::Running,
             created_at: chrono::Utc::now(),
@@ -1328,7 +1179,6 @@ mod tests {
             document_path: format!("conductor/runs/{}/draft.md", "run_idle"),
             output_mode: shared_types::ConductorOutputMode::Auto,
             desktop_id: "desktop_1".to_string(),
-            correlation_id: "corr_1".to_string(),
         };
 
         state.insert_run(run);
@@ -1411,7 +1261,6 @@ mod tests {
 
         let run = ConductorRunState {
             run_id: "run_summary".to_string(),
-            task_id: "task_1".to_string(),
             objective: "Test".to_string(),
             status: ConductorRunStatus::Running,
             created_at: chrono::Utc::now(),
@@ -1450,7 +1299,6 @@ mod tests {
             document_path: format!("conductor/runs/{}/draft.md", "run_summary"),
             output_mode: shared_types::ConductorOutputMode::Auto,
             desktop_id: "desktop_1".to_string(),
-            correlation_id: "corr_1".to_string(),
         };
 
         state.insert_run(run);
@@ -1476,7 +1324,6 @@ mod tests {
 
         let run = ConductorRunState {
             run_id: "run_1".to_string(),
-            task_id: "task_1".to_string(),
             objective: "Test".to_string(),
             status: ConductorRunStatus::Running,
             created_at: chrono::Utc::now(),
@@ -1489,7 +1336,6 @@ mod tests {
             document_path: format!("conductor/runs/{}/draft.md", "run_1"),
             output_mode: shared_types::ConductorOutputMode::Auto,
             desktop_id: "desktop_1".to_string(),
-            correlation_id: "corr_1".to_string(),
         };
 
         state.insert_run(run);

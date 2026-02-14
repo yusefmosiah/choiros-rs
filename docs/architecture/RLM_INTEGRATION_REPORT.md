@@ -91,7 +91,7 @@ While Jido framework documentation is not explicitly present in the codebase, th
 
 ### 2.3 Pure Functions / Signal Contract
 
-**Current Implementation:** `/Users/wiz/choiros-rs/docs/architecture/worker-signal-contract.md`
+**Current Implementation:** `/Users/wiz/choiros-rs/docs/architecture/2026-02-14-worker-live-update-event-model.md`
 
 Workers emit typed turn reports rather than ad-hoc signals:
 
@@ -165,7 +165,11 @@ CREATE TABLE IF NOT EXISTS events (
 - Indexed by `actor_id`, `event_type`, and `session_id/thread_id`
 - JSON payload for flexible event data
 
-#### 3.1.3 Worker Signal Types
+#### 3.1.3 Worker Event Payload Types
+
+Historical note:
+- Legacy structs below are retained for reference.
+- Current runtime semantics use the worker live-update event model (`progress/result/failed/request`).
 
 **Location:** `/Users/wiz/choiros-rs/shared-types/src/lib.rs` (lines 351-463)
 
@@ -836,7 +840,7 @@ impl Actor for ChatAgent {
 | File | Purpose |
 |------|---------|
 | `/Users/wiz/choiros-rs/docs/architecture/state_index_rlm_design.md` | Original StateIndex design |
-| `/Users/wiz/choiros-rs/docs/architecture/worker-signal-contract.md` | Worker signal contract |
+| `/Users/wiz/choiros-rs/docs/architecture/2026-02-14-worker-live-update-event-model.md` | Worker live-update event model |
 | `/Users/wiz/choiros-rs/docs/design/2026-02-08-capability-actor-architecture.md` | Capability actor design |
 
 ---

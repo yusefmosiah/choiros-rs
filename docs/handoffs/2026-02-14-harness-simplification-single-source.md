@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-14  
 **Status:** Active implementation handoff  
-**Scope:** Conductor + unified harness simplification (`bootstrap`, `decision`, `adapter`, `policy`)
+**Scope:** Conductor + unified harness simplification (`bootstrap`, `decision`, `worker_port`, `policy`)
 
 ## Narrative Summary (1-minute read)
 
@@ -14,8 +14,9 @@ This handoff defines one explainable architecture:
 1. `bootstrap` picks initial capabilities once.
 2. `dispatch` runs ready agenda items directly.
 3. `decision` is called only when there is no ready/in-flight work.
-4. `adapter` executes tools and emits worker reports.
+4. `worker_port` executes tools; shared harness services emit progress/report envelopes.
 5. `policy` is a pure model-facing boundary (no hidden runtime state mutation).
+6. worker harness runtime is one simple while loop with typed actions.
 
 During this simplification phase, **watcher runtime is disabled**.  
 Tracing stays exhaustive and remains mandatory for prompt, LLM, and tool-call paths.
@@ -42,7 +43,7 @@ Current pain points:
 
 - Too many `ConductorDecide` calls for simple objectives.
 - Ambiguous boundaries between orchestration and execution concerns.
-- Hard to answer: “what are bootstrap, decision, adapter, policy for?” in one page.
+- Hard to answer: “what are bootstrap, decision, worker_port, policy for?” in one page.
 - High cost/latency from unnecessary LLM turns.
 
 Desired outcomes:
@@ -81,15 +82,15 @@ Must:
 Must not:
 - Be used as a substitute for deterministic “dispatch ready items” mechanics.
 
-### `adapter` (Worker execution boundary)
+### `worker_port` (Worker execution boundary)
 
 Purpose:
 - Map generic harness tool calls into worker-specific execution (`researcher`, `terminal`).
 
 Must:
 - Execute tools.
-- Emit progress and final worker report.
-- Emit tool call/result traces for every tool invocation.
+- Keep worker-specific execution constraints.
+- Allow shared harness services to emit progress/report envelopes and traces.
 
 Must not:
 - Perform orchestration decisions or spawn other workers.
@@ -255,4 +256,3 @@ A run is accepted under this refactor when:
 - Every model/tool call appears in trace graph with run-scoped IDs.
 - Watcher does not run in normal sandbox startup.
 - Code ownership boundaries are explainable from this document alone.
-

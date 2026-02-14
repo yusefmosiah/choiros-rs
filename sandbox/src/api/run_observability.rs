@@ -3,8 +3,8 @@
 //! Provides ordered run timelines for debugging, testing, and UI observability.
 //!
 //! Based on Conductor E2E intelligence report (2026-02-10):
-//! - Events are categorized into conductor_decisions, agent_objectives, agent_planning, agent_results
-//! - Timeline reflects actual Conductor behavior: bootstrap -> dispatch -> worker execution -> synthesis
+//! - Events are categorized into conductor_decisions, agent_objectives, agent_conduct, agent_results
+//! - Timeline reflects actual Conductor behavior: start -> conduct -> dispatch -> execution -> synthesis
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -21,7 +21,7 @@ use crate::actors::event_store::EventStoreMsg;
 /// Query parameters for run timeline endpoint
 #[derive(Debug, Deserialize)]
 pub struct RunTimelineQuery {
-    /// Filter by event category (conductor_decisions, agent_objectives, agent_planning, agent_results)
+    /// Filter by event category (conductor_decisions, agent_objectives, agent_conduct, agent_results)
     pub category: Option<String>,
     /// Require specific event types to be present (comma-separated)
     pub required_milestones: Option<String>,
@@ -35,8 +35,8 @@ pub enum EventCategory {
     ConductorDecisions,
     /// Natural language objectives passed to agents
     AgentObjectives,
-    /// Planning steps from agents (bootstrap, agenda creation)
-    AgentPlanning,
+    /// Conduct steps from Conductor (run start + assignment formation)
+    AgentConduct,
     /// Findings, learnings, artifacts from agent execution
     AgentResults,
     /// System/telemetry events not in above categories
@@ -48,7 +48,7 @@ impl std::fmt::Display for EventCategory {
         match self {
             EventCategory::ConductorDecisions => write!(f, "conductor_decisions"),
             EventCategory::AgentObjectives => write!(f, "agent_objectives"),
-            EventCategory::AgentPlanning => write!(f, "agent_planning"),
+            EventCategory::AgentConduct => write!(f, "agent_conduct"),
             EventCategory::AgentResults => write!(f, "agent_results"),
             EventCategory::System => write!(f, "system"),
         }
@@ -62,7 +62,7 @@ impl std::str::FromStr for EventCategory {
         match s {
             "conductor_decisions" => Ok(EventCategory::ConductorDecisions),
             "agent_objectives" => Ok(EventCategory::AgentObjectives),
-            "agent_planning" => Ok(EventCategory::AgentPlanning),
+            "agent_conduct" => Ok(EventCategory::AgentConduct),
             "agent_results" => Ok(EventCategory::AgentResults),
             "system" => Ok(EventCategory::System),
             _ => Err(format!("unknown category: {}", s)),
@@ -120,7 +120,7 @@ pub struct ArtifactSummary {
 /// Events are categorized based on actual Conductor behavior:
 /// - `conductor_decisions`: Policy decisions (Dispatch, Retry, SpawnFollowup, Continue, Complete, Block)
 /// - `agent_objectives`: Natural language objectives passed to agents
-/// - `agent_planning`: Planning steps (bootstrap, agenda creation)
+/// - `agent_conduct`: Conduct steps (run start, assignment formation)
 /// - `agent_results`: Findings, learnings, artifacts from execution
 ///
 /// Query params:
@@ -256,13 +256,13 @@ fn determine_event_category(event_type: &str, _payload: &Value) -> EventCategory
     }
 
     // Agent objectives - worker calls with natural language objectives
-    if event_type.contains("worker.call") || event_type.contains("bootstrap") {
+    if event_type.contains("worker.call") {
         return EventCategory::AgentObjectives;
     }
 
-    // Agent planning - agenda creation, task decomposition
-    if event_type.contains("agenda") || event_type.contains("bootstrap.completed") {
-        return EventCategory::AgentPlanning;
+    // Agent conduct - run start + assignment formation
+    if event_type.contains("agenda") || event_type == "conductor.run.started" {
+        return EventCategory::AgentConduct;
     }
 
     // Agent results - findings, learnings, artifacts, completions
@@ -303,7 +303,7 @@ fn build_event_data(event_type: &str, payload: &Value, seq: i64) -> Value {
                 data.insert("reason".to_string(), reason.clone());
             }
         }
-        "conductor.worker.call" | "conductor.bootstrap.completed" => {
+        "conductor.worker.call" | "conductor.run.started" => {
             if let Some(objective) = payload
                 .get("worker_objective")
                 .or_else(|| payload.get("objective"))
@@ -390,7 +390,7 @@ fn build_run_summary(
     // Count events by category
     let mut conductor_decisions = 0;
     let mut agent_objectives = 0;
-    let mut agent_planning = 0;
+    let mut agent_conduct = 0;
     let mut agent_results = 0;
     let mut system = 0;
 
@@ -398,7 +398,7 @@ fn build_run_summary(
         match event.category {
             EventCategory::ConductorDecisions => conductor_decisions += 1,
             EventCategory::AgentObjectives => agent_objectives += 1,
-            EventCategory::AgentPlanning => agent_planning += 1,
+            EventCategory::AgentConduct => agent_conduct += 1,
             EventCategory::AgentResults => agent_results += 1,
             EventCategory::System => system += 1,
         }
@@ -440,7 +440,7 @@ fn build_run_summary(
         event_counts_by_category: json!({
             "conductor_decisions": conductor_decisions,
             "agent_objectives": agent_objectives,
-            "agent_planning": agent_planning,
+            "agent_conduct": agent_conduct,
             "agent_results": agent_results,
             "system": system,
         }),
@@ -533,10 +533,7 @@ async fn fetch_run_events(
 
 fn event_belongs_to_run(event: &shared_types::Event, run_id: &str) -> bool {
     payload_str(&event.payload, &["run_id"]) == Some(run_id)
-        || payload_str(&event.payload, &["task_id"]) == Some(run_id)
-        || payload_str(&event.payload, &["task", "task_id"]) == Some(run_id)
         || payload_str(&event.payload, &["data", "run_id"]) == Some(run_id)
-        || payload_str(&event.payload, &["data", "task_id"]) == Some(run_id)
 }
 
 fn extract_objective(events: &[shared_types::Event]) -> Option<String> {
@@ -662,17 +659,21 @@ mod tests {
             EventCategory::AgentObjectives
         );
         assert_eq!(
-            determine_event_category("conductor.bootstrap.completed", &payload),
+            determine_event_category("conductor.worker.call", &payload),
             EventCategory::AgentObjectives
         );
     }
 
     #[test]
-    fn test_determine_event_category_agent_planning() {
+    fn test_determine_event_category_agent_conduct() {
         let payload = json!({});
         assert_eq!(
             determine_event_category("conductor.agenda.created", &payload),
-            EventCategory::AgentPlanning
+            EventCategory::AgentConduct
+        );
+        assert_eq!(
+            determine_event_category("conductor.run.started", &payload),
+            EventCategory::AgentConduct
         );
     }
 
@@ -772,8 +773,8 @@ mod tests {
             EventCategory::AgentObjectives
         );
         assert_eq!(
-            "agent_planning".parse::<EventCategory>().unwrap(),
-            EventCategory::AgentPlanning
+            "agent_conduct".parse::<EventCategory>().unwrap(),
+            EventCategory::AgentConduct
         );
         assert_eq!(
             "agent_results".parse::<EventCategory>().unwrap(),
@@ -796,7 +797,7 @@ mod tests {
             EventCategory::AgentObjectives.to_string(),
             "agent_objectives"
         );
-        assert_eq!(EventCategory::AgentPlanning.to_string(), "agent_planning");
+        assert_eq!(EventCategory::AgentConduct.to_string(), "agent_conduct");
         assert_eq!(EventCategory::AgentResults.to_string(), "agent_results");
         assert_eq!(EventCategory::System.to_string(), "system");
     }
@@ -816,7 +817,7 @@ mod tests {
             AppendEvent {
                 event_type: "conductor.task.started".to_string(),
                 payload: json!({
-                    "task_id": run_id,
+                    "run_id": run_id,
                     "objective": "test objective",
                 }),
                 actor_id: "conductor:test".to_string(),
@@ -826,7 +827,7 @@ mod tests {
             AppendEvent {
                 event_type: "conductor.worker.call".to_string(),
                 payload: json!({
-                    "task_id": run_id,
+                    "run_id": run_id,
                     "worker_objective": "Execute ls",
                     "worker_type": "terminal",
                 }),
@@ -837,7 +838,7 @@ mod tests {
             AppendEvent {
                 event_type: "conductor.decision".to_string(),
                 payload: json!({
-                    "task_id": run_id,
+                    "run_id": run_id,
                     "decision_type": "Dispatch",
                     "reason": "Ready to execute",
                 }),
@@ -848,7 +849,7 @@ mod tests {
             AppendEvent {
                 event_type: "conductor.task.completed".to_string(),
                 payload: json!({
-                    "task_id": run_id,
+                    "run_id": run_id,
                     "status": "completed",
                 }),
                 actor_id: "conductor:test".to_string(),

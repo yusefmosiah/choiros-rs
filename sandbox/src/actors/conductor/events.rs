@@ -3,30 +3,27 @@
 //! Provides typed event emission functions for Conductor task lifecycle.
 //! All events are appended to the EventStore for observability and tracing.
 //!
-//! Phase B: Wake/Display Lane Separation
-//! - Wake lane events trigger conductor decision-making
-//! - Display-only lane events are for UI telemetry only
+//! Phase B: Control/Telemetry Lane Separation
+//! - Control lane events indicate orchestration-relevant signals
+//! - Telemetry lane events are UI/observability signals only
 
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use chrono::Utc;
 use ractor::ActorRef;
 use shared_types::{
-    ConductorOutputMode, ConductorToastPayload, EventImportance, EventMetadata, FailureKind,
-    WakePolicy,
+    ConductorOutputMode, ConductorToastPayload, EventImportance, EventLane, EventMetadata,
+    FailureKind,
 };
 
 /// Emit task started event
 pub async fn emit_prompt_received(
     event_store: &ActorRef<EventStoreMsg>,
-    task_id: &str,
-    correlation_id: &str,
+    run_id: &str,
     objective: &str,
     desktop_id: &str,
 ) {
     let payload = serde_json::json!({
-        "task_id": task_id,
-        "run_id": task_id,
-        "correlation_id": correlation_id,
+        "run_id": run_id,
         "objective": objective,
         "desktop_id": desktop_id,
         "timestamp": Utc::now().to_rfc3339(),
@@ -35,7 +32,7 @@ pub async fn emit_prompt_received(
     let event = AppendEvent {
         event_type: shared_types::EVENT_TOPIC_TRACE_PROMPT_RECEIVED.to_string(),
         payload,
-        actor_id: format!("conductor:{}", task_id),
+        actor_id: format!("conductor:{}", run_id),
         user_id: "system".to_string(),
     };
 
@@ -47,14 +44,12 @@ pub async fn emit_prompt_received(
 /// Emit task started event
 pub async fn emit_task_started(
     event_store: &ActorRef<EventStoreMsg>,
-    task_id: &str,
-    correlation_id: &str,
+    run_id: &str,
     objective: &str,
     desktop_id: &str,
 ) {
     let payload = serde_json::json!({
-        "task_id": task_id,
-        "correlation_id": correlation_id,
+        "run_id": run_id,
         "objective": objective,
         "desktop_id": desktop_id,
         "status": "started",
@@ -65,7 +60,7 @@ pub async fn emit_task_started(
     let event = AppendEvent {
         event_type: shared_types::EVENT_TOPIC_CONDUCTOR_TASK_STARTED.to_string(),
         payload,
-        actor_id: format!("conductor:{}", task_id),
+        actor_id: format!("conductor:{}", run_id),
         user_id: "system".to_string(),
     };
 
@@ -77,15 +72,13 @@ pub async fn emit_task_started(
 /// Emit task progress event
 pub async fn emit_task_progress(
     event_store: &ActorRef<EventStoreMsg>,
-    task_id: &str,
-    correlation_id: &str,
+    run_id: &str,
     status: &str,
     phase: &str,
     details: Option<serde_json::Value>,
 ) {
     let mut payload = serde_json::json!({
-        "task_id": task_id,
-        "correlation_id": correlation_id,
+        "run_id": run_id,
         "status": status,
         "phase": phase,
         "timestamp": Utc::now().to_rfc3339(),
@@ -100,7 +93,7 @@ pub async fn emit_task_progress(
     let event = AppendEvent {
         event_type: shared_types::EVENT_TOPIC_CONDUCTOR_TASK_PROGRESS.to_string(),
         payload,
-        actor_id: format!("conductor:{}", task_id),
+        actor_id: format!("conductor:{}", run_id),
         user_id: "system".to_string(),
     };
 
@@ -112,14 +105,12 @@ pub async fn emit_task_progress(
 /// Emit worker call event
 pub async fn emit_worker_call(
     event_store: &ActorRef<EventStoreMsg>,
-    task_id: &str,
-    correlation_id: &str,
+    run_id: &str,
     worker_type: &str,
     worker_objective: &str,
 ) {
     let payload = serde_json::json!({
-        "task_id": task_id,
-        "correlation_id": correlation_id,
+        "run_id": run_id,
         "worker_type": worker_type,
         "worker_objective": worker_objective,
         "timestamp": Utc::now().to_rfc3339(),
@@ -128,7 +119,7 @@ pub async fn emit_worker_call(
     let event = AppendEvent {
         event_type: shared_types::EVENT_TOPIC_CONDUCTOR_WORKER_CALL.to_string(),
         payload,
-        actor_id: format!("conductor:{}", task_id),
+        actor_id: format!("conductor:{}", run_id),
         user_id: "system".to_string(),
     };
 
@@ -140,15 +131,13 @@ pub async fn emit_worker_call(
 /// Emit worker result event
 pub async fn emit_worker_result(
     event_store: &ActorRef<EventStoreMsg>,
-    task_id: &str,
-    correlation_id: &str,
+    run_id: &str,
     worker_type: &str,
     success: bool,
     result_summary: &str,
 ) {
     let payload = serde_json::json!({
-        "task_id": task_id,
-        "correlation_id": correlation_id,
+        "run_id": run_id,
         "worker_type": worker_type,
         "success": success,
         "result_summary": result_summary,
@@ -158,7 +147,7 @@ pub async fn emit_worker_result(
     let event = AppendEvent {
         event_type: shared_types::EVENT_TOPIC_CONDUCTOR_WORKER_RESULT.to_string(),
         payload,
-        actor_id: format!("conductor:{}", task_id),
+        actor_id: format!("conductor:{}", run_id),
         user_id: "system".to_string(),
     };
 
@@ -170,16 +159,14 @@ pub async fn emit_worker_result(
 /// Emit task completed event
 pub async fn emit_task_completed(
     event_store: &ActorRef<EventStoreMsg>,
-    task_id: &str,
-    correlation_id: &str,
+    run_id: &str,
     output_mode: ConductorOutputMode,
     report_path: &str,
     writer_props: Option<&serde_json::Value>,
     toast: Option<&ConductorToastPayload>,
 ) {
     let mut payload = serde_json::json!({
-        "task_id": task_id,
-        "correlation_id": correlation_id,
+        "run_id": run_id,
         "output_mode": output_mode,
         "report_path": report_path,
         "status": "completed",
@@ -197,7 +184,7 @@ pub async fn emit_task_completed(
     let event = AppendEvent {
         event_type: shared_types::EVENT_TOPIC_CONDUCTOR_TASK_COMPLETED.to_string(),
         payload,
-        actor_id: format!("conductor:{}", task_id),
+        actor_id: format!("conductor:{}", run_id),
         user_id: "system".to_string(),
     };
 
@@ -209,15 +196,13 @@ pub async fn emit_task_completed(
 /// Emit task failed event
 pub async fn emit_task_failed(
     event_store: &ActorRef<EventStoreMsg>,
-    task_id: &str,
-    correlation_id: &str,
+    run_id: &str,
     error_code: &str,
     error_message: &str,
     failure_kind: Option<FailureKind>,
 ) {
     let mut payload = serde_json::json!({
-        "task_id": task_id,
-        "correlation_id": correlation_id,
+        "run_id": run_id,
         "error_code": error_code,
         "error_message": error_message,
         "status": "failed",
@@ -233,7 +218,7 @@ pub async fn emit_task_failed(
     let event = AppendEvent {
         event_type: shared_types::EVENT_TOPIC_CONDUCTOR_TASK_FAILED.to_string(),
         payload,
-        actor_id: format!("conductor:{}", task_id),
+        actor_id: format!("conductor:{}", run_id),
         user_id: "system".to_string(),
     };
 
@@ -246,13 +231,11 @@ pub async fn emit_task_failed(
 pub async fn emit_document_update(
     event_store: &ActorRef<EventStoreMsg>,
     run_id: &str,
-    task_id: &str,
     document_path: &str,
     content_excerpt: &str,
 ) {
     let payload = serde_json::json!({
         "run_id": run_id,
-        "task_id": task_id,
         "document_path": document_path,
         "content_excerpt": content_excerpt.chars().take(500).collect::<String>(),
         "timestamp": Utc::now().to_rfc3339(),
@@ -271,10 +254,10 @@ pub async fn emit_document_update(
 }
 
 // ============================================================================
-// Phase B: Wake/Display Lane Event Emission
+// Phase B: Control/Telemetry Lane Event Emission
 // ============================================================================
 
-/// Event payload with metadata for wake/display lane separation
+/// Event payload with metadata for control/telemetry lane separation
 #[derive(Debug, Clone)]
 pub struct EventWithMetadata {
     pub event_type: String,
@@ -283,25 +266,23 @@ pub struct EventWithMetadata {
     pub metadata: EventMetadata,
 }
 
-/// Emit a wake lane event (triggers conductor decision-making)
-pub async fn emit_wake_event(
+/// Emit a control lane event (orchestration-relevant signal)
+pub async fn emit_control_event(
     event_store: &ActorRef<EventStoreMsg>,
     event_type: &str,
     run_id: &str,
-    task_id: &str,
     capability: &str,
     phase: &str,
     payload: serde_json::Value,
 ) {
     let full_payload = serde_json::json!({
         "run_id": run_id,
-        "task_id": task_id,
         "capability": capability,
         "phase": phase,
         "data": payload,
         "timestamp": Utc::now().to_rfc3339(),
         "_meta": {
-            "wake_policy": "wake",
+            "lane": "control",
             "importance": "high",
         }
     });
@@ -318,12 +299,11 @@ pub async fn emit_wake_event(
         .ok();
 }
 
-/// Emit a display-only lane event (UI telemetry only, no wake)
-pub async fn emit_display_event(
+/// Emit a telemetry lane event (UI telemetry only, no control action)
+pub async fn emit_telemetry_event(
     event_store: &ActorRef<EventStoreMsg>,
     event_type: &str,
     run_id: &str,
-    task_id: &str,
     capability: &str,
     phase: &str,
     importance: EventImportance,
@@ -337,13 +317,12 @@ pub async fn emit_display_event(
 
     let full_payload = serde_json::json!({
         "run_id": run_id,
-        "task_id": task_id,
         "capability": capability,
         "phase": phase,
         "data": payload,
         "timestamp": Utc::now().to_rfc3339(),
         "_meta": {
-            "wake_policy": "display_only",
+            "lane": "telemetry",
             "importance": importance_str,
         }
     });
@@ -360,22 +339,20 @@ pub async fn emit_display_event(
         .ok();
 }
 
-// Wake Lane Events (trigger conductor wake)
+// Control Lane Events (orchestration-relevant)
 
-/// Emit capability completion event (wake lane)
+/// Emit capability completion event (control lane)
 pub async fn emit_capability_completed(
     event_store: &ActorRef<EventStoreMsg>,
     run_id: &str,
-    task_id: &str,
     call_id: &str,
     capability: &str,
     summary: &str,
 ) {
-    emit_wake_event(
+    emit_control_event(
         event_store,
         "conductor.capability.completed",
         run_id,
-        task_id,
         capability,
         "completion",
         serde_json::json!({
@@ -386,21 +363,19 @@ pub async fn emit_capability_completed(
     .await;
 }
 
-/// Emit capability failed event (wake lane)
+/// Emit capability failed event (control lane)
 pub async fn emit_capability_failed(
     event_store: &ActorRef<EventStoreMsg>,
     run_id: &str,
-    task_id: &str,
     call_id: &str,
     capability: &str,
     error: &str,
     failure_kind: Option<FailureKind>,
 ) {
-    emit_wake_event(
+    emit_control_event(
         event_store,
         "conductor.capability.failed",
         run_id,
-        task_id,
         capability,
         "failure",
         serde_json::json!({
@@ -412,20 +387,18 @@ pub async fn emit_capability_failed(
     .await;
 }
 
-/// Emit capability blocked event (wake lane)
+/// Emit capability blocked event (control lane)
 pub async fn emit_capability_blocked(
     event_store: &ActorRef<EventStoreMsg>,
     run_id: &str,
-    task_id: &str,
     call_id: &str,
     capability: &str,
     reason: &str,
 ) {
-    emit_wake_event(
+    emit_control_event(
         event_store,
         "conductor.capability.blocked",
         run_id,
-        task_id,
         capability,
         "blocked",
         serde_json::json!({
@@ -436,21 +409,19 @@ pub async fn emit_capability_blocked(
     .await;
 }
 
-/// Emit escalation event (wake lane)
+/// Emit escalation event (control lane)
 pub async fn emit_escalation(
     event_store: &ActorRef<EventStoreMsg>,
     run_id: &str,
-    task_id: &str,
     escalation_id: &str,
     kind: &str,
     reason: &str,
     urgency: &str,
 ) {
-    emit_wake_event(
+    emit_control_event(
         event_store,
         "conductor.escalation",
         run_id,
-        task_id,
         "conductor",
         "escalation",
         serde_json::json!({
@@ -463,23 +434,21 @@ pub async fn emit_escalation(
     .await;
 }
 
-// Display-Only Lane Events (UI telemetry, no wake)
+// Telemetry Lane Events (UI telemetry only)
 
-/// Emit finding event (display-only lane)
+/// Emit finding event (telemetry lane)
 pub async fn emit_finding(
     event_store: &ActorRef<EventStoreMsg>,
     run_id: &str,
-    task_id: &str,
     capability: &str,
     finding_id: &str,
     claim: &str,
     confidence: f64,
 ) {
-    emit_display_event(
+    emit_telemetry_event(
         event_store,
         "conductor.finding",
         run_id,
-        task_id,
         capability,
         "finding",
         EventImportance::Normal,
@@ -492,20 +461,18 @@ pub async fn emit_finding(
     .await;
 }
 
-/// Emit learning event (display-only lane)
+/// Emit learning event (telemetry lane)
 pub async fn emit_learning(
     event_store: &ActorRef<EventStoreMsg>,
     run_id: &str,
-    task_id: &str,
     capability: &str,
     learning_id: &str,
     insight: &str,
 ) {
-    emit_display_event(
+    emit_telemetry_event(
         event_store,
         "conductor.learning",
         run_id,
-        task_id,
         capability,
         "learning",
         EventImportance::Normal,
@@ -517,20 +484,18 @@ pub async fn emit_learning(
     .await;
 }
 
-/// Emit tool call event (display-only lane)
+/// Emit tool call event (telemetry lane)
 pub async fn emit_tool_call(
     event_store: &ActorRef<EventStoreMsg>,
     run_id: &str,
-    task_id: &str,
     capability: &str,
     tool: &str,
     args: serde_json::Value,
 ) {
-    emit_display_event(
+    emit_telemetry_event(
         event_store,
         "conductor.tool.call",
         run_id,
-        task_id,
         capability,
         "tool_call",
         EventImportance::Low,
@@ -542,21 +507,19 @@ pub async fn emit_tool_call(
     .await;
 }
 
-/// Emit tool result event (display-only lane)
+/// Emit tool result event (telemetry lane)
 pub async fn emit_tool_result(
     event_store: &ActorRef<EventStoreMsg>,
     run_id: &str,
-    task_id: &str,
     capability: &str,
     tool: &str,
     success: bool,
     result_summary: &str,
 ) {
-    emit_display_event(
+    emit_telemetry_event(
         event_store,
         "conductor.tool.result",
         run_id,
-        task_id,
         capability,
         "tool_result",
         EventImportance::Low,
@@ -569,20 +532,18 @@ pub async fn emit_tool_result(
     .await;
 }
 
-/// Emit progress event (display-only lane)
+/// Emit progress event (telemetry lane)
 pub async fn emit_progress(
     event_store: &ActorRef<EventStoreMsg>,
     run_id: &str,
-    task_id: &str,
     capability: &str,
     message: &str,
     percent: Option<u8>,
 ) {
-    emit_display_event(
+    emit_telemetry_event(
         event_store,
         "conductor.progress",
         run_id,
-        task_id,
         capability,
         "progress",
         EventImportance::Low,
@@ -594,20 +555,18 @@ pub async fn emit_progress(
     .await;
 }
 
-/// Emit decision event (wake lane - decisions trigger next steps)
+/// Emit decision event (control lane - decisions trigger next steps)
 pub async fn emit_decision(
     event_store: &ActorRef<EventStoreMsg>,
     run_id: &str,
-    task_id: &str,
     decision_id: &str,
     decision_type: &str,
     reason: &str,
 ) {
-    emit_wake_event(
+    emit_control_event(
         event_store,
         "conductor.decision",
         run_id,
-        task_id,
         "conductor",
         "decision",
         serde_json::json!({
@@ -622,14 +581,14 @@ pub async fn emit_decision(
 /// Parse event metadata from payload
 pub fn parse_event_metadata(payload: &serde_json::Value) -> EventMetadata {
     if let Some(meta) = payload.get("_meta") {
-        let wake_policy = meta
-            .get("wake_policy")
+        let lane = meta
+            .get("lane")
             .and_then(|v| v.as_str())
             .map(|s| match s {
-                "wake" => WakePolicy::Wake,
-                _ => WakePolicy::DisplayOnly,
+                "control" => EventLane::Control,
+                _ => EventLane::Telemetry,
             })
-            .unwrap_or(WakePolicy::DisplayOnly);
+            .unwrap_or(EventLane::Telemetry);
 
         let importance = meta
             .get("importance")
@@ -641,7 +600,7 @@ pub fn parse_event_metadata(payload: &serde_json::Value) -> EventMetadata {
             })
             .unwrap_or(EventImportance::Normal);
 
-        // Extract call_id from nested data structure (e.g., data.call_id from wake events)
+        // Extract call_id from nested data structure (e.g., data.call_id from capability events)
         let call_id = payload
             .get("data")
             .and_then(|d| d.get("call_id"))
@@ -649,14 +608,10 @@ pub fn parse_event_metadata(payload: &serde_json::Value) -> EventMetadata {
             .map(String::from);
 
         EventMetadata {
-            wake_policy,
+            lane,
             importance,
             run_id: payload
                 .get("run_id")
-                .and_then(|v| v.as_str())
-                .map(String::from),
-            task_id: payload
-                .get("task_id")
                 .and_then(|v| v.as_str())
                 .map(String::from),
             call_id,
@@ -685,52 +640,31 @@ mod tests {
     // ============================================================================
 
     #[test]
-    fn test_parse_event_metadata_wake_policy_wake() {
+    fn test_parse_event_metadata_lane_control() {
         let payload = serde_json::json!({
             "run_id": "run_123",
-            "task_id": "task_456",
             "capability": "terminal",
             "phase": "execution",
             "_meta": {
-                "wake_policy": "wake",
+                "lane": "control",
                 "importance": "high"
             }
         });
 
         let metadata = parse_event_metadata(&payload);
 
-        assert!(matches!(metadata.wake_policy, WakePolicy::Wake));
+        assert!(matches!(metadata.lane, EventLane::Control));
         assert!(matches!(metadata.importance, EventImportance::High));
         assert_eq!(metadata.run_id, Some("run_123".to_string()));
-        assert_eq!(metadata.task_id, Some("task_456".to_string()));
         assert_eq!(metadata.capability, Some("terminal".to_string()));
         assert_eq!(metadata.phase, Some("execution".to_string()));
-    }
-
-    #[test]
-    fn test_parse_event_metadata_wake_policy_display_only() {
-        let payload = serde_json::json!({
-            "run_id": "run_789",
-            "task_id": "task_abc",
-            "capability": "researcher",
-            "phase": "finding",
-            "_meta": {
-                "wake_policy": "display_only",
-                "importance": "normal"
-            }
-        });
-
-        let metadata = parse_event_metadata(&payload);
-
-        assert!(matches!(metadata.wake_policy, WakePolicy::DisplayOnly));
-        assert!(matches!(metadata.importance, EventImportance::Normal));
     }
 
     #[test]
     fn test_parse_event_metadata_importance_low() {
         let payload = serde_json::json!({
             "_meta": {
-                "wake_policy": "display_only",
+                "lane": "telemetry",
                 "importance": "low"
             }
         });
@@ -752,8 +686,8 @@ mod tests {
         let metadata = parse_event_metadata(&payload);
 
         // When no _meta present, returns default() which has all None values
-        // and DisplayOnly/Normal for the enums
-        assert!(matches!(metadata.wake_policy, WakePolicy::DisplayOnly));
+        // and Telemetry/Normal for the enums
+        assert!(matches!(metadata.lane, EventLane::Telemetry));
         assert!(matches!(metadata.importance, EventImportance::Normal));
         assert_eq!(metadata.run_id, None); // Default has None for run_id
         assert_eq!(metadata.call_id, None);
@@ -763,7 +697,6 @@ mod tests {
     fn test_parse_event_metadata_extracts_call_id_from_data() {
         let payload = serde_json::json!({
             "run_id": "run_123",
-            "task_id": "task_456",
             "capability": "terminal",
             "phase": "completion",
             "data": {
@@ -771,7 +704,7 @@ mod tests {
                 "summary": "Task completed successfully"
             },
             "_meta": {
-                "wake_policy": "wake",
+                "lane": "control",
                 "importance": "high"
             }
         });
@@ -789,7 +722,7 @@ mod tests {
                 "summary": "No call_id here"
             },
             "_meta": {
-                "wake_policy": "wake"
+                "lane": "control"
             }
         });
 
@@ -799,17 +732,16 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_event_metadata_invalid_wake_policy_defaults_to_display() {
+    fn test_parse_event_metadata_invalid_lane_defaults_to_telemetry() {
         let payload = serde_json::json!({
             "_meta": {
-                "wake_policy": "invalid_value"
+                "lane": "invalid_value"
             }
         });
 
         let metadata = parse_event_metadata(&payload);
 
-        // Invalid wake_policy should default to DisplayOnly
-        assert!(matches!(metadata.wake_policy, WakePolicy::DisplayOnly));
+        assert!(matches!(metadata.lane, EventLane::Telemetry));
     }
 
     #[test]
@@ -832,21 +764,19 @@ mod tests {
 
         let metadata = parse_event_metadata(&payload);
 
-        assert!(matches!(metadata.wake_policy, WakePolicy::DisplayOnly));
+        assert!(matches!(metadata.lane, EventLane::Telemetry));
         assert!(matches!(metadata.importance, EventImportance::Normal));
         assert_eq!(metadata.run_id, None);
-        assert_eq!(metadata.task_id, None);
         assert_eq!(metadata.call_id, None);
         assert_eq!(metadata.capability, None);
         assert_eq!(metadata.phase, None);
     }
 
     #[test]
-    fn test_parse_event_metadata_wake_event_with_call_id() {
-        // Test a realistic wake event from capability completion
+    fn test_parse_event_metadata_control_event_with_call_id() {
+        // Test a realistic control-lane event from capability completion
         let payload = serde_json::json!({
             "run_id": "run_abc",
-            "task_id": "task_def",
             "capability": "terminal",
             "phase": "completion",
             "data": {
@@ -855,17 +785,16 @@ mod tests {
             },
             "timestamp": "2026-02-10T12:00:00Z",
             "_meta": {
-                "wake_policy": "wake",
+                "lane": "control",
                 "importance": "high"
             }
         });
 
         let metadata = parse_event_metadata(&payload);
 
-        assert!(matches!(metadata.wake_policy, WakePolicy::Wake));
+        assert!(matches!(metadata.lane, EventLane::Control));
         assert!(matches!(metadata.importance, EventImportance::High));
         assert_eq!(metadata.run_id, Some("run_abc".to_string()));
-        assert_eq!(metadata.task_id, Some("task_def".to_string()));
         assert_eq!(metadata.call_id, Some("call_xyz".to_string()));
         assert_eq!(metadata.capability, Some("terminal".to_string()));
         assert_eq!(metadata.phase, Some("completion".to_string()));
@@ -878,14 +807,7 @@ mod tests {
                 .await
                 .unwrap();
 
-        emit_task_started(
-            &store_ref,
-            "task-123",
-            "corr-456",
-            "Test objective",
-            "desktop-789",
-        )
-        .await;
+        emit_task_started(&store_ref, "task-123", "Test objective", "desktop-789").await;
 
         // Give async event time to process
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
@@ -903,7 +825,6 @@ mod tests {
         emit_task_progress(
             &store_ref,
             "task-123",
-            "corr-456",
             "running",
             "research",
             Some(serde_json::json!({"progress": 50})),
@@ -925,7 +846,6 @@ mod tests {
         emit_worker_call(
             &store_ref,
             "task-123",
-            "corr-456",
             "researcher",
             "Research AI capabilities",
         )
@@ -946,7 +866,6 @@ mod tests {
         emit_worker_result(
             &store_ref,
             "task-123",
-            "corr-456",
             "researcher",
             true,
             "Found 5 relevant sources",
@@ -968,7 +887,6 @@ mod tests {
         emit_task_completed(
             &store_ref,
             "task-123",
-            "corr-456",
             shared_types::ConductorOutputMode::MarkdownReportToWriter,
             "/reports/task-123.md",
             Some(&serde_json::json!({
@@ -996,7 +914,6 @@ mod tests {
         emit_task_failed(
             &store_ref,
             "task-123",
-            "corr-456",
             "WORKER_FAILED",
             "Worker timed out after 30s",
             Some(FailureKind::Timeout),

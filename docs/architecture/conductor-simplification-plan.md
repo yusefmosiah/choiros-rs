@@ -1,5 +1,11 @@
 # Conductor Simplification Plan
 
+> Historical note: parts of this plan are superseded.
+> Current authority: Conductor is orchestration-only and does not execute tools directly.
+> Tool schemas are defined once and granted per agent/worker; Writer is canonical for
+> living-document/revision mutation authority.
+> See `docs/architecture/2026-02-14-capability-ownership-matrix.md`.
+
 ## Problem Statement
 
 The current Conductor uses excessive BAML structured output, creating:

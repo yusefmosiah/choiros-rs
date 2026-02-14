@@ -113,83 +113,6 @@ impl AppState {
             .await
     }
 
-    pub async fn delegate_terminal_task(
-        &self,
-        terminal_id: String,
-        actor_id: String,
-        user_id: String,
-        shell: String,
-        working_dir: String,
-        command: String,
-        timeout_ms: Option<u64>,
-        model_override: Option<String>,
-        objective: Option<String>,
-        session_id: Option<String>,
-        thread_id: Option<String>,
-    ) -> Result<shared_types::DelegatedTask, String> {
-        let supervisor = self.ensure_supervisor().await?;
-        ractor::call!(supervisor, |reply| {
-            ApplicationSupervisorMsg::DelegateTerminalTask {
-                terminal_id,
-                actor_id,
-                user_id,
-                shell,
-                working_dir,
-                command,
-                timeout_ms,
-                model_override,
-                objective,
-                session_id,
-                thread_id,
-                reply,
-            }
-        })
-        .map_err(|e| e.to_string())?
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn delegate_research_task(
-        &self,
-        researcher_id: String,
-        actor_id: String,
-        user_id: String,
-        query: String,
-        objective: Option<String>,
-        provider: Option<String>,
-        max_results: Option<u32>,
-        time_range: Option<String>,
-        include_domains: Option<Vec<String>>,
-        exclude_domains: Option<Vec<String>>,
-        timeout_ms: Option<u64>,
-        model_override: Option<String>,
-        reasoning: Option<String>,
-        session_id: Option<String>,
-        thread_id: Option<String>,
-    ) -> Result<shared_types::DelegatedTask, String> {
-        let supervisor = self.ensure_supervisor().await?;
-        ractor::call!(supervisor, |reply| {
-            ApplicationSupervisorMsg::DelegateResearchTask {
-                researcher_id,
-                actor_id,
-                user_id,
-                query,
-                objective,
-                provider,
-                max_results,
-                time_range,
-                include_domains,
-                exclude_domains,
-                timeout_ms,
-                model_override,
-                reasoning,
-                session_id,
-                thread_id,
-                reply,
-            }
-        })
-        .map_err(|e| e.to_string())?
-    }
-
     pub fn desktop_args(&self, desktop_id: String, user_id: String) -> DesktopArguments {
         DesktopArguments {
             desktop_id,
@@ -262,7 +185,7 @@ impl AppState {
                 worker_errors.join("; ")
             };
             return Err(format!(
-                "No worker actors available for Conductor default policy ({detail})"
+                "No worker actors available for Conductor default model gateway ({detail})"
             ));
         }
 
@@ -273,7 +196,6 @@ impl AppState {
                 event_store: self.inner.event_store.clone(),
                 researcher_actor,
                 terminal_actor,
-                policy: None,
             },
         )
         .await

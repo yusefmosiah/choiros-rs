@@ -113,7 +113,7 @@ impl AsRef<AgentToolCall> for AgentToolCall {
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct AlternativeAction {
-    pub action: Option<types::EscalationAction>,
+    pub action: Option<types::enums::EscalationAction>,
 
     pub pros: Vec<String>,
 
@@ -423,7 +423,7 @@ impl AsRef<ReviewScope> for ReviewScope {
 pub struct RiskItem {
     pub risk_id: Option<String>,
 
-    pub category: Option<types::RiskCategory>,
+    pub category: Option<types::enums::RiskCategory>,
 
     pub likelihood: Option<f64>,
 
@@ -517,9 +517,9 @@ pub struct WatcherEscalation {
 
     pub task_id: Option<String>,
 
-    pub kind: Option<types::EscalationKind>,
+    pub kind: Option<types::enums::EscalationKind>,
 
-    pub urgency: Option<types::UrgencyLevel>,
+    pub urgency: Option<types::enums::UrgencyLevel>,
 
     pub affected_calls: Vec<String>,
 
@@ -603,9 +603,9 @@ impl AsRef<WatcherMitigationInput> for WatcherMitigationInput {
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct WatcherMitigationOutput {
-    pub escalation_action: Option<types::EscalationAction>,
+    pub escalation_action: Option<types::enums::EscalationAction>,
 
-    pub urgency: Option<types::UrgencyLevel>,
+    pub urgency: Option<types::enums::UrgencyLevel>,
 
     pub recommended_capability: Option<String>,
 
@@ -629,7 +629,7 @@ impl AsRef<WatcherMitigationOutput> for WatcherMitigationOutput {
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct WatcherReviewOutput {
-    pub review_status: Option<types::ReviewStatus>,
+    pub review_status: Option<types::enums::ReviewStatus>,
 
     pub escalations: Vec<WatcherEscalation>,
 

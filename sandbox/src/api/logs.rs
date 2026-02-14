@@ -21,7 +21,7 @@ pub struct LogsQuery {
     pub event_type_prefix: Option<String>,
     pub actor_id: Option<String>,
     pub user_id: Option<String>,
-    pub task_id: Option<String>,
+    pub run_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -32,8 +32,8 @@ pub struct RunLogQuery {
     pub user_id: Option<String>,
     pub session_id: Option<String>,
     pub thread_id: Option<String>,
+    pub run_id: Option<String>,
     pub correlation_id: Option<String>,
-    pub task_id: Option<String>,
 }
 
 async fn query_events(
@@ -61,20 +61,20 @@ pub(crate) async fn query_events_from_store(
         }
     }) {
         Ok(Ok(mut events)) => {
-            if let Some(ref task_id) = query.task_id {
+            if let Some(ref run_id) = query.run_id {
                 events.retain(|event| {
                     event
                         .payload
-                        .get("task_id")
+                        .get("run_id")
                         .and_then(|v| v.as_str())
                         .or_else(|| {
                             event
                                 .payload
-                                .get("task")
-                                .and_then(|t| t.get("task_id"))
+                                .get("data")
+                                .and_then(|d| d.get("run_id"))
                                 .and_then(|v| v.as_str())
                         })
-                        .map(|id| id == task_id)
+                        .map(|id| id == run_id)
                         .unwrap_or(false)
                 });
             }
@@ -209,12 +209,12 @@ pub(crate) async fn build_run_markdown_from_store(
     }
 
     if query.actor_id.is_none()
+        && query.run_id.is_none()
         && query.correlation_id.is_none()
-        && query.task_id.is_none()
         && query.session_id.is_none()
     {
         return Err(
-            "bad_request:provide at least one selector: actor_id, session_id/thread_id, correlation_id, or task_id".to_string(),
+            "bad_request:provide at least one selector: actor_id, run_id, session_id/thread_id, or correlation_id".to_string(),
         );
     }
 
@@ -224,7 +224,7 @@ pub(crate) async fn build_run_markdown_from_store(
         event_type_prefix: None,
         actor_id: query.actor_id.clone(),
         user_id: query.user_id.clone(),
-        task_id: None,
+        run_id: query.run_id.clone(),
     };
 
     let events = query_events_from_store(event_store, base_query).await?;
@@ -281,19 +281,19 @@ pub(crate) fn event_matches_run_filter(event: &shared_types::Event, query: &RunL
         }
     }
 
-    if let Some(task_id) = &query.task_id {
-        let payload_task = event
+    if let Some(run_id) = &query.run_id {
+        let payload_run = event
             .payload
-            .get("task_id")
+            .get("run_id")
             .and_then(|v| v.as_str())
             .or_else(|| {
                 event
                     .payload
-                    .get("task")
-                    .and_then(|task| task.get("task_id"))
+                    .get("data")
+                    .and_then(|data| data.get("run_id"))
                     .and_then(|v| v.as_str())
             });
-        if payload_task != Some(task_id.as_str()) {
+        if payload_run != Some(run_id.as_str()) {
             return false;
         }
     }
@@ -339,8 +339,8 @@ pub(crate) fn render_run_markdown(events: &[shared_types::Event], query: &RunLog
     );
     let _ = writeln!(
         &mut out,
-        "- task_id: `{}`",
-        query.task_id.clone().unwrap_or_else(|| "any".to_string())
+        "- run_id: `{}`",
+        query.run_id.clone().unwrap_or_else(|| "any".to_string())
     );
     let _ = writeln!(&mut out, "- events: `{}`", events.len());
     let _ = writeln!(&mut out);

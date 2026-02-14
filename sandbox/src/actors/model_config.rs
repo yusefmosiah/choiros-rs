@@ -91,7 +91,6 @@ pub struct ModelPolicy {
     pub conductor_default_model: Option<String>,
     pub researcher_default_model: Option<String>,
     pub summarizer_default_model: Option<String>,
-    pub watcher_default_model: Option<String>,
     pub allow_request_override: Option<bool>,
     pub allowed_models: Option<Vec<String>>,
     pub chat_allowed_models: Option<Vec<String>>,
@@ -99,7 +98,6 @@ pub struct ModelPolicy {
     pub conductor_allowed_models: Option<Vec<String>>,
     pub researcher_allowed_models: Option<Vec<String>>,
     pub summarizer_allowed_models: Option<Vec<String>>,
-    pub watcher_allowed_models: Option<Vec<String>>,
 }
 
 impl ModelRegistry {
@@ -240,7 +238,6 @@ impl ModelRegistry {
             "conductor" => policy.conductor_default_model.clone(),
             "researcher" => policy.researcher_default_model.clone(),
             "summarizer" => policy.summarizer_default_model.clone(),
-            "watcher" => policy.watcher_default_model.clone(),
             _ => None,
         };
 
@@ -283,11 +280,6 @@ impl ModelRegistry {
                     .unwrap_or(true),
                 "summarizer" => policy
                     .summarizer_allowed_models
-                    .as_ref()
-                    .map(|models| models.iter().any(|m| m == model_id))
-                    .unwrap_or(true),
-                "watcher" => policy
-                    .watcher_allowed_models
                     .as_ref()
                     .map(|models| models.iter().any(|m| m == model_id))
                     .unwrap_or(true),
@@ -812,11 +804,9 @@ default_model = "ClaudeBedrockSonnet45"
 conductor_default_model = "ClaudeBedrockOpus46"
 researcher_default_model = "ZaiGLM47"
 summarizer_default_model = "ZaiGLM47Flash"
-watcher_default_model = "ZaiGLM47Flash"
 conductor_allowed_models = ["ClaudeBedrockOpus46"]
 researcher_allowed_models = ["ZaiGLM47"]
 summarizer_allowed_models = ["ZaiGLM47Flash"]
-watcher_allowed_models = ["ZaiGLM47Flash"]
 "#,
         )
         .expect("write policy");
@@ -843,11 +833,6 @@ watcher_allowed_models = ["ZaiGLM47Flash"]
             .expect("resolve summarizer");
         assert_eq!(summarizer.config.id, "ZaiGLM47Flash");
 
-        let watcher = registry
-            .resolve_for_role("watcher", &ModelResolutionContext::default())
-            .expect("resolve watcher");
-        assert_eq!(watcher.config.id, "ZaiGLM47Flash");
-
         if let Some(value) = previous_policy {
             std::env::set_var("CHOIR_MODEL_POLICY_PATH", value);
         } else {
@@ -873,8 +858,8 @@ watcher_allowed_models = ["ZaiGLM47Flash"]
         std::fs::write(
             &policy_path,
             r#"
-watcher_default_model = "ZaiGLM47Flash"
-watcher_allowed_models = ["ZaiGLM47Flash"]
+summarizer_default_model = "ZaiGLM47Flash"
+summarizer_allowed_models = ["ZaiGLM47Flash"]
 "#,
         )
         .expect("write policy");
@@ -884,7 +869,7 @@ watcher_allowed_models = ["ZaiGLM47Flash"]
         std::env::set_current_dir(&original_cwd).expect("restore cwd");
 
         assert_eq!(
-            policy.watcher_default_model.as_deref(),
+            policy.summarizer_default_model.as_deref(),
             Some("ZaiGLM47Flash")
         );
 

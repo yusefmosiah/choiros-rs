@@ -122,10 +122,6 @@ baml_function_sync!(QuickResponse(user_message: impl AsRef<str> + BamlEncode, co
 
 baml_function_sync!(ResearcherPlanStep(input: &types::ResearcherPlanInput, ) -> (stream_types::ResearcherPlanOutput, types::ResearcherPlanOutput));
 
-baml_function_sync!(WatcherRecommendMitigation(input: &types::WatcherMitigationInput, ) -> (stream_types::WatcherMitigationOutput, types::WatcherMitigationOutput));
-
-baml_function_sync!(WatcherReviewLogWindow(input: &types::WatcherLogWindowInput, ) -> (stream_types::WatcherReviewOutput, types::WatcherReviewOutput));
-
 // =============================================================================
 // Client Struct
 // =============================================================================
@@ -147,10 +143,6 @@ pub struct BamlSyncClient {
     pub QuickResponse: QuickResponse,
 
     pub ResearcherPlanStep: ResearcherPlanStep,
-
-    pub WatcherRecommendMitigation: WatcherRecommendMitigation,
-
-    pub WatcherReviewLogWindow: WatcherReviewLogWindow,
 }
 
 impl BamlSyncClient {
@@ -171,10 +163,6 @@ impl BamlSyncClient {
             QuickResponse: QuickResponse::new(),
 
             ResearcherPlanStep: ResearcherPlanStep::new(),
-
-            WatcherRecommendMitigation: WatcherRecommendMitigation::new(),
-
-            WatcherReviewLogWindow: WatcherReviewLogWindow::new(),
         }
     }
 
@@ -208,14 +196,6 @@ impl BamlSyncClient {
             },
 
             ResearcherPlanStep: ResearcherPlanStep {
-                options: options.clone(),
-            },
-
-            WatcherRecommendMitigation: WatcherRecommendMitigation {
-                options: options.clone(),
-            },
-
-            WatcherReviewLogWindow: WatcherReviewLogWindow {
                 options: options.clone(),
             },
         }

@@ -15,7 +15,7 @@ Current codebase (from usage testing) is the **closest we've been to intended be
 - Conductor agenda thresholds removed (now BAML-based)
 - Silent fallbacks removed (explicit blocked/failed states)
 
-### NO ADHOC WORKFLOW: ✅ PRODUCTION FIXED
+### Model-Led Control Flow: ✅ PRODUCTION FIXED
 - All critical string-based control flow removed from production code
 - Typed enums (ObjectiveStatus, PlanMode, FailureKind) fully implemented
 - Only phrase-based assertions remain in test files (acceptable during transition)
@@ -66,7 +66,7 @@ Current codebase (from usage testing) is the **closest we've been to intended be
 ### Architecture Principles
 - **Tests inform refactoring, they don't block it**
 - **Simplify to essentials** - current working code is baseline
-- **NO ADHOC WORKFLOW**: LLM planners output typed enums (BAML), runtime acts on those - no string parsing of free text to guess state
+- **Model-Led Control Flow**: LLM planners manage orchestration by default; runtime enforces typed safety/operability rails
 - **Chat is compatibility; Conductor is orchestrator**
 
 ---
@@ -290,7 +290,7 @@ We confirmed a conceptual mismatch between architecture goals and current deskto
    - remove generic viewer controls not aligned with editor workflows.
 3. Build and validate `Prompt Bar -> Conductor` routing as the primary orchestration lane.
 4. After conductor lane is stable, refactor Chat to escalate unresolved asks to conductor and render capability-actor identities (color-coded/typed messages).
-5. Keep `NO ADHOC WORKFLOW` enforced: typed contracts drive control flow, not phrase matching.
+5. Keep model-led control flow enforced: typed contracts carry safety rails and authority metadata.
 
 ---
 
@@ -470,7 +470,7 @@ The system moved from event-tail visibility to operator-grade run visibility. Lo
 ## What Changed
 
 - Researcher planning docs reconciled to current architecture:
-  - rewrote `/Users/wiz/choiros-rs/docs/architecture/researcher-search-dual-interface-runbook.md` to align with EventStore-first observability, model-policy gate, and typed worker signal contract.
+  - rewrote `/Users/wiz/choiros-rs/docs/architecture/researcher-search-dual-interface-runbook.md` to align with EventStore-first observability, model-policy gate, and typed worker live-update event model.
   - removed stale EventBus-first assumptions and outdated file-path guidance.
   - locked implementation order for researcher rollout: policy role -> schemas -> actor core -> provider adapters -> signals -> ws/run-log tests.
 - Model policy now includes researcher role controls:
@@ -521,8 +521,8 @@ The system moved from event-tail visibility to operator-grade run visibility. Lo
    - finish Brave + Exa live-path hardening and parallel fanout reliability checks,
    - tighten typed findings/learnings/citations signal quality (anti-spam + confidence tuning),
    - extend websocket ordering + replay tests for multi-provider runs.
-2. Worker Signal Contract runtime implementation:
-   - typed report ingestion + anti-spam gates + escalation routing.
+2. Worker live-update event model runtime implementation:
+   - typed worker event ingestion + anti-spam gates + request routing.
 3. Prompt Bar + Conductor:
    - universal routing over actors (not chat-only),
    - directives/checklist state surfaced as primary operator view.

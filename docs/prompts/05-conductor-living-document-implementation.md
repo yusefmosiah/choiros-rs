@@ -1,5 +1,10 @@
 # Prompt 05: Conductor Living Document Implementation
 
+> Historical note: this prompt reflects a superseded direction.
+> Current authority: Conductor is orchestration-only, tool schemas are single-source shared contracts,
+> and Writer app-agent harness is canonical for living-document/revision mutation paths.
+> See `docs/architecture/2026-02-14-capability-ownership-matrix.md`.
+
 ## Narrative Summary
 
 This session implements the final phase of the agent harness simplification: making the Conductor use the same living document pattern as the Researcher. The current Conductor produces rigid structured reports that bury the lede and don't stream live. This work adds file tools to Conductor, implements live document streaming, and culls excessive BAML types.

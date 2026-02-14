@@ -6,25 +6,25 @@
 use crate::actors::researcher::ResearcherResult;
 use crate::actors::terminal::TerminalAgentResult;
 use ractor::RpcReplyPort;
-use shared_types::{ConductorExecuteRequest, ConductorTaskState, EventMetadata};
+use shared_types::{ConductorExecuteRequest, ConductorRunState, EventMetadata};
 
 /// Messages handled by ConductorActor
 #[derive(Debug)]
 pub enum ConductorMsg {
-    /// Execute a new task (legacy, for compatibility)
+    /// Execute a new run.
     ExecuteTask {
         request: ConductorExecuteRequest,
-        reply: RpcReplyPort<Result<ConductorTaskState, ConductorError>>,
+        reply: RpcReplyPort<Result<ConductorRunState, ConductorError>>,
     },
-    /// Perform bootstrap planning asynchronously after task acceptance.
-    BootstrapRun {
+    /// Perform initial conduct + worker dispatch asynchronously after run acceptance.
+    StartRun {
         run_id: String,
         request: ConductorExecuteRequest,
     },
-    /// Get the current state of a task (legacy)
-    GetTaskState {
-        task_id: String,
-        reply: RpcReplyPort<Option<ConductorTaskState>>,
+    /// Get the current state of a run.
+    GetRunState {
+        run_id: String,
+        reply: RpcReplyPort<Option<ConductorRunState>>,
     },
     /// Receive a result from a run-scoped capability call
     CapabilityCallFinished {
@@ -35,15 +35,13 @@ pub enum ConductorMsg {
         result: Result<CapabilityWorkerOutput, ConductorError>,
     },
 
-    /// Process an event with wake policy
+    /// Process an event with lane metadata
     ProcessEvent {
         run_id: String,
         event_type: String,
         payload: serde_json::Value,
         metadata: EventMetadata,
     },
-    /// Check and dispatch ready agenda items
-    DispatchReady { run_id: String },
 }
 
 /// Output from a worker task
@@ -65,8 +63,8 @@ pub enum CapabilityWorkerOutput {
 /// Errors that can occur in ConductorActor
 #[derive(Debug, thiserror::Error, Clone)]
 pub enum ConductorError {
-    /// Task not found
-    #[error("task not found: {0}")]
+    /// Run not found
+    #[error("run not found: {0}")]
     NotFound(String),
     /// Required actor/capability is unavailable
     #[error("actor not available: {0}")]
@@ -83,12 +81,12 @@ pub enum ConductorError {
     /// Report write failed
     #[error("report write failed: {0}")]
     ReportWriteFailed(String),
-    /// Task already exists
-    #[error("task already exists: {0}")]
-    DuplicateTask(String),
-    /// Policy decision failed
-    #[error("policy error: {0}")]
-    PolicyError(String),
+    /// Run already exists
+    #[error("run already exists: {0}")]
+    DuplicateRun(String),
+    /// Model gateway decision failed
+    #[error("model gateway error: {0}")]
+    ModelGatewayError(String),
     /// File operation error
     #[error("file error: {0}")]
     FileError(String),
@@ -104,8 +102,8 @@ impl From<ConductorError> for shared_types::ConductorError {
                 ConductorError::WorkerFailed(_) => "WORKER_FAILED",
                 ConductorError::WorkerBlocked(_) => "WORKER_BLOCKED",
                 ConductorError::ReportWriteFailed(_) => "REPORT_WRITE_FAILED",
-                ConductorError::DuplicateTask(_) => "DUPLICATE_TASK",
-                ConductorError::PolicyError(_) => "POLICY_ERROR",
+                ConductorError::DuplicateRun(_) => "DUPLICATE_RUN",
+                ConductorError::ModelGatewayError(_) => "MODEL_GATEWAY_ERROR",
                 ConductorError::FileError(_) => "FILE_ERROR",
             }
             .to_string(),
@@ -117,8 +115,8 @@ impl From<ConductorError> for shared_types::ConductorError {
                 ConductorError::WorkerFailed(_) => shared_types::FailureKind::Provider,
                 ConductorError::WorkerBlocked(_) => shared_types::FailureKind::Provider,
                 ConductorError::ReportWriteFailed(_) => shared_types::FailureKind::Unknown,
-                ConductorError::DuplicateTask(_) => shared_types::FailureKind::Validation,
-                ConductorError::PolicyError(_) => shared_types::FailureKind::Provider,
+                ConductorError::DuplicateRun(_) => shared_types::FailureKind::Validation,
+                ConductorError::ModelGatewayError(_) => shared_types::FailureKind::Provider,
                 ConductorError::FileError(_) => shared_types::FailureKind::Unknown,
             }),
         }

@@ -10,19 +10,16 @@ use crate::actors::conductor::{
 use crate::actors::researcher::ResearcherProgress;
 use crate::actors::run_writer::{RunWriterActor, RunWriterArguments, RunWriterMsg};
 use crate::actors::terminal::TerminalAgentProgress;
-use crate::baml_client::types::{ConductorAction, ConductorDecision};
 
 impl ConductorActor {
-    pub(crate) async fn handle_dispatch_ready(
+    pub(crate) async fn dispatch_seed_agenda(
         &self,
         myself: &ActorRef<ConductorMsg>,
         state: &mut ConductorState,
         run_id: &str,
     ) -> Result<(), ActorProcessingErr> {
-        tracing::info!(run_id = %run_id, "Handling DispatchReady message");
-
         let Some(run) = state.tasks.get_run(run_id) else {
-            tracing::debug!(run_id = %run_id, "Ignoring DispatchReady for unknown run");
+            tracing::debug!(run_id = %run_id, "Ignoring seed dispatch for unknown run");
             return Ok(());
         };
 
@@ -35,13 +32,17 @@ impl ConductorActor {
             tracing::debug!(
                 run_id = %run_id,
                 status = ?run.status,
-                "Ignoring DispatchReady for terminal run state"
+                "Ignoring seed dispatch for terminal run state"
             );
             return Ok(());
         }
 
-        if let Err(e) = state.tasks.update_agenda_item_readiness(run_id) {
-            tracing::error!(run_id = %run_id, error = %e, "Failed to update agenda readiness");
+        if let Err(error) = state.tasks.update_agenda_item_readiness(run_id) {
+            tracing::warn!(
+                run_id = %run_id,
+                error = %error,
+                "Failed to update agenda item readiness before seed dispatch"
+            );
         }
 
         let ready_items: Vec<shared_types::ConductorAgendaItem> = state
@@ -50,254 +51,26 @@ impl ConductorActor {
             .into_iter()
             .cloned()
             .collect();
-        let active_calls = state.tasks.get_run_active_calls(run_id).len();
-        tracing::info!(
-            run_id = %run_id,
-            ready_count = ready_items.len(),
-            active_calls,
-            "DispatchReady state snapshot"
-        );
 
-        if !ready_items.is_empty() {
-            for item in ready_items {
-                state
-                    .tasks
-                    .update_agenda_item(
-                        run_id,
-                        &item.item_id,
-                        shared_types::AgendaItemStatus::Running,
-                    )
-                    .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
-
-                self.spawn_capability_call(myself, state, run_id, item)
-                    .await
-                    .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
-            }
-
-            let _ = state
+        for item in ready_items {
+            state
                 .tasks
-                .transition_run_status(run_id, shared_types::ConductorRunStatus::WaitingForCalls);
-            return Ok(());
-        }
-
-        if active_calls > 0 {
-            let _ = state
-                .tasks
-                .transition_run_status(run_id, shared_types::ConductorRunStatus::WaitingForCalls);
-            return Ok(());
-        }
-
-        match self.make_policy_decision(state, run_id).await {
-            Ok(decision) => {
-                if let Err(e) = self.apply_decision(myself, state, run_id, decision).await {
-                    tracing::error!(run_id = %run_id, error = %e, "Failed to apply decision");
-                }
-            }
-            Err(e) => {
-                tracing::error!(run_id = %run_id, error = %e, "Policy decision failed");
-                self.emit_decision_failure(run_id, &e.to_string()).await;
-                let _ = state
-                    .tasks
-                    .transition_run_status(run_id, shared_types::ConductorRunStatus::Blocked);
-            }
-        }
-
-        Ok(())
-    }
-
-    pub(crate) async fn make_policy_decision(
-        &self,
-        state: &ConductorState,
-        run_id: &str,
-    ) -> Result<ConductorDecision, ConductorError> {
-        let run = state
-            .tasks
-            .get_run(run_id)
-            .ok_or_else(|| ConductorError::NotFound(run_id.to_string()))?;
-        let capabilities = self.available_capabilities(state);
-        let decision = state.policy.decide_next_action(run, &capabilities).await?;
-
-        self.emit_policy_event(run_id, "ConductorDecide", &decision)
-            .await;
-        Ok(decision)
-    }
-
-    fn available_capabilities(&self, state: &ConductorState) -> Vec<String> {
-        let mut capabilities = Vec::new();
-        if state.researcher_actor.is_some() {
-            capabilities.push("researcher".to_string());
-        }
-        if state.terminal_actor.is_some() {
-            capabilities.push("terminal".to_string());
-        }
-        capabilities
-    }
-
-    pub(crate) async fn apply_decision(
-        &self,
-        myself: &ActorRef<ConductorMsg>,
-        state: &mut ConductorState,
-        run_id: &str,
-        decision: ConductorDecision,
-    ) -> Result<(), ConductorError> {
-        tracing::info!(
-            run_id = %run_id,
-            action = %decision.action,
-            "Applying conductor policy decision"
-        );
-
-        match decision.action {
-            ConductorAction::SpawnWorker => {
-                // Extract worker details from args
-                let capability = decision
-                    .args
-                    .as_ref()
-                    .and_then(|args| args.get("capability"))
-                    .cloned()
-                    .unwrap_or_else(|| "terminal".to_string());
-                let objective = decision
-                    .args
-                    .as_ref()
-                    .and_then(|args| args.get("objective"))
-                    .cloned()
-                    .unwrap_or_default();
-                let objective = self.objective_with_capability_contract(&capability, objective);
-
-                // Create a minimal agenda item for the worker
-                let item = shared_types::ConductorAgendaItem {
-                    item_id: ulid::Ulid::new().to_string(),
-                    capability,
-                    objective,
-                    priority: 5,
-                    depends_on: vec![],
-                    status: shared_types::AgendaItemStatus::Pending,
-                    created_at: chrono::Utc::now(),
-                    started_at: None,
-                    completed_at: None,
-                };
-
-                state
-                    .tasks
-                    .add_agenda_items(run_id, vec![item.clone()])
-                    .map_err(|e| {
-                        ConductorError::PolicyError(format!("Failed to add agenda item: {e}"))
-                    })?;
-
-                state
-                    .tasks
-                    .update_agenda_item(
-                        run_id,
-                        &item.item_id,
-                        shared_types::AgendaItemStatus::Running,
-                    )
-                    .map_err(|e| {
-                        ConductorError::PolicyError(format!("Failed to update agenda item: {e}"))
-                    })?;
-
-                self.spawn_capability_call(myself, state, run_id, item)
-                    .await?;
-
-                let _ = state.tasks.transition_run_status(
+                .update_agenda_item(
                     run_id,
-                    shared_types::ConductorRunStatus::WaitingForCalls,
-                );
-            }
-            ConductorAction::AwaitWorker => {
-                tracing::info!(run_id = %run_id, "Conductor decision: Await worker completion");
-                let _ = state.tasks.transition_run_status(
-                    run_id,
-                    shared_types::ConductorRunStatus::WaitingForCalls,
-                );
-            }
-            ConductorAction::MergeCanon => {
-                tracing::info!(run_id = %run_id, "Conductor decision: Merge canon from completed workers");
-                if let Some(run_writer) = state.run_writers.get(run_id).cloned() {
-                    let run_id_owned = run_id.to_string();
-                    tokio::spawn(async move {
-                        use ractor::call;
-                        for section in ["researcher", "terminal"] {
-                            let result = call!(run_writer, |reply| RunWriterMsg::CommitProposal {
-                                section_id: section.to_string(),
-                                reply,
-                            });
-                            match result {
-                                Ok(Ok(revision)) => {
-                                    tracing::info!(
-                                        run_id = %run_id_owned,
-                                        section = section,
-                                        revision = revision,
-                                        "Committed proposal to canon"
-                                    );
-                                }
-                                Ok(Err(e)) => {
-                                    tracing::debug!(
-                                        run_id = %run_id_owned,
-                                        section = section,
-                                        error = %e,
-                                        "No proposal to commit for section"
-                                    );
-                                }
-                                Err(e) => {
-                                    tracing::warn!(
-                                        run_id = %run_id_owned,
-                                        section = section,
-                                        error = %e,
-                                        "Failed to call RunWriterActor for commit"
-                                    );
-                                }
-                            }
-                        }
-                    });
-                }
-                let _ = myself.send_message(ConductorMsg::DispatchReady {
-                    run_id: run_id.to_string(),
-                });
-            }
-            ConductorAction::Complete => {
-                state
-                    .tasks
-                    .transition_run_status(run_id, shared_types::ConductorRunStatus::Completed)
-                    .map_err(|e| {
-                        ConductorError::PolicyError(format!("Failed to complete run: {e}"))
-                    })?;
-                let reason = Some(decision.reason.clone());
-                self.finalize_run_as_completed(state, run_id, reason.clone())
-                    .await?;
-                self.emit_run_complete(run_id, reason).await?;
-            }
-            ConductorAction::Block => {
-                state
-                    .tasks
-                    .transition_run_status(run_id, shared_types::ConductorRunStatus::Blocked)
-                    .map_err(|e| {
-                        ConductorError::PolicyError(format!("Failed to block run: {e}"))
-                    })?;
-                let reason = Some(decision.reason.clone());
-                self.finalize_run_as_blocked(state, run_id, reason.clone())
-                    .await?;
-                self.emit_run_blocked(run_id, reason).await?;
-            }
+                    &item.item_id,
+                    shared_types::AgendaItemStatus::Running,
+                )
+                .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+
+            self.spawn_capability_call(myself, state, run_id, item)
+                .await
+                .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
         }
 
-        let decision_record = shared_types::ConductorDecision {
-            decision_id: ulid::Ulid::new().to_string(),
-            decision_type: match decision.action {
-                ConductorAction::SpawnWorker => shared_types::DecisionType::Dispatch,
-                ConductorAction::AwaitWorker => shared_types::DecisionType::Continue,
-                ConductorAction::MergeCanon => shared_types::DecisionType::Continue,
-                ConductorAction::Complete => shared_types::DecisionType::Complete,
-                ConductorAction::Block => shared_types::DecisionType::Block,
-            },
-            reason: decision.reason.clone(),
-            timestamp: chrono::Utc::now(),
-            affected_agenda_items: vec![],
-            new_agenda_items: vec![],
-        };
         state
             .tasks
-            .record_decision(run_id, decision_record)
-            .map_err(|e| ConductorError::PolicyError(format!("Failed to record decision: {e}")))?;
-
+            .transition_run_status(run_id, shared_types::ConductorRunStatus::WaitingForCalls)
+            .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
         Ok(())
     }
 
@@ -327,7 +100,9 @@ impl ConductorActor {
             .tasks
             .register_capability_call(run_id, call)
             .map_err(|e| {
-                ConductorError::PolicyError(format!("Failed to register capability call: {e}"))
+                ConductorError::ModelGatewayError(format!(
+                    "Failed to register capability call: {e}"
+                ))
             })?;
         state
             .tasks
@@ -338,18 +113,15 @@ impl ConductorActor {
                 None,
             )
             .map_err(|e| {
-                ConductorError::PolicyError(format!("Failed to set capability call running: {e}"))
+                ConductorError::ModelGatewayError(format!(
+                    "Failed to set capability call running: {e}"
+                ))
             })?;
 
-        if let Some((task_id, correlation_id)) = state
-            .tasks
-            .get_run(run_id)
-            .map(|run| (run.task_id.clone(), run.correlation_id.clone()))
-        {
+        if state.tasks.get_run(run_id).is_some() {
             events::emit_worker_call(
                 &state.event_store,
-                &task_id,
-                &correlation_id,
+                run_id,
                 &item.capability,
                 &item.objective,
             )
@@ -357,7 +129,6 @@ impl ConductorActor {
             events::emit_progress(
                 &state.event_store,
                 run_id,
-                &task_id,
                 &item.capability,
                 "capability dispatched",
                 None,

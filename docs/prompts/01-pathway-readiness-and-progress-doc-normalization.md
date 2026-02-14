@@ -25,7 +25,7 @@ Normalize roadmap/progress docs so they match the current reality:
    - milestone A: Conductor backend MVP for report generation
    - milestone B: Prompt bar routing to conductor
    - milestone C: Writer auto-open in markdown preview
-3. Keep `NO ADHOC WORKFLOW` explicit in both docs.
+3. Keep `Model-Led Control Flow` explicit in both docs.
 4. Keep existing historical notes, but clearly mark them archived/non-authoritative.
 5. Do not change code in this pass.
 

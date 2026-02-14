@@ -3,7 +3,7 @@ use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use shared_types::{
     AppDefinition, ChatMessage, ConductorExecuteRequest, ConductorExecuteResponse,
-    ConductorOutputMode, ConductorWorkerStep, DesktopState, Sender, ViewerRevision, WindowState,
+    ConductorOutputMode, DesktopState, Sender, ViewerRevision, WindowState,
 };
 use std::sync::OnceLock;
 
@@ -1360,15 +1360,14 @@ pub async fn writer_preview(
 // Conductor API Functions
 // ============================================================================
 
-/// Execute a Conductor task
+/// Execute a Conductor run
 ///
 /// POST /conductor/execute
-/// Returns a task_id that can be used to poll for task status
+/// Returns a run_id that can be used to poll for run status
 pub async fn execute_conductor(
     objective: &str,
     desktop_id: &str,
     output_mode: ConductorOutputMode,
-    worker_plan: Option<Vec<ConductorWorkerStep>>,
 ) -> Result<ConductorExecuteResponse, String> {
     let url = format!("{}/conductor/execute", api_base());
 
@@ -1376,9 +1375,7 @@ pub async fn execute_conductor(
         objective: objective.to_string(),
         desktop_id: desktop_id.to_string(),
         output_mode,
-        worker_plan,
         hints: None,
-        correlation_id: None,
     };
 
     let response = Request::post(&url)

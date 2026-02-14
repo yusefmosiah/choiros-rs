@@ -43,7 +43,7 @@ For a multi-agent, multi-surface system, this is architectural drift.
 - In-memory frontend state is allowed for transient UX only.
 - If frontend and backend disagree, backend wins.
 
-This rule is a direct extension of `NO ADHOC WORKFLOW`: state authority must be typed and explicit, not implicit in browser caches.
+This rule is a direct extension of `Model-Led Control Flow`: state authority must be typed and explicit, not implicit in browser caches.
 
 ## State Model (Required)
 

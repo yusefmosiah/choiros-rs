@@ -1,5 +1,9 @@
 # ChoirOS Directives App Execution Checklist
 
+> Historical note: parts of this checklist predate the 2026-02-14 control-plane simplification.
+> Current authority for runtime behavior is the 2026-02-14 architecture doc set in
+> `docs/architecture/NARRATIVE_INDEX.md`.
+
 Date: 2026-02-08
 Status: Active directives checklist
 Owner: PromptBar + Supervisor architecture track
@@ -22,7 +26,7 @@ Directives remains the north-star operator surface, but current implementation m
 ## What To Do Next
 
 1. Complete ResearcherActor milestone with typed findings/learnings/citations events.
-2. Implement Worker Signal Contract runtime validator/gates before broadening orchestration.
+2. Harden worker live-update event model validators/gates before broadening orchestration.
 3. Stabilize live objective-to-delegation loop behavior in matrix evals after planner contract changes.
 4. Resume Directives app implementation as the primary cockpit for PromptBar + Conductor.
 
@@ -37,9 +41,9 @@ This is the primary deliverable, not a sidebar polish task.
 
 ## Hard Delineation (Must Stay True)
 
-### NO ADHOC WORKFLOW (Architecture Policy)
+### Model-Led Control Flow (Architecture Policy)
 
-**Hard rule:** Do not implement workflow state transitions via natural-language string matching. Do not add task-specific one-off routing/prompt hacks in chat actors. Encode control flow in typed protocol fields (BAML/shared-types) and actor messages. Phrase matching is allowed only for input normalization or UI text shaping, never control authority.
+**Hard rule:** Default to model-managed control flow for multi-step orchestration. Do not encode brittle deterministic workflows where model planning is expected. Keep deterministic logic for safety/operability rails (identity, routing, capability boundaries, budgets/timeouts/cancellation, idempotency/loop prevention, audit/trace persistence). Phrase matching is allowed only for input normalization or UI text shaping, never orchestration authority.
 
 ### Actor Boundaries
 

@@ -1,59 +1,30 @@
 # ChoirOS Roadmap (Execution Lane)
 
-Date: 2026-02-09  
+Date: 2026-02-14  
 Status: Authoritative immediate order
 
 ## Narrative Summary (1-minute read)
 
-ChoirOS is now executing one lane only: `Logging -> Watcher -> Model Policy -> Worker Signal Contract -> Researcher`.
-The goal is to finish observability foundations before expanding behavior.
-EventStore is canonical; EventBus is delivery-only; watcher/researcher must emit rich, queryable events.
-Run-level observability is now in place: persisted run indexing, watcher run navigation, run markdown projection, and structured worker failure telemetry with model attribution on worker lifecycle events.
-Researcher baseline is now live through delegated `web_search` runs, with provider-level run events and citation payloads persisted in EventStore.
+ChoirOS is now executing one lane only: `Prompt Bar -> Conductor` with model-led orchestration.
+Conductor is the control-plane core and communicates through actor messages with workers and app agents.
+Natural-language objectives remain first-class, but deterministic orchestration code should be removed
+where model-managed control flow is expected.
+Deterministic logic stays only in safety/operability rails (routing, auth, budgets, cancellation,
+idempotency, loop prevention, and trace persistence).
+Watcher/Wake are de-scoped from normal run progression authority.
 
 ## What Changed
 
-- Roadmap ordering is now explicitly single-lane, not parallel-track.
-- Logging baseline is mostly complete (filters, APIs, relay, tests).
-- Watcher baseline moved from prototype to deterministic multi-rule coverage.
-- A dedicated backend live logs stream (`/ws/logs/events`) is now in scope as part of watcher observability.
-- Architecture reconciliation review added a **blocking pre-Researcher gate** for capability boundaries and messaging contracts.
-- Added docs gate for worker typed turn signaling, including anti-spam controls and conductor escalation contract.
-- Added run-centric watcher UI foundations:
-  - preload persisted events on load,
-  - runs sidebar grouping by correlation/task,
-  - run markdown projection path from watcher.
-- Added structured worker failure monitoring fields:
-  - `failure_kind`, `failure_retriable`, `failure_hint`, `failure_origin`, `error_code`, `duration_ms`.
-- Added watcher network reliability rule:
-  - `watcher.alert.network_spike`.
-- Worker lifecycle model attribution normalized:
-  - every worker lifecycle event now carries `model_requested` and `model_used`.
-- Researcher baseline landed:
-  - Chat `web_search` delegates through `ResearcherActor`,
-  - provider call/result/error lifecycle is emitted and queryable per run,
-  - citations/provider metadata are persisted into completed task payloads and run markdown.
-- Prompt temporal-awareness hardening landed:
-  - system prompts now include UTC timestamp metadata,
-  - per-message prompt content in chat/terminal planning paths is timestamped.
-- Chat deferred async path hardening landed:
-  - scoped history reload per turn,
-  - deferred-status messages tagged and excluded from prompt-history reconstruction,
-  - stale post-completion “still running” assistant chatter removed.
-- Researcher provider routing update:
-  - `provider=auto` now defaults to parallel fanout across available providers.
-- No-hint live matrix added for async delegated research behavior:
-  - validates background -> completion signal -> final answer flow without tool-hinted prompts.
-- Matrix refresh (2026-02-09):
-  - mixed run (`30` cases) and clean non-Bedrock run (`15` cases) completed with `polluted_count=0`,
-  - isolated Bedrock probes confirm `Opus46` and `Sonnet45` pass; `Opus45` currently fails in harness.
-  - targeted post-bootstrap rerun (`12` cases across Bedrock + non-Bedrock, `auto/exa/all`) achieved `strict_passes=12` with `polluted_count=0`.
-- Bedrock TLS runtime hardening:
-  - centralized cert bootstrap now sets `SSL_CERT_FILE` from known system/Nix paths before provider calls,
-  - startup + live test harnesses now share this bootstrap to avoid intermittent
-    `hyper-rustls` platform-cert panic and `LazyLock poisoned` cascades.
-- New architecture draft added:
-  - `docs/architecture/unified-agentic-loop-harness.md` (chat/terminal/researcher loop unification target).
+- Roadmap ordering remains explicitly single-lane, not parallel-track.
+- Control authority is now explicit: model-led planning with deterministic safety rails.
+- Watcher/Wake are removed from normal orchestration progression.
+- Direct request path is now `Worker/App Agent -> Conductor` through typed actor messages.
+- Writer harness completion and tracing rollout are prioritized next.
+- Tracing rollout sequence is fixed: human UX first, then headless API, then app-agent harness.
+- Conductor now treats app/workers as logical subagents with non-blocking, no-poll turn invariants.
+- Harness simplification direction is explicit: one while-loop runtime model and narrower worker execution boundary (`worker_port`).
+- Capability ownership is explicit: Conductor executes no tools directly; tool schemas are shared once and granted per agent/worker.
+- Terminal and Researcher include file tools (`file_read`, `file_write`, `file_edit`) as baseline worker capability.
 
 ## What To Do Next
 
@@ -63,35 +34,61 @@ Researcher baseline is now live through delegated `web_search` runs, with provid
    - ConductorActor with capability dispatch to actors
    - Markdown report generation endpoint  
    - Integration with Files/Writer for output delivery
-   - NO ADHOC WORKFLOW: all routing via typed protocol fields
+   - Model-led control flow on typed safety rails
 
 2. **Prompt bar routing to Conductor**
    - Prompt Bar captures universal input
-   - Routes to Conductor (not Chat) for multi-step planning
-   - Chat remains available as compatibility fallback
+   - Routes living-document intent to Conductor for multi-step planning
+   - Living-document UX is the canonical human interface
 
 3. **Writer auto-open in markdown preview**
    - Conductor-generated reports auto-open in Writer
    - Writer launches in preview mode for .md files
    - Backend-driven UI state per `backend-authoritative-ui-state-pattern.md`
 
-**Architecture Principle**: **Chat is compatibility; Conductor is orchestrator.**
+4. **Writer harness ownership cutover**
+   - Writer app-agent harness owns canonical living-document/revision mutation flow
+   - Remove active Conductor direct tool execution paths
+   - Add boundary tests that fail on direct Conductor tool execution
+
+5. **Direct request-message contract and tests**
+   - Typed app/worker-to-conductor `request` envelopes
+   - Minimal request kinds + correlation metadata
+   - Ordered websocket assertions for scoped request streams
+
+6. **Tracing staged rollout**
+   - Phase 1: human-first tracing UX and navigation
+   - Phase 2: headless tracing API for agent consumption
+   - Phase 3: tracing app-agent harness (after API stability)
+
+7. **Conductor wake-context hardening**
+   - Include bounded system agent-tree snapshot on every wake
+   - Assert conductor turns are finite and non-blocking
+   - Prove no child polling loops exist in orchestration runtime
+   - Implement `docs/architecture/2026-02-14-agent-tree-snapshot-contract.md`
+
+8. **Harness loop + boundary simplification**
+   - Treat harness runtime as one while loop with typed actions
+   - Narrow `adapter` concept to execution-focused `worker_port`
+   - Avoid new phase abstractions unless evidence requires them
+
+**Architecture Principle**: **Living document is the human interface; Conductor is orchestrator.**
 
 **Background work (ongoing but not primary lane)**:
 - Harden Researcher v1 (provider quality, anti-spam, websocket tests)
-- Finish worker signal contract runtime enforcement
-- Shared harness unification (chat/terminal/researcher loop abstraction)
+- Harden worker live-update event model runtime enforcement
+- Shared harness unification (living-document/terminal/researcher loop abstraction)
 
 ## RLM + StateIndex Alignment (Added)
 
 Goal:
 - Move from per-actor ad-hoc memory loops to bounded frame/context execution that can scale to Prompt Bar + Conductor routing.
 
-**NO ADHOC WORKFLOW Policy**: This milestone removes string-matching workflow logic and replaces it with typed protocol fields (BAML/shared-types) and actor messages. See AGENTS.md for the authoritative policy.
+**Model-Led Control Flow Policy**: remove deterministic orchestration where model planning should lead. Keep deterministic rails for safety and operability only. See AGENTS.md for the authoritative policy.
 
 Checklist:
 - [ ] Add `StateIndexActor` scaffold (`FrameId`, frame stack projection, token budget structs).
-- [ ] Add `ContextPack` assembly boundaries for chat/research follow-up loops.
+- [ ] Add `ContextPack` assembly boundaries for living-document/research follow-up loops.
 - [ ] Add frame-aware resume hooks for deferred background completions.
 - [ ] Keep EventStore as source-of-truth; StateIndex remains projection/cache.
 - [ ] Add integration test proving `deferred -> completion signal -> resumed final answer` with no stale status text.
@@ -105,9 +102,9 @@ Gate:
 
 Previous foundations now operational:
 - ✅ Logging (complete - available for use)
-- ✅ Watcher (complete - available for use)  
+- ✅ Watcher (available as optional recurring-event detection)  
 - ✅ Model Policy (complete - available for use)
-- ✅ Worker Signal Contract (baseline complete)
+- ✅ Worker live-update event model (baseline complete)
 - ✅ Researcher (baseline live - delegated web_search active)
 
 Active milestones:
@@ -119,10 +116,16 @@ Everything else is parked unless it unblocks this lane.
 
 ## Core Architecture Principles
 
-- **NO ADHOC WORKFLOW**: Encode all control flow in typed protocol fields (BAML/shared-types) and actor messages. Never use natural-language string matching for workflow state transitions.
-- **Chat is compatibility; Conductor is orchestrator**: Chat can answer simple queries but escalates multi-step planning to Conductor.
+- **Model-Led Control Flow**: Multi-step orchestration is model-managed by default; deterministic logic is limited to safety/operability rails.
+- **Typed Control Metadata**: Actor messages carry typed routing/request authority; natural language carries objective context.
+- **Non-Blocking Subagent Pillar**: Conductor treats workers/apps as logical subagents but never polls or blocks on child completion.
+- **Living document is the human interface; Conductor is orchestrator**: Human intent enters through living-document UX and is handed off to Conductor.
 
 ## Reconciliation Gate (Blocking Before Researcher)
+
+Historical note:
+- Sections below this point are preserved implementation history from earlier lanes.
+- Current authoritative direction is the 2026-02-14 doc set listed in `docs/architecture/NARRATIVE_INDEX.md`.
 
 Source:
 - `docs/architecture/2026-02-08-architecture-reconciliation-review.md`
@@ -242,6 +245,6 @@ Gate:
 ## References
 
 - `docs/architecture/logging-watcher-architecture-design.md`
-- `docs/architecture/worker-signal-contract.md`
+- `docs/architecture/2026-02-14-worker-live-update-event-model.md`
 - `docs/architecture/roadmap-critical-analysis.md`
 - `roadmap_progress.md`

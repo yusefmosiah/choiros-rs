@@ -1,5 +1,5 @@
 use ractor::{ActorProcessingErr, ActorRef};
-use shared_types::{ConductorExecuteRequest, ConductorTaskState, ConductorTaskStatus};
+use shared_types::ConductorExecuteRequest;
 
 use crate::actors::conductor::actor::{ConductorActor, ConductorState};
 use crate::actors::conductor::{
@@ -34,56 +34,26 @@ impl ConductorActor {
         myself: ActorRef<ConductorMsg>,
         state: &mut ConductorState,
         request: ConductorExecuteRequest,
-    ) -> Result<ConductorTaskState, ConductorError> {
-        let task_id = ulid::Ulid::new().to_string();
-        let correlation_id = request
-            .correlation_id
-            .clone()
-            .unwrap_or_else(|| task_id.clone());
-
-        if let Some(worker_plan) = &request.worker_plan {
-            if !worker_plan.is_empty() {
-                return Err(ConductorError::InvalidRequest(
-                    "worker_plan is deprecated in full-agentic mode; omit worker_plan and let conductor policy dispatch capabilities"
-                        .to_string(),
-                ));
-            }
-        }
+    ) -> Result<shared_types::ConductorRunState, ConductorError> {
+        let run_id = ulid::Ulid::new().to_string();
 
         tracing::info!(
-            task_id = %task_id,
-            correlation_id = %correlation_id,
+            run_id = %run_id,
             objective = %request.objective,
-            "Executing new conductor task"
+            "Executing new conductor run"
         );
 
         let now = chrono::Utc::now();
-        let task_state = ConductorTaskState {
-            task_id: task_id.clone(),
-            status: ConductorTaskStatus::Queued,
-            objective: request.objective.clone(),
-            desktop_id: request.desktop_id.clone(),
-            output_mode: request.output_mode,
-            correlation_id: correlation_id.clone(),
-            created_at: now,
-            updated_at: now,
-            completed_at: None,
-            report_path: None,
-            toast: None,
-            error: None,
-        };
-        state.tasks.insert_task(task_state)?;
 
         if state.terminal_actor.is_none() && state.researcher_actor.is_none() {
             return Err(ConductorError::ActorUnavailable(
-                "No worker actors available for Conductor default policy".to_string(),
+                "No worker actors available for Conductor default model gateway".to_string(),
             ));
         }
 
         events::emit_prompt_received(
             &state.event_store,
-            &task_id,
-            &correlation_id,
+            &run_id,
             &request.objective,
             &request.desktop_id,
         )
@@ -91,27 +61,24 @@ impl ConductorActor {
 
         events::emit_task_started(
             &state.event_store,
-            &task_id,
-            &correlation_id,
+            &run_id,
             &request.objective,
             &request.desktop_id,
         )
         .await;
 
         // Create initial draft document
-        let document_path = match file_tools::create_initial_draft(&task_id, &request.objective)
-            .await
-        {
-            Ok(path) => path,
-            Err(e) => {
-                tracing::error!(task_id = %task_id, error = %e, "Failed to create initial draft");
-                return Err(e);
-            }
-        };
+        let document_path =
+            match file_tools::create_initial_draft(&run_id, &request.objective).await {
+                Ok(path) => path,
+                Err(e) => {
+                    tracing::error!(run_id = %run_id, error = %e, "Failed to create initial draft");
+                    return Err(e);
+                }
+            };
 
         let run = shared_types::ConductorRunState {
-            run_id: task_id.clone(),
-            task_id: task_id.clone(),
+            run_id: run_id.clone(),
             objective: request.objective.clone(),
             status: shared_types::ConductorRunStatus::Running,
             created_at: now,
@@ -124,64 +91,49 @@ impl ConductorActor {
             document_path,
             output_mode: request.output_mode,
             desktop_id: request.desktop_id.clone(),
-            correlation_id: correlation_id.clone(),
         };
-        state.tasks.insert_run(run);
+        state.tasks.insert_run(run.clone());
 
-        state.tasks.transition_to_running(&task_id)?;
         events::emit_task_progress(
             &state.event_store,
-            &task_id,
-            &correlation_id,
+            &run_id,
             "running",
-            "run_bootstrap",
+            "run_start",
             Some(serde_json::json!({
-                "run_id": &task_id,
+                "run_id": &run_id,
                 "agenda_items": 0,
             })),
         )
         .await;
 
-        let _ = myself.send_message(ConductorMsg::BootstrapRun {
-            run_id: task_id.clone(),
+        let _ = myself.send_message(ConductorMsg::StartRun {
+            run_id: run_id.clone(),
             request,
         });
 
-        Ok(state
-            .tasks
-            .get_task(&task_id)
-            .cloned()
-            .expect("task must exist after insertion"))
+        Ok(run)
     }
 
-    pub(crate) async fn handle_bootstrap_run(
+    pub(crate) async fn handle_start_run(
         &self,
         myself: &ActorRef<ConductorMsg>,
         state: &mut ConductorState,
         run_id: String,
         request: ConductorExecuteRequest,
     ) -> Result<(), ActorProcessingErr> {
-        let task_id = run_id.clone();
-        let correlation_id = state
-            .tasks
-            .get_task(&task_id)
-            .map(|task| task.correlation_id.clone())
-            .unwrap_or_else(|| task_id.clone());
-
-        let initial_agenda = match self.build_initial_agenda(state, &request, &task_id).await {
+        let initial_agenda = match self
+            .conduct_initial_assignments(state, &request, &run_id)
+            .await
+        {
             Ok(items) => items,
             Err(err) => {
                 let shared_error: shared_types::ConductorError = err.clone().into();
                 let _ = state
                     .tasks
-                    .transition_to_failed(&task_id, shared_error.clone());
-                let _ = state
-                    .tasks
                     .transition_run_status(&run_id, shared_types::ConductorRunStatus::Failed);
                 events::emit_task_failed(
                     &state.event_store,
-                    &task_id,
-                    &correlation_id,
+                    &run_id,
                     &shared_error.code,
                     &shared_error.message,
                     shared_error.failure_kind,
@@ -190,7 +142,7 @@ impl ConductorActor {
                 tracing::error!(
                     run_id = %run_id,
                     error = %err,
-                    "Conductor bootstrap failed"
+                    "Conductor start/conduct step failed"
                 );
                 return Ok(());
             }
@@ -201,14 +153,9 @@ impl ConductorActor {
             .add_agenda_items(&run_id, initial_agenda.clone())
             .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
 
-        state
-            .tasks
-            .transition_to_waiting_worker(&task_id)
-            .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
         events::emit_task_progress(
             &state.event_store,
-            &task_id,
-            &correlation_id,
+            &run_id,
             "waiting_worker",
             "worker_execution",
             Some(serde_json::json!({
@@ -217,11 +164,10 @@ impl ConductorActor {
         )
         .await;
 
-        events::emit_wake_event(
+        events::emit_control_event(
             &state.event_store,
             "conductor.run.started",
             &run_id,
-            &task_id,
             "conductor",
             "run_start",
             serde_json::json!({
@@ -231,27 +177,18 @@ impl ConductorActor {
         )
         .await;
 
-        let _ = myself.send_message(ConductorMsg::DispatchReady { run_id });
+        self.dispatch_seed_agenda(myself, state, &run_id).await?;
         Ok(())
     }
 
-    pub(crate) async fn build_initial_agenda(
+    pub(crate) async fn conduct_initial_assignments(
         &self,
         state: &ConductorState,
         request: &ConductorExecuteRequest,
-        task_id: &str,
+        run_id: &str,
     ) -> Result<Vec<shared_types::ConductorAgendaItem>, ConductorError> {
         let now = chrono::Utc::now();
         let mut items = Vec::new();
-
-        if let Some(worker_plan) = &request.worker_plan {
-            if !worker_plan.is_empty() {
-                return Err(ConductorError::InvalidRequest(
-                    "worker_plan is deprecated in full-agentic mode; omit worker_plan and let conductor policy dispatch capabilities"
-                        .to_string(),
-                ));
-            }
-        }
 
         let mut available_capabilities = Vec::new();
         if state.researcher_actor.is_some() {
@@ -262,17 +199,17 @@ impl ConductorActor {
         }
         if available_capabilities.is_empty() {
             return Err(ConductorError::ActorUnavailable(
-                "No worker actors available for Conductor default policy".to_string(),
+                "No worker actors available for Conductor default model gateway".to_string(),
             ));
         }
 
-        let bootstrap = state
-            .policy
-            .bootstrap_agenda(Some(task_id), &request.objective, &available_capabilities)
+        let conduct_output = state
+            .model_gateway
+            .conduct_assignments(Some(run_id), &request.objective, &available_capabilities)
             .await?;
 
         let mut selected_capabilities = Vec::new();
-        for capability in bootstrap.dispatch_capabilities {
+        for capability in conduct_output.dispatch_capabilities {
             let normalized = capability.trim().to_ascii_lowercase();
             if normalized.is_empty()
                 || !available_capabilities
@@ -288,24 +225,20 @@ impl ConductorActor {
         }
 
         if selected_capabilities.is_empty() {
-            let reason = bootstrap
+            let reason = conduct_output
                 .block_reason
                 .filter(|s| !s.trim().is_empty())
-                .unwrap_or(bootstrap.rationale);
+                .unwrap_or(conduct_output.rationale);
             return Err(ConductorError::InvalidRequest(format!(
-                "Conductor bootstrap policy blocked run: {reason}"
+                "Conductor conduct step blocked run: {reason}"
             )));
         }
 
         for (idx, capability) in selected_capabilities.into_iter().enumerate() {
-            let refined = state
-                .policy
-                .refine_objective_for_capability(&request.objective, &capability)
-                .await?;
             let objective =
-                self.objective_with_capability_contract(&capability, refined.refined_objective);
+                self.objective_with_capability_contract(&capability, request.objective.clone());
             items.push(shared_types::ConductorAgendaItem {
-                item_id: format!("{task_id}:seed:{idx}:{capability}"),
+                item_id: format!("{run_id}:seed:{idx}:{capability}"),
                 capability,
                 objective,
                 priority: idx as u8,

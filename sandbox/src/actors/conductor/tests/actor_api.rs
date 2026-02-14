@@ -1,5 +1,5 @@
 use ractor::call;
-use shared_types::{ConductorExecuteRequest, ConductorOutputMode, ConductorTaskState};
+use shared_types::{ConductorExecuteRequest, ConductorOutputMode, ConductorRunState};
 
 use crate::actors::conductor::{ConductorError, ConductorMsg};
 
@@ -14,12 +14,12 @@ async fn test_conductor_actor_spawn() {
 }
 
 #[tokio::test]
-async fn test_get_task_state_nonexistent() {
+async fn test_get_run_state_nonexistent() {
     let (conductor_ref, store_ref) = setup_test_conductor(None, None).await;
 
-    let state_result: Result<Option<ConductorTaskState>, _> =
-        call!(conductor_ref, |reply| ConductorMsg::GetTaskState {
-            task_id: "non-existent-task-id".to_string(),
+    let state_result: Result<Option<ConductorRunState>, _> =
+        call!(conductor_ref, |reply| ConductorMsg::GetRunState {
+            run_id: "non-existent-run-id".to_string(),
             reply,
         });
 
@@ -38,12 +38,10 @@ async fn test_execute_task_message_missing_workers() {
         objective: "Research Rust async patterns".to_string(),
         desktop_id: "test-desktop-001".to_string(),
         output_mode: ConductorOutputMode::MarkdownReportToWriter,
-        worker_plan: None,
         hints: None,
-        correlation_id: Some("test-correlation-001".to_string()),
     };
 
-    let result: Result<Result<ConductorTaskState, ConductorError>, _> =
+    let result: Result<Result<ConductorRunState, ConductorError>, _> =
         call!(conductor_ref, |reply| ConductorMsg::ExecuteTask {
             request,
             reply,

@@ -160,15 +160,15 @@ Decision summary:
 - Single-write rule: producers write to EventStore, then committed events may be relayed to EventBus.
 - Watchers and replay correctness are EventStore-cursor based.
 
-## 7) Worker Signal Contract Decision (New)
+## 7) Worker Live-Update Event Model Decision (New)
 
 Architecture gate:
-- `docs/architecture/worker-signal-contract.md`
+- `docs/architecture/2026-02-14-worker-live-update-event-model.md`
 
 Decision summary:
-- Workers emit typed per-turn report envelopes.
+- Workers emit typed runtime events (`progress/result/failed/request`).
 - Findings/learnings are observability outputs by default.
-- Escalations are control-plane requests and can notify Conductor directly after runtime validation.
+- Requests are control-plane asks and can notify Conductor directly after runtime validation.
 - File writes are artifacts only, not signaling channels.
 - Anti-spam controls are required at prompt, schema, and runtime layers.
 

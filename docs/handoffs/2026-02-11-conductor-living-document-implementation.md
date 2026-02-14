@@ -1,5 +1,10 @@
 # Handoff: Conductor Living Document Implementation
 
+> Historical note: this handoff reflects a superseded direction.
+> Current authority: Conductor is orchestration-only, tool schemas are single-source shared contracts,
+> and Writer app-agent harness is canonical for living-document/revision mutation paths.
+> See `docs/architecture/2026-02-14-capability-ownership-matrix.md`.
+
 **Date:** 2026-02-11
 **Session Type:** Implementation (Conductor Living Document)
 **Status:** Complete - All Acceptance Criteria Met

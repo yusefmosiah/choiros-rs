@@ -8,12 +8,12 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::Serialize;
 
-use crate::actors::conductor::{file_tools, ConductorError as ActorConductorError, ConductorMsg};
+use crate::actors::conductor::{ConductorError as ActorConductorError, ConductorMsg};
 use crate::api::websocket::{broadcast_event, WsMessage};
 use crate::api::ApiState;
 use shared_types::{
-    ConductorError, ConductorExecuteRequest, ConductorExecuteResponse, ConductorTaskState,
-    ConductorTaskStatus, EventImportance, WriterWindowProps,
+    ConductorError, ConductorExecuteRequest, ConductorExecuteResponse, ConductorRunState,
+    ConductorRunStatus, ConductorRunStatusResponse, EventImportance, WriterWindowProps,
 };
 
 /// Conductor error codes for machine-readable error responses
@@ -21,7 +21,7 @@ use shared_types::{
 pub enum ConductorErrorCode {
     InvalidRequest,
     ActorNotAvailable,
-    TaskNotFound,
+    RunNotFound,
     InternalError,
 }
 
@@ -30,7 +30,7 @@ impl ConductorErrorCode {
         match self {
             ConductorErrorCode::InvalidRequest => "INVALID_REQUEST",
             ConductorErrorCode::ActorNotAvailable => "ACTOR_NOT_AVAILABLE",
-            ConductorErrorCode::TaskNotFound => "TASK_NOT_FOUND",
+            ConductorErrorCode::RunNotFound => "RUN_NOT_FOUND",
             ConductorErrorCode::InternalError => "INTERNAL_ERROR",
         }
     }
@@ -39,15 +39,15 @@ impl ConductorErrorCode {
         match self {
             ConductorErrorCode::InvalidRequest => StatusCode::BAD_REQUEST,
             ConductorErrorCode::ActorNotAvailable => StatusCode::SERVICE_UNAVAILABLE,
-            ConductorErrorCode::TaskNotFound => StatusCode::NOT_FOUND,
+            ConductorErrorCode::RunNotFound => StatusCode::NOT_FOUND,
             ConductorErrorCode::InternalError => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
 
 #[derive(Debug, Serialize)]
-struct TaskStatusErrorResponse {
-    task_id: String,
+struct RunStatusErrorResponse {
+    run_id: String,
     error: ConductorError,
 }
 
@@ -63,13 +63,16 @@ fn conductor_error(
     }
 }
 
-fn status_code_for_task(status: ConductorTaskStatus) -> StatusCode {
+fn status_code_for_run(status: ConductorRunStatus) -> StatusCode {
     match status {
-        ConductorTaskStatus::Queued
-        | ConductorTaskStatus::Running
-        | ConductorTaskStatus::WaitingWorker => StatusCode::ACCEPTED,
-        ConductorTaskStatus::Completed => StatusCode::OK,
-        ConductorTaskStatus::Failed => StatusCode::INTERNAL_SERVER_ERROR,
+        ConductorRunStatus::Initializing
+        | ConductorRunStatus::Running
+        | ConductorRunStatus::WaitingForCalls
+        | ConductorRunStatus::Completing => StatusCode::ACCEPTED,
+        ConductorRunStatus::Completed => StatusCode::OK,
+        ConductorRunStatus::Failed | ConductorRunStatus::Blocked => {
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
     }
 }
 
@@ -97,20 +100,44 @@ fn writer_window_props_for_run_document(document_path: &str, run_id: &str) -> Wr
     }
 }
 
-fn task_state_to_execute_response(task: ConductorTaskState) -> ConductorExecuteResponse {
-    let run_id = task.task_id.clone();
-    let (document_path, writer_window_props) = match task.status {
-        ConductorTaskStatus::Queued
-        | ConductorTaskStatus::Running
-        | ConductorTaskStatus::WaitingWorker => {
-            let path = file_tools::get_run_document_path(&run_id);
+fn run_error_for_status(status: ConductorRunStatus) -> Option<ConductorError> {
+    if status == ConductorRunStatus::Blocked {
+        Some(ConductorError {
+            code: "RUN_BLOCKED".to_string(),
+            message: "Run blocked by conductor model gateway".to_string(),
+            failure_kind: Some(shared_types::FailureKind::Unknown),
+        })
+    } else if status == ConductorRunStatus::Failed {
+        Some(ConductorError {
+            code: "RUN_FAILED".to_string(),
+            message: "Run failed".to_string(),
+            failure_kind: Some(shared_types::FailureKind::Unknown),
+        })
+    } else {
+        None
+    }
+}
+
+fn run_state_to_execute_response(run: ConductorRunState) -> ConductorExecuteResponse {
+    let run_id = run.run_id.clone();
+    let report_path = if run.status == ConductorRunStatus::Completed {
+        Some(format!("reports/{run_id}.md"))
+    } else {
+        None
+    };
+    let error = run_error_for_status(run.status);
+    let (document_path, writer_window_props) = match run.status {
+        ConductorRunStatus::Initializing
+        | ConductorRunStatus::Running
+        | ConductorRunStatus::WaitingForCalls
+        | ConductorRunStatus::Completing => {
+            let path = run.document_path.clone();
             let props = writer_window_props_for_run_document(&path, &run_id);
             (Some(path), Some(props))
         }
-        ConductorTaskStatus::Completed => {
-            let report_path = task.report_path.clone();
+        ConductorRunStatus::Completed => {
             let props =
-                if task.output_mode == shared_types::ConductorOutputMode::MarkdownReportToWriter {
+                if run.output_mode == shared_types::ConductorOutputMode::MarkdownReportToWriter {
                     report_path
                         .as_ref()
                         .map(|path| writer_window_props_for_report(path, Some(&run_id)))
@@ -119,18 +146,39 @@ fn task_state_to_execute_response(task: ConductorTaskState) -> ConductorExecuteR
                 };
             (report_path, props)
         }
-        ConductorTaskStatus::Failed => (task.report_path.clone(), None),
+        ConductorRunStatus::Failed | ConductorRunStatus::Blocked => (report_path, None),
     };
 
     ConductorExecuteResponse {
-        task_id: task.task_id.clone(),
-        run_id: Some(run_id),
-        status: task.status,
+        run_id,
+        status: run.status,
         document_path,
         writer_window_props,
-        toast: task.toast,
-        correlation_id: task.correlation_id,
-        error: task.error,
+        toast: None,
+        error,
+    }
+}
+
+fn run_state_to_status_response(run: ConductorRunState) -> ConductorRunStatusResponse {
+    let report_path = if run.status == ConductorRunStatus::Completed {
+        Some(format!("reports/{}.md", run.run_id))
+    } else {
+        None
+    };
+
+    ConductorRunStatusResponse {
+        run_id: run.run_id,
+        status: run.status,
+        objective: run.objective,
+        desktop_id: run.desktop_id,
+        output_mode: run.output_mode,
+        created_at: run.created_at,
+        updated_at: run.updated_at,
+        completed_at: run.completed_at,
+        document_path: run.document_path,
+        report_path,
+        toast: None,
+        error: run_error_for_status(run.status),
     }
 }
 
@@ -153,9 +201,9 @@ fn map_actor_error(err: ActorConductorError) -> (StatusCode, ConductorError) {
             ),
         ),
         ActorConductorError::NotFound(msg) => (
-            ConductorErrorCode::TaskNotFound.status_code(),
+            ConductorErrorCode::RunNotFound.status_code(),
             conductor_error(
-                ConductorErrorCode::TaskNotFound,
+                ConductorErrorCode::RunNotFound,
                 msg,
                 Some(shared_types::FailureKind::Unknown),
             ),
@@ -163,8 +211,8 @@ fn map_actor_error(err: ActorConductorError) -> (StatusCode, ConductorError) {
         ActorConductorError::WorkerFailed(msg)
         | ActorConductorError::WorkerBlocked(msg)
         | ActorConductorError::ReportWriteFailed(msg)
-        | ActorConductorError::DuplicateTask(msg)
-        | ActorConductorError::PolicyError(msg)
+        | ActorConductorError::DuplicateRun(msg)
+        | ActorConductorError::ModelGatewayError(msg)
         | ActorConductorError::FileError(msg) => (
             ConductorErrorCode::InternalError.status_code(),
             conductor_error(
@@ -240,13 +288,11 @@ pub async fn execute_task(
             Some(shared_types::FailureKind::Validation),
         );
         let body = Json(ConductorExecuteResponse {
-            task_id: String::new(),
-            run_id: None,
-            status: ConductorTaskStatus::Failed,
+            run_id: String::new(),
+            status: ConductorRunStatus::Failed,
             document_path: None,
             writer_window_props: None,
             toast: None,
-            correlation_id: request.correlation_id.unwrap_or_default(),
             error: Some(error),
         });
         return (StatusCode::BAD_REQUEST, body).into_response();
@@ -259,13 +305,11 @@ pub async fn execute_task(
             Some(shared_types::FailureKind::Validation),
         );
         let body = Json(ConductorExecuteResponse {
-            task_id: String::new(),
-            run_id: None,
-            status: ConductorTaskStatus::Failed,
+            run_id: String::new(),
+            status: ConductorRunStatus::Failed,
             document_path: None,
             writer_window_props: None,
             toast: None,
-            correlation_id: request.correlation_id.unwrap_or_default(),
             error: Some(error),
         });
         return (StatusCode::BAD_REQUEST, body).into_response();
@@ -280,13 +324,11 @@ pub async fn execute_task(
                 Some(shared_types::FailureKind::Unknown),
             );
             let body = Json(ConductorExecuteResponse {
-                task_id: String::new(),
-                run_id: None,
-                status: ConductorTaskStatus::Failed,
+                run_id: String::new(),
+                status: ConductorRunStatus::Failed,
                 document_path: None,
                 writer_window_props: None,
                 toast: None,
-                correlation_id: request.correlation_id.unwrap_or_default(),
                 error: Some(error),
             });
             return (StatusCode::SERVICE_UNAVAILABLE, body).into_response();
@@ -302,7 +344,6 @@ pub async fn execute_task(
         "initialization",
         EventImportance::Normal,
         serde_json::json!({
-            "task_id": &request.objective,
             "objective": &request.objective,
         }),
     )
@@ -310,22 +351,23 @@ pub async fn execute_task(
 
     let desktop_id = request.desktop_id.clone();
     let ws_sessions = state.ws_sessions.clone();
-    let result: Result<Result<ConductorTaskState, ActorConductorError>, _> =
+    let result: Result<Result<ConductorRunState, ActorConductorError>, _> =
         ractor::call!(conductor, |reply| ConductorMsg::ExecuteTask {
             request,
             reply,
         });
 
     match result {
-        Ok(Ok(task_state)) => {
+        Ok(Ok(run_state)) => {
+            let run_status = run_state.status;
             // Broadcast completion telemetry event
-            let (event_type, phase, importance) = match task_state.status {
-                ConductorTaskStatus::Completed => (
+            let (event_type, phase, importance) = match run_status {
+                ConductorRunStatus::Completed => (
                     "conductor.task.completed",
                     "completion",
                     EventImportance::Normal,
                 ),
-                ConductorTaskStatus::Failed => {
+                ConductorRunStatus::Failed | ConductorRunStatus::Blocked => {
                     ("conductor.task.failed", "failure", EventImportance::High)
                 }
                 _ => ("conductor.task.progress", "running", EventImportance::Low),
@@ -338,25 +380,23 @@ pub async fn execute_task(
                 phase,
                 importance,
                 serde_json::json!({
-                    "task_id": &task_state.task_id,
-                    "status": format!("{:?}", task_state.status),
+                    "run_id": &run_state.run_id,
+                    "status": format!("{:?}", run_state.status),
                 }),
             )
             .await;
-            let status = status_code_for_task(task_state.status);
-            let response = task_state_to_execute_response(task_state);
+            let status = status_code_for_run(run_status);
+            let response = run_state_to_execute_response(run_state);
             (status, Json(response)).into_response()
         }
         Ok(Err(actor_err)) => {
             let (status, error) = map_actor_error(actor_err);
             let body = Json(ConductorExecuteResponse {
-                task_id: String::new(),
-                run_id: None,
-                status: ConductorTaskStatus::Failed,
+                run_id: String::new(),
+                status: ConductorRunStatus::Failed,
                 document_path: None,
                 writer_window_props: None,
                 toast: None,
-                correlation_id: String::new(),
                 error: Some(error),
             });
             (status, body).into_response()
@@ -368,13 +408,11 @@ pub async fn execute_task(
                 Some(shared_types::FailureKind::Unknown),
             );
             let body = Json(ConductorExecuteResponse {
-                task_id: String::new(),
-                run_id: None,
-                status: ConductorTaskStatus::Failed,
+                run_id: String::new(),
+                status: ConductorRunStatus::Failed,
                 document_path: None,
                 writer_window_props: None,
                 toast: None,
-                correlation_id: String::new(),
                 error: Some(error),
             });
             (StatusCode::SERVICE_UNAVAILABLE, body).into_response()
@@ -382,17 +420,17 @@ pub async fn execute_task(
     }
 }
 
-/// GET /conductor/tasks/:task_id - Get current task state
-pub async fn get_task_status(
+/// GET /conductor/runs/:run_id - Get current run state
+pub async fn get_run_status(
     State(state): State<ApiState>,
-    Path(task_id): Path<String>,
+    Path(run_id): Path<String>,
 ) -> impl IntoResponse {
-    if task_id.trim().is_empty() {
-        let body = Json(TaskStatusErrorResponse {
-            task_id,
+    if run_id.trim().is_empty() {
+        let body = Json(RunStatusErrorResponse {
+            run_id,
             error: conductor_error(
                 ConductorErrorCode::InvalidRequest,
-                "Task ID cannot be empty",
+                "Run ID cannot be empty",
                 Some(shared_types::FailureKind::Validation),
             ),
         });
@@ -402,8 +440,8 @@ pub async fn get_task_status(
     let conductor = match state.app_state.ensure_conductor().await {
         Ok(actor) => actor,
         Err(e) => {
-            let body = Json(TaskStatusErrorResponse {
-                task_id,
+            let body = Json(RunStatusErrorResponse {
+                run_id,
                 error: conductor_error(
                     ConductorErrorCode::ActorNotAvailable,
                     format!("Failed to ensure conductor actor: {e}"),
@@ -414,28 +452,31 @@ pub async fn get_task_status(
         }
     };
 
-    let result: Result<Option<ConductorTaskState>, _> =
-        ractor::call!(conductor, |reply| ConductorMsg::GetTaskState {
-            task_id: task_id.clone(),
+    let result: Result<Option<ConductorRunState>, _> =
+        ractor::call!(conductor, |reply| ConductorMsg::GetRunState {
+            run_id: run_id.clone(),
             reply,
         });
 
     match result {
-        Ok(Some(task_state)) => (StatusCode::OK, Json(task_state)).into_response(),
+        Ok(Some(run_state)) => {
+            let run_state = run_state_to_status_response(run_state);
+            (StatusCode::OK, Json(run_state)).into_response()
+        }
         Ok(None) => {
-            let body = Json(TaskStatusErrorResponse {
-                task_id,
+            let body = Json(RunStatusErrorResponse {
+                run_id,
                 error: conductor_error(
-                    ConductorErrorCode::TaskNotFound,
-                    "Task not found",
+                    ConductorErrorCode::RunNotFound,
+                    "Run not found",
                     Some(shared_types::FailureKind::Unknown),
                 ),
             });
             (StatusCode::NOT_FOUND, body).into_response()
         }
         Err(e) => {
-            let body = Json(TaskStatusErrorResponse {
-                task_id,
+            let body = Json(RunStatusErrorResponse {
+                run_id,
                 error: conductor_error(
                     ConductorErrorCode::ActorNotAvailable,
                     format!("Conductor RPC failed: {e}"),
@@ -454,25 +495,33 @@ mod tests {
     use shared_types::ConductorOutputMode;
 
     #[test]
-    fn test_status_code_for_task() {
+    fn test_status_code_for_run() {
         assert_eq!(
-            status_code_for_task(ConductorTaskStatus::Queued),
+            status_code_for_run(ConductorRunStatus::Initializing),
             StatusCode::ACCEPTED
         );
         assert_eq!(
-            status_code_for_task(ConductorTaskStatus::Running),
+            status_code_for_run(ConductorRunStatus::Running),
             StatusCode::ACCEPTED
         );
         assert_eq!(
-            status_code_for_task(ConductorTaskStatus::WaitingWorker),
+            status_code_for_run(ConductorRunStatus::WaitingForCalls),
             StatusCode::ACCEPTED
         );
         assert_eq!(
-            status_code_for_task(ConductorTaskStatus::Completed),
+            status_code_for_run(ConductorRunStatus::Completing),
+            StatusCode::ACCEPTED
+        );
+        assert_eq!(
+            status_code_for_run(ConductorRunStatus::Completed),
             StatusCode::OK
         );
         assert_eq!(
-            status_code_for_task(ConductorTaskStatus::Failed),
+            status_code_for_run(ConductorRunStatus::Failed),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert_eq!(
+            status_code_for_run(ConductorRunStatus::Blocked),
             StatusCode::INTERNAL_SERVER_ERROR
         );
     }
@@ -485,24 +534,27 @@ mod tests {
     }
 
     #[test]
-    fn test_task_state_to_execute_response_targets_live_document_for_accepted_status() {
+    fn test_run_state_to_execute_response_targets_live_document_for_accepted_status() {
         let now = Utc::now();
-        let task = ConductorTaskState {
-            task_id: "run_123".to_string(),
-            status: ConductorTaskStatus::WaitingWorker,
+        let run = ConductorRunState {
+            run_id: "run_123".to_string(),
+            status: ConductorRunStatus::WaitingForCalls,
             objective: "test objective".to_string(),
             desktop_id: "desktop-1".to_string(),
             output_mode: ConductorOutputMode::Auto,
-            correlation_id: "corr-1".to_string(),
             created_at: now,
             updated_at: now,
             completed_at: None,
-            report_path: None,
-            toast: None,
-            error: None,
+            agenda: vec![],
+            active_calls: vec![],
+            artifacts: vec![],
+            decision_log: vec![],
+            document_path: "conductor/runs/run_123/draft.md".to_string(),
         };
 
-        let response = task_state_to_execute_response(task);
+        let response = run_state_to_execute_response(run);
+        assert_eq!(response.run_id, "run_123");
+        assert_eq!(response.status, ConductorRunStatus::WaitingForCalls);
 
         assert_eq!(
             response.document_path.as_deref(),

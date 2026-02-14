@@ -25,7 +25,6 @@ use sandbox::api;
 use sandbox::app_state::AppState;
 use sandbox::runtime_env::ensure_tls_cert_env;
 
-const LIVE_TASK_TIMEOUT: Duration = Duration::from_secs(180);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 static LIVE_E2E_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
@@ -77,14 +76,12 @@ async fn json_response(app: &axum::Router, req: Request<Body>) -> (StatusCode, V
     (status, value)
 }
 
-async fn submit_conductor_run(app: &axum::Router, objective: &str, correlation_id: &str) -> String {
+async fn submit_conductor_run(app: &axum::Router, objective: &str) -> String {
     let execute_req = json!({
         "objective": objective,
         "desktop_id": "test-desktop-e2e",
         "output_mode": "markdown_report_to_writer",
-        "worker_plan": null,
         "hints": null,
-        "correlation_id": correlation_id,
     });
 
     let req = Request::builder()
@@ -106,33 +103,33 @@ async fn submit_conductor_run(app: &axum::Router, objective: &str, correlation_i
         tracing::warn!("[OBSERVATION] Expected ACCEPTED but got {:?}", status);
     }
 
-    body["task_id"]
+    body["run_id"]
         .as_str()
-        .expect("task_id should be present")
+        .expect("run_id should be present")
         .to_string()
 }
 
-async fn get_task_status(app: &axum::Router, task_id: &str) -> Value {
+async fn get_run_status(app: &axum::Router, run_id: &str) -> Value {
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/conductor/tasks/{task_id}"))
+        .uri(format!("/conductor/runs/{run_id}"))
         .body(Body::empty())
-        .expect("build task status request");
+        .expect("build run status request");
 
     let (status, body) = json_response(app, req).await;
     tracing::info!(
-        "[OBSERVATION] Task status for {}: status={:?}, body={}",
-        task_id,
+        "[OBSERVATION] Run status for {}: status={:?}, body={}",
+        run_id,
         status,
         body
     );
     body
 }
 
-async fn get_events_by_task_id(app: &axum::Router, task_id: &str) -> Vec<Value> {
+async fn get_events_by_run_id(app: &axum::Router, run_id: &str) -> Vec<Value> {
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/logs/events?task_id={task_id}&limit=1000"))
+        .uri(format!("/logs/events?run_id={run_id}&limit=1000"))
         .body(Body::empty())
         .expect("build logs request");
 
@@ -152,17 +149,17 @@ async fn get_events_by_task_id(app: &axum::Router, task_id: &str) -> Vec<Value> 
         .clone()
 }
 
-async fn wait_for_terminal_state(app: &axum::Router, task_id: &str, timeout_secs: u64) -> Value {
+async fn wait_for_run_terminal_state(app: &axum::Router, run_id: &str, timeout_secs: u64) -> Value {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_secs);
 
     loop {
-        let status = get_task_status(app, task_id).await;
+        let status = get_run_status(app, run_id).await;
         let status_str = status["status"].as_str().unwrap_or("unknown");
 
-        if status_str == "completed" || status_str == "failed" {
+        if status_str == "completed" || status_str == "failed" || status_str == "blocked" {
             tracing::info!(
-                "[OBSERVATION] Task {} reached terminal state: {}",
-                task_id,
+                "[OBSERVATION] Run {} reached terminal state: {}",
+                run_id,
                 status_str
             );
             return status;
@@ -266,23 +263,22 @@ async fn test_conductor_to_terminal_delegation() {
     tracing::info!("[OBSERVATION] Objective: 'list files in sandbox'");
     tracing::info!("[OBSERVATION] ==========================================");
 
-    let task_id =
-        submit_conductor_run(&app, "list files in sandbox", "test-terminal-delegation").await;
+    let run_id = submit_conductor_run(&app, "list files in sandbox").await;
 
-    tracing::info!("[OBSERVATION] Task ID: {}", task_id);
+    tracing::info!("[OBSERVATION] Run ID: {}", run_id);
 
-    // Wait for task to complete or timeout
-    let final_status = wait_for_terminal_state(&app, &task_id, 120).await;
+    // Wait for run to complete or timeout
+    let final_status = wait_for_run_terminal_state(&app, &run_id, 120).await;
 
     // Get all events
-    let events = get_events_by_task_id(&app, &task_id).await;
+    let events = get_events_by_run_id(&app, &run_id).await;
     log_events_summary(&events);
 
     // Observe what natural language objective was passed to TerminalActor
     let worker_calls = extract_worker_calls(&events);
     tracing::info!("[OBSERVATION] Worker calls observed: {:?}", worker_calls);
 
-    for (event_type, capability, objective) in &worker_calls {
+    for (_event_type, capability, objective) in &worker_calls {
         if capability == "terminal" {
             tracing::info!(
                 "[OBSERVATION] TerminalActor received objective: '{}'",
@@ -300,11 +296,11 @@ async fn test_conductor_to_terminal_delegation() {
     }
 
     tracing::info!(
-        "[OBSERVATION] Final task status: {:?}",
+        "[OBSERVATION] Final run status: {:?}",
         final_status["status"]
     );
     tracing::info!(
-        "[OBSERVATION] Task error (if any): {:?}",
+        "[OBSERVATION] Run error (if any): {:?}",
         final_status["error"]
     );
 
@@ -331,27 +327,22 @@ async fn test_conductor_to_researcher_delegation() {
     tracing::info!("[OBSERVATION] Objective: 'get weather information'");
     tracing::info!("[OBSERVATION] ==========================================");
 
-    let task_id = submit_conductor_run(
-        &app,
-        "get weather information",
-        "test-researcher-delegation",
-    )
-    .await;
+    let run_id = submit_conductor_run(&app, "get weather information").await;
 
-    tracing::info!("[OBSERVATION] Task ID: {}", task_id);
+    tracing::info!("[OBSERVATION] Run ID: {}", run_id);
 
-    // Wait for task to complete or timeout
-    let final_status = wait_for_terminal_state(&app, &task_id, 120).await;
+    // Wait for run to complete or timeout
+    let final_status = wait_for_run_terminal_state(&app, &run_id, 120).await;
 
     // Get all events
-    let events = get_events_by_task_id(&app, &task_id).await;
+    let events = get_events_by_run_id(&app, &run_id).await;
     log_events_summary(&events);
 
     // Observe what natural language directive was passed to ResearcherActor
     let worker_calls = extract_worker_calls(&events);
     tracing::info!("[OBSERVATION] Worker calls observed: {:?}", worker_calls);
 
-    for (event_type, capability, objective) in &worker_calls {
+    for (_event_type, capability, objective) in &worker_calls {
         if capability == "researcher" {
             tracing::info!(
                 "[OBSERVATION] ResearcherActor received objective: '{}'",
@@ -369,11 +360,11 @@ async fn test_conductor_to_researcher_delegation() {
     }
 
     tracing::info!(
-        "[OBSERVATION] Final task status: {:?}",
+        "[OBSERVATION] Final run status: {:?}",
         final_status["status"]
     );
     tracing::info!(
-        "[OBSERVATION] Task error (if any): {:?}",
+        "[OBSERVATION] Run error (if any): {:?}",
         final_status["error"]
     );
 
@@ -402,20 +393,16 @@ async fn test_conductor_multi_agent_delegation() {
     );
     tracing::info!("[OBSERVATION] ==========================================");
 
-    let task_id = submit_conductor_run(
-        &app,
-        "research superbowl weather then save results to file",
-        "test-multi-agent-delegation",
-    )
-    .await;
+    let run_id =
+        submit_conductor_run(&app, "research superbowl weather then save results to file").await;
 
-    tracing::info!("[OBSERVATION] Task ID: {}", task_id);
+    tracing::info!("[OBSERVATION] Run ID: {}", run_id);
 
-    // Wait for task to complete or timeout
-    let final_status = wait_for_terminal_state(&app, &task_id, 180).await;
+    // Wait for run to complete or timeout
+    let final_status = wait_for_run_terminal_state(&app, &run_id, 180).await;
 
     // Get all events
-    let events = get_events_by_task_id(&app, &task_id).await;
+    let events = get_events_by_run_id(&app, &run_id).await;
     log_events_summary(&events);
 
     // Observe which workers were dispatched
@@ -425,7 +412,7 @@ async fn test_conductor_multi_agent_delegation() {
     let mut saw_researcher = false;
     let mut saw_terminal = false;
 
-    for (event_type, capability, objective) in &worker_calls {
+    for (_event_type, capability, objective) in &worker_calls {
         match capability.as_str() {
             "researcher" => {
                 saw_researcher = true;
@@ -459,11 +446,11 @@ async fn test_conductor_multi_agent_delegation() {
     }
 
     tracing::info!(
-        "[OBSERVATION] Final task status: {:?}",
+        "[OBSERVATION] Final run status: {:?}",
         final_status["status"]
     );
     tracing::info!(
-        "[OBSERVATION] Task error (if any): {:?}",
+        "[OBSERVATION] Run error (if any): {:?}",
         final_status["error"]
     );
 
@@ -492,20 +479,19 @@ async fn test_conductor_synthesis() {
     );
     tracing::info!("[OBSERVATION] ==========================================");
 
-    let task_id = submit_conductor_run(
+    let run_id = submit_conductor_run(
         &app,
         "check current Rust version and summarize best practices",
-        "test-conductor-synthesis",
     )
     .await;
 
-    tracing::info!("[OBSERVATION] Task ID: {}", task_id);
+    tracing::info!("[OBSERVATION] Run ID: {}", run_id);
 
-    // Wait for task to complete or timeout
-    let final_status = wait_for_terminal_state(&app, &task_id, 180).await;
+    // Wait for run to complete or timeout
+    let final_status = wait_for_run_terminal_state(&app, &run_id, 180).await;
 
     // Get all events
-    let events = get_events_by_task_id(&app, &task_id).await;
+    let events = get_events_by_run_id(&app, &run_id).await;
     log_events_summary(&events);
 
     // Look for synthesis-related events
@@ -530,7 +516,7 @@ async fn test_conductor_synthesis() {
         );
     }
 
-    // Check final task state for synthesis indicators
+    // Check final run state for synthesis indicators
     if let Some(report_path) = final_status["report_path"].as_str() {
         tracing::info!("[OBSERVATION] Report was written to: {}", report_path);
     } else {
@@ -542,11 +528,11 @@ async fn test_conductor_synthesis() {
     }
 
     tracing::info!(
-        "[OBSERVATION] Final task status: {:?}",
+        "[OBSERVATION] Final run status: {:?}",
         final_status["status"]
     );
     tracing::info!(
-        "[OBSERVATION] Task error (if any): {:?}",
+        "[OBSERVATION] Run error (if any): {:?}",
         final_status["error"]
     );
 
@@ -557,7 +543,7 @@ async fn test_conductor_synthesis() {
     tracing::info!("[OBSERVATION] 1. How many workers were involved");
     tracing::info!("[OBSERVATION] 2. What synthesis events were emitted");
     tracing::info!("[OBSERVATION] 3. Whether a report was generated");
-    tracing::info!("[OBSERVATION] 4. Final task completion status");
+    tracing::info!("[OBSERVATION] 4. Final run completion status");
 }
 
 // ============================================================================
@@ -574,21 +560,16 @@ async fn test_conductor_bootstrap_agenda_observation() {
     tracing::info!("[OBSERVATION] Objective: 'create a todo list app in Rust with tests'");
     tracing::info!("[OBSERVATION] ==========================================");
 
-    let task_id = submit_conductor_run(
-        &app,
-        "create a todo list app in Rust with tests",
-        "test-bootstrap-agenda",
-    )
-    .await;
+    let run_id = submit_conductor_run(&app, "create a todo list app in Rust with tests").await;
 
-    tracing::info!("[OBSERVATION] Task ID: {}", task_id);
+    tracing::info!("[OBSERVATION] Run ID: {}", run_id);
 
     // Poll for events to see agenda creation
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     let mut last_event_count = 0;
 
     loop {
-        let events = get_events_by_task_id(&app, &task_id).await;
+        let events = get_events_by_run_id(&app, &run_id).await;
 
         if events.len() > last_event_count {
             tracing::info!(
@@ -615,9 +596,9 @@ async fn test_conductor_bootstrap_agenda_observation() {
         }
 
         // Check if we've reached a terminal state
-        let status = get_task_status(&app, &task_id).await;
+        let status = get_run_status(&app, &run_id).await;
         let status_str = status["status"].as_str().unwrap_or("unknown");
-        if status_str == "completed" || status_str == "failed" {
+        if status_str == "completed" || status_str == "failed" || status_str == "blocked" {
             tracing::info!("[OBSERVATION] Reached terminal state: {}", status_str);
             break;
         }
@@ -631,8 +612,8 @@ async fn test_conductor_bootstrap_agenda_observation() {
     }
 
     // Get final state
-    let final_status = get_task_status(&app, &task_id).await;
-    let final_events = get_events_by_task_id(&app, &task_id).await;
+    let final_status = get_run_status(&app, &run_id).await;
+    let final_events = get_events_by_run_id(&app, &run_id).await;
 
     tracing::info!("[OBSERVATION] Total events: {}", final_events.len());
     tracing::info!("[OBSERVATION] Final status: {:?}", final_status["status"]);
@@ -662,21 +643,20 @@ async fn test_conductor_decision_types_observation() {
     );
     tracing::info!("[OBSERVATION] ==========================================");
 
-    let task_id = submit_conductor_run(
+    let run_id = submit_conductor_run(
         &app,
         "find the latest Rust release notes and extract key features",
-        "test-decision-types",
     )
     .await;
 
-    tracing::info!("[OBSERVATION] Task ID: {}", task_id);
+    tracing::info!("[OBSERVATION] Run ID: {}", run_id);
 
     // Poll and observe decision-related events
     let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
     let mut observed_decisions = Vec::new();
 
     loop {
-        let events = get_events_by_task_id(&app, &task_id).await;
+        let events = get_events_by_run_id(&app, &run_id).await;
 
         for event in &events {
             let event_type = event["event_type"].as_str().unwrap_or("");
@@ -690,9 +670,9 @@ async fn test_conductor_decision_types_observation() {
         }
 
         // Check if we've reached a terminal state
-        let status = get_task_status(&app, &task_id).await;
+        let status = get_run_status(&app, &run_id).await;
         let status_str = status["status"].as_str().unwrap_or("unknown");
-        if status_str == "completed" || status_str == "failed" {
+        if status_str == "completed" || status_str == "failed" || status_str == "blocked" {
             break;
         }
 
@@ -712,9 +692,9 @@ async fn test_conductor_decision_types_observation() {
     // Document the behavior without asserting
     tracing::info!("[OBSERVATION] === BEHAVIOR DOCUMENTED ===");
     tracing::info!("[OBSERVATION] This test documents the types of decisions Conductor makes");
-    tracing::info!("[OBSERVATION] during task execution. Decision types may include:");
+    tracing::info!("[OBSERVATION] during run execution. Decision types may include:");
     tracing::info!("[OBSERVATION] - Dispatch: Send work to a worker");
     tracing::info!("[OBSERVATION] - SpawnFollowup: Create additional agenda items");
-    tracing::info!("[OBSERVATION] - Complete: Mark task as done");
-    tracing::info!("[OBSERVATION] - Block: Mark task as blocked");
+    tracing::info!("[OBSERVATION] - Complete: Mark run as done");
+    tracing::info!("[OBSERVATION] - Block: Mark run as blocked");
 }

@@ -10,26 +10,26 @@ Human-first docs entrypoint:
 - `/Users/wiz/choiros-rs/docs/architecture/NARRATIVE_INDEX.md`
 
 **✅ Working:**
-- Supervision-tree runtime (`ApplicationSupervisor -> SessionSupervisor -> chat/desktop/terminal`)
+- Supervision-tree runtime (`ApplicationSupervisor -> SessionSupervisor -> conductor/desktop/terminal`)
 - EventStoreActor + EventBus-backed worker lifecycle tracing
-- ChatAgent tool routing with delegated `bash` execution through TerminalActor
-- WebSocket chat streaming for `tool_call`, `tool_result`, and `actor_call` updates
-- Scope-aware chat isolation (`session_id` + `thread_id`) across shared actor IDs
-- Headless integration tests for `/chat/*` and `/ws/chat/*` paths
+- Conductor-centered actor messaging with delegated terminal execution
+- WebSocket streaming for `actor_call` and worker lifecycle updates
+- Scope-aware isolation (`session_id` + `thread_id`) across shared actor IDs
 - Server running on localhost:8080
 
 **🚧 In Progress:**
 - Typed worker-event schema hardening for multi-agent observability
-- Watcher/supervisor escalation loops (timeouts, retries, failure signals)
+- Direct app/worker-to-conductor request message contract (minimal typed request kinds)
 - Richer UI grouping for actor-call timelines (clean-by-default, deep-inspect on demand)
 - Hypervisor routing for multi-user sandboxes
 
 ## Execution Policy (2026-02-09)
 
 - Primary orchestration surface is `Prompt Bar -> Conductor`.
-- Chat is a compatibility surface and should escalate planning/execution to conductor instead of embedding its own workflow.
-- Prefer skills and scripts for repeatable high-accuracy tasks over task-specific chat heuristics.
-- `NO ADHOC WORKFLOW`: do not implement control flow with brittle phrase matching; use typed contracts/protocol fields.
+- Human interaction is living-document-first.
+- Domain direction is `choir-ip.com`: durable outputs over ephemeral chat modality.
+- Prefer skills and scripts for repeatable high-accuracy tasks over app-specific heuristics.
+- `Model-Led Control Flow`: default to model-managed orchestration; keep deterministic logic for safety/operability rails only.
 
 ## Quick Start
 
@@ -50,10 +50,6 @@ cargo run -p sandbox
 
 # Test API (in another terminal)
 curl http://localhost:8080/health
-curl -X POST http://localhost:8080/chat/send \
-  -H "Content-Type: application/json" \
-  -d '{"actor_id":"test","user_id":"me","text":"hello"}'
-curl http://localhost:8080/chat/test/messages
 ```
 
 ### Production Server
@@ -79,17 +75,17 @@ On the production server, the database path is hardcoded to `/opt/choiros/data/e
      │SessionSupervisor│
      └───┬────────┬───┘
          │        │
-   ┌─────▼───┐ ┌──▼──────────┐
-   │ChatAgent│ │TerminalActor │
-   └────┬────┘ └──────┬───────┘
-        │              │
-        └──────┬───────┘
-               │
-       ┌───────▼────────┐
-       │EventBus + Store │
-       │(worker/tool/chat│
-       │ stream + query) │
-       └─────────────────┘
+    ┌─────▼──────┐ ┌──▼──────────┐
+    │ConductorActor│ │TerminalActor │
+    └────┬────────┘ └──────┬───────┘
+         │              │
+         └──────┬───────┘
+                │
+        ┌───────▼────────┐
+        │EventBus + Store │
+        │(worker/tool/human│
+        │ stream + query) │
+        └─────────────────┘
 ```
 
 **Agent Choir Pattern:**
@@ -116,7 +112,7 @@ choiros-rs/
 ├── sandbox/                # Per-user ChoirOS instance
 │   ├── src/
 │   │   ├── main.rs         # Server entry point
-│   │   ├── actors/         # ChatAgent, TerminalActor, EventStore/EventBus, desktop/chat
+│   │   ├── actors/         # Conductor, Terminal, EventStore/EventBus, desktop/workers
 │   │   ├── api/            # HTTP handlers
 │   │   ├── supervisor/     # supervision tree orchestration
 │   │   └── tools/          # tool schemas and execution contracts
@@ -140,24 +136,20 @@ choiros-rs/
 ## API Endpoints
 
 - `GET /health` - Health check
-- `POST /chat/send` - Send chat message
-- `GET /chat/{actor_id}/messages` - Get chat history
-- `GET /ws/chat/{actor_id}` - Chat websocket stream (thinking/tool/actor updates)
-- `GET /ws/chat/{actor_id}/{user_id}` - Chat websocket stream with path user
-- `GET /ws/terminal/{terminal_id}` - Terminal websocket stream
+- For current human-interface and orchestration APIs, see `docs/architecture/NARRATIVE_INDEX.md` and active backend routes.
 
 ## Testing Notes
 
 - Core integration:
   - `cargo test -p sandbox --features supervision_refactor --test supervision_test -- --nocapture`
-  - `cargo test -p sandbox --test websocket_chat_test -- --nocapture`
+  - `cargo test -p sandbox --test <exact_integration_binary> -- --nocapture`
 - Use provider-agnostic prompts/commands in tests; avoid coupling to one external API.
 
 ## The Vision
 
 **ChoirOS** is the operating system for the **Agent Choir** - where autonomous agents collaborate in harmony to build, execute, and evolve software. Each sandbox is a stage where agents perform:
 
-- **Chat Agents** handle conversation and reasoning
+- **Conductor + App Agents** orchestrate and execute capability work
 - **Tool Agents** execute bash commands and file operations
 - **Code Agents** write, test, and deploy code
 - **Meta Agents** orchestrate the choir
@@ -166,16 +158,16 @@ The Agent Choir sings in the automatic computer. Agency lives in computation.
 
 ## Next Steps
 
-1. **Prompt Bar + Conductor Flow** - Conductor is the primary orchestration surface; chat is a thin compatibility layer that escalates planning/execution
-2. **Skill Library Buildout** - Route common tasks to durable skills instead of chat-specific logic
-3. **Chat Surface Simplification** - Keep chat thin and escalation-focused; multi-step planning belongs in Conductor
-4. **Typed Protocol Adoption** - Remove remaining string-matched workflow gates per NO ADHOC WORKFLOW policy
+1. **Prompt Bar + Conductor Flow** - Conductor is the primary orchestration surface; living-document UX is the primary human interface
+2. **Skill Library Buildout** - Route common tasks to durable skills instead of app-specific logic
+3. **Living-Document UX Hardening** - Keep human interaction durable, composable, and artifact-first
+4. **Typed Protocol Adoption** - Remove remaining deterministic workflow gates where model-managed planning should lead
 5. **Hypervisor** - Multi-tenant sandbox orchestration
 
 ### Architecture Policy Reminders
 
-- **NO ADHOC WORKFLOW**: Do not implement control flow via natural-language string matching; use typed contracts/protocol fields
-- **Authoritative Terminology**: `Logging` = event capture/persistence/transport; `Watcher` = deterministic detection/alerting over logs; `Summarizer` = human-readable compression over event batches
+- **Model-Led Control Flow**: Multi-step orchestration is model-managed by default; deterministic logic is reserved for safety and operability rails
+- **Authoritative Terminology**: `Logging` = event capture/persistence/transport; `Watcher` = optional recurring-event detection actor (not run-step authority); `Summarizer` = human-readable compression over event batches
 
 See `docs/ARCHITECTURE_SPECIFICATION.md` for full specification.
 

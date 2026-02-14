@@ -1,10 +1,7 @@
-use ractor::Actor;
-use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments, EventStoreMsg};
 use sandbox::actors::model_config::{ModelRegistry, ProviderConfig};
-use sandbox::baml_client::types::Message as BamlMessage;
+use sandbox::baml_client::types::{Action, Message as BamlMessage};
 use sandbox::baml_client::B;
 use sandbox::runtime_env::ensure_tls_cert_env;
-use sandbox::supervisor::{ApplicationSupervisor, ApplicationSupervisorMsg};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
@@ -171,71 +168,6 @@ fn sampled_live_models(eligible: &[String]) -> Vec<String> {
     selected
 }
 
-async fn run_terminal_delegation_case(
-    event_store: ractor::ActorRef<EventStoreMsg>,
-    app_supervisor: ractor::ActorRef<sandbox::supervisor::ApplicationSupervisorMsg>,
-    model_id: String,
-) -> Result<String, String> {
-    let actor_id = format!("terminal-live-{model_id}");
-    let session_id = format!("session-{model_id}");
-    let thread_id = format!("thread-{model_id}");
-
-    let marker = format!("CHOIR_TOOL_OK_{}", model_id.to_lowercase());
-
-    // Delegate terminal task directly through supervisor
-    let task = ractor::call!(app_supervisor, |reply| {
-        ApplicationSupervisorMsg::DelegateTerminalTask {
-            terminal_id: format!("term-{actor_id}"),
-            actor_id: actor_id.clone(),
-            user_id: "live-test-user".to_string(),
-            shell: "/bin/zsh".to_string(),
-            working_dir: ".".to_string(),
-            command: format!("printf {marker}"),
-            timeout_ms: Some(20_000),
-            model_override: Some(model_id.clone()),
-            objective: Some(format!("Test terminal delegation with model {model_id}")),
-            session_id: Some(session_id.clone()),
-            thread_id: Some(thread_id.clone()),
-            reply,
-        }
-    })
-    .map_err(|e| format!("delegate task rpc failed: {e}"))?
-    .map_err(|e| format!("delegate task failed: {e}"))?;
-
-    // Wait for task completion
-    let start = std::time::Instant::now();
-    while start.elapsed() < Duration::from_secs(30) {
-        let events = ractor::call!(event_store, |reply| {
-            EventStoreMsg::GetEventsForActorWithScope {
-                actor_id: actor_id.clone(),
-                session_id: session_id.clone(),
-                thread_id: thread_id.clone(),
-                since_seq: 0,
-                reply,
-            }
-        })
-        .ok()
-        .and_then(|r| r.ok())
-        .unwrap_or_default();
-
-        let has_terminal = events.iter().any(|e| {
-            e.event_type == shared_types::EVENT_TOPIC_WORKER_TASK_COMPLETED
-                || e.event_type == shared_types::EVENT_TOPIC_WORKER_TASK_FAILED
-        });
-
-        if has_terminal {
-            return Ok(format!(
-                "terminal delegation accepted with correlation: {}",
-                task.correlation_id
-            ));
-        }
-
-        sleep(Duration::from_millis(100)).await;
-    }
-
-    Err("timeout waiting for terminal task completion".to_string())
-}
-
 #[tokio::test]
 async fn live_provider_smoke_matrix() {
     let _ = dotenvy::dotenv();
@@ -322,7 +254,7 @@ async fn live_provider_smoke_matrix() {
 }
 
 #[tokio::test]
-async fn live_plan_action_matrix() {
+async fn live_decide_matrix() {
     let _ = dotenvy::dotenv();
     ensure_tls_cert_env();
     let registry = ModelRegistry::new();
@@ -363,7 +295,7 @@ async fn live_plan_action_matrix() {
         join_set.spawn(async move {
             let _permit = permit;
             let model_label = model_id.clone();
-            let result = run_with_rate_limit_retry(&format!("plan:{model_label}"), || {
+            let result = run_with_rate_limit_retry(&format!("decide:{model_label}"), || {
                 let registry = registry.clone();
                 let model_id = model_id.clone();
                 let messages = messages.clone();
@@ -373,31 +305,32 @@ async fn live_plan_action_matrix() {
                     let client_registry = registry
                         .create_runtime_client_registry_for_model(&model_id)
                         .map_err(|e| format!("registry error: {e}"))?;
-                    let plan_action = B.PlanAction.with_client_registry(&client_registry);
-                    let plan_call = plan_action.call(&messages, &system_context, &available_tools);
+                    let decide = B.Decide.with_client_registry(&client_registry);
+                    let decide_call = decide.call(&messages, &system_context, &available_tools);
 
-                    match tokio::time::timeout(Duration::from_secs(30), plan_call).await {
-                        Ok(Ok(plan)) => {
-                            if !(0.0..=1.0).contains(&plan.confidence) {
-                                return Err(format!(
-                                    "returned invalid confidence {}",
-                                    plan.confidence
-                                ));
+                    match tokio::time::timeout(Duration::from_secs(30), decide_call).await {
+                        Ok(Ok(decision)) => {
+                            if matches!(decision.action, Action::Block) {
+                                return Err("returned blocked action".to_string());
                             }
-                            if plan.thinking.trim().is_empty() {
-                                return Err("returned empty planning reasoning".to_string());
+                            if matches!(decision.action, Action::ToolCall)
+                                && decision.tool_calls.is_empty()
+                            {
+                                return Err(
+                                    "ToolCall action returned with no tool_calls".to_string()
+                                );
                             }
-                            Ok((plan.confidence, plan.tool_calls.len()))
+                            Ok((format!("{:?}", decision.action), decision.tool_calls.len()))
                         }
-                        Ok(Err(e)) => Err(format!("plan call error: {e}")),
-                        Err(_) => Err("plan call timed out".to_string()),
+                        Ok(Err(e)) => Err(format!("decide call error: {e}")),
+                        Err(_) => Err("decide call timed out".to_string()),
                     }
                 }
             })
             .await;
 
             result
-                .map(|(confidence, tool_calls)| (model_id.clone(), confidence, tool_calls))
+                .map(|(action, tool_calls)| (model_id.clone(), action, tool_calls))
                 .map_err(|reason| (model_id, reason))
         });
     }
@@ -408,10 +341,10 @@ async fn live_plan_action_matrix() {
 
     while let Some(joined) = join_set.join_next().await {
         match joined {
-            Ok(Ok((model_id, confidence, tool_calls))) => {
+            Ok(Ok((model_id, action, tool_calls))) => {
                 println!(
-                    "PASS {} => confidence={} tool_calls={}",
-                    model_id, confidence, tool_calls
+                    "PASS {} => action={} tool_calls={}",
+                    model_id, action, tool_calls
                 );
                 passed += 1;
             }
@@ -420,102 +353,26 @@ async fn live_plan_action_matrix() {
         }
     }
 
-    println!("plan_action attempted={attempted} passed={passed}");
+    println!("decide attempted={attempted} passed={passed}");
     println!(
-        "plan_action requested_models={}",
+        "decide requested_models={}",
         requested_live_model_targets().join(",")
     );
-    println!("plan_action sampled_models={}", sampled.join(","));
+    println!("decide sampled_models={}", sampled.join(","));
     if !skipped.is_empty() {
-        println!("plan_action skipped:\n{}", skipped.join("\n"));
+        println!("decide skipped:\n{}", skipped.join("\n"));
     }
     if !failed.is_empty() {
-        println!("plan_action failed:\n{}", failed.join("\n"));
+        println!("decide failed:\n{}", failed.join("\n"));
     }
 
     assert!(
         attempted > 0,
-        "No live PlanAction tests attempted; credentials missing"
+        "No live Decide tests attempted; credentials missing"
     );
     assert!(
         failed.is_empty(),
-        "Live PlanAction failures: {}",
-        failed.join(" | ")
-    );
-}
-
-#[tokio::test]
-async fn live_terminal_delegation_matrix() {
-    let _ = dotenvy::dotenv();
-    ensure_tls_cert_env();
-    let registry = ModelRegistry::new();
-    let (eligible, skipped) = available_live_models(&registry);
-    let sampled = sampled_live_models(&eligible);
-
-    let (event_store, _event_handle) =
-        Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-            .await
-            .expect("spawn event store");
-    let (app_supervisor, _app_handle) =
-        Actor::spawn(None, ApplicationSupervisor, event_store.clone())
-            .await
-            .expect("spawn app supervisor");
-
-    let concurrency = live_test_concurrency(2);
-    let semaphore = Arc::new(Semaphore::new(concurrency));
-    let mut join_set = JoinSet::new();
-
-    for model_id in sampled.iter().cloned() {
-        let permit = semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("semaphore closed");
-        let event_store = event_store.clone();
-        let app_supervisor = app_supervisor.clone();
-        join_set.spawn(async move {
-            let _permit = permit;
-            let result =
-                run_terminal_delegation_case(event_store, app_supervisor, model_id.clone()).await;
-            (model_id, result)
-        });
-    }
-
-    let attempted = sampled.len();
-    let mut passed = 0usize;
-    let mut failed: Vec<String> = Vec::new();
-
-    while let Some(joined) = join_set.join_next().await {
-        match joined {
-            Ok((model_id, Ok(message))) => {
-                println!("PASS {} => {}", model_id, message);
-                passed += 1;
-            }
-            Ok((model_id, Err(reason))) => failed.push(format!("{} {}", model_id, reason)),
-            Err(e) => failed.push(format!("join error: {e}")),
-        }
-    }
-
-    println!("delegation attempted={attempted} passed={passed}");
-    println!(
-        "delegation requested_models={}",
-        requested_live_model_targets().join(",")
-    );
-    println!("delegation sampled_models={}", sampled.join(","));
-    if !skipped.is_empty() {
-        println!("delegation skipped:\n{}", skipped.join("\n"));
-    }
-    if !failed.is_empty() {
-        println!("delegation failed:\n{}", failed.join("\n"));
-    }
-
-    assert!(
-        attempted > 0,
-        "No live delegation tests attempted; credentials missing"
-    );
-    assert!(
-        failed.is_empty(),
-        "Live delegation failures: {}",
+        "Live Decide failures: {}",
         failed.join(" | ")
     );
 }

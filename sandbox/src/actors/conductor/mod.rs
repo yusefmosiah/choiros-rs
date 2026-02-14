@@ -26,7 +26,6 @@
 //!     event_store: event_store_ref,
 //!     researcher_actor: Some(researcher_ref),
 //!     terminal_actor: Some(terminal_ref),
-//!     policy: None,
 //! };
 //!
 //! let (conductor_ref, _handle) = Actor::spawn(None, ConductorActor, args).await?;
@@ -35,8 +34,8 @@
 pub mod actor;
 pub mod events;
 pub mod file_tools;
+pub mod model_gateway;
 pub mod output;
-pub mod policy;
 pub mod protocol;
 mod runtime;
 pub mod state;
@@ -47,4 +46,3 @@ mod tests;
 
 pub use actor::{ConductorActor, ConductorArguments, ConductorState};
 pub use protocol::{ConductorError, ConductorMsg, WorkerOutput};
-pub use state::ConductorState as TaskState;
