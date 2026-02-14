@@ -29,6 +29,7 @@ use crate::actors::agent_harness::{
 use crate::actors::event_store::EventStoreMsg;
 use crate::actors::model_config::ModelRegistry;
 use crate::baml_client::types::AgentToolCall;
+use crate::observability::llm_trace::LlmTraceEmitter;
 
 use shared_types::{
     WorkerEscalation, WorkerEscalationKind, WorkerEscalationUrgency, WorkerTurnReport,
@@ -208,6 +209,11 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
     fn get_system_context(&self, _ctx: &ExecutionContext) -> String {
         format!(
             "You are ChoirOS Terminal Agent. Use bash tool calls to complete terminal objectives.\n\
+             Capability boundary:\n\
+             - Use terminal for local shell/file/system execution.\n\
+             - Do NOT perform general web research, news scraping, or search-engine browsing.\n\
+             - If objective requires external research/sources, stop and return a blocked reason indicating researcher capability is required.\n\
+             - If objective is local diagnostics/build/test/file operations, proceed with minimal safe commands.\n\
              System Prompt Timestamp (UTC): {}\n\
              Current UTC Timestamp: {}\n\
              Terminal ID: {}\n\
@@ -430,6 +436,7 @@ pub struct TerminalState {
     user_id: String,
     shell: String,
     working_dir: String,
+    event_store: ActorRef<EventStoreMsg>,
     /// PTY master handle (for I/O and resize)
     #[allow(dead_code)]
     pty_master: Option<Box<dyn portable_pty::MasterPty + Send>>,
@@ -494,6 +501,8 @@ pub enum TerminalMsg {
         max_steps: Option<u8>,
         model_override: Option<String>,
         progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
+        run_id: Option<String>,
+        call_id: Option<String>,
         reply: RpcReplyPort<Result<TerminalAgentResult, TerminalError>>,
     },
     /// Execute one typed bash command for appactor->toolactor delegation.
@@ -561,13 +570,19 @@ pub struct TerminalBashToolRequest {
     pub timeout_ms: Option<u64>,
     pub model_override: Option<String>,
     pub reasoning: Option<String>,
+    pub run_id: Option<String>,
+    pub call_id: Option<String>,
 }
 
 #[derive(Clone)]
 struct TerminalExecutionContext {
     terminal_id: String,
+    user_id: String,
     working_dir: String,
     shell: String,
+    event_store: ActorRef<EventStoreMsg>,
+    run_id: Option<String>,
+    call_id: Option<String>,
 }
 
 // ============================================================================
@@ -627,6 +642,7 @@ impl Actor for TerminalActor {
             user_id: args.user_id,
             shell: args.shell,
             working_dir: args.working_dir,
+            event_store: args.event_store,
             pty_master: None,
             child_killer: None,
             input_tx: None,
@@ -782,6 +798,8 @@ impl Actor for TerminalActor {
                 max_steps,
                 model_override,
                 progress_tx,
+                run_id,
+                call_id,
                 reply,
             } => {
                 let result = match (
@@ -792,8 +810,12 @@ impl Actor for TerminalActor {
                     (true, Some(input_tx), Some(output_tx)) => {
                         let exec = TerminalExecutionContext {
                             terminal_id: state.terminal_id.clone(),
+                            user_id: state.user_id.clone(),
                             working_dir: state.working_dir.clone(),
                             shell: state.shell.clone(),
+                            event_store: state.event_store.clone(),
+                            run_id,
+                            call_id,
                         };
                         drop(input_tx);
                         drop(output_tx);
@@ -824,8 +846,12 @@ impl Actor for TerminalActor {
                     (true, Some(input_tx), Some(output_tx)) => {
                         let exec = TerminalExecutionContext {
                             terminal_id: state.terminal_id.clone(),
+                            user_id: state.user_id.clone(),
                             working_dir: state.working_dir.clone(),
                             shell: state.shell.clone(),
+                            event_store: state.event_store.clone(),
+                            run_id: request.run_id.clone(),
+                            call_id: request.call_id.clone(),
                         };
                         drop(input_tx);
                         drop(output_tx);
@@ -891,7 +917,7 @@ impl TerminalActor {
             ctx.terminal_id.clone(),
             ctx.working_dir.clone(),
             ctx.shell.clone(),
-            None, // event_store - can be added later if needed
+            Some(ctx.event_store.clone()),
             progress_tx.clone(),
         );
 
@@ -903,16 +929,23 @@ impl TerminalActor {
             emit_worker_report: true,
         };
 
-        let harness = AgentHarness::with_config(adapter, ModelRegistry::new(), config);
+        let harness = AgentHarness::with_config(
+            adapter,
+            ModelRegistry::new(),
+            config,
+            LlmTraceEmitter::new(ctx.event_store.clone()),
+        );
 
         // Run the agentic loop through the harness
         let result = harness
             .run(
                 ctx.terminal_id.clone(),
-                "system".to_string(), // user_id - can be parameterized later
+                ctx.user_id.clone(),
                 objective.clone(),
                 model_override,
                 None, // progress_tx for harness internal use - we use terminal-specific progress
+                ctx.run_id.clone(),
+                ctx.call_id.clone(),
             )
             .await;
 
@@ -990,14 +1023,43 @@ impl TerminalActor {
             ctx.terminal_id.clone(),
             ctx.working_dir.clone(),
             ctx.shell.clone(),
-            None,
+            Some(ctx.event_store.clone()),
             progress_tx.clone(),
+        );
+        let trace_emitter = LlmTraceEmitter::new(ctx.event_store.clone());
+        let tool_ctx = trace_emitter.start_tool_call(
+            "terminal",
+            &ctx.terminal_id,
+            "bash",
+            &serde_json::json!({
+                "cmd": request.cmd.clone(),
+                "timeout_ms": timeout_ms,
+            }),
+            request.reasoning.as_deref(),
+            Some(crate::observability::llm_trace::LlmCallScope {
+                run_id: ctx.run_id.clone(),
+                task_id: None,
+                call_id: ctx.call_id.clone(),
+                session_id: None,
+                thread_id: None,
+            }),
         );
 
         // Execute the command directly using the adapter
         match adapter.execute_bash(&request.cmd, timeout_ms).await {
             Ok((output, exit_code)) => {
                 let success = exit_code == 0;
+                let exit_error = if success {
+                    None
+                } else {
+                    Some(format!("Exit status {exit_code}"))
+                };
+                trace_emitter.complete_tool_call(
+                    &tool_ctx,
+                    success,
+                    &output,
+                    exit_error.as_deref(),
+                );
 
                 // Emit completion progress
                 if let Some(ref tx) = progress_tx {
@@ -1029,7 +1091,10 @@ impl TerminalActor {
                     }],
                 })
             }
-            Err(e) => Err(e),
+            Err(e) => {
+                trace_emitter.complete_tool_call(&tool_ctx, false, "", Some(&e.to_string()));
+                Err(e)
+            }
         }
     }
 }
@@ -1537,6 +1602,8 @@ mod tests {
             max_steps: Some(1),
             model_override: None,
             progress_tx: None,
+            run_id: None,
+            call_id: None,
             reply,
         })
         .expect("run agentic task call failed")
@@ -1606,6 +1673,8 @@ mod tests {
             max_steps: Some(1),
             model_override: None,
             progress_tx: None,
+            run_id: None,
+            call_id: None,
             reply,
         })
         .expect("run agentic task call failed");

@@ -22,6 +22,7 @@ use tokio::sync::mpsc;
 use crate::actors::agent_harness::{AgentHarness, AgentResult, HarnessConfig, ObjectiveStatus};
 use crate::actors::event_store::EventStoreMsg;
 use crate::actors::model_config::{load_model_policy, ModelRegistry};
+use crate::observability::llm_trace::LlmTraceEmitter;
 
 pub use adapter::ResearcherAdapter;
 
@@ -54,6 +55,7 @@ pub enum ResearcherMsg {
         progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
         run_writer_actor: Option<ractor::ActorRef<crate::actors::run_writer::RunWriterMsg>>,
         run_id: Option<String>,
+        call_id: Option<String>,
         reply: RpcReplyPort<Result<ResearcherResult, ResearcherError>>,
     },
     RunWebSearchTool {
@@ -251,6 +253,7 @@ impl Actor for ResearcherActor {
                 progress_tx,
                 run_writer_actor,
                 run_id,
+                call_id,
                 reply,
             } => {
                 let result = self
@@ -263,6 +266,7 @@ impl Actor for ResearcherActor {
                         progress_tx,
                         run_writer_actor,
                         run_id,
+                        call_id,
                     )
                     .await;
                 let _ = reply.send(result);
@@ -280,6 +284,7 @@ impl Actor for ResearcherActor {
                         request.max_rounds,
                         request.model_override.clone(),
                         progress_tx,
+                        None,
                         None,
                         None,
                     )
@@ -338,6 +343,7 @@ impl ResearcherActor {
         progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
         run_writer_actor: Option<ractor::ActorRef<crate::actors::run_writer::RunWriterMsg>>,
         run_id: Option<String>,
+        call_id: Option<String>,
     ) -> Result<ResearcherResult, ResearcherError> {
         let timeout = timeout_ms.unwrap_or(30_000).clamp(3_000, 120_000);
         let max_steps = max_rounds.unwrap_or(3).clamp(1, 8) as usize;
@@ -352,7 +358,7 @@ impl ResearcherActor {
 
         let adapter = ResearcherAdapter::new(adapter_state, progress_tx.clone(), timeout)?;
 
-        let adapter = match (run_writer_actor, run_id) {
+        let adapter = match (run_writer_actor, run_id.clone()) {
             (Some(rw), Some(rid)) => adapter.with_run_writer(rw, rid),
             _ => adapter,
         };
@@ -364,7 +370,12 @@ impl ResearcherActor {
             emit_worker_report: true,
         };
 
-        let harness = AgentHarness::with_config(adapter, state.model_registry.clone(), config);
+        let harness = AgentHarness::with_config(
+            adapter,
+            state.model_registry.clone(),
+            config,
+            LlmTraceEmitter::new(state.event_store.clone()),
+        );
 
         let agent_result: AgentResult = harness
             .run(
@@ -373,6 +384,8 @@ impl ResearcherActor {
                 objective,
                 model_override,
                 None,
+                run_id,
+                call_id,
             )
             .await
             .map_err(ResearcherError::from)?;

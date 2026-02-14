@@ -8,6 +8,27 @@ use crate::actors::conductor::{
 };
 
 impl ConductorActor {
+    fn capability_contract_prefix(capability: &str) -> &'static str {
+        match capability {
+            "researcher" => {
+                "Capability Contract (researcher): external research only. Use research tools, citations, and source synthesis. Do not perform local shell orchestration."
+            }
+            "terminal" => {
+                "Capability Contract (terminal): local execution only. Use shell/file/system inspection and execution. Do not perform general web research."
+            }
+            _ => "Capability Contract: execute only within your assigned capability scope.",
+        }
+    }
+
+    pub(crate) fn objective_with_capability_contract(
+        &self,
+        capability: &str,
+        objective: String,
+    ) -> String {
+        let prefix = Self::capability_contract_prefix(&capability.to_ascii_lowercase());
+        format!("{prefix}\n\nObjective:\n{objective}")
+    }
+
     pub(crate) async fn handle_execute_task(
         &self,
         myself: ActorRef<ConductorMsg>,
@@ -58,6 +79,15 @@ impl ConductorActor {
                 "No worker actors available for Conductor default policy".to_string(),
             ));
         }
+
+        events::emit_prompt_received(
+            &state.event_store,
+            &task_id,
+            &correlation_id,
+            &request.objective,
+            &request.desktop_id,
+        )
+        .await;
 
         events::emit_task_started(
             &state.event_store,
@@ -224,11 +254,11 @@ impl ConductorActor {
         }
 
         let mut available_capabilities = Vec::new();
-        if state.terminal_actor.is_some() {
-            available_capabilities.push("terminal".to_string());
-        }
         if state.researcher_actor.is_some() {
             available_capabilities.push("researcher".to_string());
+        }
+        if state.terminal_actor.is_some() {
+            available_capabilities.push("terminal".to_string());
         }
         if available_capabilities.is_empty() {
             return Err(ConductorError::ActorUnavailable(
@@ -238,7 +268,7 @@ impl ConductorActor {
 
         let bootstrap = state
             .policy
-            .bootstrap_agenda(&request.objective, &available_capabilities)
+            .bootstrap_agenda(Some(task_id), &request.objective, &available_capabilities)
             .await?;
 
         let mut selected_capabilities = Vec::new();
@@ -272,10 +302,12 @@ impl ConductorActor {
                 .policy
                 .refine_objective_for_capability(&request.objective, &capability)
                 .await?;
+            let objective =
+                self.objective_with_capability_contract(&capability, refined.refined_objective);
             items.push(shared_types::ConductorAgendaItem {
                 item_id: format!("{task_id}:seed:{idx}:{capability}"),
                 capability,
-                objective: refined.refined_objective,
+                objective,
                 priority: idx as u8,
                 depends_on: vec![],
                 status: shared_types::AgendaItemStatus::Ready,
@@ -286,5 +318,36 @@ impl ConductorActor {
         }
 
         Ok(items)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ConductorActor;
+
+    #[test]
+    fn test_objective_with_capability_contract_researcher() {
+        let actor = ConductorActor;
+        let objective =
+            actor.objective_with_capability_contract("researcher", "Find latest release".into());
+        assert!(objective.contains("Capability Contract (researcher)"));
+        assert!(objective.contains("external research only"));
+        assert!(objective.contains("Objective:\nFind latest release"));
+    }
+
+    #[test]
+    fn test_objective_with_capability_contract_terminal() {
+        let actor = ConductorActor;
+        let objective = actor.objective_with_capability_contract("terminal", "Run tests".into());
+        assert!(objective.contains("Capability Contract (terminal)"));
+        assert!(objective.contains("local execution only"));
+        assert!(objective.contains("Objective:\nRun tests"));
+    }
+
+    #[test]
+    fn test_objective_with_capability_contract_case_insensitive() {
+        let actor = ConductorActor;
+        let objective = actor.objective_with_capability_contract("ReSeArChEr", "Summarize".into());
+        assert!(objective.contains("Capability Contract (researcher)"));
     }
 }

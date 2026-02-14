@@ -57,14 +57,15 @@ impl Actor for ConductorActor {
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         tracing::info!(actor_id = %myself.get_id(), "ConductorActor starting");
+        let policy = args
+            .policy
+            .unwrap_or_else(|| Arc::new(BamlConductorPolicy::new(args.event_store.clone())));
         Ok(ConductorState {
             tasks: TaskState::new(),
             event_store: args.event_store,
             researcher_actor: args.researcher_actor,
             terminal_actor: args.terminal_actor,
-            policy: args
-                .policy
-                .unwrap_or_else(|| Arc::new(BamlConductorPolicy::new())),
+            policy,
             run_writers: HashMap::new(),
         })
     }

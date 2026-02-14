@@ -16,6 +16,35 @@ use shared_types::{
 };
 
 /// Emit task started event
+pub async fn emit_prompt_received(
+    event_store: &ActorRef<EventStoreMsg>,
+    task_id: &str,
+    correlation_id: &str,
+    objective: &str,
+    desktop_id: &str,
+) {
+    let payload = serde_json::json!({
+        "task_id": task_id,
+        "run_id": task_id,
+        "correlation_id": correlation_id,
+        "objective": objective,
+        "desktop_id": desktop_id,
+        "timestamp": Utc::now().to_rfc3339(),
+    });
+
+    let event = AppendEvent {
+        event_type: shared_types::EVENT_TOPIC_TRACE_PROMPT_RECEIVED.to_string(),
+        payload,
+        actor_id: format!("conductor:{}", task_id),
+        user_id: "system".to_string(),
+    };
+
+    let _ = event_store
+        .send_message(EventStoreMsg::AppendAsync { event })
+        .ok();
+}
+
+/// Emit task started event
 pub async fn emit_task_started(
     event_store: &ActorRef<EventStoreMsg>,
     task_id: &str,

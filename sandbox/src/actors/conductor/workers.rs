@@ -20,6 +20,7 @@ pub async fn call_researcher(
     progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
     run_writer_actor: Option<ActorRef<RunWriterMsg>>,
     run_id: Option<String>,
+    call_id: Option<String>,
 ) -> Result<ResearcherResult, ConductorError> {
     use ractor::call;
 
@@ -32,6 +33,7 @@ pub async fn call_researcher(
         progress_tx,
         run_writer_actor,
         run_id,
+        call_id,
         reply,
     })
     .map_err(|e| ConductorError::WorkerFailed(format!("Failed to call researcher actor: {e}")))?
@@ -46,6 +48,8 @@ pub async fn call_terminal(
     timeout_ms: Option<u64>,
     max_steps: Option<u8>,
     progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
+    run_id: Option<String>,
+    call_id: Option<String>,
 ) -> Result<TerminalAgentResult, ConductorError> {
     use ractor::call;
 
@@ -70,6 +74,8 @@ pub async fn call_terminal(
                 timeout_ms,
                 model_override: None,
                 reasoning: Some("conductor capability dispatch terminal command".to_string()),
+                run_id,
+                call_id,
             },
             progress_tx,
             reply,
@@ -88,6 +94,8 @@ pub async fn call_terminal(
             max_steps,
             model_override: None,
             progress_tx,
+            run_id,
+            call_id,
             reply,
         })
         .map_err(|e| {

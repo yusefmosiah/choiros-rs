@@ -153,6 +153,21 @@ impl Actor for RunWriterActor {
                     .await;
                 let _ = reply.send(result);
             }
+            RunWriterMsg::ReportSectionProgress {
+                run_id,
+                source,
+                section_id,
+                phase,
+                message,
+                reply,
+            } => {
+                let result = self
+                    .handle_report_section_progress(
+                        &myself, state, run_id, source, section_id, phase, message,
+                    )
+                    .await;
+                let _ = reply.send(result);
+            }
             RunWriterMsg::MarkSectionState {
                 run_id,
                 section_id,
@@ -569,6 +584,32 @@ impl RunWriterActor {
         )
         .await;
         Self::emit_patch_event(state, &source, Some(&section_id), proposal_text).await;
+
+        Ok(state.revision)
+    }
+
+    async fn handle_report_section_progress(
+        &self,
+        _myself: &ActorRef<RunWriterMsg>,
+        state: &mut RunWriterState,
+        run_id: String,
+        source: String,
+        section_id: String,
+        phase: String,
+        message: String,
+    ) -> Result<u64, RunWriterError> {
+        if run_id != state.run_id {
+            return Err(RunWriterError::RunIdMismatch {
+                expected: state.run_id.clone(),
+                actual: run_id,
+            });
+        }
+
+        if !state.document.sections.contains_key(&section_id) {
+            return Err(RunWriterError::SectionNotFound(section_id));
+        }
+
+        Self::emit_progress_event(state, format!("{source}:{section_id}:{phase}"), message).await;
 
         Ok(state.revision)
     }

@@ -4,7 +4,9 @@ use gloo_timers::future::TimeoutFuture;
 use shared_types::WindowState;
 use wasm_bindgen::JsCast;
 
-use crate::components::{load_files_path, FilesView, LogsView, SettingsView, WriterView};
+use crate::components::{
+    load_files_path, FilesView, LogsView, SettingsView, TraceView, WriterView,
+};
 use crate::terminal::TerminalView;
 use crate::viewers::{parse_viewer_window_props, ViewerShell};
 
@@ -555,6 +557,13 @@ pub fn FloatingWindow(
                             window_id: window.id.clone(),
                         }
                     },
+                    "trace" => rsx! {
+                        TraceView {
+                            key: "{window.id}",
+                            desktop_id: desktop_id.clone(),
+                            window_id: window.id.clone(),
+                        }
+                    },
                     "files" => {
                         let initial_path = load_files_path(&desktop_id, &window.id);
                         rsx! {
@@ -729,6 +738,7 @@ fn get_app_icon(app_id: &str) -> &'static str {
         "terminal" => "🖥️",
         "files" => "📁",
         "logs" => "📡",
+        "trace" => "🔍",
         "settings" => "⚙️",
         _ => "📱",
     }

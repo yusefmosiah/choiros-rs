@@ -19,6 +19,7 @@ pub(crate) struct TestPolicy;
 impl ConductorPolicy for TestPolicy {
     async fn bootstrap_agenda(
         &self,
+        _run_id: Option<&str>,
         _raw_objective: &str,
         available_capabilities: &[String],
     ) -> Result<ConductorBootstrapOutput, ConductorError> {

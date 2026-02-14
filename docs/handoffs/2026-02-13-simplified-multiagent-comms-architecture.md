@@ -152,7 +152,8 @@ This section is the canonical contract for run execution.
 - Conductor currently forwards worker progress into `RunWriterMsg::AppendLogLine` with `proposal: true` for both researcher and terminal.
 - `RunWriter` appends timestamped log text into section proposal content and emits full-document patch events.
 - Writer UI shows proposal banner plus full document text, so users see effectively duplicated progress channels.
-- Watcher is enabled by default and can send `ConductorMsg::ProcessEvent` wake messages.
+- Watcher is now **disabled by default** (`WATCHER_ENABLED=false` unless explicitly set true).
+- Conductor `DispatchReady` now dispatches existing ready agenda items directly before asking policy for another action.
 - Terminal harness is generic enough to repeatedly call `bash` with external `curl` commands.
 - Tool arg schema still includes nested and flat compatibility fields.
 
@@ -337,3 +338,10 @@ WriterAgent should:
 6. Add revision cursor model and Writer arrow controls.
 7. Then begin WriterAgent harness integration.
 
+### 11.1 Implementation Runbook Link
+
+- Execution-ready runbook: `docs/handoffs/2026-02-13-simplified-multiagent-comms-implementation-runbook.md`
+
+### 11.2 LLM Tracing Runbook Link
+
+- Execution-ready runbook: `docs/handoffs/2026-02-13-llm-tracing-runbook.md`

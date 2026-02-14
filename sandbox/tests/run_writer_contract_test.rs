@@ -330,3 +330,54 @@ async fn test_run_writer_get_document_returns_current_state() {
     );
     assert!(doc.contains("# "), "Document should have objective header");
 }
+
+#[tokio::test]
+async fn test_run_writer_report_section_progress_does_not_mutate_revision_or_document() {
+    let _guard = test_guard().await;
+    let ctx = spawn_writer("test-run-010").await;
+
+    apply_patch(
+        &ctx.actor,
+        "test-run-010",
+        "conductor",
+        "Stable baseline content",
+        false,
+    )
+    .await
+    .expect("ApplyPatch should succeed");
+
+    let before_revision = get_revision(&ctx.actor).await;
+    let before_doc = ractor::call!(&ctx.actor, |reply| RunWriterMsg::GetDocument { reply })
+        .expect("Failed to call GetDocument")
+        .expect("GetDocument should succeed");
+
+    let reported_revision =
+        ractor::call!(&ctx.actor, |reply| RunWriterMsg::ReportSectionProgress {
+            run_id: "test-run-010".to_string(),
+            source: "terminal".to_string(),
+            section_id: "terminal".to_string(),
+            phase: "executing_tool".to_string(),
+            message: "Running concise status tick".to_string(),
+            reply,
+        })
+        .expect("Failed to call ReportSectionProgress")
+        .expect("ReportSectionProgress should succeed");
+
+    let after_revision = get_revision(&ctx.actor).await;
+    let after_doc = ractor::call!(&ctx.actor, |reply| RunWriterMsg::GetDocument { reply })
+        .expect("Failed to call GetDocument")
+        .expect("GetDocument should succeed");
+
+    assert_eq!(
+        reported_revision, before_revision,
+        "ReportSectionProgress should return the current revision"
+    );
+    assert_eq!(
+        after_revision, before_revision,
+        "ReportSectionProgress should not increment revision"
+    );
+    assert_eq!(
+        after_doc, before_doc,
+        "ReportSectionProgress should not mutate document content"
+    );
+}

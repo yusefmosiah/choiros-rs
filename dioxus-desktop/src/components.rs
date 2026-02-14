@@ -2,9 +2,11 @@ pub mod files;
 pub mod logs;
 pub mod settings;
 pub mod styles;
+pub mod trace;
 pub mod writer;
 
 pub use files::{load_files_path, FilesView};
 pub use logs::LogsView;
 pub use settings::SettingsView;
+pub use trace::TraceView;
 pub use writer::WriterView;

@@ -8,6 +8,7 @@ pub mod api;
 pub mod app_state;
 pub mod baml_client;
 pub mod markdown;
+pub mod observability;
 pub mod runtime_env;
 pub mod tools;
 

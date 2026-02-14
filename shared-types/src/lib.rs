@@ -1261,6 +1261,13 @@ pub const EVENT_TOPIC_WRITER_RUN_PATCH: &str = "writer.run.patch";
 pub const EVENT_TOPIC_WRITER_RUN_STATUS: &str = "writer.run.status";
 pub const EVENT_TOPIC_WRITER_RUN_FAILED: &str = "writer.run.failed";
 
+pub const EVENT_TOPIC_TRACE_PROMPT_RECEIVED: &str = "trace.prompt.received";
+pub const EVENT_TOPIC_LLM_CALL_STARTED: &str = "llm.call.started";
+pub const EVENT_TOPIC_LLM_CALL_COMPLETED: &str = "llm.call.completed";
+pub const EVENT_TOPIC_LLM_CALL_FAILED: &str = "llm.call.failed";
+pub const EVENT_TOPIC_WORKER_TOOL_CALL: &str = "worker.tool.call";
+pub const EVENT_TOPIC_WORKER_TOOL_RESULT: &str = "worker.tool.result";
+
 pub const INTERFACE_KIND_UACTOR_ACTOR: &str = "uactor_actor";
 pub const INTERFACE_KIND_APPACTOR_TOOLACTOR: &str = "appactor_toolactor";
 

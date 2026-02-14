@@ -3,7 +3,6 @@ use ractor::Actor;
 use sandbox::actors::event_store::{
     AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg,
 };
-use sandbox::actors::{WatcherActor, WatcherArguments};
 use sandbox::api;
 use sandbox::app_state::AppState;
 use std::collections::HashMap;
@@ -119,57 +118,9 @@ async fn main() -> std::io::Result<()> {
         .await
         .expect("Failed to spawn ApplicationSupervisor");
 
-    let watcher_enabled = std::env::var("WATCHER_ENABLED")
-        .ok()
-        .map(|v| v != "0" && v.to_lowercase() != "false")
-        .unwrap_or(true);
-    if watcher_enabled {
-        let conductor_actor = match app_state.ensure_conductor().await {
-            Ok(actor) => Some(actor),
-            Err(err) => {
-                tracing::warn!(error = %err, "Watcher starting without conductor actor; escalations will be logged only");
-                None
-            }
-        };
-        let poll_ms = std::env::var("WATCHER_POLL_MS")
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(1500);
-        let review_window_size = std::env::var("WATCHER_REVIEW_WINDOW_SIZE")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(20);
-        let max_events_per_scan = std::env::var("WATCHER_MAX_EVENTS_PER_SCAN")
-            .ok()
-            .and_then(|v| v.parse::<i64>().ok())
-            .unwrap_or(500);
-        let start_from_latest = std::env::var("WATCHER_START_FROM_LATEST")
-            .ok()
-            .map(|v| v != "0" && v.to_lowercase() != "false")
-            .unwrap_or(true);
-        let _ = Actor::spawn(
-            Some("watcher.default".to_string()),
-            WatcherActor,
-            WatcherArguments {
-                event_store: event_store.clone(),
-                conductor_actor,
-                watcher_id: "watcher:default".to_string(),
-                poll_interval_ms: poll_ms,
-                review_window_size,
-                max_events_per_scan,
-                start_from_latest,
-            },
-        )
-        .await
-        .expect("Failed to spawn WatcherActor");
-        tracing::info!(
-            poll_ms,
-            review_window_size,
-            max_events_per_scan,
-            start_from_latest,
-            "WatcherActor started (LLM-driven)"
-        );
-    }
+    // Watcher runtime is intentionally disabled during harness simplification.
+    // Keep watcher code available for future reintroduction after control-flow refactor.
+    tracing::info!("Watcher runtime disabled for simplification refactor");
 
     tracing::info!("Starting HTTP server on http://0.0.0.0:8080");
 

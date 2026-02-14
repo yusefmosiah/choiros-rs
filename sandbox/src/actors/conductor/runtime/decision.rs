@@ -20,12 +20,72 @@ impl ConductorActor {
         run_id: &str,
     ) -> Result<(), ActorProcessingErr> {
         tracing::info!(run_id = %run_id, "Handling DispatchReady message");
+
+        let Some(run) = state.tasks.get_run(run_id) else {
+            tracing::debug!(run_id = %run_id, "Ignoring DispatchReady for unknown run");
+            return Ok(());
+        };
+
+        if matches!(
+            run.status,
+            shared_types::ConductorRunStatus::Completed
+                | shared_types::ConductorRunStatus::Failed
+                | shared_types::ConductorRunStatus::Blocked
+        ) {
+            tracing::debug!(
+                run_id = %run_id,
+                status = ?run.status,
+                "Ignoring DispatchReady for terminal run state"
+            );
+            return Ok(());
+        }
+
         if let Err(e) = state.tasks.update_agenda_item_readiness(run_id) {
             tracing::error!(run_id = %run_id, error = %e, "Failed to update agenda readiness");
         }
 
-        let ready = state.tasks.get_ready_agenda_items(run_id);
-        tracing::info!(run_id = %run_id, ready_count = ready.len(), "Dispatching ready agenda items");
+        let ready_items: Vec<shared_types::ConductorAgendaItem> = state
+            .tasks
+            .get_ready_agenda_items(run_id)
+            .into_iter()
+            .cloned()
+            .collect();
+        let active_calls = state.tasks.get_run_active_calls(run_id).len();
+        tracing::info!(
+            run_id = %run_id,
+            ready_count = ready_items.len(),
+            active_calls,
+            "DispatchReady state snapshot"
+        );
+
+        if !ready_items.is_empty() {
+            for item in ready_items {
+                state
+                    .tasks
+                    .update_agenda_item(
+                        run_id,
+                        &item.item_id,
+                        shared_types::AgendaItemStatus::Running,
+                    )
+                    .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+
+                self.spawn_capability_call(myself, state, run_id, item)
+                    .await
+                    .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+            }
+
+            let _ = state
+                .tasks
+                .transition_run_status(run_id, shared_types::ConductorRunStatus::WaitingForCalls);
+            return Ok(());
+        }
+
+        if active_calls > 0 {
+            let _ = state
+                .tasks
+                .transition_run_status(run_id, shared_types::ConductorRunStatus::WaitingForCalls);
+            return Ok(());
+        }
 
         match self.make_policy_decision(state, run_id).await {
             Ok(decision) => {
@@ -64,11 +124,11 @@ impl ConductorActor {
 
     fn available_capabilities(&self, state: &ConductorState) -> Vec<String> {
         let mut capabilities = Vec::new();
-        if state.terminal_actor.is_some() {
-            capabilities.push("terminal".to_string());
-        }
         if state.researcher_actor.is_some() {
             capabilities.push("researcher".to_string());
+        }
+        if state.terminal_actor.is_some() {
+            capabilities.push("terminal".to_string());
         }
         capabilities
     }
@@ -101,6 +161,7 @@ impl ConductorActor {
                     .and_then(|args| args.get("objective"))
                     .cloned()
                     .unwrap_or_default();
+                let objective = self.objective_with_capability_contract(&capability, objective);
 
                 // Create a minimal agenda item for the worker
                 let item = shared_types::ConductorAgendaItem {
@@ -376,15 +437,12 @@ impl ConductorActor {
                                 while let Some(progress) = rx.recv().await {
                                     if let Some(run_writer) = run_writer_for_progress.clone() {
                                         let _ = ractor::call!(run_writer, |reply| {
-                                            RunWriterMsg::AppendLogLine {
+                                            RunWriterMsg::ReportSectionProgress {
                                                 run_id: run_id_for_progress.clone(),
                                                 source: "researcher".to_string(),
                                                 section_id: "researcher".to_string(),
-                                                text: format!(
-                                                    "{}: {}",
-                                                    progress.phase, progress.message
-                                                ),
-                                                proposal: true,
+                                                phase: progress.phase.clone(),
+                                                message: progress.message.clone(),
                                                 reply,
                                             }
                                         });
@@ -405,6 +463,7 @@ impl ConductorActor {
                             progress_tx,
                             run_writer.clone(),
                             Some(run_id_owned.clone()),
+                            Some(call_id_owned.clone()),
                         )
                         .await
                         .map(crate::actors::conductor::protocol::CapabilityWorkerOutput::Researcher)
@@ -422,24 +481,13 @@ impl ConductorActor {
                             tokio::spawn(async move {
                                 while let Some(progress) = rx.recv().await {
                                     if let Some(run_writer) = run_writer_for_progress.clone() {
-                                        let message = match &progress.command {
-                                            Some(command) if !command.trim().is_empty() => {
-                                                format!(
-                                                    "{}: {} ({})",
-                                                    progress.phase, progress.message, command
-                                                )
-                                            }
-                                            _ => {
-                                                format!("{}: {}", progress.phase, progress.message)
-                                            }
-                                        };
                                         let _ = ractor::call!(run_writer, |reply| {
-                                            RunWriterMsg::AppendLogLine {
+                                            RunWriterMsg::ReportSectionProgress {
                                                 run_id: run_id_for_progress.clone(),
                                                 source: "terminal".to_string(),
                                                 section_id: "terminal".to_string(),
-                                                text: message,
-                                                proposal: true,
+                                                phase: progress.phase.clone(),
+                                                message: progress.message.clone(),
                                                 reply,
                                             }
                                         });
@@ -458,6 +506,8 @@ impl ConductorActor {
                             Some(60_000),
                             Some(6),
                             progress_tx,
+                            Some(run_id_owned.clone()),
+                            Some(call_id_owned.clone()),
                         )
                         .await
                         .map(crate::actors::conductor::protocol::CapabilityWorkerOutput::Terminal)

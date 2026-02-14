@@ -982,6 +982,8 @@ impl Actor for ApplicationSupervisor {
                                         "Typed bash delegation from appactor->toolactor contract"
                                             .to_string()
                                     })),
+                                    run_id: None,
+                                    call_id: None,
                                 },
                                 progress_tx: Some(progress_tx),
                                 reply: agent_reply,
@@ -2187,6 +2189,8 @@ impl ApplicationSupervisor {
             max_steps: Some(Self::research_terminal_escalation_max_steps()),
             model_override,
             progress_tx: None,
+            run_id: None,
+            call_id: None,
             reply: terminal_reply,
         })
         .map_err(|e| e.to_string())?

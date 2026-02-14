@@ -35,6 +35,14 @@ pub fn core_apps() -> Vec<AppDefinition> {
             default_height: 520,
         },
         AppDefinition {
+            id: "trace".to_string(),
+            name: "Trace".to_string(),
+            icon: "🔍".to_string(),
+            component_code: "TraceApp".to_string(),
+            default_width: 900,
+            default_height: 600,
+        },
+        AppDefinition {
             id: "settings".to_string(),
             name: "Settings".to_string(),
             icon: "⚙️".to_string(),
@@ -51,6 +59,7 @@ pub fn get_app_icon(app_id: &str) -> &'static str {
         "terminal" => "🖥️",
         "files" => "📁",
         "logs" => "📡",
+        "trace" => "🔍",
         "settings" => "⚙️",
         _ => "📱",
     }

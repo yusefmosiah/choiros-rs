@@ -15,6 +15,7 @@ use crate::actors::conductor::protocol::ConductorMsg;
 use crate::actors::event_store::{AppendEvent, EventStoreError, EventStoreMsg};
 use crate::actors::model_config::{ModelRegistry, ModelResolutionContext};
 use crate::baml_client::{types::*, B};
+use crate::observability::llm_trace::{LlmCallScope, LlmTraceEmitter};
 
 #[derive(Debug, Clone)]
 pub struct WatcherArguments {
@@ -37,8 +38,8 @@ pub struct WatcherState {
     last_seq: i64,
     review_window_size: usize,
     max_events_per_scan: i64,
-    /// Pending run states for mitigation recommendations
     run_states: HashMap<String, RunStateSnapshot>,
+    trace_emitter: LlmTraceEmitter,
 }
 
 #[derive(Debug, Clone)]
@@ -140,13 +141,14 @@ impl Actor for WatcherActor {
         });
 
         Ok(WatcherState {
-            event_store: args.event_store,
+            event_store: args.event_store.clone(),
             conductor_actor: args.conductor_actor,
             watcher_id: args.watcher_id,
             last_seq: initial_last_seq,
             review_window_size: args.review_window_size.max(1),
             max_events_per_scan: args.max_events_per_scan.max(100),
             run_states: HashMap::new(),
+            trace_emitter: LlmTraceEmitter::new(args.event_store),
         })
     }
 
@@ -436,36 +438,80 @@ impl WatcherActor {
         }
     }
 
-    /// Perform LLM-driven review of an event window
     async fn llm_review_window(
         &self,
-        _state: &WatcherState,
+        state: &WatcherState,
         window: &EventWindow,
     ) -> Result<WatcherReviewOutput, WatcherError> {
-        // Resolve model for watcher role (lower-power than conductor)
         let registry = ModelRegistry::new();
         let resolved = registry
             .resolve_for_role("watcher", &ModelResolutionContext::default())
             .map_err(|e| WatcherError::ReviewError(format!("Model resolution failed: {}", e)))?;
 
+        let model_used = resolved.config.id.clone();
         let client_registry = registry
-            .create_runtime_client_registry_for_model(&resolved.config.id)
+            .create_runtime_client_registry_for_model(&model_used)
             .map_err(|e| {
                 WatcherError::ReviewError(format!("Client registry creation failed: {}", e))
             })?;
 
-        // Build input
         let input = self.build_review_input(window).await?;
+        let system_context = format!(
+            "Watcher review for run {} task {}",
+            window.run_id, window.task_id
+        );
 
-        // Call BAML review function
-        let review = B
+        let ctx = state.trace_emitter.start_call(
+            "watcher",
+            "WatcherReviewLogWindow",
+            &state.watcher_id,
+            &model_used,
+            None,
+            &system_context,
+            &serde_json::json!({
+                "window_id": input.window_id,
+                "run_id": input.run_id,
+                "task_id": input.task_id,
+                "event_count": input.events.len(),
+            }),
+            &format!("Review {} events", window.events.len()),
+            Some(LlmCallScope {
+                run_id: Some(window.run_id.clone()),
+                task_id: Some(window.task_id.clone()),
+                call_id: None,
+                session_id: None,
+                thread_id: None,
+            }),
+        );
+
+        let result = B
             .WatcherReviewLogWindow
             .with_client_registry(&client_registry)
             .call(&input)
-            .await
-            .map_err(|e| WatcherError::ReviewError(e.to_string()))?;
+            .await;
 
-        Ok(review)
+        match &result {
+            Ok(review) => {
+                state.trace_emitter.complete_call(
+                    &ctx,
+                    &model_used,
+                    None,
+                    &serde_json::json!({
+                        "review_status": format!("{:?}", review.review_status),
+                        "escalation_count": review.escalations.len(),
+                        "risk_count": review.risks.len(),
+                    }),
+                    &format!("{:?}", review.review_status),
+                );
+            }
+            Err(e) => {
+                state
+                    .trace_emitter
+                    .fail_call(&ctx, &model_used, None, None, &e.to_string(), None);
+            }
+        }
+
+        result.map_err(|e| WatcherError::ReviewError(e.to_string()))
     }
 
     /// Build WatcherLogWindowInput from event window
@@ -514,13 +560,11 @@ impl WatcherActor {
         }
     }
 
-    /// Get mitigation recommendation for an escalation
     async fn recommend_mitigation(
         &self,
         state: &WatcherState,
         escalation: &WatcherEscalation,
     ) -> Result<WatcherMitigationOutput, WatcherError> {
-        // Get run state for mitigation recommendation
         let run_state = state
             .run_states
             .get(&escalation.run_id)
@@ -540,8 +584,9 @@ impl WatcherActor {
                 WatcherError::MitigationError(format!("Model resolution failed: {}", e))
             })?;
 
+        let model_used = resolved.config.id.clone();
         let client_registry = registry
-            .create_runtime_client_registry_for_model(&resolved.config.id)
+            .create_runtime_client_registry_for_model(&model_used)
             .map_err(|e| {
                 WatcherError::MitigationError(format!("Client registry creation failed: {}", e))
             })?;
@@ -554,17 +599,64 @@ impl WatcherActor {
                 "researcher".to_string(),
                 "writer".to_string(),
             ],
-            historical_resolutions: vec![], // Could be populated from past events
+            historical_resolutions: vec![],
         };
 
-        let mitigation = B
+        let system_context = format!(
+            "Mitigation for escalation {} kind {:?}",
+            escalation.escalation_id, escalation.kind
+        );
+
+        let ctx = state.trace_emitter.start_call(
+            "watcher",
+            "WatcherRecommendMitigation",
+            &state.watcher_id,
+            &model_used,
+            None,
+            &system_context,
+            &serde_json::json!({
+                "escalation_id": input.escalation.escalation_id,
+                "run_id": input.escalation.run_id,
+                "kind": format!("{:?}", input.escalation.kind),
+            }),
+            &format!("Escalation: {:?}", escalation.kind),
+            Some(LlmCallScope {
+                run_id: Some(escalation.run_id.clone()),
+                task_id: None,
+                call_id: None,
+                session_id: None,
+                thread_id: None,
+            }),
+        );
+
+        let result = B
             .WatcherRecommendMitigation
             .with_client_registry(&client_registry)
             .call(&input)
-            .await
-            .map_err(|e| WatcherError::MitigationError(e.to_string()))?;
+            .await;
 
-        Ok(mitigation)
+        match &result {
+            Ok(mitigation) => {
+                state.trace_emitter.complete_call(
+                    &ctx,
+                    &model_used,
+                    None,
+                    &serde_json::json!({
+                        "action": format!("{:?}", mitigation.escalation_action),
+                        "confidence": mitigation.confidence,
+                        "recommended_capability": mitigation.recommended_capability,
+                    }),
+                    &format!("{:?}", mitigation.escalation_action),
+                );
+            }
+            Err(e) => {
+                state
+                    .trace_emitter
+                    .fail_call(&ctx, &model_used, None, None, &e.to_string(), None);
+            }
+        }
+
+        result.map_err(|e| WatcherError::MitigationError(e.to_string()))
     }
 
     /// Process an escalation by getting mitigation recommendation and notifying conductor

@@ -30,12 +30,22 @@ pub enum RunWriterMsg {
         proposal: bool,
         reply: RpcReplyPort<Result<ApplyPatchResult, RunWriterError>>,
     },
+    /// Legacy path. Avoid for normal worker progress streaming.
     AppendLogLine {
         run_id: String,
         source: String,
         section_id: String,
         text: String,
         proposal: bool,
+        reply: RpcReplyPort<Result<u64, RunWriterError>>,
+    },
+    /// Emit a concise worker status tick without mutating the document.
+    ReportSectionProgress {
+        run_id: String,
+        source: String,
+        section_id: String,
+        phase: String,
+        message: String,
         reply: RpcReplyPort<Result<u64, RunWriterError>>,
     },
     MarkSectionState {

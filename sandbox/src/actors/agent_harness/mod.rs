@@ -37,6 +37,7 @@ use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::{ModelConfigError, ModelRegistry, ModelResolutionContext};
 use crate::baml_client::types::{Action, AgentDecision, AgentToolCall, Message as BamlMessage};
 use crate::baml_client::{ClientRegistry, B};
+use crate::observability::llm_trace::{LlmCallScope, LlmTraceEmitter};
 
 // Re-export shared types for convenience
 pub use shared_types::{
@@ -102,6 +103,10 @@ pub struct ExecutionContext {
     pub model_used: String,
     /// Original objective
     pub objective: String,
+    /// Optional conductor run scope
+    pub run_id: Option<String>,
+    /// Optional conductor capability call id
+    pub call_id: Option<String>,
 }
 
 /// Result of a single tool execution
@@ -292,24 +297,31 @@ pub struct AgentHarness<A: AgentAdapter> {
     adapter: A,
     model_registry: ModelRegistry,
     config: HarnessConfig,
+    trace_emitter: LlmTraceEmitter,
 }
 
 impl<A: AgentAdapter> AgentHarness<A> {
     /// Create a new agent harness with the given adapter and model registry
-    pub fn new(adapter: A, model_registry: ModelRegistry) -> Self {
+    pub fn new(adapter: A, model_registry: ModelRegistry, trace_emitter: LlmTraceEmitter) -> Self {
         Self {
             adapter,
             model_registry,
             config: HarnessConfig::default(),
+            trace_emitter,
         }
     }
 
-    /// Create a new agent harness with custom configuration
-    pub fn with_config(adapter: A, model_registry: ModelRegistry, config: HarnessConfig) -> Self {
+    pub fn with_config(
+        adapter: A,
+        model_registry: ModelRegistry,
+        config: HarnessConfig,
+        trace_emitter: LlmTraceEmitter,
+    ) -> Self {
         Self {
             adapter,
             model_registry,
             config,
+            trace_emitter,
         }
     }
 
@@ -328,6 +340,8 @@ impl<A: AgentAdapter> AgentHarness<A> {
         objective: String,
         model_override: Option<String>,
         progress_tx: Option<mpsc::UnboundedSender<AgentProgress>>,
+        run_id: Option<String>,
+        call_id: Option<String>,
     ) -> Result<AgentResult, HarnessError> {
         let loop_id = ulid::Ulid::new().to_string();
 
@@ -362,6 +376,8 @@ impl<A: AgentAdapter> AgentHarness<A> {
             max_steps: self.config.max_steps,
             model_used: model_used.clone(),
             objective: objective.clone(),
+            run_id,
+            call_id,
         };
 
         // Emit started event
@@ -431,10 +447,35 @@ impl<A: AgentAdapter> AgentHarness<A> {
                         )
                         .await?;
 
+                        let tool_scope = LlmCallScope {
+                            run_id: ctx.run_id.clone(),
+                            task_id: Some(ctx.loop_id.clone()),
+                            call_id: ctx.call_id.clone(),
+                            session_id: None,
+                            thread_id: None,
+                        };
+                        let tool_args_json = serde_json::json!({
+                            "debug": format!("{:?}", tool_call.tool_args),
+                        });
+                        let tool_ctx = self.trace_emitter.start_tool_call(
+                            self.adapter.get_model_role(),
+                            &ctx.worker_id,
+                            &tool_call.tool_name,
+                            &tool_args_json,
+                            tool_call.reasoning.as_deref(),
+                            Some(tool_scope),
+                        );
+
                         let tool_result = self.adapter.execute_tool_call(&ctx, tool_call).await;
 
                         match tool_result {
                             Ok(execution) => {
+                                self.trace_emitter.complete_tool_call(
+                                    &tool_ctx,
+                                    execution.success,
+                                    &execution.output,
+                                    execution.error.as_deref(),
+                                );
                                 // Add to messages for next decision round
                                 messages.push(BamlMessage {
                                     role: "assistant".to_string(),
@@ -447,6 +488,12 @@ impl<A: AgentAdapter> AgentHarness<A> {
                             }
                             Err(e) => {
                                 error!(tool = %tool_call.tool_name, error = %e, "Tool execution failed");
+                                self.trace_emitter.complete_tool_call(
+                                    &tool_ctx,
+                                    false,
+                                    "",
+                                    Some(&e.to_string()),
+                                );
                                 messages.push(BamlMessage {
                                     role: "assistant".to_string(),
                                     content: format!("Tool {} failed: {}", tool_call.tool_name, e),
@@ -546,15 +593,71 @@ impl<A: AgentAdapter> AgentHarness<A> {
         let system_context = self.adapter.get_system_context(ctx);
         let tools_description = self.adapter.get_tool_description();
 
-        // Call B.Decide to get AgentDecision directly
-        let decision = B
+        let input = serde_json::json!({
+            "message_count": messages.len(),
+            "tools_description_length": tools_description.len(),
+        });
+        let input_summary = format!(
+            "{} messages, step {}/{}",
+            messages.len(),
+            ctx.step_number,
+            ctx.max_steps
+        );
+
+        let model_used = &ctx.model_used;
+        let provider: Option<&str> = None;
+
+        let trace_ctx = self.trace_emitter.start_call(
+            self.adapter.get_model_role(),
+            "Decide",
+            &ctx.worker_id,
+            model_used,
+            provider,
+            &system_context,
+            &input,
+            &input_summary,
+            Some(LlmCallScope {
+                run_id: ctx.run_id.clone(),
+                task_id: Some(ctx.loop_id.clone()),
+                call_id: ctx.call_id.clone(),
+                session_id: None,
+                thread_id: None,
+            }),
+        );
+
+        let result = B
             .Decide
             .with_client_registry(client_registry)
             .call(messages, &system_context, &tools_description)
-            .await
-            .map_err(|e| HarnessError::Decision(e.to_string()))?;
+            .await;
 
-        Ok(decision)
+        match &result {
+            Ok(decision) => {
+                let output = serde_json::json!({
+                    "action": format!("{:?}", decision.action),
+                    "tool_calls_count": decision.tool_calls.len(),
+                });
+                self.trace_emitter.complete_call(
+                    &trace_ctx,
+                    model_used,
+                    provider,
+                    &output,
+                    &format!("{:?}", decision.action),
+                );
+            }
+            Err(e) => {
+                self.trace_emitter.fail_call(
+                    &trace_ctx,
+                    model_used,
+                    provider,
+                    None,
+                    &e.to_string(),
+                    None,
+                );
+            }
+        }
+
+        result.map_err(|e| HarnessError::Decision(e.to_string()))
     }
 
     async fn emit_started(&self, ctx: &ExecutionContext) -> Result<(), HarnessError> {
