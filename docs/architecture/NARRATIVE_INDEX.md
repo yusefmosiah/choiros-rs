@@ -65,33 +65,35 @@ Immediate app pattern: human UX first, then headless API, then app-agent harness
    - Canonical capability boundary: Conductor orchestrates only; tool schemas are shared once and granted per agent/worker.
 9. `/Users/wiz/choiros-rs/docs/architecture/2026-02-14-harness-loop-worker-port-simplification.md`
    - Harness simplification: one while loop runtime model and `adapter -> worker_port` naming/contract reduction.
-10. `/Users/wiz/choiros-rs/docs/architecture/2026-02-14-subagent-foundation-execution-plan.md`
+10. `/Users/wiz/choiros-rs/docs/architecture/2026-02-14-writer-agent-actor-messaging-streaming-options.md`
+   - Regression-to-direction record: run_id-only identity, writer mutation authority, actor-message control, and long-run streaming options.
+11. `/Users/wiz/choiros-rs/docs/architecture/2026-02-14-subagent-foundation-execution-plan.md`
    - Subagent-ready execution packets for identity, tool schema, writer authority, worker events, and tracing foundations.
-11. `/Users/wiz/choiros-rs/docs/architecture/2026-02-14-minimal-kernel-app-runtime-spec.md`
+12. `/Users/wiz/choiros-rs/docs/architecture/2026-02-14-minimal-kernel-app-runtime-spec.md`
    - Authoritative simplification spec: minimal kernel state, generic app interface, shared worker model, and revision-first canon authority.
-12. `/Users/wiz/choiros-rs/docs/architecture/2026-02-11-agentic-loop-simplification-observability-research-program.md`
+13. `/Users/wiz/choiros-rs/docs/architecture/2026-02-11-agentic-loop-simplification-observability-research-program.md`
    - Reset program: simplify control authority, require headless Prompt Bar verification, and enforce run-level observability gates before feature expansion.
-13. `/Users/wiz/choiros-rs/docs/architecture/2026-02-10-conductor-run-narrative-token-lanes-checkpoint.md`
+14. `/Users/wiz/choiros-rs/docs/architecture/2026-02-10-conductor-run-narrative-token-lanes-checkpoint.md`
    - Consolidated runtime baseline for concurrent orchestration, semantic run UX, token-lane separation, and `03.5.1 -> 03.5.2` gate.
-14. `/Users/wiz/choiros-rs/docs/architecture/2026-02-10-conductor-watcher-baml-cutover.md`
+15. `/Users/wiz/choiros-rs/docs/architecture/2026-02-10-conductor-watcher-baml-cutover.md`
    - Historical cutover context for prior Conductor+Watcher policy loop design.
-15. `/Users/wiz/choiros-rs/docs/architecture/roadmap-dependency-tree.md`
+16. `/Users/wiz/choiros-rs/docs/architecture/roadmap-dependency-tree.md`
    - Authoritative linear checklist and phase gates.
-16. `/Users/wiz/choiros-rs/docs/architecture/directives-execution-checklist.md`
+17. `/Users/wiz/choiros-rs/docs/architecture/directives-execution-checklist.md`
    - Product-level execution checklist and boundaries for Directives + policy pattern.
-17. `/Users/wiz/choiros-rs/roadmap_progress.md`
+18. `/Users/wiz/choiros-rs/roadmap_progress.md`
    - What has already landed and what is next.
-18. `/Users/wiz/choiros-rs/docs/architecture/2026-02-14-worker-live-update-event-model.md`
+19. `/Users/wiz/choiros-rs/docs/architecture/2026-02-14-worker-live-update-event-model.md`
    - Canonical worker behavior: `progress/result/failed/request` plus live document updates.
-19. `/Users/wiz/choiros-rs/docs/architecture/researcher-search-dual-interface-runbook.md`
+20. `/Users/wiz/choiros-rs/docs/architecture/researcher-search-dual-interface-runbook.md`
    - Canonical researcher rollout spec: dual interface, provider isolation, and observability contracts.
-20. `/Users/wiz/choiros-rs/docs/architecture/model-provider-agnostic-runbook.md`
+21. `/Users/wiz/choiros-rs/docs/architecture/model-provider-agnostic-runbook.md`
    - Model/provider matrix and validation plan.
-21. `/Users/wiz/choiros-rs/docs/architecture/backend-authoritative-ui-state-pattern.md`
+22. `/Users/wiz/choiros-rs/docs/architecture/backend-authoritative-ui-state-pattern.md`
    - Canonical policy for backend-synced app/window state (no browser-local authority).
-22. `/Users/wiz/choiros-rs/docs/architecture/pdf-app-implementation-guide.md`
+23. `/Users/wiz/choiros-rs/docs/architecture/pdf-app-implementation-guide.md`
    - Deferred guide-only milestone (no build yet).
-23. `/Users/wiz/choiros-rs/docs/architecture/roadmap-critical-analysis.md`
+24. `/Users/wiz/choiros-rs/docs/architecture/roadmap-critical-analysis.md`
    - Historical gap analysis and risks (use as reference, not current ordering authority).
 
 ## Current Decisions (Explicit)
@@ -104,8 +106,10 @@ Immediate app pattern: human UX first, then headless API, then app-agent harness
 - Conductor is the orchestration authority for multi-step control via actor messaging.
 - Runtime hierarchy is three-level: Conductor -> App Agents -> Workers.
 - Conductor has no direct tool execution path; tool schemas are shared once with per-agent grants.
+- `run_id` is canonical runtime control identity; legacy fallback keys are not orchestration authority.
 - Terminal and Researcher include `file_read`, `file_write`, and `file_edit` as baseline worker tools.
 - Writer app agent is canonical for living-document/revision mutation authority.
+- Events are observability/tracing transport; typed actor messages are control flow.
 - Model-led planning is default; deterministic logic is for safety/operability rails only.
 - Conductor turns are non-blocking and never poll child agents.
 - Conductor wake context includes bounded system agent-tree state.
@@ -124,6 +128,7 @@ Immediate app pattern: human UX first, then headless API, then app-agent harness
 - `2026-02-14-three-level-hierarchy-runtime.md`: "Canonical end-state structure: Conductor coordinates app agents, app agents run interactive sessions, workers provide concurrent execution."
 - `2026-02-14-capability-ownership-matrix.md`: "Capability authority map: Conductor orchestrates only, tool schemas are single-source shared contracts, and Writer remains canonical for document/revision mutation."
 - `2026-02-14-harness-loop-worker-port-simplification.md`: "Reduce harness complexity to one while loop and simplify `adapter` to an execution-focused `worker_port` boundary."
+- `2026-02-14-writer-agent-actor-messaging-streaming-options.md`: "Documented regression findings and selected direct worker-to-writer actor messaging to keep long-run research streaming with writer-owned mutations."
 - `2026-02-14-subagent-foundation-execution-plan.md`: "Execution packets for subagent-driven foundation work with clear acceptance gates and deferred UX sync note."
 - `2026-02-14-minimal-kernel-app-runtime-spec.md`: "Kernel/app split with minimal state: obligations, leases, patches, revisions, and app-driven replanning through typed actions."
 - `2026-02-10-conductor-run-narrative-token-lanes-checkpoint.md`: "Concurrent runtime baseline: semantic run UX by default, token-lane separation, and conductor wake context contract."
