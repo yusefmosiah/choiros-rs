@@ -76,6 +76,37 @@ fn status_code_for_run(status: ConductorRunStatus) -> StatusCode {
     }
 }
 
+fn pre_run_telemetry_descriptor() -> (&'static str, &'static str, EventImportance) {
+    (
+        "conductor.task.requested",
+        "initialization",
+        EventImportance::Normal,
+    )
+}
+
+fn run_lifecycle_telemetry_descriptor(
+    status: ConductorRunStatus,
+) -> (&'static str, &'static str, EventImportance) {
+    match status {
+        ConductorRunStatus::Initializing
+        | ConductorRunStatus::Running
+        | ConductorRunStatus::WaitingForCalls
+        | ConductorRunStatus::Completing => (
+            "conductor.task.started",
+            "run_start",
+            EventImportance::Normal,
+        ),
+        ConductorRunStatus::Completed => (
+            "conductor.task.completed",
+            "completion",
+            EventImportance::Normal,
+        ),
+        ConductorRunStatus::Failed | ConductorRunStatus::Blocked => {
+            ("conductor.task.failed", "failure", EventImportance::High)
+        }
+    }
+}
+
 fn writer_window_props_for_report(report_path: &str, run_id: Option<&str>) -> WriterWindowProps {
     WriterWindowProps {
         x: 100,
@@ -336,13 +367,14 @@ pub async fn execute_task(
     };
 
     // Broadcast task started telemetry event
+    let (event_type, phase, importance) = pre_run_telemetry_descriptor();
     broadcast_telemetry_event(
         &state.ws_sessions,
         &request.desktop_id,
-        "conductor.task.started",
+        event_type,
         "conductor",
-        "initialization",
-        EventImportance::Normal,
+        phase,
+        importance,
         serde_json::json!({
             "objective": &request.objective,
         }),
@@ -360,18 +392,7 @@ pub async fn execute_task(
     match result {
         Ok(Ok(run_state)) => {
             let run_status = run_state.status;
-            // Broadcast completion telemetry event
-            let (event_type, phase, importance) = match run_status {
-                ConductorRunStatus::Completed => (
-                    "conductor.task.completed",
-                    "completion",
-                    EventImportance::Normal,
-                ),
-                ConductorRunStatus::Failed | ConductorRunStatus::Blocked => {
-                    ("conductor.task.failed", "failure", EventImportance::High)
-                }
-                _ => ("conductor.task.progress", "running", EventImportance::Low),
-            };
+            let (event_type, phase, importance) = run_lifecycle_telemetry_descriptor(run_status);
             broadcast_telemetry_event(
                 &ws_sessions,
                 &desktop_id,
@@ -576,5 +597,44 @@ mod tests {
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(error.code, "ACTOR_NOT_AVAILABLE");
         assert!(error.message.contains("workers unavailable"));
+    }
+
+    #[test]
+    fn test_pre_run_telemetry_uses_requested_event() {
+        let (event_type, phase, importance) = pre_run_telemetry_descriptor();
+        assert_eq!(event_type, "conductor.task.requested");
+        assert_eq!(phase, "initialization");
+        assert!(matches!(importance, EventImportance::Normal));
+    }
+
+    #[test]
+    fn test_run_lifecycle_telemetry_uses_started_for_accepted_statuses() {
+        let statuses = [
+            ConductorRunStatus::Initializing,
+            ConductorRunStatus::Running,
+            ConductorRunStatus::WaitingForCalls,
+            ConductorRunStatus::Completing,
+        ];
+        for status in statuses {
+            let (event_type, phase, importance) = run_lifecycle_telemetry_descriptor(status);
+            assert_eq!(event_type, "conductor.task.started");
+            assert_eq!(phase, "run_start");
+            assert!(matches!(importance, EventImportance::Normal));
+        }
+    }
+
+    #[test]
+    fn test_run_lifecycle_telemetry_maps_terminal_statuses() {
+        let (completed_event, completed_phase, completed_importance) =
+            run_lifecycle_telemetry_descriptor(ConductorRunStatus::Completed);
+        assert_eq!(completed_event, "conductor.task.completed");
+        assert_eq!(completed_phase, "completion");
+        assert!(matches!(completed_importance, EventImportance::Normal));
+
+        let (failed_event, failed_phase, failed_importance) =
+            run_lifecycle_telemetry_descriptor(ConductorRunStatus::Failed);
+        assert_eq!(failed_event, "conductor.task.failed");
+        assert_eq!(failed_phase, "failure");
+        assert!(matches!(failed_importance, EventImportance::High));
     }
 }

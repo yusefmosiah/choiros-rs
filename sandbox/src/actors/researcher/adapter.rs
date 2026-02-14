@@ -80,6 +80,16 @@ pub struct ResearcherAdapter {
 }
 
 impl ResearcherAdapter {
+    fn run_document_path(&self) -> Option<String> {
+        self.run_id
+            .as_ref()
+            .map(|run_id| format!("conductor/runs/{run_id}/draft.md"))
+    }
+
+    fn has_run_writer(&self) -> bool {
+        self.run_writer_actor.is_some() && self.run_id.is_some()
+    }
+
     pub fn new(
         state: ResearcherState,
         progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
@@ -233,6 +243,15 @@ impl AgentAdapter for ResearcherAdapter {
     }
 
     fn get_system_context(&self, ctx: &ExecutionContext) -> String {
+        let run_doc_hint = self
+            .run_document_path()
+            .map(|path| {
+                format!(
+                    "- Run writer mode is active: route all draft mutations to `{path}`\n\
+                     - Do not create alternate draft files for conductor runs"
+                )
+            })
+            .unwrap_or_default();
         format!(
             r#"You are a research agent. Your goal is to gather information and maintain a working draft document.
 
@@ -255,8 +274,9 @@ Guidelines:
 - Cite sources inline as markdown links: [title](url)
 - Put the most important finding first (don't bury the lede)
 - Use freeform markdown - no forced structure
+{}
 "#,
-            ctx.step_number, ctx.max_steps, ctx.model_used, ctx.objective
+            ctx.step_number, ctx.max_steps, ctx.model_used, ctx.objective, run_doc_hint
         )
     }
 
@@ -506,53 +526,55 @@ Guidelines:
                     });
                 }
 
-                if is_run_document_path(path) {
-                    if let Some(_run_writer) = &self.run_writer_actor {
-                        match self
-                            .send_patch_to_run_writer("researcher", content, true)
-                            .await
-                        {
-                            Ok(_) => {
-                                let elapsed = start_time.elapsed().as_millis() as u64;
-                                let output = serde_json::json!({
-                                    "path": path,
-                                    "size": content.len(),
-                                    "via_run_writer": true,
-                                });
+                if self.has_run_writer() {
+                    let effective_path =
+                        self.run_document_path().unwrap_or_else(|| path.to_string());
+                    match self
+                        .send_patch_to_run_writer("researcher", content, true)
+                        .await
+                    {
+                        Ok(_) => {
+                            let elapsed = start_time.elapsed().as_millis() as u64;
+                            let output = serde_json::json!({
+                                "path": effective_path,
+                                "requested_path": path,
+                                "size": content.len(),
+                                "via_run_writer": true,
+                                "redirected": path != &effective_path,
+                            });
 
-                                self.emit_document_update(&ctx.loop_id, path, content);
+                            self.emit_document_update(&ctx.loop_id, &effective_path, content);
 
-                                Ok(ToolExecution {
-                                    tool_name: tool_call.tool_name.clone(),
-                                    success: true,
-                                    output: output.to_string(),
-                                    error: None,
-                                    execution_time_ms: elapsed,
-                                })
-                            }
-                            Err(e) => {
-                                let elapsed = start_time.elapsed().as_millis() as u64;
-                                Ok(ToolExecution {
-                                    tool_name: tool_call.tool_name.clone(),
-                                    success: false,
-                                    output: String::new(),
-                                    error: Some(format!("RunWriterActor patch failed: {}", e)),
-                                    execution_time_ms: elapsed,
-                                })
-                            }
+                            Ok(ToolExecution {
+                                tool_name: tool_call.tool_name.clone(),
+                                success: true,
+                                output: output.to_string(),
+                                error: None,
+                                execution_time_ms: elapsed,
+                            })
                         }
-                    } else {
-                        let elapsed = start_time.elapsed().as_millis() as u64;
-                        Ok(ToolExecution {
-                            tool_name: tool_call.tool_name.clone(),
-                            success: false,
-                            output: String::new(),
-                            error: Some(
-                                "Run document writes must go through RunWriterActor".to_string(),
-                            ),
-                            execution_time_ms: elapsed,
-                        })
+                        Err(e) => {
+                            let elapsed = start_time.elapsed().as_millis() as u64;
+                            Ok(ToolExecution {
+                                tool_name: tool_call.tool_name.clone(),
+                                success: false,
+                                output: String::new(),
+                                error: Some(format!("RunWriterActor patch failed: {}", e)),
+                                execution_time_ms: elapsed,
+                            })
+                        }
                     }
+                } else if is_run_document_path(path) {
+                    let elapsed = start_time.elapsed().as_millis() as u64;
+                    Ok(ToolExecution {
+                        tool_name: tool_call.tool_name.clone(),
+                        success: false,
+                        output: String::new(),
+                        error: Some(
+                            "Run document writes must go through RunWriterActor".to_string(),
+                        ),
+                        execution_time_ms: elapsed,
+                    })
                 } else {
                     match validate_sandbox_path(path) {
                         Ok(full_path) => {
@@ -627,52 +649,54 @@ Guidelines:
                     });
                 }
 
-                if is_run_document_path(path) {
-                    if self.run_writer_actor.is_some() {
-                        let edit_content =
-                            format!("\n[EDIT] Replace:\n{}\n\nWith:\n{}\n", old_text, new_text);
-                        match self
-                            .send_patch_to_run_writer("researcher", &edit_content, true)
-                            .await
-                        {
-                            Ok(_) => {
-                                let elapsed = start_time.elapsed().as_millis() as u64;
-                                let output = serde_json::json!({
-                                    "path": path,
-                                    "via_run_writer": true,
-                                });
+                if self.has_run_writer() {
+                    let effective_path =
+                        self.run_document_path().unwrap_or_else(|| path.to_string());
+                    let edit_content =
+                        format!("\n[EDIT] Replace:\n{}\n\nWith:\n{}\n", old_text, new_text);
+                    match self
+                        .send_patch_to_run_writer("researcher", &edit_content, true)
+                        .await
+                    {
+                        Ok(_) => {
+                            let elapsed = start_time.elapsed().as_millis() as u64;
+                            let output = serde_json::json!({
+                                "path": effective_path,
+                                "requested_path": path,
+                                "via_run_writer": true,
+                                "redirected": path != &effective_path,
+                            });
 
-                                Ok(ToolExecution {
-                                    tool_name: tool_call.tool_name.clone(),
-                                    success: true,
-                                    output: output.to_string(),
-                                    error: None,
-                                    execution_time_ms: elapsed,
-                                })
-                            }
-                            Err(e) => {
-                                let elapsed = start_time.elapsed().as_millis() as u64;
-                                Ok(ToolExecution {
-                                    tool_name: tool_call.tool_name.clone(),
-                                    success: false,
-                                    output: String::new(),
-                                    error: Some(format!("RunWriterActor patch failed: {}", e)),
-                                    execution_time_ms: elapsed,
-                                })
-                            }
+                            Ok(ToolExecution {
+                                tool_name: tool_call.tool_name.clone(),
+                                success: true,
+                                output: output.to_string(),
+                                error: None,
+                                execution_time_ms: elapsed,
+                            })
                         }
-                    } else {
-                        let elapsed = start_time.elapsed().as_millis() as u64;
-                        Ok(ToolExecution {
-                            tool_name: tool_call.tool_name.clone(),
-                            success: false,
-                            output: String::new(),
-                            error: Some(
-                                "Run document edits must go through RunWriterActor".to_string(),
-                            ),
-                            execution_time_ms: elapsed,
-                        })
+                        Err(e) => {
+                            let elapsed = start_time.elapsed().as_millis() as u64;
+                            Ok(ToolExecution {
+                                tool_name: tool_call.tool_name.clone(),
+                                success: false,
+                                output: String::new(),
+                                error: Some(format!("RunWriterActor patch failed: {}", e)),
+                                execution_time_ms: elapsed,
+                            })
+                        }
                     }
+                } else if is_run_document_path(path) {
+                    let elapsed = start_time.elapsed().as_millis() as u64;
+                    Ok(ToolExecution {
+                        tool_name: tool_call.tool_name.clone(),
+                        success: false,
+                        output: String::new(),
+                        error: Some(
+                            "Run document edits must go through RunWriterActor".to_string(),
+                        ),
+                        execution_time_ms: elapsed,
+                    })
                 } else {
                     match validate_sandbox_path(path) {
                         Ok(full_path) => match tokio::fs::read_to_string(&full_path).await {

@@ -40,7 +40,6 @@ struct TraceEvent {
     provider: Option<String>,
     actor_id: String,
     run_id: Option<String>,
-    task_id: Option<String>,
     call_id: Option<String>,
     session_id: Option<String>,
     thread_id: Option<String>,
@@ -86,7 +85,6 @@ struct ToolTraceEvent {
     role: String,
     tool_name: String,
     run_id: Option<String>,
-    task_id: Option<String>,
     call_id: Option<String>,
     success: Option<bool>,
     duration_ms: Option<i64>,
@@ -177,17 +175,6 @@ impl TraceGroup {
             })
     }
 
-    fn task_id(&self) -> Option<&str> {
-        self.started
-            .as_ref()
-            .and_then(|e| e.task_id.as_deref())
-            .or_else(|| {
-                self.terminal
-                    .as_ref()
-                    .and_then(|e| e.task_id.as_deref())
-            })
-    }
-
     fn call_id(&self) -> Option<&str> {
         self.started
             .as_ref()
@@ -270,7 +257,6 @@ fn parse_trace_event(event: &LogsEvent) -> Option<TraceEvent> {
             .unwrap_or_else(|| event.actor_id.as_str())
             .to_string(),
         run_id: payload.get("run_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        task_id: payload.get("task_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
         call_id: payload.get("call_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
         session_id: scope
             .get("session_id")
@@ -325,8 +311,7 @@ fn parse_prompt_event(event: &LogsEvent) -> Option<PromptEvent> {
     let payload = &event.payload;
     let run_id = payload
         .get("run_id")
-        .and_then(|v| v.as_str())
-        .or_else(|| payload.get("task_id").and_then(|v| v.as_str()))?
+        .and_then(|v| v.as_str())?
         .to_string();
     let objective = payload
         .get("objective")
@@ -369,7 +354,6 @@ fn parse_tool_trace_event(event: &LogsEvent) -> Option<ToolTraceEvent> {
             .unwrap_or("unknown")
             .to_string(),
         run_id: payload.get("run_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        task_id: payload.get("task_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
         call_id: payload.get("call_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
         success: payload.get("success").and_then(|v| v.as_bool()),
         duration_ms: payload.get("duration_ms").and_then(|v| v.as_i64()),
@@ -995,12 +979,6 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                         span {
                                             style: "background: #1e3a5f; color: #60a5fa; padding: 0.125rem 0.375rem; border-radius: 3px; font-size: 0.625rem;",
                                             "run:{run_id}"
-                                        }
-                                    }
-                                    if let Some(task_id) = trace.task_id() {
-                                        span {
-                                            style: "background: #3b1e5f; color: #a78bfa; padding: 0.125rem 0.375rem; border-radius: 3px; font-size: 0.625rem;",
-                                            "task:{task_id}"
                                         }
                                     }
                                     if let Some(call_id) = trace.call_id() {

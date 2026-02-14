@@ -35,6 +35,9 @@ data/
 # Logs
 *.log
 
+# Generated conductor runtime artifacts
+sandbox/conductor/runs/
+
 # AI Agent Config Directories
 .adal/
 .agent/
