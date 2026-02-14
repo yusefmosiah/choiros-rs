@@ -137,6 +137,11 @@ pub(crate) async fn fetch_url(
             reqwest::header::USER_AGENT,
             "ChoirOS-Researcher/0.1 (+fetch_url)",
         )
+        .header(
+            reqwest::header::ACCEPT,
+            "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.8",
+        )
+        .header(reqwest::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
         .send()
         .await
         .map_err(|e| ResearcherError::ProviderRequest("fetch_url".to_string(), e.to_string()))?;
@@ -174,33 +179,85 @@ pub(crate) fn extract_text_excerpt(
         .unwrap_or_else(|| body.contains("<html") || body.contains("<body"));
 
     let normalized = if looks_html {
-        let script_re = regex::Regex::new(r"(?is)<script[^>]*>.*?</script>").ok();
-        let style_re = regex::Regex::new(r"(?is)<style[^>]*>.*?</style>").ok();
-        let tag_re = regex::Regex::new(r"(?is)<[^>]+>").ok();
-
-        let no_script = script_re
-            .as_ref()
-            .map(|re| re.replace_all(body, " ").to_string())
-            .unwrap_or_else(|| body.to_string());
-        let no_style = style_re
-            .as_ref()
-            .map(|re| re.replace_all(&no_script, " ").to_string())
-            .unwrap_or(no_script);
-        tag_re
-            .as_ref()
-            .map(|re| re.replace_all(&no_style, " ").to_string())
-            .unwrap_or(no_style)
+        html_to_markdownish(body)
     } else {
-        body.to_string()
+        normalize_lines(body)
     };
 
-    normalized
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .take(max_chars)
-        .collect()
+    truncate_chars(&normalized, max_chars)
+}
+
+fn html_to_markdownish(body: &str) -> String {
+    let script_re = regex::Regex::new(r"(?is)<script[^>]*>.*?</script>").ok();
+    let style_re = regex::Regex::new(r"(?is)<style[^>]*>.*?</style>").ok();
+    let tag_re = regex::Regex::new(r"(?is)<[^>]+>").ok();
+
+    let mut html = script_re
+        .as_ref()
+        .map(|re| re.replace_all(body, "\n").to_string())
+        .unwrap_or_else(|| body.to_string());
+    html = style_re
+        .as_ref()
+        .map(|re| re.replace_all(&html, "\n").to_string())
+        .unwrap_or(html);
+
+    // Preserve basic document structure before removing tags.
+    let replacements = [
+        (r"(?is)<\s*br\s*/?\s*>", "\n"),
+        (r"(?is)<\s*h1[^>]*>", "\n# "),
+        (r"(?is)<\s*h2[^>]*>", "\n## "),
+        (r"(?is)<\s*h3[^>]*>", "\n### "),
+        (r"(?is)<\s*h4[^>]*>", "\n#### "),
+        (r"(?is)<\s*h5[^>]*>", "\n##### "),
+        (r"(?is)<\s*h6[^>]*>", "\n###### "),
+        (r"(?is)<\s*li[^>]*>", "\n- "),
+        (
+            r"(?is)</\s*(p|div|section|article|header|footer|main|aside|nav|tr|table|ul|ol|pre|blockquote|h[1-6])\s*>",
+            "\n",
+        ),
+    ];
+    for (pattern, replacement) in replacements {
+        if let Ok(re) = regex::Regex::new(pattern) {
+            html = re.replace_all(&html, replacement).to_string();
+        }
+    }
+
+    let text = tag_re
+        .as_ref()
+        .map(|re| re.replace_all(&html, " ").to_string())
+        .unwrap_or(html);
+    let decoded = decode_html_entities(&text);
+    normalize_lines(&decoded)
+}
+
+fn normalize_lines(input: &str) -> String {
+    let mut lines = Vec::new();
+    for raw_line in input.lines() {
+        let trimmed = raw_line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let compact = trimmed.split_whitespace().collect::<Vec<_>>().join(" ");
+        if compact.is_empty() {
+            continue;
+        }
+        lines.push(compact);
+    }
+    lines.join("\n")
+}
+
+fn decode_html_entities(input: &str) -> String {
+    input
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+}
+
+fn truncate_chars(input: &str, max_chars: usize) -> String {
+    input.chars().take(max_chars).collect()
 }
 
 pub(crate) async fn run_provider_selection(
@@ -673,5 +730,23 @@ mod tests {
         assert!(!excerpt.contains('<'));
         assert!(excerpt.to_ascii_lowercase().contains("title"));
         assert!(excerpt.len() <= 24);
+    }
+
+    #[test]
+    fn extract_excerpt_preserves_markdownish_structure() {
+        let html = r#"
+        <html>
+          <body>
+            <h1>Repo Title</h1>
+            <p>First paragraph.</p>
+            <ul><li>Item A</li><li>Item B</li></ul>
+          </body>
+        </html>
+        "#;
+        let excerpt = extract_text_excerpt(html, Some("text/html"), 200);
+        assert!(excerpt.contains("# Repo Title"));
+        assert!(excerpt.contains("First paragraph."));
+        assert!(excerpt.contains("- Item A"));
+        assert!(excerpt.contains("- Item B"));
     }
 }

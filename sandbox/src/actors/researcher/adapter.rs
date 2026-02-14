@@ -232,6 +232,15 @@ impl ResearcherAdapter {
             .any(|exec| exec.tool_name == "message_writer" && exec.success)
     }
 
+    fn resolve_fetch_url_arg(tool_call: &AgentToolCall) -> Option<String> {
+        let args = &tool_call.tool_args;
+        args.path
+            .as_ref()
+            .or(args.query.as_ref())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+
     async fn execute_message_writer(
         &self,
         tool_call: &AgentToolCall,
@@ -426,8 +435,11 @@ impl WorkerPort for ResearcherAdapter {
 
 2. fetch_url - Fetch and extract content from a URL
    Args:
-   - url: string (required) - The URL to fetch
+   - path: string (required) - The URL to fetch (http:// or https://)
+   - query: string (optional alias) - URL if model emits query instead of path
    - max_chars: number (optional) - Max chars to extract (default: 8000)
+   Example:
+   - tool=fetch_url, path="https://github.com/theonlyhennygod/zeroclaw"
 
 3. file_read - Read a local file within the sandbox
    Args:
@@ -498,6 +510,9 @@ Guidelines:
   - Do not attempt shell orchestration or terminal-style execution planning.
 - Use web_search to find relevant information online
 - Use fetch_url to retrieve detailed content from specific URLs
+- If the objective/user input includes explicit URLs, fetch those URLs first.
+- For URL verification, do not rely on search ranking/indexing alone.
+- Mark a URL as unavailable only after fetch_url returns a non-success status or fetch error.
 - Use file_read to reference existing documents, code, or previous research
 - Use file_write to create your working draft (overwrites existing)
 - Use file_edit to refine specific sections without rewriting everything
@@ -521,9 +536,10 @@ Guidelines:
 - Put the most important finding first (don't bury the lede)
 - Use freeform markdown - no forced structure
 - Recommended loop shape in run writer mode:
-  1) web_search/fetch_url for evidence
-  2) message_writer proposal_append with concise findings + citations
-  3) repeat until objective is satisfied, then final proposal_append and Complete
+  1) fetch_url for any explicit URLs in the objective/user message
+  2) web_search to fill context gaps and discover corroborating sources
+  3) message_writer proposal_append with concise findings + citations
+  4) repeat until objective is satisfied, then final proposal_append and Complete
 {}
 "#,
             ctx.step_number, ctx.max_steps, ctx.model_used, ctx.objective, run_doc_hint
@@ -643,9 +659,10 @@ Guidelines:
             }
 
             "fetch_url" => {
-                let args = &tool_call.tool_args;
-                let url = args.path.as_ref().ok_or_else(|| {
-                    HarnessError::ToolExecution("Missing url argument".to_string())
+                let url = Self::resolve_fetch_url_arg(tool_call).ok_or_else(|| {
+                    HarnessError::ToolExecution(
+                        "Missing URL argument (expected path, optional alias: query)".to_string(),
+                    )
                 })?;
 
                 let request = ResearcherFetchUrlRequest {
