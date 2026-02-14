@@ -1,66 +1,12 @@
 use ractor::ActorProcessingErr;
-use std::collections::BTreeSet;
 
 use crate::actors::conductor::actor::{ConductorActor, ConductorState};
 use crate::actors::conductor::{
     events,
     protocol::{CapabilityWorkerOutput, ConductorError},
 };
-use crate::actors::run_writer::{RunWriterMsg, SectionState};
-use crate::actors::writer::{WriterMsg, WriterSource};
 
 impl ConductorActor {
-    fn writer_source_for_section(section: &str) -> WriterSource {
-        match section {
-            "researcher" => WriterSource::Researcher,
-            "terminal" => WriterSource::Terminal,
-            "user" => WriterSource::User,
-            _ => WriterSource::Conductor,
-        }
-    }
-
-    async fn enqueue_writer_message(
-        state: &ConductorState,
-        run_id: &str,
-        call_id: &str,
-        section_id: &str,
-        kind: &str,
-        content: &str,
-        run_writer: &Option<ractor::ActorRef<RunWriterMsg>>,
-    ) {
-        let Some(writer_actor) = state.writer_actor.clone() else {
-            return;
-        };
-        let Some(run_writer_actor) = run_writer.clone() else {
-            return;
-        };
-        if content.trim().is_empty() {
-            return;
-        }
-
-        let message_id = format!("{call_id}:{section_id}:{kind}");
-        let source = Self::writer_source_for_section(section_id);
-        let result = ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
-            message_id: message_id.clone(),
-            kind: kind.to_string(),
-            run_writer_actor: run_writer_actor.clone(),
-            run_id: run_id.to_string(),
-            section_id: section_id.to_string(),
-            source,
-            content: content.to_string(),
-            reply,
-        });
-        if let Err(error) = result {
-            tracing::warn!(
-                run_id = %run_id,
-                section_id = %section_id,
-                message_id = %message_id,
-                error = %error,
-                "Failed to enqueue writer inbox message"
-            );
-        }
-    }
-
     pub(crate) async fn handle_capability_call_finished(
         &self,
         state: &mut ConductorState,
@@ -70,9 +16,6 @@ impl ConductorActor {
         capability: String,
         result: Result<CapabilityWorkerOutput, ConductorError>,
     ) -> Result<(), ActorProcessingErr> {
-        let run_writer = state.run_writers.get(&run_id).cloned();
-        let section_id = capability.to_ascii_lowercase();
-
         match result {
             Ok(CapabilityWorkerOutput::Researcher(output)) => {
                 state
@@ -114,16 +57,6 @@ impl ConductorActor {
                     .tasks
                     .add_artifact(&run_id, artifact)
                     .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
-                Self::enqueue_writer_message(
-                    state,
-                    &run_id,
-                    &call_id,
-                    "researcher",
-                    "worker_summary",
-                    &output.summary,
-                    &run_writer,
-                )
-                .await;
 
                 events::emit_capability_completed(
                     &state.event_store,
@@ -141,14 +74,6 @@ impl ConductorActor {
                     "research capability completed",
                 )
                 .await;
-                if let Some(run_writer) = run_writer.clone() {
-                    let _ = ractor::call!(run_writer, |reply| RunWriterMsg::MarkSectionState {
-                        run_id: run_id.clone(),
-                        section_id: "researcher".to_string(),
-                        state: SectionState::Complete,
-                        reply,
-                    });
-                }
             }
             Ok(CapabilityWorkerOutput::Terminal(output)) => {
                 if output.success {
@@ -189,16 +114,6 @@ impl ConductorActor {
                         .tasks
                         .add_artifact(&run_id, artifact)
                         .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
-                    Self::enqueue_writer_message(
-                        state,
-                        &run_id,
-                        &call_id,
-                        "terminal",
-                        "worker_summary",
-                        &output.summary,
-                        &run_writer,
-                    )
-                    .await;
 
                     events::emit_capability_completed(
                         &state.event_store,
@@ -216,26 +131,8 @@ impl ConductorActor {
                         "terminal capability completed",
                     )
                     .await;
-                    if let Some(run_writer) = run_writer.clone() {
-                        let _ = ractor::call!(run_writer, |reply| RunWriterMsg::MarkSectionState {
-                            run_id: run_id.clone(),
-                            section_id: "terminal".to_string(),
-                            state: SectionState::Complete,
-                            reply,
-                        });
-                    }
                 } else {
                     let err = output.summary.clone();
-                    Self::enqueue_writer_message(
-                        state,
-                        &run_id,
-                        &call_id,
-                        "terminal",
-                        "worker_failure",
-                        &err,
-                        &run_writer,
-                    )
-                    .await;
                     state
                         .tasks
                         .update_capability_call(
@@ -271,14 +168,6 @@ impl ConductorActor {
                         &err,
                     )
                     .await;
-                    if let Some(run_writer) = run_writer.clone() {
-                        let _ = ractor::call!(run_writer, |reply| RunWriterMsg::MarkSectionState {
-                            run_id: run_id.clone(),
-                            section_id: "terminal".to_string(),
-                            state: SectionState::Failed,
-                            reply,
-                        });
-                    }
                 }
             }
             Err(err) => {
@@ -298,20 +187,6 @@ impl ConductorActor {
                 };
 
                 let err_text = err.to_string();
-                Self::enqueue_writer_message(
-                    state,
-                    &run_id,
-                    &call_id,
-                    match section_id.as_str() {
-                        "researcher" => "researcher",
-                        "terminal" => "terminal",
-                        _ => "conductor",
-                    },
-                    "worker_error",
-                    &err_text,
-                    &run_writer,
-                )
-                .await;
                 state
                     .tasks
                     .update_capability_call(&run_id, &call_id, call_status, Some(err_text.clone()))
@@ -349,18 +224,6 @@ impl ConductorActor {
                     &err_text,
                 )
                 .await;
-                if let Some(run_writer) = run_writer {
-                    let section = match section_id.as_str() {
-                        "researcher" | "terminal" => section_id.clone(),
-                        _ => "conductor".to_string(),
-                    };
-                    let _ = ractor::call!(run_writer, |reply| RunWriterMsg::MarkSectionState {
-                        run_id: run_id.clone(),
-                        section_id: section,
-                        state: SectionState::Failed,
-                        reply,
-                    });
-                }
             }
         }
 
@@ -386,79 +249,6 @@ impl ConductorActor {
             .get_run(run_id)
             .cloned()
             .ok_or_else(|| ActorProcessingErr::from(format!("run not found: {run_id}")))?;
-
-        if let Some(run_writer) = state.run_writers.get(run_id).cloned() {
-            let sections: BTreeSet<String> = run
-                .agenda
-                .iter()
-                .map(|item| item.capability.to_ascii_lowercase())
-                .filter(|capability| capability == "researcher" || capability == "terminal")
-                .collect();
-
-            for section in sections {
-                match ractor::call!(run_writer, |reply| RunWriterMsg::CommitProposal {
-                    section_id: section.clone(),
-                    reply,
-                }) {
-                    Ok(Ok(revision)) => {
-                        tracing::info!(
-                            run_id = %run_id,
-                            section = %section,
-                            revision = revision,
-                            "Writer proposal committed"
-                        );
-                    }
-                    Ok(Err(error)) => {
-                        tracing::warn!(
-                            run_id = %run_id,
-                            section = %section,
-                            error = %error,
-                            "Writer proposal commit failed"
-                        );
-                        state
-                            .tasks
-                            .transition_run_status(
-                                run_id,
-                                shared_types::ConductorRunStatus::Blocked,
-                            )
-                            .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
-                        self.finalize_run_as_blocked(
-                            state,
-                            run_id,
-                            Some(format!(
-                                "writer failed to commit section '{section}': {error}"
-                            )),
-                        )
-                        .await
-                        .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
-                        return Ok(());
-                    }
-                    Err(error) => {
-                        tracing::warn!(
-                            run_id = %run_id,
-                            section = %section,
-                            error = %error,
-                            "Writer commit RPC failed"
-                        );
-                        state
-                            .tasks
-                            .transition_run_status(
-                                run_id,
-                                shared_types::ConductorRunStatus::Blocked,
-                            )
-                            .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
-                        self.finalize_run_as_blocked(
-                            state,
-                            run_id,
-                            Some(format!("writer RPC failed while committing '{section}'")),
-                        )
-                        .await
-                        .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
-                        return Ok(());
-                    }
-                }
-            }
-        }
 
         let has_failed_items = run.agenda.iter().any(|item| {
             matches!(
@@ -489,7 +279,7 @@ impl ConductorActor {
         self.finalize_run_as_completed(
             state,
             run_id,
-            Some("all worker calls completed; writer committed proposals".to_string()),
+            Some("all worker calls completed".to_string()),
         )
         .await
         .map_err(|e| ActorProcessingErr::from(e.to_string()))?;

@@ -82,6 +82,8 @@ pub struct ResearcherAdapter {
 }
 
 impl ResearcherAdapter {
+    const WRITER_SECTION_ID: &'static str = "researcher";
+
     fn run_document_path(&self) -> Option<String> {
         self.run_id
             .as_ref()
@@ -196,6 +198,107 @@ impl ResearcherAdapter {
             "complete" | "completed" => Some(SectionState::Complete),
             "failed" => Some(SectionState::Failed),
             _ => None,
+        }
+    }
+
+    fn writer_context(&self) -> Option<(ActorRef<WriterMsg>, ActorRef<RunWriterMsg>, String)> {
+        Some((
+            self.writer_actor.clone()?,
+            self.run_writer_actor.clone()?,
+            self.run_id.clone()?,
+        ))
+    }
+
+    async fn writer_report_progress(&self, phase: &str, message: &str) {
+        let Some((writer_actor, run_writer_actor, run_id)) = self.writer_context() else {
+            return;
+        };
+        let _ = ractor::call!(writer_actor, |reply| WriterMsg::ReportProgress {
+            run_writer_actor,
+            run_id,
+            section_id: Self::WRITER_SECTION_ID.to_string(),
+            source: WriterSource::Researcher,
+            phase: phase.to_string(),
+            message: message.to_string(),
+            reply,
+        });
+    }
+
+    async fn writer_set_state(&self, state: SectionState) {
+        let Some((writer_actor, run_writer_actor, run_id)) = self.writer_context() else {
+            return;
+        };
+        let _ = ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
+            run_writer_actor,
+            run_id,
+            section_id: Self::WRITER_SECTION_ID.to_string(),
+            state,
+            reply,
+        });
+    }
+
+    async fn writer_enqueue_inbound(&self, kind: &str, content: String) {
+        if content.trim().is_empty() {
+            return;
+        }
+        let Some((writer_actor, run_writer_actor, run_id)) = self.writer_context() else {
+            return;
+        };
+        let message_id = format!("{run_id}:researcher:{kind}:{}", ulid::Ulid::new());
+        let _ = ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+            message_id,
+            kind: kind.to_string(),
+            run_writer_actor,
+            run_id,
+            section_id: Self::WRITER_SECTION_ID.to_string(),
+            source: WriterSource::Researcher,
+            content,
+            reply,
+        });
+    }
+
+    fn should_enqueue_progress(phase: &str) -> bool {
+        matches!(phase, "executing_tool" | "completed" | "failed")
+    }
+
+    fn format_progress_for_inbox(progress: &AgentProgress) -> String {
+        let mut lines = vec![format!("[{}] {}", progress.phase, progress.message)];
+        if let (Some(step_index), Some(step_total)) = (progress.step_index, progress.step_total) {
+            lines.push(format!("Step {step_index}/{step_total}"));
+        }
+        if let Some(model) = progress.model_used.as_ref() {
+            lines.push(format!("Model: {model}"));
+        }
+        lines.join("\n")
+    }
+
+    fn format_worker_report_for_inbox(report: &shared_types::WorkerTurnReport) -> String {
+        let mut parts = Vec::new();
+        if let Some(summary) = report.summary.as_ref().filter(|s| !s.trim().is_empty()) {
+            parts.push(format!("Summary: {summary}"));
+        }
+        if !report.findings.is_empty() {
+            parts.push(format!("Findings ({}):", report.findings.len()));
+            for finding in report.findings.iter().take(5) {
+                parts.push(format!(
+                    "- {} (confidence {:.2})",
+                    finding.claim, finding.confidence
+                ));
+            }
+        }
+        if !report.learnings.is_empty() {
+            parts.push(format!("Learnings ({}):", report.learnings.len()));
+            for learning in report.learnings.iter().take(5) {
+                parts.push(format!(
+                    "- {} (confidence {:.2})",
+                    learning.insight, learning.confidence
+                ));
+            }
+        }
+        if parts.is_empty() {
+            format!("Worker report recorded with status {:?}", report.status)
+        } else {
+            parts.join("\n")
         }
     }
 
@@ -926,7 +1029,7 @@ Guidelines:
         let payload = serde_json::json!({
             "task_id": ctx.loop_id,
             "worker_id": ctx.worker_id,
-            "report": report,
+            "report": &report,
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
         self.emit_event("worker.report.received", payload);
@@ -940,6 +1043,23 @@ Guidelines:
                 result_count: Some(report.findings.len()),
                 timestamp: chrono::Utc::now().to_rfc3339(),
             });
+        }
+
+        self.writer_enqueue_inbound(
+            "worker_report",
+            Self::format_worker_report_for_inbox(&report),
+        )
+        .await;
+        match report.status {
+            shared_types::WorkerTurnStatus::Completed => {
+                self.writer_set_state(SectionState::Complete).await;
+            }
+            shared_types::WorkerTurnStatus::Failed | shared_types::WorkerTurnStatus::Blocked => {
+                self.writer_set_state(SectionState::Failed).await;
+            }
+            shared_types::WorkerTurnStatus::Running => {
+                self.writer_set_state(SectionState::Running).await;
+            }
         }
 
         Ok(())
@@ -958,12 +1078,28 @@ Guidelines:
         let payload = serde_json::json!({
             "task_id": ctx.loop_id,
             "worker_id": ctx.worker_id,
-            "phase": progress.phase,
-            "message": progress.message,
-            "model_used": progress.model_used,
-            "timestamp": progress.timestamp,
+            "phase": &progress.phase,
+            "message": &progress.message,
+            "model_used": &progress.model_used,
+            "timestamp": &progress.timestamp,
         });
         self.emit_event("worker.task.progress", payload);
+
+        self.writer_report_progress(&progress.phase, &progress.message)
+            .await;
+        match progress.phase.as_str() {
+            "started" => self.writer_set_state(SectionState::Running).await,
+            "completed" => self.writer_set_state(SectionState::Complete).await,
+            "failed" => self.writer_set_state(SectionState::Failed).await,
+            _ => {}
+        }
+        if Self::should_enqueue_progress(progress.phase.as_str()) {
+            self.writer_enqueue_inbound(
+                "worker_progress",
+                Self::format_progress_for_inbox(&progress),
+            )
+            .await;
+        }
 
         Ok(())
     }
@@ -1028,5 +1164,41 @@ mod tests {
             Some(SectionState::Failed)
         );
         assert_eq!(ResearcherAdapter::parse_section_state(Some("bogus")), None);
+    }
+
+    #[test]
+    fn should_enqueue_progress_only_for_key_phases() {
+        assert!(ResearcherAdapter::should_enqueue_progress("executing_tool"));
+        assert!(ResearcherAdapter::should_enqueue_progress("completed"));
+        assert!(ResearcherAdapter::should_enqueue_progress("failed"));
+        assert!(!ResearcherAdapter::should_enqueue_progress("deciding"));
+        assert!(!ResearcherAdapter::should_enqueue_progress("started"));
+    }
+
+    #[test]
+    fn format_worker_report_for_inbox_includes_summary_and_findings() {
+        let report = shared_types::WorkerTurnReport {
+            turn_id: "turn_1".to_string(),
+            worker_id: "researcher".to_string(),
+            task_id: "task_1".to_string(),
+            worker_role: Some("researcher".to_string()),
+            status: shared_types::WorkerTurnStatus::Completed,
+            summary: Some("Summary line".to_string()),
+            findings: vec![shared_types::WorkerFinding {
+                finding_id: "f1".to_string(),
+                claim: "Claim text".to_string(),
+                confidence: 0.91,
+                evidence_refs: vec![],
+                novel: Some(true),
+            }],
+            learnings: vec![],
+            escalations: vec![],
+            artifacts: vec![],
+            created_at: None,
+        };
+        let formatted = ResearcherAdapter::format_worker_report_for_inbox(&report);
+        assert!(formatted.contains("Summary: Summary line"));
+        assert!(formatted.contains("Findings (1):"));
+        assert!(formatted.contains("Claim text"));
     }
 }

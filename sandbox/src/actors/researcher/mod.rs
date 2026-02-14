@@ -351,7 +351,7 @@ impl ResearcherActor {
         call_id: Option<String>,
     ) -> Result<ResearcherResult, ResearcherError> {
         let timeout = timeout_ms.unwrap_or(30_000).clamp(3_000, 120_000);
-        let max_steps = max_rounds.unwrap_or(3).clamp(1, 8) as usize;
+        let max_steps = max_rounds.unwrap_or(8).clamp(1, 8) as usize;
 
         let adapter_state = ResearcherState {
             researcher_id: state.researcher_id.clone(),
