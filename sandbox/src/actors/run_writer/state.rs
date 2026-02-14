@@ -77,31 +77,45 @@ impl RunDocument {
         let mut md = format!("# {}\n\n", self.objective);
 
         let section_order = ["conductor", "researcher", "terminal", "user"];
+        let mut body_blocks: Vec<String> = Vec::new();
+
         for section_id in section_order {
             if let Some(section) = self.sections.get(section_id) {
-                let title = section_id[..1].to_uppercase() + &section_id[1..];
-                md.push_str(&format!("## {title}\n"));
-
+                if !section.content.trim().is_empty() {
+                    body_blocks.push(section.content.trim().to_string());
+                }
+            }
+        }
+        for section_id in section_order {
+            if let Some(section) = self.sections.get(section_id) {
                 if let Some(ref proposal) = section.proposal {
-                    md.push_str("<!-- proposal -->\n");
-                    md.push_str(proposal);
-                    if !proposal.ends_with('\n') {
-                        md.push('\n');
-                    }
-                } else if !section.content.is_empty() {
-                    md.push_str(&section.content);
-                    if !section.content.ends_with('\n') {
-                        md.push('\n');
+                    if !proposal.trim().is_empty() {
+                        body_blocks.push(format!("<!-- proposal -->\n{}", proposal.trim()));
                     }
                 }
-                md.push('\n');
             }
+        }
+
+        if !body_blocks.is_empty() {
+            md.push_str(&body_blocks.join("\n\n"));
+            md.push('\n');
         }
 
         md
     }
 
     pub fn from_markdown(md: &str) -> Result<Self, String> {
+        if md.contains("\n## Conductor")
+            || md.contains("\n## Researcher")
+            || md.contains("\n## Terminal")
+            || md.contains("\n## User")
+        {
+            return Self::from_sectioned_markdown(md);
+        }
+        Self::from_flat_markdown(md)
+    }
+
+    fn from_sectioned_markdown(md: &str) -> Result<Self, String> {
         let mut doc = RunDocument::default();
         let lines: Vec<&str> = md.lines().collect();
 
@@ -143,6 +157,55 @@ impl RunDocument {
                         section.content.push_str(line);
                     }
                 }
+            }
+        }
+
+        for section in doc.sections.values_mut() {
+            section.content = section.content.trim().to_string();
+            if let Some(ref mut proposal) = section.proposal {
+                *proposal = proposal.trim().to_string();
+            }
+        }
+
+        Ok(doc)
+    }
+
+    fn from_flat_markdown(md: &str) -> Result<Self, String> {
+        let mut doc = RunDocument::default();
+        let lines: Vec<&str> = md.lines().collect();
+
+        let mut in_proposal = false;
+
+        for line in lines {
+            if let Some(rest) = line.strip_prefix("# ") {
+                doc.objective = rest.trim().to_string();
+                continue;
+            }
+            if line.trim() == "<!-- proposal -->" {
+                in_proposal = true;
+                continue;
+            }
+            if in_proposal {
+                let section = doc
+                    .sections
+                    .get_mut("researcher")
+                    .ok_or_else(|| "missing researcher section".to_string())?;
+                section.proposal = Some(
+                    section
+                        .proposal
+                        .as_ref()
+                        .map(|p| format!("{p}\n{line}"))
+                        .unwrap_or_else(|| line.to_string()),
+                );
+            } else {
+                let section = doc
+                    .sections
+                    .get_mut("conductor")
+                    .ok_or_else(|| "missing conductor section".to_string())?;
+                if !section.content.is_empty() {
+                    section.content.push('\n');
+                }
+                section.content.push_str(line);
             }
         }
 

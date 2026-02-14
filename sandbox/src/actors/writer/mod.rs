@@ -443,14 +443,13 @@ impl WriterActor {
         let synthesis = Self::synthesize_with_llm(state, &inbound).await;
         match synthesis {
             Ok(Some(markdown)) => {
-                let _ = Self::apply_text(
+                let _ = Self::set_section_content(
                     state,
                     inbound.run_writer_actor.clone(),
                     inbound.run_id.clone(),
-                    inbound.section_id.clone(),
+                    "conductor".to_string(),
                     WriterSource::Writer,
                     markdown,
-                    false,
                 )
                 .await;
             }
@@ -499,7 +498,7 @@ impl WriterActor {
 
         let prompt = format!(
             "You are WriterActor.\n\
-             Produce a concise markdown update to append to section '{section}'.\n\
+             Produce a full revised document body (single coherent narrative) for this run.\n\
              Use the new inbox message and current document context.\n\
              Requirements:\n\
              - prioritize readability for humans\n\
@@ -507,14 +506,15 @@ impl WriterActor {
              - preserve factual claims from the inbox message, but reconcile contradictions with existing document context\n\
              - if a new claim conflicts with earlier text, explicitly correct/supersede the earlier claim\n\
              - avoid duplicating stale or disproven claims\n\
-             - do not repeat the entire document\n\
-             - keep updates incremental (delta-style)\n\
+             - produce a self-contained best-integrated revision (not just delta snippets)\n\
+             - do not include section headers like 'Conductor/Researcher/Terminal/User'\n\
+             - do not include markdown title '# ...' (title is handled separately)\n\
+             - do not include proposal metadata or actor message wrappers\n\
              - output markdown only\n\n\
              Inbox message id: {message_id}\n\
              Message kind: {kind}\n\
              Message source: {source}\n\
              Message content:\n{content}",
-            section = inbound.section_id,
             message_id = inbound.message_id,
             kind = inbound.kind,
             source = inbound.source.as_str(),
@@ -575,7 +575,7 @@ impl WriterActor {
                 if trimmed.is_empty() {
                     Ok(None)
                 } else {
-                    Ok(Some(format!("\n<!-- writer_synthesis -->\n{trimmed}\n")))
+                    Ok(Some(trimmed.to_string()))
                 }
             }
             Err(error) => {
@@ -633,6 +633,44 @@ impl WriterActor {
                     }),
                 );
                 Ok(result.revision)
+            }
+            Ok(Err(e)) => Err(WriterError::RunWriterFailed(e.to_string())),
+            Err(e) => Err(WriterError::RunWriterFailed(e.to_string())),
+        }
+    }
+
+    async fn set_section_content(
+        state: &WriterState,
+        run_writer_actor: ActorRef<RunWriterMsg>,
+        run_id: String,
+        section_id: String,
+        source: WriterSource,
+        content: String,
+    ) -> Result<u64, WriterError> {
+        if content.trim().is_empty() {
+            return Err(WriterError::Validation(
+                "content cannot be empty".to_string(),
+            ));
+        }
+        match ractor::call!(run_writer_actor, |reply| RunWriterMsg::SetSectionContent {
+            run_id: run_id.clone(),
+            source: source.as_str().to_string(),
+            section_id: section_id.clone(),
+            content: content.clone(),
+            reply,
+        }) {
+            Ok(Ok(revision)) => {
+                Self::emit_event(
+                    state,
+                    "writer.actor.set_section_content",
+                    serde_json::json!({
+                        "run_id": run_id,
+                        "section_id": section_id,
+                        "source": source.as_str(),
+                        "revision": revision,
+                    }),
+                );
+                Ok(revision)
             }
             Ok(Err(e)) => Err(WriterError::RunWriterFailed(e.to_string())),
             Err(e) => Err(WriterError::RunWriterFailed(e.to_string())),

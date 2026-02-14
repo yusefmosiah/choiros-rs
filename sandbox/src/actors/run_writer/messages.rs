@@ -68,6 +68,13 @@ pub enum RunWriterMsg {
         section_id: String,
         reply: RpcReplyPort<Result<(), RunWriterError>>,
     },
+    SetSectionContent {
+        run_id: String,
+        source: String,
+        section_id: String,
+        content: String,
+        reply: RpcReplyPort<Result<u64, RunWriterError>>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

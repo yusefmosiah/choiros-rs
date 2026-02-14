@@ -18,20 +18,10 @@
 //! ```markdown
 //! # {objective}
 //!
-//! ## Conductor
-//! {canon text only}
+//! {narrative content}
 //!
-//! ## Researcher
 //! <!-- proposal -->
-//! {live worker proposals}
-//!
-//! ## Terminal
-//! <!-- proposal -->
-//! {live worker proposals}
-//!
-//! ## User
-//! <!-- proposal -->
-//! {unsent user directives/comments}
+//! {live proposed edits}
 //! ```
 
 mod messages;
@@ -198,6 +188,18 @@ impl Actor for RunWriterActor {
             RunWriterMsg::DiscardProposal { section_id, reply } => {
                 let result = self
                     .handle_discard_proposal(&myself, state, section_id)
+                    .await;
+                let _ = reply.send(result);
+            }
+            RunWriterMsg::SetSectionContent {
+                run_id,
+                source,
+                section_id,
+                content,
+                reply,
+            } => {
+                let result = self
+                    .handle_set_section_content(&myself, state, run_id, source, section_id, content)
                     .await;
                 let _ = reply.send(result);
             }
@@ -709,6 +711,41 @@ impl RunWriterActor {
 
         Ok(())
     }
+
+    async fn handle_set_section_content(
+        &self,
+        _myself: &ActorRef<RunWriterMsg>,
+        state: &mut RunWriterState,
+        run_id: String,
+        source: String,
+        section_id: String,
+        content: String,
+    ) -> Result<u64, RunWriterError> {
+        if run_id != state.run_id {
+            return Err(RunWriterError::RunIdMismatch {
+                expected: state.run_id.clone(),
+                actual: run_id,
+            });
+        }
+
+        let section = state
+            .document
+            .sections
+            .get_mut(&section_id)
+            .ok_or_else(|| RunWriterError::SectionNotFound(section_id.clone()))?;
+        section.content = content;
+
+        Self::persist_document(state).await?;
+        Self::emit_patch_event(state, &source, Some(&section_id), None).await;
+        Self::emit_progress_event(
+            state,
+            "section_rewritten",
+            format!("Rewrote canonical content for {section_id}"),
+        )
+        .await;
+
+        Ok(state.revision)
+    }
 }
 
 #[cfg(test)]
@@ -725,11 +762,11 @@ mod tests {
 
         let md = doc.to_markdown();
         assert!(md.contains("# Test Objective"));
-        assert!(md.contains("## Conductor"));
         assert!(md.contains("Conductor content"));
-        assert!(md.contains("## Researcher"));
         assert!(md.contains("<!-- proposal -->"));
         assert!(md.contains("Research proposal"));
+        assert!(!md.contains("## Conductor"));
+        assert!(!md.contains("## Researcher"));
     }
 
     #[test]
@@ -778,22 +815,19 @@ Research proposal
         let restored = RunDocument::from_markdown(&md).unwrap();
 
         assert_eq!(restored.objective, "Complex Roundtrip Test");
-        assert_eq!(
-            restored.sections.get("conductor").unwrap().content,
-            "Canon content\nwith multiple lines"
-        );
-        assert_eq!(
-            restored.sections.get("researcher").unwrap().proposal,
-            Some("Research in progress".to_string())
-        );
-        assert_eq!(
-            restored.sections.get("terminal").unwrap().content,
-            "Terminal output"
-        );
-        assert_eq!(
-            restored.sections.get("user").unwrap().proposal,
-            Some("User comment".to_string())
-        );
+        let conductor = &restored.sections.get("conductor").unwrap().content;
+        assert!(conductor.contains("Canon content"));
+        assert!(conductor.contains("Terminal output"));
+
+        let proposal = restored
+            .sections
+            .get("researcher")
+            .unwrap()
+            .proposal
+            .clone()
+            .unwrap_or_default();
+        assert!(proposal.contains("Research in progress"));
+        assert!(proposal.contains("User comment"));
     }
 
     #[test]

@@ -117,7 +117,10 @@ impl ConductorActor {
             .await?;
 
         let bootstrap_note = format!(
-            "Run accepted.\n\nObjective: {}\nRun ID: `{}`\n\nWaiting for worker dispatch...",
+            "This draft will become a coherent comparison based on incoming evidence.\n\
+             The run has started and the researcher is gathering source-backed findings.\n\n\
+             Objective: {}\n\
+             Run ID: `{}`",
             request.objective, run_id
         );
         let bootstrap_ops = vec![PatchOp {
