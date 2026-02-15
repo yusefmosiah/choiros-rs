@@ -35,7 +35,6 @@ enum InteractionMode {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MobileInteractionMode {
     Normal,
-    Drag,
     Resize,
 }
 
@@ -224,7 +223,7 @@ pub fn FloatingWindow(
     let mut last_resize_sent_ms = use_signal(|| 0i64);
     let mut mobile_pinch_anchor = use_signal(|| None::<(i32, i32, i32)>);
     let mut mobile_pinch = use_signal(|| None::<MobilePinchState>);
-    let mut mobile_interaction_mode = use_signal(|| MobileInteractionMode::Normal);
+    let mobile_interaction_mode = use_signal(|| MobileInteractionMode::Normal);
     let document_pointer_listeners_registered = use_signal(|| false);
 
     let bounds = live_bounds().unwrap_or(committed);
@@ -236,11 +235,8 @@ pub fn FloatingWindow(
     let window_id_for_pointer_up = window_id.clone();
     let window_id_for_pointer_lost = window_id.clone();
     let window_id_for_doc_pointer_up = window_id.clone();
-    let window_id_for_mobile_mode = window_id.clone();
-    let window_id_for_mobile_pointer = window_id.clone();
     let window_id_for_title_key = window_id.clone();
     let window_id_for_title_pointer = window_id.clone();
-    let window_id_for_title_pointer_root = window_id.clone();
     let window_id_for_resize_pointer = window_id.clone();
 
     let z_index = window.z_index;
@@ -357,107 +353,6 @@ pub fn FloatingWindow(
             on_move.call((window_id_for_keyboard.clone(), next.x, next.y));
         }
     };
-
-    let mobile_mode_change_cb = use_callback(move |next_mode: MobileInteractionMode| {
-        mobile_interaction_mode.set(next_mode);
-        mobile_pinch_anchor.set(None);
-        mobile_pinch.set(None);
-        if let Some(active) = interaction() {
-            match active.mode {
-                InteractionMode::Drag => {
-                    let final_bounds = live_bounds().unwrap_or(active.start_bounds);
-                    on_move.call((window_id_for_mobile_mode.clone(), final_bounds.x, final_bounds.y));
-                }
-                InteractionMode::Resize => {
-                    let final_bounds = live_bounds().unwrap_or(active.start_bounds);
-                    on_resize.call((
-                        window_id_for_mobile_mode.clone(),
-                        final_bounds.width,
-                        final_bounds.height,
-                    ));
-                }
-            }
-            interaction.set(None);
-        }
-        if is_mobile && next_mode != MobileInteractionMode::Normal && window.maximized {
-            on_restore.call(window_id_for_mobile_mode.clone());
-        }
-    });
-
-    let pointer_down_cb = use_callback(move |e: PointerEvent| {
-        if !is_mobile {
-            return;
-        }
-        if pointer_target_is_window_control(&e) {
-            return;
-        }
-        if !is_active {
-            on_focus.call(window_id_for_title_pointer_root.clone());
-        }
-
-        let mode = mobile_interaction_mode();
-        if mode == MobileInteractionMode::Normal {
-            return;
-        }
-
-        if window.maximized {
-            on_restore.call(window_id_for_mobile_pointer.clone());
-            return;
-        }
-
-        let pointer_id = event_pointer_id(&e);
-        let (start_x, start_y) = pointer_point(&e);
-        e.prevent_default();
-        capture_window_pointer(&e, pointer_id);
-
-        match mode {
-            MobileInteractionMode::Drag => {
-                interaction.set(Some(InteractionState {
-                    mode: InteractionMode::Drag,
-                    pointer_id,
-                    start_x,
-                    start_y,
-                    start_bounds: bounds,
-                    committed_bounds: committed,
-                }));
-                mobile_pinch_anchor.set(None);
-                mobile_pinch.set(None);
-            }
-            MobileInteractionMode::Resize => {
-                if interaction().is_some() {
-                    return;
-                }
-
-                if mobile_pinch().is_some() {
-                    return;
-                }
-
-                if let Some((anchor_id, anchor_x, anchor_y)) = mobile_pinch_anchor() {
-                    if pointer_ids_match(anchor_id, pointer_id) {
-                        return;
-                    }
-                    let start_distance = pointer_distance(anchor_x, anchor_y, start_x, start_y);
-                    if start_distance >= 1.0 {
-                        mobile_pinch.set(Some(MobilePinchState {
-                            pointer_a_id: anchor_id,
-                            pointer_b_id: pointer_id,
-                            pointer_a_x: anchor_x,
-                            pointer_a_y: anchor_y,
-                            pointer_b_x: start_x,
-                            pointer_b_y: start_y,
-                            start_distance,
-                            start_bounds: bounds,
-                            committed_bounds: committed,
-                        }));
-                    }
-                    mobile_pinch_anchor.set(None);
-                } else {
-                    mobile_pinch_anchor.set(Some((pointer_id, start_x, start_y)));
-                }
-            }
-            MobileInteractionMode::Normal => {}
-        }
-    });
 
     let pointer_move_cb = use_callback(move |e: PointerEvent| {
         let pointer_id = event_pointer_id(&e);
@@ -806,7 +701,6 @@ pub fn FloatingWindow(
         interaction.set(None);
     });
 
-    let pointer_down_for_root = pointer_down_cb;
     let pointer_move_for_root = pointer_move_cb;
     let pointer_up_for_root = pointer_up_cb;
     let pointer_cancel_for_root = pointer_cancel_cb;
@@ -1067,7 +961,6 @@ pub fn FloatingWindow(
                 }
             },
             onkeydown: on_window_keydown,
-            onpointerdown: move |e| pointer_down_for_root.call(e),
             onpointermove: move |e| pointer_move_for_root.call(e),
             onpointerup: move |e| pointer_up_for_root.call(e),
             onpointercancel: move |e| pointer_cancel_for_root.call(e),
@@ -1098,10 +991,6 @@ pub fn FloatingWindow(
                         }
                     },
                     onpointerdown: move |e| {
-                        if is_mobile {
-                            // Mobile drag/resize is mode-based from the root container.
-                            return;
-                        }
                         if window.maximized {
                             return;
                         }
@@ -1137,13 +1026,11 @@ pub fn FloatingWindow(
                         maximized: false,
                         floating: false,
                         mobile: is_mobile,
-                        mobile_mode: mobile_interaction_mode(),
                         window_id: window_id_for_minimize.clone(),
                         on_minimize,
                         on_maximize,
                         on_restore,
                         on_close,
-                        on_mobile_mode_change: mobile_mode_change_cb,
                     }
                 }
             } else {
@@ -1151,13 +1038,11 @@ pub fn FloatingWindow(
                     maximized: true,
                     floating: true,
                     mobile: is_mobile,
-                    mobile_mode: mobile_interaction_mode(),
                     window_id: window_id_for_minimize.clone(),
                     on_minimize,
                     on_maximize,
                     on_restore,
                     on_close,
-                    on_mobile_mode_change: mobile_mode_change_cb,
                 }
             }
 
@@ -1286,154 +1171,71 @@ fn WindowControls(
     maximized: bool,
     floating: bool,
     mobile: bool,
-    mobile_mode: MobileInteractionMode,
     window_id: String,
     on_minimize: Callback<String>,
     on_maximize: Callback<String>,
     on_restore: Callback<String>,
     on_close: Callback<String>,
-    on_mobile_mode_change: Callback<MobileInteractionMode>,
 ) -> Element {
     let window_id_for_minimize = window_id.clone();
     let window_id_for_max_restore = window_id.clone();
-    let window_id_for_max_restore_mobile = window_id.clone();
     let window_id_for_close = window_id;
-    let mut expanded = use_signal(|| false);
     let container_style = if floating {
-        "position: absolute; top: 0.75rem; left: 0.75rem; z-index: 10; display: flex; align-items: center; gap: 0.25rem; padding: 0.25rem; border: none; border-radius: 999px; background: transparent;"
+        "position: absolute; top: 0.5rem; left: 0.5rem; z-index: 10; display: flex; align-items: center; gap: 0.25rem;"
     } else if mobile {
-        "display: flex; align-items: center; gap: 0.25rem; margin-left: auto;"
+        "display: flex; align-items: center; gap: 0.25rem; margin-left: auto; padding-right: 0.25rem;"
     } else {
         "display: flex; align-items: center; gap: 0.25rem;"
     };
-    let show_compact_toggle = mobile;
-    let action_row_style = if mobile {
-        "display: flex; flex-direction: column; align-items: stretch; gap: 0.4rem; min-width: 190px; background: color-mix(in srgb, var(--titlebar-bg, #111827) 85%, transparent); border: 1px solid var(--border-color, #374151); border-radius: 10px; padding: 0.45rem;"
-    } else if floating {
-        "display: flex; align-items: center; gap: 0.25rem; background: color-mix(in srgb, var(--titlebar-bg, #111827) 35%, transparent); border-radius: 999px; padding: 0.125rem 0.25rem;"
+    let action_row_style = if floating {
+        "display: flex; align-items: center; gap: 0.2rem; background: color-mix(in srgb, var(--titlebar-bg, #111827) 35%, transparent); border: 1px solid var(--border-color, #374151); border-radius: 999px; padding: 0.15rem 0.25rem;"
     } else {
         "display: flex; align-items: center; gap: 0.25rem;"
     };
+    let control_size = if mobile { "22px" } else { "24px" };
+    let close_size = if mobile { "22px" } else { "24px" };
 
     rsx! {
         div {
             class: if floating { "window-controls window-controls-floating" } else { "window-controls" },
             style: "{container_style}",
 
-            if show_compact_toggle {
+            div {
+                style: "{action_row_style}",
                 button {
-                    style: "width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--titlebar-bg, #111827) 65%, transparent); color: #60a5fa; border: 1px solid var(--border-color, #374151); border-radius: 999px; cursor: pointer; font-size: 1rem; font-weight: 700;",
+                    style: "width: {control_size}; height: {control_size}; display: flex; align-items: center; justify-content: center; background: transparent; color: #facc15; border: none; border-radius: var(--radius-sm, 4px); cursor: pointer;",
                     onpointerdown: move |e| e.stop_propagation(),
-                    "aria-label": if expanded() { "Hide window controls" } else { "Show window controls" },
+                    "aria-label": "Minimize",
                     onclick: move |e| {
                         e.stop_propagation();
-                        expanded.set(!expanded());
+                        on_minimize.call(window_id_for_minimize.clone());
                     },
-                    "≡"
+                    "−"
                 }
-            }
-
-            if !show_compact_toggle || expanded() {
-                div {
-                    style: "{action_row_style}",
-                    if mobile {
-                        div {
-                            style: "display: flex; gap: 0.35rem;",
-                            button {
-                                style: if mobile_mode == MobileInteractionMode::Normal {
-                                    "flex: 1; height: 28px; border-radius: 8px; border: 1px solid #3b82f6; background: #1d4ed8; color: #ffffff; font-size: 0.72rem; cursor: pointer;"
-                                } else {
-                                    "flex: 1; height: 28px; border-radius: 8px; border: 1px solid var(--border-color, #374151); background: transparent; color: var(--text-secondary, #94a3b8); font-size: 0.72rem; cursor: pointer;"
-                                },
-                                onpointerdown: move |e| e.stop_propagation(),
-                                onclick: move |e| {
-                                    e.stop_propagation();
-                                    on_mobile_mode_change.call(MobileInteractionMode::Normal);
-                                },
-                                "Normal"
-                            }
-                            button {
-                                style: if mobile_mode == MobileInteractionMode::Drag {
-                                    "flex: 1; height: 28px; border-radius: 8px; border: 1px solid #3b82f6; background: #1d4ed8; color: #ffffff; font-size: 0.72rem; cursor: pointer;"
-                                } else {
-                                    "flex: 1; height: 28px; border-radius: 8px; border: 1px solid var(--border-color, #374151); background: transparent; color: var(--text-secondary, #94a3b8); font-size: 0.72rem; cursor: pointer;"
-                                },
-                                onpointerdown: move |e| e.stop_propagation(),
-                                onclick: move |e| {
-                                    e.stop_propagation();
-                                    on_mobile_mode_change.call(MobileInteractionMode::Drag);
-                                },
-                                "Drag"
-                            }
-                            button {
-                                style: if mobile_mode == MobileInteractionMode::Resize {
-                                    "flex: 1; height: 28px; border-radius: 8px; border: 1px solid #3b82f6; background: #1d4ed8; color: #ffffff; font-size: 0.72rem; cursor: pointer;"
-                                } else {
-                                    "flex: 1; height: 28px; border-radius: 8px; border: 1px solid var(--border-color, #374151); background: transparent; color: var(--text-secondary, #94a3b8); font-size: 0.72rem; cursor: pointer;"
-                                },
-                                onpointerdown: move |e| e.stop_propagation(),
-                                onclick: move |e| {
-                                    e.stop_propagation();
-                                    on_mobile_mode_change.call(MobileInteractionMode::Resize);
-                                },
-                                "Resize"
-                            }
+                button {
+                    style: "width: {control_size}; height: {control_size}; display: flex; align-items: center; justify-content: center; background: transparent; color: #22c55e; border: none; border-radius: var(--radius-sm, 4px); cursor: pointer;",
+                    onpointerdown: move |e| e.stop_propagation(),
+                    "aria-label": if maximized { "Restore" } else { "Maximize" },
+                    onclick: move |e| {
+                        e.stop_propagation();
+                        if maximized {
+                            on_restore.call(window_id_for_max_restore.clone());
+                        } else {
+                            on_maximize.call(window_id_for_max_restore.clone());
                         }
-                        button {
-                            style: "width: 100%; height: 30px; display: flex; align-items: center; justify-content: center; background: transparent; color: #22c55e; border: 1px solid var(--border-color, #374151); border-radius: 8px; cursor: pointer; font-size: 0.8rem;",
-                            onpointerdown: move |e| e.stop_propagation(),
-                            "aria-label": if maximized { "Exit fullscreen" } else { "Enter fullscreen" },
-                            onclick: move |e| {
-                                e.stop_propagation();
-                                if maximized {
-                                    on_restore.call(window_id_for_max_restore_mobile.clone());
-                                } else {
-                                    on_maximize.call(window_id_for_max_restore_mobile.clone());
-                                }
-                            },
-                            if maximized { "Exit Fullscreen" } else { "Enter Fullscreen" }
-                        }
-                    }
-                    button {
-                        style: "width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: transparent; color: #facc15; border: none; border-radius: var(--radius-sm, 4px); cursor: pointer;",
-                        onpointerdown: move |e| e.stop_propagation(),
-                        "aria-label": "Minimize",
-                        onclick: move |e| {
-                            e.stop_propagation();
-                            on_minimize.call(window_id_for_minimize.clone());
-                            expanded.set(false);
-                        },
-                        "−"
-                    }
-                    if !mobile {
-                        button {
-                            style: "width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: transparent; color: #22c55e; border: none; border-radius: var(--radius-sm, 4px); cursor: pointer;",
-                            onpointerdown: move |e| e.stop_propagation(),
-                            "aria-label": if maximized { "Restore" } else { "Maximize" },
-                            onclick: move |e| {
-                                e.stop_propagation();
-                                if maximized {
-                                    on_restore.call(window_id_for_max_restore.clone());
-                                } else {
-                                    on_maximize.call(window_id_for_max_restore.clone());
-                                }
-                                expanded.set(false);
-                            },
-                            if maximized { "❐" } else { "□" }
-                        }
-                    }
-                    button {
-                        class: "window-close",
-                        style: "width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: transparent; color: #ef4444; border: none; border-radius: var(--radius-sm, 4px); cursor: pointer; font-size: 1.25rem; line-height: 1;",
-                        onpointerdown: move |e| e.stop_propagation(),
-                        "aria-label": "Close",
-                        onclick: move |e| {
-                            e.stop_propagation();
-                            on_close.call(window_id_for_close.clone());
-                            expanded.set(false);
-                        },
-                        "×"
-                    }
+                    },
+                    if maximized { "❐" } else { "□" }
+                }
+                button {
+                    class: "window-close",
+                    style: "width: {close_size}; height: {close_size}; display: flex; align-items: center; justify-content: center; background: transparent; color: #ef4444; border: none; border-radius: var(--radius-sm, 4px); cursor: pointer; font-size: 1.2rem; line-height: 1;",
+                    onpointerdown: move |e| e.stop_propagation(),
+                    "aria-label": "Close",
+                    onclick: move |e| {
+                        e.stop_propagation();
+                        on_close.call(window_id_for_close.clone());
+                    },
+                    "×"
                 }
             }
         }

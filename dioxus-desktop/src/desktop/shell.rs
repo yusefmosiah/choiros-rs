@@ -51,6 +51,50 @@ pub fn DesktopShell(desktop_id: String) -> Element {
     });
 
     use_effect(move || {
+        let is_mobile = viewport.read().0 <= 1024;
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let Some(document) = window.document() else {
+            return;
+        };
+
+        if let Ok(Some(meta)) = document.query_selector("meta[name='viewport']") {
+            let content = if is_mobile {
+                "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+            } else {
+                "width=device-width, initial-scale=1"
+            };
+            let _ = meta.set_attribute("content", content);
+        }
+
+        if let Some(root) = document.document_element() {
+            let _ = root.set_attribute(
+                "style",
+                "height: 100%; overflow: hidden; overscroll-behavior: none;",
+            );
+        }
+
+        if let Some(body) = document.body() {
+            let _ = body.set_attribute(
+                "style",
+                "margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none;",
+            );
+            if is_mobile {
+                let _ = body.set_attribute(
+                    "style",
+                    "margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none; position: fixed; inset: 0;",
+                );
+            } else {
+                let _ = body.set_attribute(
+                    "style",
+                    "margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none;",
+                );
+            }
+        }
+    });
+
+    use_effect(move || {
         spawn(async move {
             effects::initialize_theme(theme_initialized, current_theme).await;
         });
@@ -262,7 +306,7 @@ pub fn DesktopShell(desktop_id: String) -> Element {
 
         div {
             class: "desktop-shell",
-            style: "min-height: 100vh; display: flex; flex-direction: column; overflow: hidden;",
+            style: "width: 100vw; height: 100dvh; min-height: 100dvh; max-height: 100dvh; display: flex; flex-direction: column; overflow: hidden;",
 
             WorkspaceCanvas {
                 desktop_id: desktop_id_signal.read().clone(),
@@ -394,6 +438,13 @@ const DEFAULT_TOKENS: &str = r#"
 
 * {
     box-sizing: border-box;
+}
+
+html, body, #main {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
 }
 
 body {
