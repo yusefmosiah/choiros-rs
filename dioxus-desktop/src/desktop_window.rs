@@ -17,8 +17,6 @@ const MIN_WINDOW_WIDTH: i32 = 200;
 const MIN_WINDOW_HEIGHT: i32 = 160;
 const MIN_VISIBLE_X_PX: i32 = 64;
 const PATCH_INTERVAL_MS: i64 = 50;
-const MOBILE_LONG_PRESS_MS: u32 = 380;
-const MOBILE_LONG_PRESS_CANCEL_PX: i32 = 10;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct WindowBounds {
@@ -52,10 +50,14 @@ struct InteractionState {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct PendingMobileDragState {
-    pointer_id: i32,
-    start_x: i32,
-    start_y: i32,
+struct MobilePinchState {
+    pointer_a_id: i32,
+    pointer_b_id: i32,
+    pointer_a_x: i32,
+    pointer_a_y: i32,
+    pointer_b_x: i32,
+    pointer_b_y: i32,
+    start_distance: f64,
     start_bounds: WindowBounds,
     committed_bounds: WindowBounds,
 }
@@ -67,19 +69,23 @@ fn now_ms() -> i64 {
 fn clamp_bounds(bounds: WindowBounds, viewport: (u32, u32), is_mobile: bool) -> WindowBounds {
     let (vw, vh) = viewport;
     if is_mobile {
-        let mobile_width = ((vw as i32) - 20).max(280).min(vw as i32 - 8);
-        let mobile_height = ((vh as i32) - 130).max(260).min(vh as i32 - 20);
+        let min_mobile_width = 240;
+        let min_mobile_height = 220;
+        let max_mobile_width = (vw as i32 - 8).max(min_mobile_width);
+        let max_mobile_height = (vh as i32 - 20).max(min_mobile_height);
+        let width = bounds.width.max(min_mobile_width).min(max_mobile_width);
+        let height = bounds.height.max(min_mobile_height).min(max_mobile_height);
         let min_x = 4;
-        let max_x = (vw as i32 - mobile_width - 4).max(min_x);
+        let max_x = (vw as i32 - width - 4).max(min_x);
         let min_y = 8;
-        let max_y = (vh as i32 - mobile_height - 64).max(min_y);
+        let max_y = (vh as i32 - height - 64).max(min_y);
         let x = bounds.x.max(min_x).min(max_x);
         let y = bounds.y.max(min_y).min(max_y);
         return WindowBounds {
             x,
             y,
-            width: mobile_width,
-            height: mobile_height,
+            width,
+            height,
         };
     }
 
@@ -114,7 +120,13 @@ fn pointer_point(e: &PointerEvent) -> (i32, i32) {
 }
 
 fn pointer_ids_match(active_pointer_id: i32, event_pointer_id: i32) -> bool {
-    active_pointer_id == event_pointer_id || active_pointer_id <= 0 || event_pointer_id <= 0
+    active_pointer_id == event_pointer_id
+}
+
+fn pointer_distance(ax: i32, ay: i32, bx: i32, by: i32) -> f64 {
+    let dx = (bx - ax) as f64;
+    let dy = (by - ay) as f64;
+    (dx * dx + dy * dy).sqrt()
 }
 
 fn event_pointer_id(e: &PointerEvent) -> i32 {
@@ -210,7 +222,8 @@ pub fn FloatingWindow(
     let mut resize_flush_scheduled = use_signal(|| false);
     let mut last_move_sent_ms = use_signal(|| 0i64);
     let mut last_resize_sent_ms = use_signal(|| 0i64);
-    let mut pending_mobile_drag = use_signal(|| None::<PendingMobileDragState>);
+    let mut mobile_pinch_anchor = use_signal(|| None::<(i32, i32, i32)>);
+    let mut mobile_pinch = use_signal(|| None::<MobilePinchState>);
     let mut mobile_interaction_mode = use_signal(|| MobileInteractionMode::Normal);
     let document_pointer_listeners_registered = use_signal(|| false);
 
@@ -224,8 +237,10 @@ pub fn FloatingWindow(
     let window_id_for_pointer_lost = window_id.clone();
     let window_id_for_doc_pointer_up = window_id.clone();
     let window_id_for_mobile_mode = window_id.clone();
+    let window_id_for_mobile_pointer = window_id.clone();
     let window_id_for_title_key = window_id.clone();
     let window_id_for_title_pointer = window_id.clone();
+    let window_id_for_title_pointer_root = window_id.clone();
     let window_id_for_resize_pointer = window_id.clone();
 
     let z_index = window.z_index;
@@ -345,27 +360,181 @@ pub fn FloatingWindow(
 
     let mobile_mode_change_cb = use_callback(move |next_mode: MobileInteractionMode| {
         mobile_interaction_mode.set(next_mode);
+        mobile_pinch_anchor.set(None);
+        mobile_pinch.set(None);
+        if let Some(active) = interaction() {
+            match active.mode {
+                InteractionMode::Drag => {
+                    let final_bounds = live_bounds().unwrap_or(active.start_bounds);
+                    on_move.call((window_id_for_mobile_mode.clone(), final_bounds.x, final_bounds.y));
+                }
+                InteractionMode::Resize => {
+                    let final_bounds = live_bounds().unwrap_or(active.start_bounds);
+                    on_resize.call((
+                        window_id_for_mobile_mode.clone(),
+                        final_bounds.width,
+                        final_bounds.height,
+                    ));
+                }
+            }
+            interaction.set(None);
+        }
         if is_mobile && next_mode != MobileInteractionMode::Normal && window.maximized {
             on_restore.call(window_id_for_mobile_mode.clone());
         }
     });
 
-    let pointer_move_cb = use_callback(move |e: PointerEvent| {
+    let pointer_down_cb = use_callback(move |e: PointerEvent| {
+        if !is_mobile {
+            return;
+        }
+        if pointer_target_is_window_control(&e) {
+            return;
+        }
+        if !is_active {
+            on_focus.call(window_id_for_title_pointer_root.clone());
+        }
+
+        let mode = mobile_interaction_mode();
+        if mode == MobileInteractionMode::Normal {
+            return;
+        }
+
+        if window.maximized {
+            on_restore.call(window_id_for_mobile_pointer.clone());
+            return;
+        }
+
         let pointer_id = event_pointer_id(&e);
-        let Some(active) = interaction() else {
-            if is_mobile {
-                if let Some(pending) = pending_mobile_drag() {
-                    if pointer_ids_match(pending.pointer_id, pointer_id) {
-                        let (client_x, client_y) = pointer_point(&e);
-                        let dx = (client_x - pending.start_x).abs();
-                        let dy = (client_y - pending.start_y).abs();
-                        if dx >= MOBILE_LONG_PRESS_CANCEL_PX || dy >= MOBILE_LONG_PRESS_CANCEL_PX {
-                            pending_mobile_drag.set(None);
-                            release_window_pointer(&e, pending.pointer_id);
-                        }
+        let (start_x, start_y) = pointer_point(&e);
+        e.prevent_default();
+        capture_window_pointer(&e, pointer_id);
+
+        match mode {
+            MobileInteractionMode::Drag => {
+                interaction.set(Some(InteractionState {
+                    mode: InteractionMode::Drag,
+                    pointer_id,
+                    start_x,
+                    start_y,
+                    start_bounds: bounds,
+                    committed_bounds: committed,
+                }));
+                mobile_pinch_anchor.set(None);
+                mobile_pinch.set(None);
+            }
+            MobileInteractionMode::Resize => {
+                if interaction().is_some() {
+                    return;
+                }
+
+                if mobile_pinch().is_some() {
+                    return;
+                }
+
+                if let Some((anchor_id, anchor_x, anchor_y)) = mobile_pinch_anchor() {
+                    if pointer_ids_match(anchor_id, pointer_id) {
+                        return;
                     }
+                    let start_distance = pointer_distance(anchor_x, anchor_y, start_x, start_y);
+                    if start_distance >= 1.0 {
+                        mobile_pinch.set(Some(MobilePinchState {
+                            pointer_a_id: anchor_id,
+                            pointer_b_id: pointer_id,
+                            pointer_a_x: anchor_x,
+                            pointer_a_y: anchor_y,
+                            pointer_b_x: start_x,
+                            pointer_b_y: start_y,
+                            start_distance,
+                            start_bounds: bounds,
+                            committed_bounds: committed,
+                        }));
+                    }
+                    mobile_pinch_anchor.set(None);
+                } else {
+                    mobile_pinch_anchor.set(Some((pointer_id, start_x, start_y)));
                 }
             }
+            MobileInteractionMode::Normal => {}
+        }
+    });
+
+    let pointer_move_cb = use_callback(move |e: PointerEvent| {
+        let pointer_id = event_pointer_id(&e);
+        let (client_x, client_y) = pointer_point(&e);
+
+        if is_mobile && mobile_interaction_mode() == MobileInteractionMode::Resize {
+            if let Some(mut pinch) = mobile_pinch() {
+                let mut matches = false;
+                if pointer_ids_match(pinch.pointer_a_id, pointer_id) {
+                    pinch.pointer_a_x = client_x;
+                    pinch.pointer_a_y = client_y;
+                    matches = true;
+                } else if pointer_ids_match(pinch.pointer_b_id, pointer_id) {
+                    pinch.pointer_b_x = client_x;
+                    pinch.pointer_b_y = client_y;
+                    matches = true;
+                }
+
+                if matches {
+                    let distance = pointer_distance(
+                        pinch.pointer_a_x,
+                        pinch.pointer_a_y,
+                        pinch.pointer_b_x,
+                        pinch.pointer_b_y,
+                    );
+                    if pinch.start_distance >= 1.0 && distance >= 1.0 {
+                        let scale = distance / pinch.start_distance;
+                        let raw_width = (pinch.start_bounds.width as f64 * scale).round() as i32;
+                        let raw_height = (pinch.start_bounds.height as f64 * scale).round() as i32;
+                        let center_x = pinch.start_bounds.x + pinch.start_bounds.width / 2;
+                        let center_y = pinch.start_bounds.y + pinch.start_bounds.height / 2;
+                        let next = clamp_bounds(
+                            WindowBounds {
+                                x: center_x - raw_width / 2,
+                                y: center_y - raw_height / 2,
+                                width: raw_width,
+                                height: raw_height,
+                            },
+                            viewport,
+                            is_mobile,
+                        );
+                        live_bounds.set(Some(next));
+
+                        queued_resize.set(Some((next.width, next.height)));
+                        let elapsed = now_ms() - last_resize_sent_ms();
+                        if elapsed >= PATCH_INTERVAL_MS {
+                            let pending_resize = { queued_resize.write().take() };
+                            if let Some((next_w, next_h)) = pending_resize {
+                                on_resize.call((window_id_for_pointer_move.clone(), next_w, next_h));
+                                last_resize_sent_ms.set(now_ms());
+                            }
+                        } else if !resize_flush_scheduled() {
+                            resize_flush_scheduled.set(true);
+                            let wait_ms = (PATCH_INTERVAL_MS - elapsed).max(1) as u32;
+                            let mut resize_flush_scheduled_clone = resize_flush_scheduled;
+                            let mut queued_resize_clone = queued_resize;
+                            let mut last_resize_sent_ms_clone = last_resize_sent_ms;
+                            let on_resize_clone = on_resize;
+                            let window_id_clone = window_id_for_pointer_move.clone();
+                            spawn(async move {
+                                TimeoutFuture::new(wait_ms).await;
+                                let pending_resize = { queued_resize_clone.write().take() };
+                                if let Some((next_w, next_h)) = pending_resize {
+                                    on_resize_clone.call((window_id_clone, next_w, next_h));
+                                    last_resize_sent_ms_clone.set(now_ms());
+                                }
+                                resize_flush_scheduled_clone.set(false);
+                            });
+                        }
+                    }
+                    mobile_pinch.set(Some(pinch));
+                    return;
+                }
+            }
+        }
+
+        let Some(active) = interaction() else {
             return;
         };
 
@@ -373,7 +542,6 @@ pub fn FloatingWindow(
             return;
         }
 
-        let (client_x, client_y) = pointer_point(&e);
         let dx = client_x - active.start_x;
         let dy = client_y - active.start_y;
 
@@ -460,14 +628,33 @@ pub fn FloatingWindow(
 
     let pointer_up_cb = use_callback(move |e: PointerEvent| {
         let pointer_id = event_pointer_id(&e);
-        if interaction().is_none() {
-            if let Some(pending) = pending_mobile_drag() {
-                if pointer_ids_match(pending.pointer_id, pointer_id) {
-                    pending_mobile_drag.set(None);
-                    release_window_pointer(&e, pending.pointer_id);
+
+        if let Some(pinch) = mobile_pinch() {
+            if pointer_ids_match(pinch.pointer_a_id, pointer_id)
+                || pointer_ids_match(pinch.pointer_b_id, pointer_id)
+            {
+                release_window_pointer(&e, pointer_id);
+                let final_bounds = live_bounds().unwrap_or(pinch.start_bounds);
+                queued_resize.set(Some((final_bounds.width, final_bounds.height)));
+                let pending_resize = { queued_resize.write().take() };
+                if let Some((next_w, next_h)) = pending_resize {
+                    on_resize.call((window_id_for_pointer_up.clone(), next_w, next_h));
+                    last_resize_sent_ms.set(now_ms());
                 }
+                resize_flush_scheduled.set(false);
+                queued_resize.set(None);
+                mobile_pinch_anchor.set(None);
+                mobile_pinch.set(None);
+                return;
             }
-            return;
+        }
+
+        if let Some((anchor_id, _, _)) = mobile_pinch_anchor() {
+            if pointer_ids_match(anchor_id, pointer_id) {
+                mobile_pinch_anchor.set(None);
+                release_window_pointer(&e, pointer_id);
+                return;
+            }
         }
 
         let Some(active) = interaction() else {
@@ -502,20 +689,36 @@ pub fn FloatingWindow(
         resize_flush_scheduled.set(false);
         queued_move.set(None);
         queued_resize.set(None);
-        pending_mobile_drag.set(None);
+        mobile_pinch_anchor.set(None);
+        mobile_pinch.set(None);
         interaction.set(None);
     });
 
     let pointer_cancel_cb = use_callback(move |e: PointerEvent| {
         let pointer_id = event_pointer_id(&e);
-        if interaction().is_none() {
-            if let Some(pending) = pending_mobile_drag() {
-                if pointer_ids_match(pending.pointer_id, pointer_id) {
-                    pending_mobile_drag.set(None);
-                    release_window_pointer(&e, pending.pointer_id);
-                }
+
+        if let Some(pinch) = mobile_pinch() {
+            if pointer_ids_match(pinch.pointer_a_id, pointer_id)
+                || pointer_ids_match(pinch.pointer_b_id, pointer_id)
+            {
+                release_window_pointer(&e, pointer_id);
+                move_flush_scheduled.set(false);
+                resize_flush_scheduled.set(false);
+                queued_move.set(None);
+                queued_resize.set(None);
+                live_bounds.set(Some(pinch.committed_bounds));
+                mobile_pinch_anchor.set(None);
+                mobile_pinch.set(None);
+                return;
             }
-            return;
+        }
+
+        if let Some((anchor_id, _, _)) = mobile_pinch_anchor() {
+            if pointer_ids_match(anchor_id, pointer_id) {
+                mobile_pinch_anchor.set(None);
+                release_window_pointer(&e, pointer_id);
+                return;
+            }
         }
 
         let Some(active) = interaction() else {
@@ -530,20 +733,41 @@ pub fn FloatingWindow(
         resize_flush_scheduled.set(false);
         queued_move.set(None);
         queued_resize.set(None);
-        pending_mobile_drag.set(None);
+        mobile_pinch_anchor.set(None);
+        mobile_pinch.set(None);
         live_bounds.set(Some(active.committed_bounds));
         interaction.set(None);
     });
 
     let pointer_lost_capture_cb = use_callback(move |e: PointerEvent| {
         let pointer_id = event_pointer_id(&e);
-        if interaction().is_none() {
-            if let Some(pending) = pending_mobile_drag() {
-                if pointer_ids_match(pending.pointer_id, pointer_id) {
-                    pending_mobile_drag.set(None);
+
+        if let Some(pinch) = mobile_pinch() {
+            if pointer_ids_match(pinch.pointer_a_id, pointer_id)
+                || pointer_ids_match(pinch.pointer_b_id, pointer_id)
+            {
+                let final_bounds = live_bounds().unwrap_or(pinch.start_bounds);
+                queued_resize.set(Some((final_bounds.width, final_bounds.height)));
+                let pending_resize = { queued_resize.write().take() };
+                if let Some((next_w, next_h)) = pending_resize {
+                    on_resize.call((window_id_for_pointer_lost.clone(), next_w, next_h));
+                    last_resize_sent_ms.set(now_ms());
                 }
+                move_flush_scheduled.set(false);
+                resize_flush_scheduled.set(false);
+                queued_move.set(None);
+                queued_resize.set(None);
+                mobile_pinch_anchor.set(None);
+                mobile_pinch.set(None);
+                return;
             }
-            return;
+        }
+
+        if let Some((anchor_id, _, _)) = mobile_pinch_anchor() {
+            if pointer_ids_match(anchor_id, pointer_id) {
+                mobile_pinch_anchor.set(None);
+                return;
+            }
         }
 
         let Some(active) = interaction() else {
@@ -577,10 +801,12 @@ pub fn FloatingWindow(
         resize_flush_scheduled.set(false);
         queued_move.set(None);
         queued_resize.set(None);
-        pending_mobile_drag.set(None);
+        mobile_pinch_anchor.set(None);
+        mobile_pinch.set(None);
         interaction.set(None);
     });
 
+    let pointer_down_for_root = pointer_down_cb;
     let pointer_move_for_root = pointer_move_cb;
     let pointer_up_for_root = pointer_up_cb;
     let pointer_cancel_for_root = pointer_cancel_cb;
@@ -600,7 +826,9 @@ pub fn FloatingWindow(
         let mut queued_resize_doc = queued_resize;
         let mut move_flush_scheduled_doc = move_flush_scheduled;
         let mut resize_flush_scheduled_doc = resize_flush_scheduled;
-        let mut pending_mobile_drag_doc = pending_mobile_drag;
+        let mut mobile_pinch_anchor_doc = mobile_pinch_anchor;
+        let mut mobile_pinch_doc = mobile_pinch;
+        let mobile_mode_doc = mobile_interaction_mode;
         let on_move_doc = on_move;
         let on_resize_doc = on_resize;
         let window_id_for_pointer_up_doc = window_id_for_doc_pointer_up.clone();
@@ -619,21 +847,53 @@ pub fn FloatingWindow(
 
             let pointer_move_closure =
                 Closure::wrap(Box::new(move |event: web_sys::PointerEvent| {
-                    if interaction_doc().is_none() {
-                        if is_mobile_doc {
-                            if let Some(pending) = pending_mobile_drag_doc() {
-                                if pointer_ids_match(pending.pointer_id, event.pointer_id()) {
-                                    let dx = (event.client_x() - pending.start_x).abs();
-                                    let dy = (event.client_y() - pending.start_y).abs();
-                                    if dx >= MOBILE_LONG_PRESS_CANCEL_PX
-                                        || dy >= MOBILE_LONG_PRESS_CANCEL_PX
-                                    {
-                                        pending_mobile_drag_doc.set(None);
-                                    }
+                    if is_mobile_doc && mobile_mode_doc() == MobileInteractionMode::Resize {
+                        if let Some(mut pinch) = mobile_pinch_doc() {
+                            let mut matches = false;
+                            if pointer_ids_match(pinch.pointer_a_id, event.pointer_id()) {
+                                pinch.pointer_a_x = event.client_x();
+                                pinch.pointer_a_y = event.client_y();
+                                matches = true;
+                            } else if pointer_ids_match(pinch.pointer_b_id, event.pointer_id()) {
+                                pinch.pointer_b_x = event.client_x();
+                                pinch.pointer_b_y = event.client_y();
+                                matches = true;
+                            }
+
+                            if matches {
+                                let distance = pointer_distance(
+                                    pinch.pointer_a_x,
+                                    pinch.pointer_a_y,
+                                    pinch.pointer_b_x,
+                                    pinch.pointer_b_y,
+                                );
+                                if pinch.start_distance >= 1.0 && distance >= 1.0 {
+                                    let scale = distance / pinch.start_distance;
+                                    let raw_width =
+                                        (pinch.start_bounds.width as f64 * scale).round() as i32;
+                                    let raw_height =
+                                        (pinch.start_bounds.height as f64 * scale).round() as i32;
+                                    let center_x =
+                                        pinch.start_bounds.x + pinch.start_bounds.width / 2;
+                                    let center_y =
+                                        pinch.start_bounds.y + pinch.start_bounds.height / 2;
+                                    let next = clamp_bounds(
+                                        WindowBounds {
+                                            x: center_x - raw_width / 2,
+                                            y: center_y - raw_height / 2,
+                                            width: raw_width,
+                                            height: raw_height,
+                                        },
+                                        viewport_doc,
+                                        is_mobile_doc,
+                                    );
+                                    live_bounds_doc.set(Some(next));
                                 }
+
+                                mobile_pinch_doc.set(Some(pinch));
+                                return;
                             }
                         }
-                        return;
                     }
 
                     let Some(active) = interaction_doc() else {
@@ -670,13 +930,32 @@ pub fn FloatingWindow(
                 }) as Box<dyn FnMut(web_sys::PointerEvent)>);
 
             let pointer_up_closure = Closure::wrap(Box::new(move |event: web_sys::PointerEvent| {
-                if interaction_doc().is_none() {
-                    if let Some(pending) = pending_mobile_drag_doc() {
-                        if pointer_ids_match(pending.pointer_id, event.pointer_id()) {
-                            pending_mobile_drag_doc.set(None);
-                        }
+                if let Some(pinch) = mobile_pinch_doc() {
+                    if pointer_ids_match(pinch.pointer_a_id, event.pointer_id())
+                        || pointer_ids_match(pinch.pointer_b_id, event.pointer_id())
+                    {
+                        let final_bounds = live_bounds_doc().unwrap_or(pinch.start_bounds);
+                        on_resize_doc.call((
+                            window_id_for_pointer_up_doc_for_resize.clone(),
+                            final_bounds.width,
+                            final_bounds.height,
+                        ));
+                        move_flush_scheduled_doc.set(false);
+                        resize_flush_scheduled_doc.set(false);
+                        queued_move_doc.set(None);
+                        queued_resize_doc.set(None);
+                        mobile_pinch_anchor_doc.set(None);
+                        mobile_pinch_doc.set(None);
+                        interaction_doc.set(None);
+                        return;
                     }
-                    return;
+                }
+
+                if let Some((anchor_id, _, _)) = mobile_pinch_anchor_doc() {
+                    if pointer_ids_match(anchor_id, event.pointer_id()) {
+                        mobile_pinch_anchor_doc.set(None);
+                        return;
+                    }
                 }
 
                 let Some(active) = interaction_doc() else {
@@ -708,19 +987,34 @@ pub fn FloatingWindow(
                 resize_flush_scheduled_doc.set(false);
                 queued_move_doc.set(None);
                 queued_resize_doc.set(None);
-                pending_mobile_drag_doc.set(None);
+                mobile_pinch_anchor_doc.set(None);
+                mobile_pinch_doc.set(None);
                 interaction_doc.set(None);
             }) as Box<dyn FnMut(web_sys::PointerEvent)>);
 
             let pointer_cancel_closure =
                 Closure::wrap(Box::new(move |event: web_sys::PointerEvent| {
-                    if interaction_doc().is_none() {
-                        if let Some(pending) = pending_mobile_drag_doc() {
-                            if pointer_ids_match(pending.pointer_id, event.pointer_id()) {
-                                pending_mobile_drag_doc.set(None);
-                            }
+                    if let Some(pinch) = mobile_pinch_doc() {
+                        if pointer_ids_match(pinch.pointer_a_id, event.pointer_id())
+                            || pointer_ids_match(pinch.pointer_b_id, event.pointer_id())
+                        {
+                            move_flush_scheduled_doc.set(false);
+                            resize_flush_scheduled_doc.set(false);
+                            queued_move_doc.set(None);
+                            queued_resize_doc.set(None);
+                            mobile_pinch_anchor_doc.set(None);
+                            mobile_pinch_doc.set(None);
+                            live_bounds_doc.set(Some(pinch.committed_bounds));
+                            interaction_doc.set(None);
+                            return;
                         }
-                        return;
+                    }
+
+                    if let Some((anchor_id, _, _)) = mobile_pinch_anchor_doc() {
+                        if pointer_ids_match(anchor_id, event.pointer_id()) {
+                            mobile_pinch_anchor_doc.set(None);
+                            return;
+                        }
                     }
 
                     let Some(active) = interaction_doc() else {
@@ -734,7 +1028,8 @@ pub fn FloatingWindow(
                     resize_flush_scheduled_doc.set(false);
                     queued_move_doc.set(None);
                     queued_resize_doc.set(None);
-                    pending_mobile_drag_doc.set(None);
+                    mobile_pinch_anchor_doc.set(None);
+                    mobile_pinch_doc.set(None);
                     live_bounds_doc.set(Some(active.committed_bounds));
                     interaction_doc.set(None);
                 }) as Box<dyn FnMut(web_sys::PointerEvent)>);
@@ -772,6 +1067,7 @@ pub fn FloatingWindow(
                 }
             },
             onkeydown: on_window_keydown,
+            onpointerdown: move |e| pointer_down_for_root.call(e),
             onpointermove: move |e| pointer_move_for_root.call(e),
             onpointerup: move |e| pointer_up_for_root.call(e),
             onpointercancel: move |e| pointer_cancel_for_root.call(e),
@@ -802,6 +1098,10 @@ pub fn FloatingWindow(
                         }
                     },
                     onpointerdown: move |e| {
+                        if is_mobile {
+                            // Mobile drag/resize is mode-based from the root container.
+                            return;
+                        }
                         if window.maximized {
                             return;
                         }
@@ -816,37 +1116,6 @@ pub fn FloatingWindow(
                         capture_window_pointer(&e, pointer_id);
 
                         let (start_x, start_y) = pointer_point(&e);
-                        if is_mobile {
-                            let pending = PendingMobileDragState {
-                                pointer_id,
-                                start_x,
-                                start_y,
-                                start_bounds: bounds,
-                                committed_bounds: committed,
-                            };
-                            pending_mobile_drag.set(Some(pending));
-                            let mut pending_mobile_drag_clone = pending_mobile_drag;
-                            let mut interaction_clone = interaction;
-                            spawn(async move {
-                                TimeoutFuture::new(MOBILE_LONG_PRESS_MS).await;
-                                if let Some(current) = pending_mobile_drag_clone() {
-                                    if pointer_ids_match(current.pointer_id, pending.pointer_id)
-                                        && interaction_clone().is_none()
-                                    {
-                                        interaction_clone.set(Some(InteractionState {
-                                            mode: InteractionMode::Drag,
-                                            pointer_id: current.pointer_id,
-                                            start_x: current.start_x,
-                                            start_y: current.start_y,
-                                            start_bounds: current.start_bounds,
-                                            committed_bounds: current.committed_bounds,
-                                        }));
-                                        pending_mobile_drag_clone.set(None);
-                                    }
-                                }
-                            });
-                            return;
-                        }
 
                         interaction.set(Some(InteractionState {
                             mode: InteractionMode::Drag,
@@ -1234,12 +1503,29 @@ mod tests {
     }
 
     #[test]
+    fn clamp_mobile_preserves_resized_dimensions() {
+        let resized = clamp_bounds(
+            WindowBounds {
+                x: 20,
+                y: 40,
+                width: 300,
+                height: 520,
+            },
+            (390, 844),
+            true,
+        );
+
+        assert_eq!(resized.width, 300);
+        assert_eq!(resized.height, 520);
+    }
+
+    #[test]
     fn pointer_ids_match_is_strict() {
         assert!(pointer_ids_match(1, 1));
         assert!(!pointer_ids_match(1, 2));
-        assert!(pointer_ids_match(0, 1));
-        assert!(pointer_ids_match(1, 0));
+        assert!(!pointer_ids_match(0, 1));
+        assert!(!pointer_ids_match(1, 0));
         assert!(pointer_ids_match(0, 0));
-        assert!(pointer_ids_match(-1, 1));
+        assert!(!pointer_ids_match(-1, 1));
     }
 }
