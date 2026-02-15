@@ -139,6 +139,25 @@ fn strip_inline_overlay_block(text: &str) -> String {
     text.to_string()
 }
 
+fn normalize_version_ids(mut ids: Vec<u64>) -> Vec<u64> {
+    ids.sort_unstable();
+    ids.dedup();
+    ids
+}
+
+fn selected_version_index(ids: &[u64], selected_version_id: Option<u64>) -> Option<usize> {
+    if ids.is_empty() {
+        return None;
+    }
+    selected_version_id
+        .and_then(|id| ids.iter().position(|v| *v == id))
+        .or(Some(ids.len() - 1))
+}
+
+fn reconcile_selected_version_id(ids: &[u64], selected_version_id: Option<u64>) -> Option<u64> {
+    selected_version_index(ids, selected_version_id).and_then(|idx| ids.get(idx).copied())
+}
+
 /// Apply patch operations to content
 fn apply_patch_ops(content: &str, ops: &[PatchOp]) -> String {
     let mut chars: Vec<char> = content.chars().collect();
@@ -268,13 +287,19 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                     if extract_run_id_from_document_path(&opened_path).is_some() {
                         match writer_versions(&opened_path).await {
                             Ok(versions_response) => {
-                                let ids: Vec<u64> = versions_response
+                                let ids = normalize_version_ids(
+                                    versions_response
                                     .versions
                                     .iter()
                                     .map(|version| version.version_id)
-                                    .collect();
+                                    .collect(),
+                                );
+                                let selected = reconcile_selected_version_id(
+                                    &ids,
+                                    Some(versions_response.head_version_id),
+                                );
                                 version_ids.set(ids);
-                                selected_version_id.set(Some(versions_response.head_version_id));
+                                selected_version_id.set(selected);
 
                                 match writer_version(&opened_path, versions_response.head_version_id)
                                     .await
@@ -332,6 +357,7 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
         let mut save_state_for_effect = save_state;
         let typing_locked_for_effect = typing_locked;
         let mut new_version_available_for_effect = new_version_available;
+        let mut version_ids_for_effect = version_ids;
         let mut selected_version_id_for_effect = selected_version_id;
         let mut selected_version_content_for_effect = selected_version_content;
         let mut selected_overlays_for_effect = selected_overlays;
@@ -442,7 +468,13 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                         revision_for_effect.set(highest_revision);
                         last_applied_revision_for_effect.set(highest_revision);
                         if let Some(target_version_id) = latest_target_version {
-                            selected_version_id_for_effect.set(Some(target_version_id));
+                            let mut ids = version_ids_for_effect();
+                            ids.push(target_version_id);
+                            let ids = normalize_version_ids(ids);
+                            let selected =
+                                reconcile_selected_version_id(&ids, Some(target_version_id));
+                            version_ids_for_effect.set(ids);
+                            selected_version_id_for_effect.set(selected);
                         }
                         if !overlay_updates.is_empty() {
                             selected_overlays_for_effect.set(overlay_updates);
@@ -504,6 +536,27 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
             )
             .await;
         });
+    });
+
+    // Keep selected version and version IDs reconciled after live updates.
+    use_effect(move || {
+        let ids = version_ids();
+        if ids.is_empty() {
+            if selected_version_id().is_some() {
+                selected_version_id.set(None);
+            }
+            return;
+        }
+
+        let normalized = normalize_version_ids(ids.clone());
+        if normalized != ids {
+            version_ids.set(normalized.clone());
+        }
+
+        let selected = reconcile_selected_version_id(&normalized, selected_version_id());
+        if selected != selected_version_id() {
+            selected_version_id.set(selected);
+        }
     });
 
     // Handle save
@@ -738,13 +791,19 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                     new_version_available.set(false);
                     if extract_run_id_from_document_path(&current_path).is_some() {
                         if let Ok(versions_response) = writer_versions(&current_path).await {
-                            let ids: Vec<u64> = versions_response
+                            let ids = normalize_version_ids(
+                                versions_response
                                 .versions
                                 .iter()
                                 .map(|version| version.version_id)
-                                .collect();
+                                .collect(),
+                            );
+                            let selected = reconcile_selected_version_id(
+                                &ids,
+                                Some(versions_response.head_version_id),
+                            );
                             version_ids.set(ids);
-                            selected_version_id.set(Some(versions_response.head_version_id));
+                            selected_version_id.set(selected);
                             if let Ok(version_response) =
                                 writer_version(&current_path, versions_response.head_version_id)
                                     .await
@@ -766,10 +825,7 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
 
     let handle_prev_version = use_callback(move |_| {
         let ids = version_ids();
-        let Some(current_id) = selected_version_id() else {
-            return;
-        };
-        let Some(index) = ids.iter().position(|id| *id == current_id) else {
+        let Some(index) = selected_version_index(&ids, selected_version_id()) else {
             return;
         };
         if index == 0 {
@@ -795,10 +851,7 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
 
     let handle_next_version = use_callback(move |_| {
         let ids = version_ids();
-        let Some(current_id) = selected_version_id() else {
-            return;
-        };
-        let Some(index) = ids.iter().position(|id| *id == current_id) else {
+        let Some(index) = selected_version_index(&ids, selected_version_id()) else {
             return;
         };
         if index + 1 >= ids.len() {
@@ -840,6 +893,12 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
     let has_prompt_diff = !build_diff_ops(&selected_version_content(), &current_content).is_empty();
     let current_version_ids = version_ids();
     let current_selected_version_id = selected_version_id();
+    let current_selected_version_index =
+        selected_version_index(&current_version_ids, current_selected_version_id);
+    let current_total_versions = current_version_ids.len();
+    let can_go_prev = current_selected_version_index.is_some_and(|idx| idx > 0);
+    let can_go_next =
+        current_selected_version_index.is_some_and(|idx| idx + 1 < current_total_versions);
     let current_selected_overlays = selected_overlays();
     let current_new_version_available = new_version_available();
     let current_editor_text = compose_editor_text(&current_content, &current_selected_overlays);
@@ -902,23 +961,32 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                     style: "display: flex; align-items: center; gap: 0.25rem;",
                     if !current_version_ids.is_empty() {
                         button {
-                            style: "background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary); cursor: pointer; padding: 0.25rem 0.5rem; border-radius: 0.375rem; font-size: 0.875rem;",
+                            style: if can_go_prev {
+                                "background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary); cursor: pointer; padding: 0.25rem 0.5rem; border-radius: 0.375rem; font-size: 0.875rem;"
+                            } else {
+                                "background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary); cursor: not-allowed; padding: 0.25rem 0.5rem; border-radius: 0.375rem; font-size: 0.875rem; opacity: 0.6;"
+                            },
+                            disabled: !can_go_prev,
                             onclick: move |_| handle_prev_version.call(()),
                             "<"
                         }
                         span {
                             style: "font-size: 0.8rem; color: var(--text-secondary); min-width: 90px; text-align: center;",
                             {
-                                let selected = current_selected_version_id
-                                    .and_then(|id| current_version_ids.iter().position(|v| *v == id))
+                                let selected = current_selected_version_index
                                     .map(|idx| idx + 1)
-                                    .unwrap_or(0);
+                                    .unwrap_or(current_version_ids.len());
                                 let total = current_version_ids.len();
                                 format!("v{} of {}", selected, total)
                             }
                         }
                         button {
-                            style: "background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary); cursor: pointer; padding: 0.25rem 0.5rem; border-radius: 0.375rem; font-size: 0.875rem;",
+                            style: if can_go_next {
+                                "background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary); cursor: pointer; padding: 0.25rem 0.5rem; border-radius: 0.375rem; font-size: 0.875rem;"
+                            } else {
+                                "background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary); cursor: not-allowed; padding: 0.25rem 0.5rem; border-radius: 0.375rem; font-size: 0.875rem; opacity: 0.6;"
+                            },
+                            disabled: !can_go_next,
                             onclick: move |_| handle_next_version.call(()),
                             ">"
                         }
