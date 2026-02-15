@@ -61,6 +61,30 @@ struct MobilePinchState {
     committed_bounds: WindowBounds,
 }
 
+struct DocumentPointerListeners {
+    document: web_sys::Document,
+    pointer_move: Closure<dyn FnMut(web_sys::PointerEvent)>,
+    pointer_up: Closure<dyn FnMut(web_sys::PointerEvent)>,
+    pointer_cancel: Closure<dyn FnMut(web_sys::PointerEvent)>,
+}
+
+impl DocumentPointerListeners {
+    fn detach(self) {
+        let _ = self.document.remove_event_listener_with_callback(
+            "pointermove",
+            self.pointer_move.as_ref().unchecked_ref(),
+        );
+        let _ = self.document.remove_event_listener_with_callback(
+            "pointerup",
+            self.pointer_up.as_ref().unchecked_ref(),
+        );
+        let _ = self.document.remove_event_listener_with_callback(
+            "pointercancel",
+            self.pointer_cancel.as_ref().unchecked_ref(),
+        );
+    }
+}
+
 fn now_ms() -> i64 {
     js_sys::Date::now() as i64
 }
@@ -224,7 +248,7 @@ pub fn FloatingWindow(
     let mut mobile_pinch_anchor = use_signal(|| None::<(i32, i32, i32)>);
     let mut mobile_pinch = use_signal(|| None::<MobilePinchState>);
     let mobile_interaction_mode = use_signal(|| MobileInteractionMode::Normal);
-    let document_pointer_listeners_registered = use_signal(|| false);
+    let document_pointer_listeners = use_signal(|| None::<DocumentPointerListeners>);
 
     let bounds = live_bounds().unwrap_or(committed);
 
@@ -418,12 +442,21 @@ pub fn FloatingWindow(
                             let window_id_clone = window_id_for_pointer_move.clone();
                             spawn(async move {
                                 TimeoutFuture::new(wait_ms).await;
-                                let pending_resize = { queued_resize_clone.write().take() };
+                                let pending_resize = queued_resize_clone
+                                    .try_write()
+                                    .ok()
+                                    .and_then(|mut pending| pending.take());
                                 if let Some((next_w, next_h)) = pending_resize {
                                     on_resize_clone.call((window_id_clone, next_w, next_h));
-                                    last_resize_sent_ms_clone.set(now_ms());
+                                    if let Ok(mut last_sent) = last_resize_sent_ms_clone.try_write()
+                                    {
+                                        *last_sent = now_ms();
+                                    }
                                 }
-                                resize_flush_scheduled_clone.set(false);
+                                if let Ok(mut scheduled) = resize_flush_scheduled_clone.try_write()
+                                {
+                                    *scheduled = false;
+                                }
                             });
                         }
                     }
@@ -485,12 +518,19 @@ pub fn FloatingWindow(
                     let window_id_clone = window_id_for_pointer_move.clone();
                     spawn(async move {
                         TimeoutFuture::new(wait_ms).await;
-                        let pending_move = { queued_move_clone.write().take() };
+                        let pending_move = queued_move_clone
+                            .try_write()
+                            .ok()
+                            .and_then(|mut pending| pending.take());
                         if let Some((next_x, next_y)) = pending_move {
                             on_move_clone.call((window_id_clone, next_x, next_y));
-                            last_move_sent_ms_clone.set(now_ms());
+                            if let Ok(mut last_sent) = last_move_sent_ms_clone.try_write() {
+                                *last_sent = now_ms();
+                            }
                         }
-                        move_flush_scheduled_clone.set(false);
+                        if let Ok(mut scheduled) = move_flush_scheduled_clone.try_write() {
+                            *scheduled = false;
+                        }
                     });
                 }
             }
@@ -513,12 +553,19 @@ pub fn FloatingWindow(
                     let window_id_clone = window_id_for_pointer_move.clone();
                     spawn(async move {
                         TimeoutFuture::new(wait_ms).await;
-                        let pending_resize = { queued_resize_clone.write().take() };
+                        let pending_resize = queued_resize_clone
+                            .try_write()
+                            .ok()
+                            .and_then(|mut pending| pending.take());
                         if let Some((next_w, next_h)) = pending_resize {
                             on_resize_clone.call((window_id_clone, next_w, next_h));
-                            last_resize_sent_ms_clone.set(now_ms());
+                            if let Ok(mut last_sent) = last_resize_sent_ms_clone.try_write() {
+                                *last_sent = now_ms();
+                            }
                         }
-                        resize_flush_scheduled_clone.set(false);
+                        if let Ok(mut scheduled) = resize_flush_scheduled_clone.try_write() {
+                            *scheduled = false;
+                        }
                     });
                 }
             }
@@ -717,7 +764,7 @@ pub fn FloatingWindow(
     let pointer_cancel_for_resize = pointer_cancel_for_root.clone();
 
     {
-        let mut document_pointer_listeners_registered = document_pointer_listeners_registered;
+        let mut document_pointer_listeners = document_pointer_listeners;
         let mut interaction_doc = interaction;
         let mut live_bounds_doc = live_bounds;
         let mut queued_move_doc = queued_move;
@@ -733,13 +780,12 @@ pub fn FloatingWindow(
         let viewport_doc = viewport;
         let is_mobile_doc = is_mobile;
         use_effect(move || {
-            if document_pointer_listeners_registered() {
+            if document_pointer_listeners.peek().is_some() {
                 return;
             }
             let Some(document) = web_sys::window().and_then(|window| window.document()) else {
                 return;
             };
-            document_pointer_listeners_registered.set(true);
             let window_id_for_pointer_up_doc_for_move = window_id_for_pointer_up_doc.clone();
             let window_id_for_pointer_up_doc_for_resize = window_id_for_pointer_up_doc.clone();
 
@@ -946,9 +992,23 @@ pub fn FloatingWindow(
                 pointer_cancel_closure.as_ref().unchecked_ref(),
             );
 
-            pointer_move_closure.forget();
-            pointer_up_closure.forget();
-            pointer_cancel_closure.forget();
+            document_pointer_listeners.set(Some(DocumentPointerListeners {
+                document,
+                pointer_move: pointer_move_closure,
+                pointer_up: pointer_up_closure,
+                pointer_cancel: pointer_cancel_closure,
+            }));
+        });
+    }
+
+    {
+        let mut document_pointer_listeners = document_pointer_listeners;
+        use_drop(move || {
+            if let Ok(mut listeners_slot) = document_pointer_listeners.try_write() {
+                if let Some(listeners) = listeners_slot.take() {
+                    listeners.detach();
+                }
+            }
         });
     }
 
