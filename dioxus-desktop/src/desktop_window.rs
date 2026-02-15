@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 use dioxus_web::WebEventExt;
 use gloo_timers::future::TimeoutFuture;
 use shared_types::WindowState;
+use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 
 use crate::components::{
@@ -95,8 +96,25 @@ fn pointer_point(e: &PointerEvent) -> (i32, i32) {
 }
 
 fn pointer_ids_match(active_pointer_id: i32, event_pointer_id: i32) -> bool {
-    // Some adapters report 0/-1 for pointer ids; treat those as wildcard ids.
     active_pointer_id == event_pointer_id || active_pointer_id <= 0 || event_pointer_id <= 0
+}
+
+fn event_pointer_id(e: &PointerEvent) -> i32 {
+    e.data()
+        .try_as_web_event()
+        .and_then(|event| {
+            event
+                .dyn_ref::<web_sys::PointerEvent>()
+                .map(web_sys::PointerEvent::pointer_id)
+        })
+        .unwrap_or_else(|| e.data().pointer_id())
+}
+
+fn event_element(e: &PointerEvent) -> Option<web_sys::Element> {
+    e.data()
+        .try_as_web_event()
+        .and_then(|event| event.current_target().or_else(|| event.target()))
+        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
 }
 
 fn pointer_target_is_window_control(e: &PointerEvent) -> bool {
@@ -112,33 +130,24 @@ fn pointer_target_is_window_control(e: &PointerEvent) -> bool {
 }
 
 fn capture_window_pointer(e: &PointerEvent, pointer_id: i32) {
-    if let Some(current_target) = e
-        .data()
-        .try_as_web_event()
-        .and_then(|event| event.current_target())
-        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
-    {
-        if current_target.set_pointer_capture(pointer_id).is_ok() {
+    if let Some(element) = event_element(e) {
+        if let Some(window) = element.closest(".floating-window").ok().flatten() {
+            if window.set_pointer_capture(pointer_id).is_ok() {
+                return;
+            }
+
+            let _ = element.set_pointer_capture(pointer_id);
             return;
         }
 
-        let _ = current_target
-            .closest(".floating-window")
-            .ok()
-            .flatten()
-            .map(|window| window.set_pointer_capture(pointer_id));
+        let _ = element.set_pointer_capture(pointer_id);
     }
 }
 
 fn release_window_pointer(e: &PointerEvent, pointer_id: i32) {
-    if let Some(current_target) = e
-        .data()
-        .try_as_web_event()
-        .and_then(|event| event.current_target())
-        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
-    {
-        let _ = current_target.release_pointer_capture(pointer_id);
-        let _ = current_target
+    if let Some(element) = event_element(e) {
+        let _ = element.release_pointer_capture(pointer_id);
+        let _ = element
             .closest(".floating-window")
             .ok()
             .flatten()
@@ -183,6 +192,7 @@ pub fn FloatingWindow(
     let mut resize_flush_scheduled = use_signal(|| false);
     let mut last_move_sent_ms = use_signal(|| 0i64);
     let mut last_resize_sent_ms = use_signal(|| 0i64);
+    let document_pointer_listeners_registered = use_signal(|| false);
 
     let bounds = live_bounds().unwrap_or(committed);
 
@@ -191,31 +201,33 @@ pub fn FloatingWindow(
     let window_id_for_keyboard = window_id.clone();
     let window_id_for_pointer_move = window_id.clone();
     let window_id_for_pointer_up = window_id.clone();
+    let window_id_for_pointer_lost = window_id.clone();
+    let window_id_for_doc_pointer_up = window_id.clone();
     let window_id_for_title_key = window_id.clone();
     let window_id_for_title_pointer = window_id.clone();
     let window_id_for_resize_pointer = window_id.clone();
 
     let z_index = window.z_index;
     let viewer_props = parse_viewer_window_props(&window.props).ok();
-    let active_outline = if is_active && !window.maximized {
-        "2px solid var(--accent-bg, #3b82f6)"
+    let border_color = if is_active && !window.maximized {
+        "var(--accent-bg, #3b82f6)"
     } else {
-        "none"
+        "var(--border-color, #374151)"
     };
     let window_style = if window.maximized {
         format!(
             "position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: {z_index}; \
              display: flex; flex-direction: column; background: var(--window-bg, #1f2937); \
              border: none; border-radius: 0; overflow: hidden; box-shadow: none; \
-             outline: {active_outline};"
+             outline: none;"
         )
     } else {
         format!(
             "position: absolute; left: {}px; top: {}px; width: {}px; height: {}px; z-index: \
              {z_index}; display: flex; flex-direction: column; background: var(--window-bg, \
-             #1f2937); border: 1px solid var(--border-color, #374151); border-radius: \
+             #1f2937); border: 1px solid {border_color}; border-radius: \
              var(--radius-lg, 12px); overflow: hidden; box-shadow: var(--shadow-lg, 0 10px 40px \
-             rgba(0,0,0,0.5)); outline: {active_outline};",
+             rgba(0,0,0,0.5)); outline: none;",
             bounds.x, bounds.y, bounds.width, bounds.height
         )
     };
@@ -315,7 +327,7 @@ pub fn FloatingWindow(
             return;
         };
 
-        if !pointer_ids_match(active.pointer_id, e.data().pointer_id()) {
+        if !pointer_ids_match(active.pointer_id, event_pointer_id(&e)) {
             return;
         }
 
@@ -349,7 +361,8 @@ pub fn FloatingWindow(
                 queued_move.set(Some((next.x, next.y)));
                 let elapsed = now_ms() - last_move_sent_ms();
                 if elapsed >= PATCH_INTERVAL_MS {
-                    if let Some((next_x, next_y)) = queued_move.write().take() {
+                    let pending_move = { queued_move.write().take() };
+                    if let Some((next_x, next_y)) = pending_move {
                         on_move.call((window_id_for_pointer_move.clone(), next_x, next_y));
                         last_move_sent_ms.set(now_ms());
                     }
@@ -363,7 +376,8 @@ pub fn FloatingWindow(
                     let window_id_clone = window_id_for_pointer_move.clone();
                     spawn(async move {
                         TimeoutFuture::new(wait_ms).await;
-                        if let Some((next_x, next_y)) = queued_move_clone.write().take() {
+                        let pending_move = { queued_move_clone.write().take() };
+                        if let Some((next_x, next_y)) = pending_move {
                             on_move_clone.call((window_id_clone, next_x, next_y));
                             last_move_sent_ms_clone.set(now_ms());
                         }
@@ -375,7 +389,8 @@ pub fn FloatingWindow(
                 queued_resize.set(Some((next.width, next.height)));
                 let elapsed = now_ms() - last_resize_sent_ms();
                 if elapsed >= PATCH_INTERVAL_MS {
-                    if let Some((next_w, next_h)) = queued_resize.write().take() {
+                    let pending_resize = { queued_resize.write().take() };
+                    if let Some((next_w, next_h)) = pending_resize {
                         on_resize.call((window_id_for_pointer_move.clone(), next_w, next_h));
                         last_resize_sent_ms.set(now_ms());
                     }
@@ -389,7 +404,8 @@ pub fn FloatingWindow(
                     let window_id_clone = window_id_for_pointer_move.clone();
                     spawn(async move {
                         TimeoutFuture::new(wait_ms).await;
-                        if let Some((next_w, next_h)) = queued_resize_clone.write().take() {
+                        let pending_resize = { queued_resize_clone.write().take() };
+                        if let Some((next_w, next_h)) = pending_resize {
                             on_resize_clone.call((window_id_clone, next_w, next_h));
                             last_resize_sent_ms_clone.set(now_ms());
                         }
@@ -404,7 +420,7 @@ pub fn FloatingWindow(
         let Some(active) = interaction() else {
             return;
         };
-        if !pointer_ids_match(active.pointer_id, e.data().pointer_id()) {
+        if !pointer_ids_match(active.pointer_id, event_pointer_id(&e)) {
             return;
         }
         release_window_pointer(&e, active.pointer_id);
@@ -413,20 +429,26 @@ pub fn FloatingWindow(
         match active.mode {
             InteractionMode::Drag => {
                 queued_move.set(Some((final_bounds.x, final_bounds.y)));
-                if let Some((next_x, next_y)) = queued_move.write().take() {
+                let pending_move = { queued_move.write().take() };
+                if let Some((next_x, next_y)) = pending_move {
                     on_move.call((window_id_for_pointer_up.clone(), next_x, next_y));
                     last_move_sent_ms.set(now_ms());
                 }
             }
             InteractionMode::Resize => {
                 queued_resize.set(Some((final_bounds.width, final_bounds.height)));
-                if let Some((next_w, next_h)) = queued_resize.write().take() {
+                let pending_resize = { queued_resize.write().take() };
+                if let Some((next_w, next_h)) = pending_resize {
                     on_resize.call((window_id_for_pointer_up.clone(), next_w, next_h));
                     last_resize_sent_ms.set(now_ms());
                 }
             }
         }
 
+        move_flush_scheduled.set(false);
+        resize_flush_scheduled.set(false);
+        queued_move.set(None);
+        queued_resize.set(None);
         interaction.set(None);
     });
 
@@ -434,24 +456,192 @@ pub fn FloatingWindow(
         let Some(active) = interaction() else {
             return;
         };
-        if !pointer_ids_match(active.pointer_id, e.data().pointer_id()) {
+        if !pointer_ids_match(active.pointer_id, event_pointer_id(&e)) {
             return;
         }
         release_window_pointer(&e, active.pointer_id);
 
+        move_flush_scheduled.set(false);
+        resize_flush_scheduled.set(false);
+        queued_move.set(None);
+        queued_resize.set(None);
         live_bounds.set(Some(active.committed_bounds));
+        interaction.set(None);
+    });
+
+    let pointer_lost_capture_cb = use_callback(move |e: PointerEvent| {
+        let Some(active) = interaction() else {
+            return;
+        };
+        if !pointer_ids_match(active.pointer_id, event_pointer_id(&e)) {
+            return;
+        }
+
+        let final_bounds = live_bounds().unwrap_or(active.start_bounds);
+        match active.mode {
+            InteractionMode::Drag => {
+                queued_move.set(Some((final_bounds.x, final_bounds.y)));
+                let pending_move = { queued_move.write().take() };
+                if let Some((next_x, next_y)) = pending_move {
+                    on_move.call((window_id_for_pointer_lost.clone(), next_x, next_y));
+                    last_move_sent_ms.set(now_ms());
+                }
+            }
+            InteractionMode::Resize => {
+                queued_resize.set(Some((final_bounds.width, final_bounds.height)));
+                let pending_resize = { queued_resize.write().take() };
+                if let Some((next_w, next_h)) = pending_resize {
+                    on_resize.call((window_id_for_pointer_lost.clone(), next_w, next_h));
+                    last_resize_sent_ms.set(now_ms());
+                }
+            }
+        }
+
+        move_flush_scheduled.set(false);
+        resize_flush_scheduled.set(false);
+        queued_move.set(None);
+        queued_resize.set(None);
         interaction.set(None);
     });
 
     let pointer_move_for_root = pointer_move_cb;
     let pointer_up_for_root = pointer_up_cb;
     let pointer_cancel_for_root = pointer_cancel_cb;
+    let pointer_lost_capture_for_root = pointer_lost_capture_cb;
     let pointer_move_for_title = pointer_move_for_root.clone();
     let pointer_up_for_title = pointer_up_for_root.clone();
     let pointer_cancel_for_title = pointer_cancel_for_root.clone();
     let pointer_move_for_resize = pointer_move_for_root.clone();
     let pointer_up_for_resize = pointer_up_for_root.clone();
     let pointer_cancel_for_resize = pointer_cancel_for_root.clone();
+
+    {
+        let mut document_pointer_listeners_registered = document_pointer_listeners_registered;
+        let mut interaction_doc = interaction;
+        let mut live_bounds_doc = live_bounds;
+        let mut queued_move_doc = queued_move;
+        let mut queued_resize_doc = queued_resize;
+        let mut move_flush_scheduled_doc = move_flush_scheduled;
+        let mut resize_flush_scheduled_doc = resize_flush_scheduled;
+        let on_move_doc = on_move;
+        let on_resize_doc = on_resize;
+        let window_id_for_pointer_up_doc = window_id_for_doc_pointer_up.clone();
+        let viewport_doc = viewport;
+        let is_mobile_doc = is_mobile;
+        use_effect(move || {
+            if document_pointer_listeners_registered() {
+                return;
+            }
+            let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+                return;
+            };
+            document_pointer_listeners_registered.set(true);
+            let window_id_for_pointer_up_doc_for_move = window_id_for_pointer_up_doc.clone();
+            let window_id_for_pointer_up_doc_for_resize = window_id_for_pointer_up_doc.clone();
+
+            let pointer_move_closure =
+                Closure::wrap(Box::new(move |event: web_sys::PointerEvent| {
+                    let Some(active) = interaction_doc() else {
+                        return;
+                    };
+                    if !pointer_ids_match(active.pointer_id, event.pointer_id()) {
+                        return;
+                    }
+
+                    let dx = event.client_x() - active.start_x;
+                    let dy = event.client_y() - active.start_y;
+
+                    if dx.abs() < DRAG_THRESHOLD_PX && dy.abs() < DRAG_THRESHOLD_PX {
+                        return;
+                    }
+
+                    let next = match active.mode {
+                        InteractionMode::Drag => WindowBounds {
+                            x: active.start_bounds.x + dx,
+                            y: active.start_bounds.y + dy,
+                            width: active.start_bounds.width,
+                            height: active.start_bounds.height,
+                        },
+                        InteractionMode::Resize => WindowBounds {
+                            x: active.start_bounds.x,
+                            y: active.start_bounds.y,
+                            width: active.start_bounds.width + dx,
+                            height: active.start_bounds.height + dy,
+                        },
+                    };
+                    let next = clamp_bounds(next, viewport_doc, is_mobile_doc);
+
+                    live_bounds_doc.set(Some(next));
+                }) as Box<dyn FnMut(web_sys::PointerEvent)>);
+
+            let pointer_up_closure = Closure::wrap(Box::new(move |event: web_sys::PointerEvent| {
+                let Some(active) = interaction_doc() else {
+                    return;
+                };
+                if !pointer_ids_match(active.pointer_id, event.pointer_id()) {
+                    return;
+                }
+
+                let final_bounds = live_bounds_doc().unwrap_or(active.start_bounds);
+                match active.mode {
+                    InteractionMode::Drag => {
+                        on_move_doc.call((
+                            window_id_for_pointer_up_doc_for_move.clone(),
+                            final_bounds.x,
+                            final_bounds.y,
+                        ));
+                    }
+                    InteractionMode::Resize => {
+                        on_resize_doc.call((
+                            window_id_for_pointer_up_doc_for_resize.clone(),
+                            final_bounds.width,
+                            final_bounds.height,
+                        ));
+                    }
+                }
+
+                move_flush_scheduled_doc.set(false);
+                resize_flush_scheduled_doc.set(false);
+                queued_move_doc.set(None);
+                queued_resize_doc.set(None);
+                interaction_doc.set(None);
+            }) as Box<dyn FnMut(web_sys::PointerEvent)>);
+
+            let pointer_cancel_closure =
+                Closure::wrap(Box::new(move |event: web_sys::PointerEvent| {
+                    let Some(active) = interaction_doc() else {
+                        return;
+                    };
+                    if !pointer_ids_match(active.pointer_id, event.pointer_id()) {
+                        return;
+                    }
+
+                    move_flush_scheduled_doc.set(false);
+                    resize_flush_scheduled_doc.set(false);
+                    queued_move_doc.set(None);
+                    queued_resize_doc.set(None);
+                    live_bounds_doc.set(Some(active.committed_bounds));
+                    interaction_doc.set(None);
+                }) as Box<dyn FnMut(web_sys::PointerEvent)>);
+
+            let _ = document.add_event_listener_with_callback(
+                "pointermove",
+                pointer_move_closure.as_ref().unchecked_ref(),
+            );
+            let _ = document.add_event_listener_with_callback(
+                "pointerup",
+                pointer_up_closure.as_ref().unchecked_ref(),
+            );
+            let _ = document.add_event_listener_with_callback(
+                "pointercancel",
+                pointer_cancel_closure.as_ref().unchecked_ref(),
+            );
+
+            pointer_move_closure.forget();
+            pointer_up_closure.forget();
+            pointer_cancel_closure.forget();
+        });
+    }
 
     rsx! {
         div {
@@ -461,11 +651,16 @@ pub fn FloatingWindow(
             "aria-modal": if is_active { "false" } else { "true" },
             tabindex: "0",
             style: "{window_style}",
-            onclick: move |_| on_focus.call(window_id_for_focus.clone()),
+            onclick: move |_| {
+                if !is_active {
+                    on_focus.call(window_id_for_focus.clone())
+                }
+            },
             onkeydown: on_window_keydown,
             onpointermove: move |e| pointer_move_for_root.call(e),
             onpointerup: move |e| pointer_up_for_root.call(e),
             onpointercancel: move |e| pointer_cancel_for_root.call(e),
+            onlostpointercapture: move |e| pointer_lost_capture_for_root.call(e),
 
             if !window.maximized {
                 div {
@@ -480,6 +675,17 @@ pub fn FloatingWindow(
                     onpointermove: move |e| pointer_move_for_title.call(e),
                     onpointerup: move |e| pointer_up_for_title.call(e),
                     onpointercancel: move |e| pointer_cancel_for_title.call(e),
+                    oncontextmenu: move |e| {
+                        if let Some(active) = interaction() {
+                            e.prevent_default();
+                            move_flush_scheduled.set(false);
+                            resize_flush_scheduled.set(false);
+                            queued_move.set(None);
+                            queued_resize.set(None);
+                            live_bounds.set(Some(active.committed_bounds));
+                            interaction.set(None);
+                        }
+                    },
                     onpointerdown: move |e| {
                         if window.maximized {
                             return;
@@ -491,12 +697,13 @@ pub fn FloatingWindow(
                             on_focus.call(window_id_for_title_pointer.clone());
                         }
                         e.prevent_default();
-                        capture_window_pointer(&e, e.data().pointer_id());
+                        let pointer_id = event_pointer_id(&e);
+                        capture_window_pointer(&e, pointer_id);
 
                         let (start_x, start_y) = pointer_point(&e);
                         interaction.set(Some(InteractionState {
                             mode: InteractionMode::Drag,
-                            pointer_id: e.data().pointer_id(),
+                            pointer_id,
                             start_x,
                             start_y,
                             start_bounds: bounds,
@@ -619,17 +826,29 @@ pub fn FloatingWindow(
                     onpointermove: move |e| pointer_move_for_resize.call(e),
                     onpointerup: move |e| pointer_up_for_resize.call(e),
                     onpointercancel: move |e| pointer_cancel_for_resize.call(e),
+                    oncontextmenu: move |e| {
+                        if let Some(active) = interaction() {
+                            e.prevent_default();
+                            move_flush_scheduled.set(false);
+                            resize_flush_scheduled.set(false);
+                            queued_move.set(None);
+                            queued_resize.set(None);
+                            live_bounds.set(Some(active.committed_bounds));
+                            interaction.set(None);
+                        }
+                    },
                     onpointerdown: move |e| {
                         if !is_active {
                             on_focus.call(window_id_for_resize_pointer.clone());
                         }
                         e.prevent_default();
-                        capture_window_pointer(&e, e.data().pointer_id());
+                        let pointer_id = event_pointer_id(&e);
+                        capture_window_pointer(&e, pointer_id);
 
                         let (start_x, start_y) = pointer_point(&e);
                         interaction.set(Some(InteractionState {
                             mode: InteractionMode::Resize,
-                            pointer_id: e.data().pointer_id(),
+                            pointer_id,
                             start_x,
                             start_y,
                             start_bounds: bounds,
@@ -796,5 +1015,15 @@ mod tests {
             false,
         );
         assert_eq!(clamped_right.x, 1280 - MIN_VISIBLE_X_PX);
+    }
+
+    #[test]
+    fn pointer_ids_match_is_strict() {
+        assert!(pointer_ids_match(1, 1));
+        assert!(!pointer_ids_match(1, 2));
+        assert!(pointer_ids_match(0, 1));
+        assert!(pointer_ids_match(1, 0));
+        assert!(pointer_ids_match(0, 0));
+        assert!(pointer_ids_match(-1, 1));
     }
 }
