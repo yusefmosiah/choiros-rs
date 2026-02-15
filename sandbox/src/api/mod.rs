@@ -129,6 +129,7 @@ pub fn router() -> Router<ApiState> {
         .route("/writer/open", post(writer::open_document))
         .route("/writer/save", post(writer::save_document))
         .route("/writer/preview", post(writer::preview_markdown))
+        .route("/writer/prompt", post(writer::prompt_document))
         // Conductor API routes
         .route("/conductor/execute", post(conductor::execute_task))
         .route("/conductor/runs/{run_id}", get(conductor::get_run_status))

@@ -1226,6 +1226,16 @@ pub struct PreviewResponse {
     pub html: String,
 }
 
+/// Prompt document request response
+#[derive(Debug, Clone, Deserialize)]
+pub struct PromptDocumentResponse {
+    pub run_id: String,
+    pub message_id: String,
+    pub revision: u64,
+    pub queue_len: usize,
+    pub duplicate: bool,
+}
+
 /// Writer error detail
 #[derive(Debug, Clone, Deserialize)]
 pub struct WriterErrorDetail {
@@ -1352,6 +1362,36 @@ pub async fn writer_preview(
 
     response
         .json::<PreviewResponse>()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))
+}
+
+/// Submit a human prompt to the writer actor for a run document.
+pub async fn writer_prompt(path: &str, prompt: &str) -> Result<PromptDocumentResponse, String> {
+    let url = format!("{}/writer/prompt", api_base());
+    let request = serde_json::json!({
+        "path": path,
+        "prompt": prompt
+    });
+
+    let response = Request::post(&url)
+        .json(&request)
+        .map_err(|e| format!("Failed to serialize request: {e}"))?
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    if !response.ok() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        if let Ok(err) = serde_json::from_str::<WriterErrorResponse>(&body) {
+            return Err(format!("{}: {}", err.error.code, err.error.message));
+        }
+        return Err(format!("HTTP error: {status}"));
+    }
+
+    response
+        .json::<PromptDocumentResponse>()
         .await
         .map_err(|e| format!("Failed to parse JSON: {e}"))
 }

@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 use tokio::fs;
 
+use crate::actors::conductor::ConductorMsg;
 use crate::api::ApiState;
 
 /// Sandbox root path - all file operations are constrained to this directory
@@ -488,6 +489,23 @@ pub struct PreviewResponse {
     pub html: String,
 }
 
+/// Request to submit a writer prompt for a run document.
+#[derive(Debug, Deserialize)]
+pub struct PromptDocumentRequest {
+    pub path: String,
+    pub prompt: String,
+}
+
+/// Response for successful writer prompt enqueue.
+#[derive(Debug, Serialize)]
+pub struct PromptDocumentResponse {
+    pub run_id: String,
+    pub message_id: String,
+    pub revision: u64,
+    pub queue_len: usize,
+    pub duplicate: bool,
+}
+
 /// Preview markdown content
 pub async fn preview_markdown(
     State(_state): State<ApiState>,
@@ -572,6 +590,81 @@ pub async fn preview_markdown(
     let html = markdown_to_html(&content);
 
     (StatusCode::OK, Json(PreviewResponse { html })).into_response()
+}
+
+fn extract_run_id_from_document_path(path: &str) -> Option<String> {
+    let mut parts = path.split('/');
+    match (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) {
+        (Some("conductor"), Some("runs"), Some(run_id), Some("draft.md"), None) => {
+            Some(run_id.to_string())
+        }
+        _ => None,
+    }
+}
+
+/// Submit a human prompt into the writer actor queue for the run document.
+pub async fn prompt_document(
+    State(state): State<ApiState>,
+    Json(req): Json<PromptDocumentRequest>,
+) -> impl IntoResponse {
+    if req.prompt.trim().is_empty() {
+        return writer_error(WriterErrorCode::InvalidRevision, "Prompt cannot be empty")
+            .into_response();
+    }
+
+    let run_id = match extract_run_id_from_document_path(req.path.trim()) {
+        Some(run_id) => run_id,
+        None => {
+            return writer_error(
+                WriterErrorCode::InvalidRevision,
+                "Prompting requires a run document path: conductor/runs/{run_id}/draft.md",
+            )
+            .into_response();
+        }
+    };
+
+    let conductor = match state.app_state.ensure_conductor().await {
+        Ok(actor) => actor,
+        Err(err) => {
+            return writer_error(
+                WriterErrorCode::WriteError,
+                format!("Conductor unavailable: {err}"),
+            )
+            .into_response();
+        }
+    };
+
+    let ack = match ractor::call!(conductor, |reply| ConductorMsg::SubmitUserPrompt {
+        run_id: run_id.clone(),
+        prompt: req.prompt.clone(),
+        reply,
+    }) {
+        Ok(Ok(ack)) => ack,
+        Ok(Err(err)) => {
+            return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
+        }
+        Err(err) => {
+            return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
+        }
+    };
+
+    (
+        StatusCode::OK,
+        Json(PromptDocumentResponse {
+            run_id,
+            message_id: ack.message_id,
+            revision: ack.revision,
+            queue_len: ack.queue_len,
+            duplicate: ack.duplicate,
+        }),
+    )
+        .into_response()
 }
 
 /// Convert markdown to HTML

@@ -8,7 +8,7 @@ use dioxus::prelude::*;
 use gloo_timers::future::TimeoutFuture;
 
 use crate::api::files_api::{list_directory, DirectoryEntry};
-use crate::api::{writer_open, writer_preview, writer_save};
+use crate::api::{writer_open, writer_preview, writer_prompt, writer_save};
 use crate::desktop::state::ACTIVE_WRITER_RUNS;
 use shared_types::{PatchOp, WriterRunStatusKind};
 
@@ -54,48 +54,46 @@ pub enum DialogState {
     },
 }
 
-/// A segment of content with styling for proposals
-#[derive(Debug, Clone, PartialEq)]
-pub struct ContentSegment {
-    pub text: String,
-    pub is_proposal: bool,
-    pub is_deleted: bool,
-}
-
-/// Parse full document into segments with inline proposal styling.
-///
-/// Proposal mode begins at `<!-- proposal -->` and ends at next `##` section header.
-/// Lines inside proposal mode are rendered gray. Deletions (`- ...`) are gray + strikethrough.
-fn parse_document_segments(document: &str) -> Vec<ContentSegment> {
-    let mut segments = Vec::new();
-    let mut in_proposal_block = false;
-
-    for line in document.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("## ") {
-            in_proposal_block = false;
-        }
-
-        if trimmed == "<!-- proposal -->" {
-            in_proposal_block = true;
-            segments.push(ContentSegment {
-                text: line.to_string(),
-                is_proposal: true,
-                is_deleted: false,
-            });
-            continue;
-        }
-
-        let is_deleted =
-            in_proposal_block && trimmed.starts_with('-') && !trimmed.starts_with("---");
-        segments.push(ContentSegment {
-            text: line.to_string(),
-            is_proposal: in_proposal_block,
-            is_deleted,
-        });
+fn build_diff_prompt(base: &str, edited: &str) -> Option<String> {
+    if base == edited {
+        return None;
     }
 
-    segments
+    let base_lines: Vec<&str> = base.lines().collect();
+    let edited_lines: Vec<&str> = edited.lines().collect();
+    let max_len = base_lines.len().max(edited_lines.len());
+
+    let mut removed = Vec::new();
+    let mut added = Vec::new();
+
+    for idx in 0..max_len {
+        match (base_lines.get(idx), edited_lines.get(idx)) {
+            (Some(a), Some(b)) if a == b => {}
+            (Some(a), Some(b)) => {
+                removed.push(format!("- {a}"));
+                added.push(format!("+ {b}"));
+            }
+            (Some(a), None) => removed.push(format!("- {a}")),
+            (None, Some(b)) => added.push(format!("+ {b}")),
+            (None, None) => {}
+        }
+    }
+
+    let mut body = String::from(
+        "Apply the following user-authored document edits as intent for the next revision.\n\
+         Treat this diff as the human prompt and update the narrative accordingly.\n\n",
+    );
+    if !removed.is_empty() {
+        body.push_str("Removed:\n");
+        body.push_str(&removed.join("\n"));
+        body.push_str("\n\n");
+    }
+    if !added.is_empty() {
+        body.push_str("Added:\n");
+        body.push_str(&added.join("\n"));
+        body.push('\n');
+    }
+    Some(body)
 }
 
 /// Apply patch operations to content
@@ -173,6 +171,8 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
     let mut preview_html = use_signal(|| String::new());
     let mut dialog = use_signal(|| DialogState::None);
     let mut loaded_path = use_signal(|| None::<String>);
+    let mut prompt_submitting = use_signal(|| false);
+    let mut prompt_base_content = use_signal(String::new);
 
     // Live patch state
     let active_run_id = use_signal(|| None::<String>);
@@ -201,7 +201,8 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                     let is_md = is_markdown(&response.mime, &response.path);
 
                     path.set(response.path);
-                    content.set(response.content);
+                    content.set(response.content.clone());
+                    prompt_base_content.set(response.content);
                     revision.set(response.revision);
                     last_applied_revision.set(response.revision);
                     mime.set(response.mime);
@@ -409,6 +410,30 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
         });
     });
 
+    // Handle writer prompt submit
+    let handle_prompt_submit = use_callback(move |_| {
+        if readonly() || prompt_submitting() {
+            return;
+        }
+        let current_content = content();
+        let Some(prompt_payload) = build_diff_prompt(&prompt_base_content(), &current_content) else {
+            return;
+        };
+        let current_path = path();
+        prompt_submitting.set(true);
+        spawn(async move {
+            match writer_prompt(&current_path, &prompt_payload).await {
+                Ok(_response) => {
+                    prompt_base_content.set(current_content);
+                }
+                Err(e) => {
+                    save_state.set(SaveState::Error(format!("Prompt failed: {e}")));
+                }
+            }
+            prompt_submitting.set(false);
+        });
+    });
+
     // Handle content changes
     let on_content_change = use_callback(move |new_content: String| {
         // Update preview first if needed (before moving new_content)
@@ -536,13 +561,12 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
     let is_loading = loading();
     let current_preview_html = preview_html();
     let current_run_status = run_status();
-    let current_active_run_id = active_run_id();
     let current_run_message = {
         let runs = ACTIVE_WRITER_RUNS.read();
         runs.get(&current_path).and_then(|r| r.message.clone())
     };
-    let has_inline_proposals =
-        current_active_run_id.is_some() && current_content.contains("<!-- proposal -->");
+    let current_prompt_submitting = prompt_submitting();
+    let has_prompt_diff = build_diff_prompt(&prompt_base_content(), &current_content).is_some();
 
     rsx! {
         div {
@@ -639,6 +663,20 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                         dismiss_saved.clone(),
                     )}
                     button {
+                        style: if current_prompt_submitting || current_readonly || !has_prompt_diff {
+                            "background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary); cursor: not-allowed; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem; opacity: 0.6;"
+                        } else {
+                            "background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary); cursor: pointer; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem;"
+                        },
+                        disabled: current_prompt_submitting || current_readonly || !has_prompt_diff,
+                        onclick: move |_| handle_prompt_submit.call(()),
+                        if current_prompt_submitting {
+                            "Prompting..."
+                        } else {
+                            "Prompt"
+                        }
+                    }
+                    button {
                         style: match current_save_state {
                             SaveState::Clean | SaveState::Saving | SaveState::Saved => {
                                 "background: var(--accent-bg); border: none; color: var(--accent-text); cursor: not-allowed; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem; opacity: 0.5;"
@@ -707,45 +745,15 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                 style: "flex: 1; overflow: hidden; display: flex;",
 
                 match current_view_mode {
-                    ViewMode::Edit => {
-                        if has_inline_proposals {
-                            let segments = parse_document_segments(&current_content);
-                            rsx! {
-                                div {
-                                    style: "flex: 1; width: 100%; height: 100%; padding: 1rem; background: var(--input-bg, var(--window-bg)); border: 1px solid var(--border-color); border-radius: 0.25rem; margin: 0.5rem; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; line-height: 1.6; white-space: pre-wrap;",
-                                    for segment in segments {
-                                        {
-                                            let style = if segment.is_deleted {
-                                                "color: #94a3b8; text-decoration: line-through;"
-                                            } else if segment.is_proposal {
-                                                "color: #94a3b8;"
-                                            } else {
-                                                "color: var(--text-primary);"
-                                            };
-                                            let display_text = if segment.text.is_empty() {
-                                                " ".to_string()
-                                            } else {
-                                                segment.text.clone()
-                                            };
-                                            rsx! {
-                                                div { style: "{style}", "{display_text}" }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            rsx! {
-                                textarea {
-                                    style: "flex: 1; width: 100%; height: 100%; padding: 1rem; background: var(--input-bg, var(--window-bg)); color: var(--text-primary); border: 1px solid var(--border-color); resize: none; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; line-height: 1.6; outline: none; border-radius: 0.25rem; margin: 0.5rem;",
-                                    value: "{current_content}",
-                                    readonly: current_readonly,
-                                    oninput: move |e: FormEvent| on_content_change.call(e.value()),
-                                    onkeydown: move |e: KeyboardEvent| on_keydown.call(e),
-                                }
-                            }
+                    ViewMode::Edit => rsx! {
+                        textarea {
+                            style: "flex: 1; width: 100%; height: 100%; padding: 1rem; background: var(--input-bg, var(--window-bg)); color: var(--text-primary); border: 1px solid var(--border-color); resize: none; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; line-height: 1.6; outline: none; border-radius: 0.25rem; margin: 0.5rem;",
+                            value: "{current_content}",
+                            readonly: current_readonly,
+                            oninput: move |e: FormEvent| on_content_change.call(e.value()),
+                            onkeydown: move |e: KeyboardEvent| on_keydown.call(e),
                         }
-                    }
+                    },
                     ViewMode::Preview => rsx! {
                         div {
                             style: "flex: 1; overflow: auto; padding: 1.5rem; background: var(--window-bg); font-family: system-ui, -apple-system, sans-serif;",

@@ -17,7 +17,7 @@ use crate::actors::event_store::EventStoreMsg;
 use crate::actors::researcher::ResearcherMsg;
 use crate::actors::run_writer::RunWriterMsg;
 use crate::actors::terminal::TerminalMsg;
-use crate::actors::writer::WriterMsg;
+use crate::actors::writer::{WriterMsg, WriterSource};
 
 /// ConductorActor - main orchestration actor.
 #[derive(Debug, Default)]
@@ -123,6 +123,14 @@ impl Actor for ConductorActor {
                 self.handle_process_event(state, run_id, event_type, payload, metadata)
                     .await?;
             }
+            ConductorMsg::SubmitUserPrompt {
+                run_id,
+                prompt,
+                reply,
+            } => {
+                let result = self.handle_submit_user_prompt(state, run_id, prompt).await;
+                let _ = reply.send(result);
+            }
         }
         Ok(())
     }
@@ -138,6 +146,52 @@ impl Actor for ConductorActor {
 }
 
 impl ConductorActor {
+    async fn handle_submit_user_prompt(
+        &self,
+        state: &mut ConductorState,
+        run_id: String,
+        prompt: String,
+    ) -> Result<crate::actors::writer::WriterQueueAck, crate::actors::conductor::ConductorError>
+    {
+        let prompt = prompt.trim();
+        if prompt.is_empty() {
+            return Err(crate::actors::conductor::ConductorError::InvalidRequest(
+                "prompt cannot be empty".to_string(),
+            ));
+        }
+
+        let writer_actor = state.writer_actor.as_ref().ok_or_else(|| {
+            crate::actors::conductor::ConductorError::ActorUnavailable(
+                "writer actor unavailable".to_string(),
+            )
+        })?;
+        let run_writer = state.run_writers.get(&run_id).cloned().ok_or_else(|| {
+            crate::actors::conductor::ConductorError::NotFound(format!(
+                "run writer not found for run_id={run_id}"
+            ))
+        })?;
+
+        let message_id = format!("{run_id}:user:prompt:{}", ulid::Ulid::new());
+        let ack = ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+            message_id,
+            kind: "human_prompt".to_string(),
+            run_writer_actor: run_writer,
+            run_id: run_id.clone(),
+            section_id: "user".to_string(),
+            source: WriterSource::User,
+            content: prompt.to_string(),
+            reply,
+        })
+        .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
+        .map_err(|e| {
+            crate::actors::conductor::ConductorError::WorkerFailed(format!(
+                "writer enqueue failed: {e}"
+            ))
+        })?;
+
+        Ok(ack)
+    }
+
     async fn handle_process_event(
         &self,
         state: &mut ConductorState,

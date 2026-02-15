@@ -5,6 +5,7 @@
 
 use crate::actors::researcher::ResearcherResult;
 use crate::actors::terminal::TerminalAgentResult;
+use crate::actors::writer::WriterQueueAck;
 use ractor::RpcReplyPort;
 use shared_types::{ConductorExecuteRequest, ConductorRunState, EventMetadata};
 
@@ -41,6 +42,12 @@ pub enum ConductorMsg {
         event_type: String,
         payload: serde_json::Value,
         metadata: EventMetadata,
+    },
+    /// Submit a human prompt to the run-scoped writer inbox.
+    SubmitUserPrompt {
+        run_id: String,
+        prompt: String,
+        reply: RpcReplyPort<Result<WriterQueueAck, ConductorError>>,
     },
 }
 

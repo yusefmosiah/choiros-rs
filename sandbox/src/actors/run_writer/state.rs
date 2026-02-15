@@ -90,7 +90,10 @@ impl RunDocument {
             if let Some(section) = self.sections.get(section_id) {
                 if let Some(ref proposal) = section.proposal {
                     if !proposal.trim().is_empty() {
-                        body_blocks.push(format!("<!-- proposal -->\n{}", proposal.trim()));
+                        body_blocks.push(format!(
+                            "<!-- proposal -->\n{}\n<!-- /proposal -->",
+                            proposal.trim()
+                        ));
                     }
                 }
             }
@@ -139,6 +142,10 @@ impl RunDocument {
                 in_proposal = true;
                 continue;
             }
+            if line.trim() == "<!-- /proposal -->" {
+                in_proposal = false;
+                continue;
+            }
 
             if let Some(ref section_id) = current_section {
                 if let Some(section) = doc.sections.get_mut(section_id) {
@@ -183,6 +190,10 @@ impl RunDocument {
             }
             if line.trim() == "<!-- proposal -->" {
                 in_proposal = true;
+                continue;
+            }
+            if line.trim() == "<!-- /proposal -->" {
+                in_proposal = false;
                 continue;
             }
             if in_proposal {

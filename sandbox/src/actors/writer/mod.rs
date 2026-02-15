@@ -56,6 +56,20 @@ struct WriterInboxMessage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct WriterDelegationPlan {
+    capability: Option<String>,
+    objective: Option<String>,
+    max_steps: Option<u8>,
+}
+
+#[derive(Debug, Clone)]
+struct WriterDelegationDispatch {
+    capability: WriterDelegateCapability,
+    objective: String,
+    max_steps: Option<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WriterQueueAck {
     pub message_id: String,
     pub accepted: bool,
@@ -440,7 +454,15 @@ impl WriterActor {
         };
         state.inbox_processing = true;
 
-        let synthesis = Self::synthesize_with_llm(state, &inbound).await;
+        let delegation_context = if inbound.source == WriterSource::User {
+            Self::dispatch_user_prompt_delegation(myself, state, &inbound)
+                .await
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        let synthesis = Self::synthesize_with_llm(state, &inbound, delegation_context).await;
         match synthesis {
             Ok(Some(markdown)) => {
                 let _ = Self::set_section_content(
@@ -477,6 +499,7 @@ impl WriterActor {
     async fn synthesize_with_llm(
         state: &WriterState,
         inbound: &WriterInboxMessage,
+        delegation_context: String,
     ) -> Result<Option<String>, WriterError> {
         let doc = match ractor::call!(inbound.run_writer_actor, |reply| {
             RunWriterMsg::GetDocument { reply }
@@ -520,6 +543,11 @@ impl WriterActor {
             source = inbound.source.as_str(),
             content = inbound.content
         );
+        let prompt = if delegation_context.trim().is_empty() {
+            prompt
+        } else {
+            format!("{prompt}\n\nDelegation context:\n{delegation_context}")
+        };
         let history = if doc.len() > 12_000 {
             doc.chars()
                 .rev()
@@ -637,6 +665,172 @@ impl WriterActor {
             Ok(Err(e)) => Err(WriterError::RunWriterFailed(e.to_string())),
             Err(e) => Err(WriterError::RunWriterFailed(e.to_string())),
         }
+    }
+
+    fn parse_json_object(raw: &str) -> Option<serde_json::Value> {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) {
+            return Some(value);
+        }
+        let start = raw.find('{')?;
+        let end = raw.rfind('}')?;
+        if end <= start {
+            return None;
+        }
+        serde_json::from_str::<serde_json::Value>(&raw[start..=end]).ok()
+    }
+
+    async fn dispatch_user_prompt_delegation(
+        myself: &ActorRef<WriterMsg>,
+        state: &WriterState,
+        inbound: &WriterInboxMessage,
+    ) -> Result<String, WriterError> {
+        let Some(dispatch) = Self::plan_user_prompt_delegation(state, inbound).await? else {
+            return Ok(String::new());
+        };
+        let call_id = format!("writer-delegate:{}", ulid::Ulid::new());
+        let capability_name = match dispatch.capability {
+            WriterDelegateCapability::Researcher => "researcher",
+            WriterDelegateCapability::Terminal => "terminal",
+        };
+        let section_id = capability_name.to_string();
+        let queued_note = format!(
+            "> [writer] delegated_{capability_name}_queued ({call_id})\n\
+             Objective: {}\n\
+             Status: queued\n",
+            dispatch.objective
+        );
+        let _ = Self::apply_text(
+            state,
+            inbound.run_writer_actor.clone(),
+            inbound.run_id.clone(),
+            section_id.clone(),
+            WriterSource::Writer,
+            queued_note.clone(),
+            true,
+        )
+        .await?;
+
+        let writer_actor = myself.clone();
+        let run_writer_actor = inbound.run_writer_actor.clone();
+        let run_id = inbound.run_id.clone();
+        let objective = dispatch.objective.clone();
+        let max_steps = dispatch.max_steps;
+        let capability = dispatch.capability;
+        let call_id_for_task = call_id.clone();
+        tokio::spawn(async move {
+            let result = ractor::call!(writer_actor, |reply| WriterMsg::DelegateTask {
+                capability,
+                objective: objective.clone(),
+                timeout_ms: Some(180_000),
+                max_steps,
+                run_id: Some(run_id.clone()),
+                call_id: Some(call_id_for_task.clone()),
+                reply,
+            });
+
+            let completion_content = match result {
+                Ok(Ok(delegate_result)) => format!(
+                    "Objective: {objective}\nSuccess: {}\nSummary: {}\n",
+                    delegate_result.success, delegate_result.summary
+                ),
+                Ok(Err(error)) => {
+                    format!("Objective: {objective}\nSuccess: false\nError: {error}\n")
+                }
+                Err(error) => format!("Objective: {objective}\nSuccess: false\nError: {error}\n"),
+            };
+
+            let completion_message = format!(
+                "{prefix}\n{completion}",
+                prefix = format!("> [writer] delegated_{capability_name}_completed ({call_id})"),
+                completion = completion_content
+            );
+            let _ = ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+                message_id: format!("{run_id}:{capability_name}:delegate_completion:{call_id}"),
+                kind: format!("delegated_{capability_name}_completion"),
+                run_writer_actor,
+                run_id,
+                section_id,
+                source: WriterSource::Writer,
+                content: completion_message,
+                reply,
+            });
+        });
+
+        Ok(format!(
+            "Delegation dispatched asynchronously:\n{queued_note}"
+        ))
+    }
+
+    async fn plan_user_prompt_delegation(
+        state: &WriterState,
+        inbound: &WriterInboxMessage,
+    ) -> Result<Option<WriterDelegationDispatch>, WriterError> {
+        let resolved = state
+            .model_registry
+            .resolve_for_role("writer", &ModelResolutionContext::default())
+            .map_err(|e| WriterError::ModelResolution(e.to_string()))?;
+        let model_id = resolved.config.id.clone();
+        let client_registry = state
+            .model_registry
+            .create_runtime_client_registry_for_model(&model_id)
+            .map_err(|e| WriterError::ModelResolution(e.to_string()))?;
+
+        let planner_prompt = format!(
+            "You are WriterActor planning whether to delegate work.\n\
+             Decide if this human prompt requires new worker execution before revising the document.\n\
+             Output strict JSON only with keys:\n\
+             - capability: \"researcher\" | \"terminal\" | null\n\
+             - objective: string | null\n\
+             - max_steps: integer 1-100 | null\n\
+             Rules:\n\
+             - choose researcher when the prompt asks for new facts, links, topics, or verification\n\
+             - choose terminal when the prompt asks for repo/code inspection or command execution\n\
+             - choose null when the prompt is purely editorial (style, clarity, prose, structure)\n\
+             - objective must be concise and actionable when capability is not null\n\
+             Human prompt:\n{}",
+            inbound.content
+        );
+
+        let planner_output = B
+            .QuickResponse
+            .with_client_registry(&client_registry)
+            .call(planner_prompt, String::new())
+            .await
+            .map_err(|e| WriterError::WriterLlmFailed(e.to_string()))?;
+        let plan_value = Self::parse_json_object(&planner_output).ok_or_else(|| {
+            WriterError::WriterLlmFailed("writer delegation planner returned invalid JSON".into())
+        })?;
+        let plan: WriterDelegationPlan = serde_json::from_value(plan_value)
+            .map_err(|e| WriterError::WriterLlmFailed(e.to_string()))?;
+
+        let Some(capability_raw) = plan
+            .capability
+            .map(|v| v.trim().to_ascii_lowercase())
+            .filter(|v| !v.is_empty() && v != "null" && v != "none")
+        else {
+            return Ok(None);
+        };
+        let objective = plan
+            .objective
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                WriterError::Validation(
+                    "writer delegation plan missing objective for non-null capability".to_string(),
+                )
+            })?;
+
+        let capability = match capability_raw.as_str() {
+            "researcher" => WriterDelegateCapability::Researcher,
+            "terminal" => WriterDelegateCapability::Terminal,
+            _ => return Ok(None),
+        };
+        let max_steps = plan.max_steps.map(|s| s.clamp(1, 100));
+        Ok(Some(WriterDelegationDispatch {
+            capability,
+            objective,
+            max_steps,
+        }))
     }
 
     async fn set_section_content(
