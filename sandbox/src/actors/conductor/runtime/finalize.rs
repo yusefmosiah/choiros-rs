@@ -9,6 +9,7 @@ use crate::actors::conductor::{
     },
     protocol::ConductorError,
 };
+use crate::actors::run_writer::{RunWriterMsg, SectionState};
 
 impl ConductorActor {
     pub(crate) async fn finalize_run_as_completed(
@@ -57,6 +58,15 @@ impl ConductorActor {
                 .await;
         }
 
+        if let Some(run_writer) = state.run_writers.get(run_id).cloned() {
+            let _ = ractor::call!(run_writer, |reply| RunWriterMsg::MarkSectionState {
+                run_id: run_id.to_string(),
+                section_id: "conductor".to_string(),
+                state: SectionState::Complete,
+                reply,
+            });
+        }
+
         Ok(())
     }
 
@@ -86,6 +96,14 @@ impl ConductorActor {
             shared_error.failure_kind,
         )
         .await;
+        if let Some(run_writer) = state.run_writers.get(run_id).cloned() {
+            let _ = ractor::call!(run_writer, |reply| RunWriterMsg::MarkSectionState {
+                run_id: run_id.to_string(),
+                section_id: "conductor".to_string(),
+                state: SectionState::Failed,
+                reply,
+            });
+        }
         Ok(())
     }
 

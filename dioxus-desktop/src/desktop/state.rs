@@ -10,6 +10,9 @@ pub struct PendingPatch {
     pub source: PatchSource,
     pub ops: Vec<PatchOp>,
     pub proposal: Option<String>,
+    pub base_version_id: Option<u64>,
+    pub target_version_id: Option<u64>,
+    pub overlay_id: Option<String>,
     pub applied: bool,
 }
 
@@ -63,6 +66,9 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
                 source: payload.source.clone(),
                 ops: payload.ops.clone(),
                 proposal: payload.proposal.clone(),
+                base_version_id: payload.base_version_id,
+                target_version_id: payload.target_version_id,
+                overlay_id: payload.overlay_id.clone(),
                 applied: false,
             };
             if let Some(existing) = runs.get_mut(&base.document_path) {
@@ -113,7 +119,14 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
             let mut runs = ACTIVE_WRITER_RUNS.write();
             if let Some(run) = runs.get_mut(&base.document_path) {
                 run.revision = base.revision;
-                run.status = WriterRunStatusKind::Running;
+                if !matches!(
+                    run.status,
+                    WriterRunStatusKind::Completed
+                        | WriterRunStatusKind::Failed
+                        | WriterRunStatusKind::Blocked
+                ) {
+                    run.status = WriterRunStatusKind::Running;
+                }
                 run.phase = Some(phase.clone());
                 run.message = Some(message.clone());
                 run.progress_pct = *progress_pct;

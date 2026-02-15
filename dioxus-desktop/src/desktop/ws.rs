@@ -376,6 +376,12 @@ fn parse_writer_run_patch(json: &serde_json::Value) -> Option<WsEvent> {
             .get("proposal")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
+        base_version_id: json.get("base_version_id").and_then(|v| v.as_u64()),
+        target_version_id: json.get("target_version_id").and_then(|v| v.as_u64()),
+        overlay_id: json
+            .get("overlay_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
     };
     Some(WsEvent::WriterRunPatch { base, payload })
 }

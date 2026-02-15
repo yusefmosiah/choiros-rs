@@ -14,7 +14,9 @@ use tokio::sync::mpsc;
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::{ModelRegistry, ModelResolutionContext};
 use crate::actors::researcher::{ResearcherMsg, ResearcherProgress, ResearcherResult};
-use crate::actors::run_writer::{PatchOp, PatchOpKind, RunWriterMsg, SectionState};
+use crate::actors::run_writer::{
+    OverlayAuthor, OverlayKind, PatchOp, PatchOpKind, RunWriterMsg, SectionState, VersionSource,
+};
 use crate::actors::terminal::{TerminalAgentProgress, TerminalAgentResult, TerminalMsg};
 use crate::baml_client::B;
 use crate::observability::llm_trace::{LlmCallScope, LlmTraceEmitter};
@@ -53,6 +55,9 @@ struct WriterInboxMessage {
     section_id: String,
     source: WriterSource,
     content: String,
+    base_version_id: Option<u64>,
+    prompt_diff: Option<Vec<shared_types::PatchOp>>,
+    overlay_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,6 +131,9 @@ pub enum WriterMsg {
         section_id: String,
         source: WriterSource,
         content: String,
+        base_version_id: Option<u64>,
+        prompt_diff: Option<Vec<shared_types::PatchOp>>,
+        overlay_id: Option<String>,
         reply: RpcReplyPort<Result<WriterQueueAck, WriterError>>,
     },
     /// Internal wake to process the next queued inbox item.
@@ -306,6 +314,9 @@ impl Actor for WriterActor {
                 section_id,
                 source,
                 content,
+                base_version_id,
+                prompt_diff,
+                overlay_id,
                 reply,
             } => {
                 let result = Self::enqueue_inbound(
@@ -319,6 +330,9 @@ impl Actor for WriterActor {
                         section_id,
                         source,
                         content,
+                        base_version_id,
+                        prompt_diff,
+                        overlay_id,
                     },
                 )
                 .await;
@@ -386,11 +400,16 @@ impl WriterActor {
     async fn enqueue_inbound(
         myself: &ActorRef<WriterMsg>,
         state: &mut WriterState,
-        inbound: WriterInboxMessage,
+        mut inbound: WriterInboxMessage,
     ) -> Result<WriterQueueAck, WriterError> {
-        if inbound.content.trim().is_empty() {
+        let has_prompt_diff = inbound
+            .prompt_diff
+            .as_ref()
+            .map(|ops| !ops.is_empty())
+            .unwrap_or(false);
+        if inbound.content.trim().is_empty() && !has_prompt_diff {
             return Err(WriterError::Validation(
-                "inbound content cannot be empty".to_string(),
+                "inbound content cannot be empty when prompt_diff is absent".to_string(),
             ));
         }
 
@@ -404,16 +423,49 @@ impl WriterActor {
             });
         }
 
-        let initial_revision = Self::apply_text(
-            state,
-            inbound.run_writer_actor.clone(),
-            inbound.run_id.clone(),
-            inbound.section_id.clone(),
-            inbound.source,
-            Self::format_inbox_note(&inbound),
-            true,
-        )
-        .await?;
+        let initial_revision = if inbound.source == WriterSource::User {
+            let base_version_id = inbound.base_version_id.ok_or_else(|| {
+                WriterError::Validation("base_version_id is required for user prompt".to_string())
+            })?;
+            let prompt_diff = inbound.prompt_diff.clone().ok_or_else(|| {
+                WriterError::Validation("prompt_diff is required for user prompt".to_string())
+            })?;
+            if prompt_diff.is_empty() {
+                return Err(WriterError::Validation(
+                    "prompt_diff cannot be empty for user prompt".to_string(),
+                ));
+            }
+
+            let overlay = ractor::call!(inbound.run_writer_actor.clone(), |reply| {
+                RunWriterMsg::CreateOverlay {
+                    run_id: inbound.run_id.clone(),
+                    base_version_id,
+                    author: OverlayAuthor::User,
+                    kind: OverlayKind::Proposal,
+                    diff_ops: prompt_diff,
+                    reply,
+                }
+            })
+            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?
+            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?;
+            inbound.overlay_id = Some(overlay.overlay_id);
+
+            ractor::call!(inbound.run_writer_actor.clone(), |reply| {
+                RunWriterMsg::GetRevision { reply }
+            })
+            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?
+        } else {
+            Self::apply_text(
+                state,
+                inbound.run_writer_actor.clone(),
+                inbound.run_id.clone(),
+                inbound.section_id.clone(),
+                inbound.source,
+                Self::format_inbox_note(&inbound),
+                true,
+            )
+            .await?
+        };
 
         Self::remember_message_id(state, &inbound.message_id);
         state.inbox_queue.push_back(inbound.clone());
@@ -428,6 +480,8 @@ impl WriterActor {
                 "message_id": inbound.message_id,
                 "queue_len": state.inbox_queue.len(),
                 "revision": initial_revision,
+                "base_version_id": inbound.base_version_id,
+                "overlay_id": inbound.overlay_id,
             }),
         );
 
@@ -519,6 +573,25 @@ impl WriterActor {
             .create_runtime_client_registry_for_model(&model_id)
             .map_err(|e| WriterError::ModelResolution(e.to_string()))?;
 
+        let message_content = if let Some(diff_ops) = inbound.prompt_diff.as_ref() {
+            let diff_json = serde_json::to_string_pretty(diff_ops).unwrap_or_default();
+            format!(
+                "base_version_id: {}\noverlay_id: {}\nTyped diff intent (insert/delete/replace):\n{}",
+                inbound
+                    .base_version_id
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "unknown".to_string()),
+                inbound
+                    .overlay_id
+                    .as_ref()
+                    .cloned()
+                    .unwrap_or_else(|| "none".to_string()),
+                diff_json
+            )
+        } else {
+            inbound.content.clone()
+        };
+
         let prompt = format!(
             "You are WriterActor.\n\
              Produce a full revised document body (single coherent narrative) for this run.\n\
@@ -541,7 +614,7 @@ impl WriterActor {
             message_id = inbound.message_id,
             kind = inbound.kind,
             source = inbound.source.as_str(),
-            content = inbound.content
+            content = message_content
         );
         let prompt = if delegation_context.trim().is_empty() {
             prompt
@@ -752,6 +825,9 @@ impl WriterActor {
                 section_id,
                 source: WriterSource::Writer,
                 content: completion_message,
+                base_version_id: None,
+                prompt_diff: None,
+                overlay_id: None,
                 reply,
             });
         });
@@ -775,6 +851,12 @@ impl WriterActor {
             .create_runtime_client_registry_for_model(&model_id)
             .map_err(|e| WriterError::ModelResolution(e.to_string()))?;
 
+        let planner_input = if let Some(diff_ops) = inbound.prompt_diff.as_ref() {
+            serde_json::to_string_pretty(diff_ops).unwrap_or_else(|_| inbound.content.clone())
+        } else {
+            inbound.content.clone()
+        };
+
         let planner_prompt = format!(
             "You are WriterActor planning whether to delegate work.\n\
              Decide if this human prompt requires new worker execution before revising the document.\n\
@@ -788,7 +870,7 @@ impl WriterActor {
              - choose null when the prompt is purely editorial (style, clarity, prose, structure)\n\
              - objective must be concise and actionable when capability is not null\n\
              Human prompt:\n{}",
-            inbound.content
+            planner_input
         );
 
         let planner_output = B
@@ -846,14 +928,38 @@ impl WriterActor {
                 "content cannot be empty".to_string(),
             ));
         }
-        match ractor::call!(run_writer_actor, |reply| RunWriterMsg::SetSectionContent {
-            run_id: run_id.clone(),
-            source: source.as_str().to_string(),
-            section_id: section_id.clone(),
-            content: content.clone(),
-            reply,
+        let parent_version_id = match ractor::call!(run_writer_actor.clone(), |reply| {
+            RunWriterMsg::GetHeadVersion { reply }
         }) {
-            Ok(Ok(revision)) => {
+            Ok(Ok(version)) => version.version_id,
+            Ok(Err(e)) => return Err(WriterError::RunWriterFailed(e.to_string())),
+            Err(e) => return Err(WriterError::RunWriterFailed(e.to_string())),
+        };
+
+        let version_source = match source {
+            WriterSource::Writer => VersionSource::Writer,
+            WriterSource::User => VersionSource::UserSave,
+            WriterSource::Researcher | WriterSource::Terminal | WriterSource::Conductor => {
+                VersionSource::System
+            }
+        };
+
+        match ractor::call!(run_writer_actor.clone(), |reply| {
+            RunWriterMsg::CreateVersion {
+                run_id: run_id.clone(),
+                parent_version_id: Some(parent_version_id),
+                content: content.clone(),
+                source: version_source,
+                reply,
+            }
+        }) {
+            Ok(Ok(version)) => {
+                let revision = match ractor::call!(run_writer_actor, |reply| {
+                    RunWriterMsg::GetRevision { reply }
+                }) {
+                    Ok(revision) => revision,
+                    Err(e) => return Err(WriterError::RunWriterFailed(e.to_string())),
+                };
                 Self::emit_event(
                     state,
                     "writer.actor.set_section_content",
@@ -861,6 +967,7 @@ impl WriterActor {
                         "run_id": run_id,
                         "section_id": section_id,
                         "source": source.as_str(),
+                        "version_id": version.version_id,
                         "revision": revision,
                     }),
                 );
@@ -943,6 +1050,9 @@ impl WriterActor {
         run_id: Option<String>,
         call_id: Option<String>,
     ) -> Result<WriterDelegateResult, WriterError> {
+        let objective = format!(
+            "{objective}\n\nWriter output contract:\n- Return concise diff intent only.\n- Prefer short additions/removals.\n- If broad changes are needed, return rewrite instructions for Writer (not a full rewritten draft)."
+        );
         match capability {
             WriterDelegateCapability::Researcher => {
                 let researcher_actor = state.researcher_actor.as_ref().ok_or_else(|| {

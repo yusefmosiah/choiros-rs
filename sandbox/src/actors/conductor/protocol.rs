@@ -4,6 +4,7 @@
 //! the error types used throughout the conductor system.
 
 use crate::actors::researcher::ResearcherResult;
+use crate::actors::run_writer::{DocumentVersion, Overlay, OverlayStatus, VersionSource};
 use crate::actors::terminal::TerminalAgentResult;
 use crate::actors::writer::WriterQueueAck;
 use ractor::RpcReplyPort;
@@ -46,8 +47,35 @@ pub enum ConductorMsg {
     /// Submit a human prompt to the run-scoped writer inbox.
     SubmitUserPrompt {
         run_id: String,
-        prompt: String,
+        prompt_diff: Vec<shared_types::PatchOp>,
+        base_version_id: u64,
         reply: RpcReplyPort<Result<WriterQueueAck, ConductorError>>,
+    },
+    /// List run document versions from run-writer actor.
+    ListRunWriterVersions {
+        run_id: String,
+        reply: RpcReplyPort<Result<Vec<DocumentVersion>, ConductorError>>,
+    },
+    /// Fetch a specific run document version from run-writer actor.
+    GetRunWriterVersion {
+        run_id: String,
+        version_id: u64,
+        reply: RpcReplyPort<Result<DocumentVersion, ConductorError>>,
+    },
+    /// List overlays for a run document.
+    ListRunWriterOverlays {
+        run_id: String,
+        base_version_id: Option<u64>,
+        status: Option<OverlayStatus>,
+        reply: RpcReplyPort<Result<Vec<Overlay>, ConductorError>>,
+    },
+    /// Create a canonical version for a run document.
+    CreateRunWriterVersion {
+        run_id: String,
+        parent_version_id: Option<u64>,
+        content: String,
+        source: VersionSource,
+        reply: RpcReplyPort<Result<DocumentVersion, ConductorError>>,
     },
 }
 

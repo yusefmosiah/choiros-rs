@@ -373,6 +373,9 @@ impl ResearcherAdapter {
                         section_id: section_id.clone(),
                         source: WriterSource::Researcher,
                         content: content.clone(),
+                        base_version_id: None,
+                        prompt_diff: None,
+                        overlay_id: None,
                         reply,
                     })
                     .map_err(|e| format!("WriterActor call failed: {e}"))

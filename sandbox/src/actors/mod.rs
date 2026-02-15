@@ -19,8 +19,9 @@ pub use event_relay::{EventRelayActor, EventRelayArguments, EventRelayMsg};
 pub use event_store::{AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg};
 pub use researcher::{ResearcherActor, ResearcherArguments, ResearcherError, ResearcherMsg};
 pub use run_writer::{
-    ApplyPatchResult, DocumentSection, PatchOp, PatchOpKind, RunDocument, RunWriterActor,
-    RunWriterArguments, RunWriterError, RunWriterMsg, SectionState,
+    ApplyPatchResult, DocumentVersion, Overlay, OverlayAuthor, OverlayKind, OverlayStatus, PatchOp,
+    PatchOpKind, RunDocument, RunWriterActor, RunWriterArguments, RunWriterError, RunWriterMsg,
+    SectionState, VersionSource,
 };
 pub use terminal::{TerminalActor, TerminalArguments, TerminalError, TerminalInfo, TerminalMsg};
 pub use writer::{

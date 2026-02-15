@@ -15,7 +15,9 @@ use crate::actors::conductor::{
 };
 use crate::actors::event_store::EventStoreMsg;
 use crate::actors::researcher::ResearcherMsg;
-use crate::actors::run_writer::RunWriterMsg;
+use crate::actors::run_writer::{
+    DocumentVersion, Overlay, OverlayStatus, RunWriterMsg, VersionSource,
+};
 use crate::actors::terminal::TerminalMsg;
 use crate::actors::writer::{WriterMsg, WriterSource};
 
@@ -125,10 +127,56 @@ impl Actor for ConductorActor {
             }
             ConductorMsg::SubmitUserPrompt {
                 run_id,
-                prompt,
+                prompt_diff,
+                base_version_id,
                 reply,
             } => {
-                let result = self.handle_submit_user_prompt(state, run_id, prompt).await;
+                let result = self
+                    .handle_submit_user_prompt(state, run_id, prompt_diff, base_version_id)
+                    .await;
+                let _ = reply.send(result);
+            }
+            ConductorMsg::ListRunWriterVersions { run_id, reply } => {
+                let result = self.handle_list_run_writer_versions(state, run_id).await;
+                let _ = reply.send(result);
+            }
+            ConductorMsg::GetRunWriterVersion {
+                run_id,
+                version_id,
+                reply,
+            } => {
+                let result = self
+                    .handle_get_run_writer_version(state, run_id, version_id)
+                    .await;
+                let _ = reply.send(result);
+            }
+            ConductorMsg::ListRunWriterOverlays {
+                run_id,
+                base_version_id,
+                status,
+                reply,
+            } => {
+                let result = self
+                    .handle_list_run_writer_overlays(state, run_id, base_version_id, status)
+                    .await;
+                let _ = reply.send(result);
+            }
+            ConductorMsg::CreateRunWriterVersion {
+                run_id,
+                parent_version_id,
+                content,
+                source,
+                reply,
+            } => {
+                let result = self
+                    .handle_create_run_writer_version(
+                        state,
+                        run_id,
+                        parent_version_id,
+                        content,
+                        source,
+                    )
+                    .await;
                 let _ = reply.send(result);
             }
         }
@@ -150,13 +198,13 @@ impl ConductorActor {
         &self,
         state: &mut ConductorState,
         run_id: String,
-        prompt: String,
+        prompt_diff: Vec<shared_types::PatchOp>,
+        base_version_id: u64,
     ) -> Result<crate::actors::writer::WriterQueueAck, crate::actors::conductor::ConductorError>
     {
-        let prompt = prompt.trim();
-        if prompt.is_empty() {
+        if prompt_diff.is_empty() {
             return Err(crate::actors::conductor::ConductorError::InvalidRequest(
-                "prompt cannot be empty".to_string(),
+                "prompt_diff cannot be empty".to_string(),
             ));
         }
 
@@ -171,6 +219,24 @@ impl ConductorActor {
             ))
         })?;
 
+        let head = ractor::call!(run_writer.clone(), |reply| RunWriterMsg::GetHeadVersion {
+            reply
+        })
+        .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
+        .map_err(|e| {
+            crate::actors::conductor::ConductorError::WorkerFailed(format!(
+                "failed to read run-writer head version: {e}"
+            ))
+        })?;
+        if base_version_id != head.version_id {
+            return Err(crate::actors::conductor::ConductorError::InvalidRequest(
+                format!(
+                    "stale base_version_id: expected {}, got {}",
+                    head.version_id, base_version_id
+                ),
+            ));
+        }
+
         let message_id = format!("{run_id}:user:prompt:{}", ulid::Ulid::new());
         let ack = ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
             message_id,
@@ -179,7 +245,10 @@ impl ConductorActor {
             run_id: run_id.clone(),
             section_id: "user".to_string(),
             source: WriterSource::User,
-            content: prompt.to_string(),
+            content: "user_prompt_diff".to_string(),
+            base_version_id: Some(base_version_id),
+            prompt_diff: Some(prompt_diff),
+            overlay_id: None,
             reply,
         })
         .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
@@ -190,6 +259,85 @@ impl ConductorActor {
         })?;
 
         Ok(ack)
+    }
+
+    async fn handle_list_run_writer_versions(
+        &self,
+        state: &mut ConductorState,
+        run_id: String,
+    ) -> Result<Vec<DocumentVersion>, crate::actors::conductor::ConductorError> {
+        let run_writer = state.run_writers.get(&run_id).cloned().ok_or_else(|| {
+            crate::actors::conductor::ConductorError::NotFound(format!(
+                "run writer not found for run_id={run_id}"
+            ))
+        })?;
+        ractor::call!(run_writer, |reply| RunWriterMsg::ListVersions { reply })
+            .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
+            .map_err(|e| crate::actors::conductor::ConductorError::WorkerFailed(e.to_string()))
+    }
+
+    async fn handle_get_run_writer_version(
+        &self,
+        state: &mut ConductorState,
+        run_id: String,
+        version_id: u64,
+    ) -> Result<DocumentVersion, crate::actors::conductor::ConductorError> {
+        let run_writer = state.run_writers.get(&run_id).cloned().ok_or_else(|| {
+            crate::actors::conductor::ConductorError::NotFound(format!(
+                "run writer not found for run_id={run_id}"
+            ))
+        })?;
+        ractor::call!(run_writer, |reply| RunWriterMsg::GetVersion {
+            version_id,
+            reply
+        })
+        .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
+        .map_err(|e| crate::actors::conductor::ConductorError::WorkerFailed(e.to_string()))
+    }
+
+    async fn handle_list_run_writer_overlays(
+        &self,
+        state: &mut ConductorState,
+        run_id: String,
+        base_version_id: Option<u64>,
+        status: Option<OverlayStatus>,
+    ) -> Result<Vec<Overlay>, crate::actors::conductor::ConductorError> {
+        let run_writer = state.run_writers.get(&run_id).cloned().ok_or_else(|| {
+            crate::actors::conductor::ConductorError::NotFound(format!(
+                "run writer not found for run_id={run_id}"
+            ))
+        })?;
+        ractor::call!(run_writer, |reply| RunWriterMsg::ListOverlays {
+            base_version_id,
+            status,
+            reply
+        })
+        .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
+        .map_err(|e| crate::actors::conductor::ConductorError::WorkerFailed(e.to_string()))
+    }
+
+    async fn handle_create_run_writer_version(
+        &self,
+        state: &mut ConductorState,
+        run_id: String,
+        parent_version_id: Option<u64>,
+        content: String,
+        source: VersionSource,
+    ) -> Result<DocumentVersion, crate::actors::conductor::ConductorError> {
+        let run_writer = state.run_writers.get(&run_id).cloned().ok_or_else(|| {
+            crate::actors::conductor::ConductorError::NotFound(format!(
+                "run writer not found for run_id={run_id}"
+            ))
+        })?;
+        ractor::call!(run_writer, |reply| RunWriterMsg::CreateVersion {
+            run_id: run_id.clone(),
+            parent_version_id,
+            content,
+            source,
+            reply,
+        })
+        .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
+        .map_err(|e| crate::actors::conductor::ConductorError::WorkerFailed(e.to_string()))
     }
 
     async fn handle_process_event(

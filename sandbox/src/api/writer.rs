@@ -3,7 +3,7 @@
 //! Provides document editing with optimistic concurrency control via revision tracking.
 //! All paths are constrained to the sandbox directory.
 
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
@@ -13,6 +13,7 @@ use std::path::{Component, Path, PathBuf};
 use tokio::fs;
 
 use crate::actors::conductor::ConductorMsg;
+use crate::actors::run_writer::{DocumentVersion, Overlay, OverlayStatus, VersionSource};
 use crate::api::ApiState;
 
 /// Sandbox root path - all file operations are constrained to this directory
@@ -493,7 +494,8 @@ pub struct PreviewResponse {
 #[derive(Debug, Deserialize)]
 pub struct PromptDocumentRequest {
     pub path: String,
-    pub prompt: String,
+    pub prompt_diff: Vec<shared_types::PatchOp>,
+    pub base_version_id: u64,
 }
 
 /// Response for successful writer prompt enqueue.
@@ -504,6 +506,45 @@ pub struct PromptDocumentResponse {
     pub revision: u64,
     pub queue_len: usize,
     pub duplicate: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VersionListQuery {
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VersionQuery {
+    pub path: String,
+    pub version_id: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ListVersionsResponse {
+    pub run_id: String,
+    pub head_version_id: u64,
+    pub versions: Vec<DocumentVersion>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GetVersionResponse {
+    pub run_id: String,
+    pub version: DocumentVersion,
+    pub overlays: Vec<Overlay>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaveVersionRequest {
+    pub path: String,
+    pub content: String,
+    pub parent_version_id: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SaveVersionResponse {
+    pub run_id: String,
+    pub version: DocumentVersion,
+    pub saved: bool,
 }
 
 /// Preview markdown content
@@ -613,9 +654,12 @@ pub async fn prompt_document(
     State(state): State<ApiState>,
     Json(req): Json<PromptDocumentRequest>,
 ) -> impl IntoResponse {
-    if req.prompt.trim().is_empty() {
-        return writer_error(WriterErrorCode::InvalidRevision, "Prompt cannot be empty")
-            .into_response();
+    if req.prompt_diff.is_empty() {
+        return writer_error(
+            WriterErrorCode::InvalidRevision,
+            "prompt_diff cannot be empty",
+        )
+        .into_response();
     }
 
     let run_id = match extract_run_id_from_document_path(req.path.trim()) {
@@ -642,13 +686,23 @@ pub async fn prompt_document(
 
     let ack = match ractor::call!(conductor, |reply| ConductorMsg::SubmitUserPrompt {
         run_id: run_id.clone(),
-        prompt: req.prompt.clone(),
+        prompt_diff: req.prompt_diff.clone(),
+        base_version_id: req.base_version_id,
         reply,
     }) {
         Ok(Ok(ack)) => ack,
-        Ok(Err(err)) => {
-            return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
-        }
+        Ok(Err(err)) => match err {
+            crate::actors::conductor::ConductorError::InvalidRequest(message) => {
+                return writer_error(WriterErrorCode::InvalidRevision, message).into_response();
+            }
+            crate::actors::conductor::ConductorError::NotFound(message) => {
+                return writer_error(WriterErrorCode::NotFound, message).into_response();
+            }
+            other => {
+                return writer_error(WriterErrorCode::WriteError, other.to_string())
+                    .into_response();
+            }
+        },
         Err(err) => {
             return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
         }
@@ -662,6 +716,214 @@ pub async fn prompt_document(
             revision: ack.revision,
             queue_len: ack.queue_len,
             duplicate: ack.duplicate,
+        }),
+    )
+        .into_response()
+}
+
+/// List versions for a run document path.
+pub async fn list_versions(
+    State(state): State<ApiState>,
+    Query(query): Query<VersionListQuery>,
+) -> impl IntoResponse {
+    let run_id = match extract_run_id_from_document_path(query.path.trim()) {
+        Some(run_id) => run_id,
+        None => {
+            return writer_error(
+                WriterErrorCode::InvalidRevision,
+                "Version listing requires run document path: conductor/runs/{run_id}/draft.md",
+            )
+            .into_response();
+        }
+    };
+
+    let conductor = match state.app_state.ensure_conductor().await {
+        Ok(actor) => actor,
+        Err(err) => {
+            return writer_error(
+                WriterErrorCode::WriteError,
+                format!("Conductor unavailable: {err}"),
+            )
+            .into_response();
+        }
+    };
+
+    let mut versions = match ractor::call!(conductor, |reply| ConductorMsg::ListRunWriterVersions {
+        run_id: run_id.clone(),
+        reply,
+    }) {
+        Ok(Ok(versions)) => versions,
+        Ok(Err(err)) => {
+            return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
+        }
+        Err(err) => {
+            return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
+        }
+    };
+
+    versions.sort_by_key(|version| version.version_id);
+    let head_version_id = versions
+        .last()
+        .map(|version| version.version_id)
+        .unwrap_or(0);
+
+    (
+        StatusCode::OK,
+        Json(ListVersionsResponse {
+            run_id,
+            head_version_id,
+            versions,
+        }),
+    )
+        .into_response()
+}
+
+/// Get a specific version and overlays for a run document path.
+pub async fn get_version(
+    State(state): State<ApiState>,
+    Query(query): Query<VersionQuery>,
+) -> impl IntoResponse {
+    let run_id = match extract_run_id_from_document_path(query.path.trim()) {
+        Some(run_id) => run_id,
+        None => {
+            return writer_error(
+                WriterErrorCode::InvalidRevision,
+                "Version fetch requires run document path: conductor/runs/{run_id}/draft.md",
+            )
+            .into_response();
+        }
+    };
+
+    let conductor = match state.app_state.ensure_conductor().await {
+        Ok(actor) => actor,
+        Err(err) => {
+            return writer_error(
+                WriterErrorCode::WriteError,
+                format!("Conductor unavailable: {err}"),
+            )
+            .into_response();
+        }
+    };
+
+    let version = match ractor::call!(conductor.clone(), |reply| {
+        ConductorMsg::GetRunWriterVersion {
+            run_id: run_id.clone(),
+            version_id: query.version_id,
+            reply,
+        }
+    }) {
+        Ok(Ok(version)) => version,
+        Ok(Err(err)) => match err {
+            crate::actors::conductor::ConductorError::NotFound(message) => {
+                return writer_error(WriterErrorCode::NotFound, message).into_response();
+            }
+            _ => return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response(),
+        },
+        Err(err) => {
+            return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
+        }
+    };
+
+    let overlays = match ractor::call!(conductor, |reply| ConductorMsg::ListRunWriterOverlays {
+        run_id: run_id.clone(),
+        base_version_id: Some(query.version_id),
+        status: Some(OverlayStatus::Pending),
+        reply,
+    }) {
+        Ok(Ok(overlays)) => overlays,
+        Ok(Err(err)) => {
+            return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
+        }
+        Err(err) => {
+            return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
+        }
+    };
+
+    (
+        StatusCode::OK,
+        Json(GetVersionResponse {
+            run_id,
+            version,
+            overlays,
+        }),
+    )
+        .into_response()
+}
+
+/// Save current editor content as a new user-sourced run version.
+pub async fn save_version(
+    State(state): State<ApiState>,
+    Json(req): Json<SaveVersionRequest>,
+) -> impl IntoResponse {
+    if req.content.trim().is_empty() {
+        return writer_error(WriterErrorCode::InvalidRevision, "content cannot be empty")
+            .into_response();
+    }
+
+    let run_id = match extract_run_id_from_document_path(req.path.trim()) {
+        Some(run_id) => run_id,
+        None => {
+            return writer_error(
+                WriterErrorCode::InvalidRevision,
+                "Save version requires run document path: conductor/runs/{run_id}/draft.md",
+            )
+            .into_response();
+        }
+    };
+
+    let conductor = match state.app_state.ensure_conductor().await {
+        Ok(actor) => actor,
+        Err(err) => {
+            return writer_error(
+                WriterErrorCode::WriteError,
+                format!("Conductor unavailable: {err}"),
+            )
+            .into_response();
+        }
+    };
+
+    let parent_version_id = if let Some(parent) = req.parent_version_id {
+        Some(parent)
+    } else {
+        let versions = match ractor::call!(conductor.clone(), |reply| {
+            ConductorMsg::ListRunWriterVersions {
+                run_id: run_id.clone(),
+                reply,
+            }
+        }) {
+            Ok(Ok(versions)) => versions,
+            Ok(Err(err)) => {
+                return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
+            }
+            Err(err) => {
+                return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
+            }
+        };
+        versions.iter().map(|v| v.version_id).max()
+    };
+
+    let version = match ractor::call!(conductor, |reply| ConductorMsg::CreateRunWriterVersion {
+        run_id: run_id.clone(),
+        parent_version_id,
+        content: req.content.clone(),
+        source: VersionSource::UserSave,
+        reply,
+    }) {
+        Ok(Ok(version)) => version,
+        Ok(Err(err)) => {
+            return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
+        }
+        Err(err) => {
+            return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
+        }
+    };
+
+    (
+        StatusCode::OK,
+        Json(SaveVersionResponse {
+            run_id,
+            version,
+            saved: true,
         }),
     )
         .into_response()

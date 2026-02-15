@@ -55,10 +55,10 @@ impl ConductorActor {
     fn capability_contract_prefix(capability: &str) -> &'static str {
         match capability {
             "researcher" => {
-                "Capability Contract (researcher): external research only. Use research tools, citations, and source synthesis. Do not perform local shell orchestration."
+                "Capability Contract (researcher): external research only. Use research tools, citations, and source synthesis. Do not perform local shell orchestration. When sending updates for Writer, provide concise diff intent only: short additions, removals, or explicit rewrite instructions."
             }
             "terminal" => {
-                "Capability Contract (terminal): local execution only. Use shell/file/system inspection and execution. Do not perform general web research."
+                "Capability Contract (terminal): local execution only. Use shell/file/system inspection and execution. Do not perform general web research. When sending updates for Writer, provide concise diff intent only: short additions, removals, or explicit rewrite instructions."
             }
             _ => "Capability Contract: execute only within your assigned capability scope.",
         }

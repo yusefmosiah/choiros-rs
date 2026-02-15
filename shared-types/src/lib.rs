@@ -960,6 +960,9 @@ pub struct WriterRunPatchPayload {
     pub section_id: Option<String>,
     pub ops: Vec<PatchOp>,
     pub proposal: Option<String>,
+    pub base_version_id: Option<u64>,
+    pub target_version_id: Option<u64>,
+    pub overlay_id: Option<String>,
 }
 
 /// Full writer run event with base fields and typed payload

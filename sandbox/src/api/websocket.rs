@@ -142,6 +142,9 @@ pub enum WsMessage {
         section_id: Option<String>,
         ops: Vec<shared_types::PatchOp>,
         proposal: Option<String>,
+        base_version_id: Option<u64>,
+        target_version_id: Option<u64>,
+        overlay_id: Option<String>,
     },
 
     #[serde(rename = "writer.run.status")]
@@ -329,6 +332,9 @@ struct WriterRunPatchPayload {
     section_id: Option<String>,
     ops: Vec<shared_types::PatchOp>,
     proposal: Option<String>,
+    base_version_id: Option<u64>,
+    target_version_id: Option<u64>,
+    overlay_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -407,6 +413,9 @@ fn writer_ws_message_from_event(
                     section_id: parsed.section_id,
                     ops: parsed.ops,
                     proposal: parsed.proposal,
+                    base_version_id: parsed.base_version_id,
+                    target_version_id: parsed.target_version_id,
+                    overlay_id: parsed.overlay_id,
                 },
             ))
         }

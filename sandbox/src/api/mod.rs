@@ -128,8 +128,11 @@ pub fn router() -> Router<ApiState> {
         // Writer API routes
         .route("/writer/open", post(writer::open_document))
         .route("/writer/save", post(writer::save_document))
+        .route("/writer/save-version", post(writer::save_version))
         .route("/writer/preview", post(writer::preview_markdown))
         .route("/writer/prompt", post(writer::prompt_document))
+        .route("/writer/versions", get(writer::list_versions))
+        .route("/writer/version", get(writer::get_version))
         // Conductor API routes
         .route("/conductor/execute", post(conductor::execute_task))
         .route("/conductor/runs/{run_id}", get(conductor::get_run_status))

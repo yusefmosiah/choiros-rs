@@ -1236,6 +1236,47 @@ pub struct PromptDocumentResponse {
     pub duplicate: bool,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct WriterVersion {
+    pub version_id: u64,
+    pub created_at: DateTime<Utc>,
+    pub source: String,
+    pub content: String,
+    pub parent_version_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WriterOverlay {
+    pub overlay_id: String,
+    pub base_version_id: u64,
+    pub author: String,
+    pub kind: String,
+    pub diff_ops: Vec<shared_types::PatchOp>,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ListVersionsResponse {
+    pub run_id: String,
+    pub head_version_id: u64,
+    pub versions: Vec<WriterVersion>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetVersionResponse {
+    pub run_id: String,
+    pub version: WriterVersion,
+    pub overlays: Vec<WriterOverlay>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SaveVersionResponse {
+    pub run_id: String,
+    pub version: WriterVersion,
+    pub saved: bool,
+}
+
 /// Writer error detail
 #[derive(Debug, Clone, Deserialize)]
 pub struct WriterErrorDetail {
@@ -1367,11 +1408,16 @@ pub async fn writer_preview(
 }
 
 /// Submit a human prompt to the writer actor for a run document.
-pub async fn writer_prompt(path: &str, prompt: &str) -> Result<PromptDocumentResponse, String> {
+pub async fn writer_prompt(
+    path: &str,
+    prompt_diff: &[shared_types::PatchOp],
+    base_version_id: u64,
+) -> Result<PromptDocumentResponse, String> {
     let url = format!("{}/writer/prompt", api_base());
     let request = serde_json::json!({
         "path": path,
-        "prompt": prompt
+        "prompt_diff": prompt_diff,
+        "base_version_id": base_version_id
     });
 
     let response = Request::post(&url)
@@ -1392,6 +1438,88 @@ pub async fn writer_prompt(path: &str, prompt: &str) -> Result<PromptDocumentRes
 
     response
         .json::<PromptDocumentResponse>()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))
+}
+
+pub async fn writer_versions(path: &str) -> Result<ListVersionsResponse, String> {
+    let encoded = js_sys::encode_uri_component(path)
+        .as_string()
+        .unwrap_or_else(|| path.to_string());
+    let url = format!("{}/writer/versions?path={}", api_base(), encoded);
+    let response = Request::get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+    if !response.ok() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        if let Ok(err) = serde_json::from_str::<WriterErrorResponse>(&body) {
+            return Err(format!("{}: {}", err.error.code, err.error.message));
+        }
+        return Err(format!("HTTP error: {status}"));
+    }
+    response
+        .json::<ListVersionsResponse>()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))
+}
+
+pub async fn writer_version(path: &str, version_id: u64) -> Result<GetVersionResponse, String> {
+    let encoded = js_sys::encode_uri_component(path)
+        .as_string()
+        .unwrap_or_else(|| path.to_string());
+    let url = format!(
+        "{}/writer/version?path={}&version_id={}",
+        api_base(),
+        encoded,
+        version_id
+    );
+    let response = Request::get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+    if !response.ok() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        if let Ok(err) = serde_json::from_str::<WriterErrorResponse>(&body) {
+            return Err(format!("{}: {}", err.error.code, err.error.message));
+        }
+        return Err(format!("HTTP error: {status}"));
+    }
+    response
+        .json::<GetVersionResponse>()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))
+}
+
+pub async fn writer_save_version(
+    path: &str,
+    content: &str,
+    parent_version_id: Option<u64>,
+) -> Result<SaveVersionResponse, String> {
+    let url = format!("{}/writer/save-version", api_base());
+    let request = serde_json::json!({
+        "path": path,
+        "content": content,
+        "parent_version_id": parent_version_id
+    });
+    let response = Request::post(&url)
+        .json(&request)
+        .map_err(|e| format!("Failed to serialize request: {e}"))?
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+    if !response.ok() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        if let Ok(err) = serde_json::from_str::<WriterErrorResponse>(&body) {
+            return Err(format!("{}: {}", err.error.code, err.error.message));
+        }
+        return Err(format!("HTTP error: {status}"));
+    }
+    response
+        .json::<SaveVersionResponse>()
         .await
         .map_err(|e| format!("Failed to parse JSON: {e}"))
 }
