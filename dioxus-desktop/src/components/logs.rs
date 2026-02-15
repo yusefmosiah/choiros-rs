@@ -494,9 +494,9 @@ fn derive_runs(entries: &[LogFeedEntry]) -> Vec<RunListEntry> {
         let actor =
             event_emitter_label(&entry.event).unwrap_or_else(|| entry.event.actor_id.clone());
         let status = match entry.event.event_type.as_str() {
-            "worker.task.failed"
-            | "conductor.task.failed"
-            | "conductor.capability.failed" => "failed",
+            "worker.task.failed" | "conductor.task.failed" | "conductor.capability.failed" => {
+                "failed"
+            }
             "worker.task.completed" | "conductor.task.completed" => "completed",
             "worker.task.started"
             | "worker.task.progress"

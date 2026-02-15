@@ -289,10 +289,10 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                             Ok(versions_response) => {
                                 let ids = normalize_version_ids(
                                     versions_response
-                                    .versions
-                                    .iter()
-                                    .map(|version| version.version_id)
-                                    .collect(),
+                                        .versions
+                                        .iter()
+                                        .map(|version| version.version_id)
+                                        .collect(),
                                 );
                                 let selected = reconcile_selected_version_id(
                                     &ids,
@@ -301,8 +301,11 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                                 version_ids.set(ids);
                                 selected_version_id.set(selected);
 
-                                match writer_version(&opened_path, versions_response.head_version_id)
-                                    .await
+                                match writer_version(
+                                    &opened_path,
+                                    versions_response.head_version_id,
+                                )
+                                .await
                                 {
                                     Ok(version_response) => {
                                         content.set(version_response.version.content.clone());
@@ -793,10 +796,10 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                         if let Ok(versions_response) = writer_versions(&current_path).await {
                             let ids = normalize_version_ids(
                                 versions_response
-                                .versions
-                                .iter()
-                                .map(|version| version.version_id)
-                                .collect(),
+                                    .versions
+                                    .iter()
+                                    .map(|version| version.version_id)
+                                    .collect(),
                             );
                             let selected = reconcile_selected_version_id(
                                 &ids,
@@ -811,8 +814,7 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                                 content.set(version_response.version.content.clone());
                                 selected_version_content
                                     .set(version_response.version.content.clone());
-                                prompt_base_content
-                                    .set(version_response.version.content.clone());
+                                prompt_base_content.set(version_response.version.content.clone());
                                 selected_overlays.set(version_response.overlays);
                             }
                         }

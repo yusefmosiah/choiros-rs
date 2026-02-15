@@ -366,8 +366,7 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
     let on_toggle_theme = props.on_toggle_theme;
     let telemetry_state = props.telemetry_state;
     let mut input_value = use_signal(String::new);
-    let mut mobile_dock_expanded = use_signal(|| false);
-    let visible_mobile_icons = 2usize;
+    let mut prompt_expanded = use_signal(|| true);
     let mut conductor_state = use_signal(|| ConductorSubmissionState::Idle);
     let desktop_id_signal = use_signal(|| desktop_id.clone());
 
@@ -375,6 +374,7 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
     let handle_conductor_submit = use_callback(move |objective: String| {
         let desktop_id = desktop_id_signal.read().clone();
         let mut state = conductor_state.clone();
+        prompt_expanded.set(true);
 
         if state().is_active() {
             return;
@@ -383,8 +383,7 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
 
         spawn(async move {
             // Execute conductor task
-            match execute_conductor(&objective, &desktop_id, ConductorOutputMode::Auto).await
-            {
+            match execute_conductor(&objective, &desktop_id, ConductorOutputMode::Auto).await {
                 Ok(response) => {
                     handle_conductor_response(response, state, desktop_id).await;
                 }
@@ -409,7 +408,8 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
                     run_id: response.run_id.clone(),
                 });
 
-                if let Err(e) = open_writer_window(&desktop_id, response.writer_window_props).await {
+                if let Err(e) = open_writer_window(&desktop_id, response.writer_window_props).await
+                {
                     state.set(ConductorSubmissionState::Failed {
                         code: "WINDOW_OPEN_FAILED".to_string(),
                         message: e,
@@ -477,128 +477,278 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
 
         div {
             class: "prompt-bar",
-            style: "display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1rem; background: var(--promptbar-bg, #111827); border-top: 1px solid var(--border-color, #374151); position: relative; z-index: 2000;",
-
-            button {
-                class: "prompt-help-btn",
-                style: "width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--accent-bg, #3b82f6); color: white; border: none; border-radius: var(--radius-md, 8px); cursor: pointer; font-weight: 600; flex-shrink: 0;",
-                onclick: move |_| {},
-                "?"
-            }
-
-            button {
-                class: "prompt-theme-btn",
-                style: "width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--window-bg, #1f2937); color: var(--text-secondary, #9ca3af); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); cursor: pointer; flex-shrink: 0;",
-                onclick: move |_| on_toggle_theme.call(()),
-                title: "Toggle theme",
-                if current_theme == "dark" {
-                    "☀️"
+            style: if is_mobile {
+                if prompt_expanded() {
+                    "display: flex; align-items: center; gap: 0.4rem; padding: 0.5rem 0.5rem; background: var(--promptbar-bg, #111827); border-top: 1px solid var(--border-color, #374151); position: relative; z-index: 2000;"
                 } else {
-                    "🌙"
+                    "display: flex; align-items: center; gap: 0.35rem; padding: 0.45rem 0.5rem; background: var(--promptbar-bg, #111827); border-top: 1px solid var(--border-color, #374151); position: relative; z-index: 2000;"
                 }
-            }
+            } else {
+                "display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1rem; background: var(--promptbar-bg, #111827); border-top: 1px solid var(--border-color, #374151); position: relative; z-index: 2000;"
+            },
 
-            div {
-                class: "prompt-input-container",
-                style: "flex: 1; position: relative; display: flex; align-items: center;",
+            if is_mobile {
+                div {
+                    class: "mobile-main",
+                    style: "display: flex; align-items: center; gap: 0.25rem; flex: 1; min-width: 0;",
 
-                input {
-                    class: "prompt-input",
-                    style: "flex: 1; padding: 0.5rem 1rem; background: var(--input-bg, #1f2937); color: var(--text-primary, white); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); font-size: 0.875rem; outline: none; min-width: 0;",
-                    placeholder: "Ask anything, paste URL, or type ? for commands...",
-                    value: "{input_value}",
-                    disabled: conductor_state().is_active(),
-                    oninput: move |e| {
-                        input_value.set(e.value().clone());
-                        if matches!(
-                            conductor_state(),
-                            ConductorSubmissionState::Success { .. }
-                                | ConductorSubmissionState::ToastReady { .. }
-                        ) {
-                            conductor_state.set(ConductorSubmissionState::Idle);
-                        }
-                    },
-                    onkeydown: move |e| {
-                        if e.key() == Key::Enter {
-                            let text = input_value.to_string();
-                            if !text.trim().is_empty() {
-                                handle_conductor_submit.call(text);
-                                input_value.set(String::new());
+                    if prompt_expanded() {
+                        button {
+                            class: "prompt-theme-btn",
+                            style: "width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--window-bg, #1f2937); color: var(--text-secondary, #9ca3af); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); cursor: pointer; flex-shrink: 0;",
+                            onclick: move |_| on_toggle_theme.call(()),
+                            title: "Toggle theme",
+                            if current_theme == "dark" {
+                                "☀️"
+                            } else {
+                                "🌙"
                             }
                         }
                     }
-                }
 
-                // Conductor state indicator overlay
-                if let Some(display_text) = conductor_state().display_text() {
-                    div {
-                        class: "conductor-status-indicator",
-                        style: "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.75rem; background: var(--accent-bg, #3b82f6); color: white; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 500;",
-
-                        // Spinner animation
+                    if prompt_expanded() {
                         div {
-                            style: "width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 1s linear infinite;",
-                        }
+                            class: "prompt-input-container",
+                            style: "flex: 1; min-width: 0; position: relative; display: flex; align-items: center;",
 
-                        span { "{display_text}" }
-                    }
-                }
-
-                // Error message display
-                if let Some(error_msg) = conductor_state().error_message() {
-                    div {
-                        class: "conductor-error-indicator",
-                        style: "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.75rem; background: var(--danger-bg, #ef4444); color: white; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 500; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;",
-                        title: "{error_msg}",
-
-                        span { "⚠" }
-                        span { "{error_msg}" }
-                    }
-                }
-
-                if let Some(toast) = conductor_state().toast_payload().cloned() {
-                    button {
-                        class: "conductor-toast-indicator",
-                        style: "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; background: #14b8a6; color: #042f2e; border: 1px solid #2dd4bf; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 600; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;",
-                        title: "{toast.message}",
-                        onclick: move |_| {
-                            let toast = toast.clone();
-                            let desktop_id = desktop_id_signal.read().clone();
-                            spawn(async move {
-                                if let Some(report_path) = toast.report_path {
-                                    let toast_props = WriterWindowProps {
-                                        x: 0,
-                                        y: 0,
-                                        width: 0,
-                                        height: 0,
-                                        path: report_path,
-                                        preview_mode: true,
-                                        run_id: None,
-                                    };
-                                    if let Err(e) = open_writer_window(&desktop_id, Some(toast_props))
-                                        .await
-                                    {
-                                        dioxus_logger::tracing::error!(
-                                            "Failed to open writer from conductor toast: {}",
-                                            e
-                                        );
+                            input {
+                                class: "prompt-input",
+                                style: "flex: 1; padding: 0.5rem 1rem; background: var(--input-bg, #1f2937); color: var(--text-primary, white); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); font-size: 0.875rem; outline: none; min-width: 0;",
+                                placeholder: "Ask anything, paste URL, or type ? for commands...",
+                                value: "{input_value}",
+                                disabled: conductor_state().is_active(),
+                                onfocus: move |_| {
+                                    prompt_expanded.set(true);
+                                },
+                                oninput: move |e| {
+                                    input_value.set(e.value().clone());
+                                    if matches!(
+                                        conductor_state(),
+                                        ConductorSubmissionState::Success { .. }
+                                            | ConductorSubmissionState::ToastReady { .. }
+                                    ) {
+                                        conductor_state.set(ConductorSubmissionState::Idle);
+                                    }
+                                },
+                                onkeydown: move |e| {
+                                    if e.key() == Key::Enter {
+                                        let text = input_value.to_string();
+                                        if !text.trim().is_empty() {
+                                            handle_conductor_submit.call(text);
+                                            input_value.set(String::new());
+                                        }
                                     }
                                 }
-                            });
-                        },
-                        span { "✓" }
-                        span { "{toast.title}: {toast.message}" }
+                            }
+
+                            // Conductor state indicator overlay
+                            if let Some(display_text) = conductor_state().display_text() {
+                                div {
+                                    class: "conductor-status-indicator",
+                                    style: "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.75rem; background: var(--accent-bg, #3b82f6); color: white; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 500;",
+
+                                    // Spinner animation
+                                    div {
+                                        style: "width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 1s linear infinite;",
+                                    }
+
+                                    span { "{display_text}" }
+                                }
+                            }
+
+                            // Error message display
+                            if let Some(error_msg) = conductor_state().error_message() {
+                                div {
+                                    class: "conductor-error-indicator",
+                                    style: "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.75rem; background: var(--danger-bg, #ef4444); color: white; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 500; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;",
+                                    title: "{error_msg}",
+
+                                    span { "⚠" }
+                                    span { "{error_msg}" }
+                                }
+                            }
+
+                            if let Some(toast) = conductor_state().toast_payload().cloned() {
+                                button {
+                                    class: "conductor-toast-indicator",
+                                    style: "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; background: #14b8a6; color: #042f2e; border: 1px solid #2dd4bf; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 600; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;",
+                                    title: "{toast.message}",
+                                    onclick: move |_| {
+                                        let toast = toast.clone();
+                                        let desktop_id = desktop_id_signal.read().clone();
+                                        spawn(async move {
+                                            if let Some(report_path) = toast.report_path {
+                                                let toast_props = WriterWindowProps {
+                                                    x: 0,
+                                                    y: 0,
+                                                    width: 0,
+                                                    height: 0,
+                                                    path: report_path,
+                                                    preview_mode: true,
+                                                    run_id: None,
+                                                };
+                                                if let Err(e) = open_writer_window(&desktop_id, Some(toast_props))
+                                                    .await
+                                                {
+                                                    dioxus_logger::tracing::error!(
+                                                        "Failed to open writer from conductor toast: {}",
+                                                        e
+                                                    );
+                                                }
+                                            }
+                                        });
+                                    },
+                                    span { "✓" }
+                                    span { "{toast.title}: {toast.message}" }
+                                }
+                            }
+
+                            // Success message display
+                            if let Some(success_msg) = conductor_state().success_message() {
+                                div {
+                                    class: "conductor-success-indicator",
+                                    style: "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.75rem; background: var(--success-bg, #10b981); color: white; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 500;",
+
+                                    span { "✓" }
+                                    span { "{success_msg}" }
+                                }
+                            }
+                        }
+                    } else {
+                        div {
+                            class: "mobile-dock-strip",
+                            style: "display: flex; align-items: center; gap: 0.25rem; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; padding-right: 0.15rem;",
+
+                            for window in windows.iter() {
+                                RunningAppIndicator {
+                                    key: "mobile-strip-{window.id}",
+                                    window: window.clone(),
+                                    is_active: active_window.as_ref() == Some(&window.id),
+                                    on_focus: on_focus_window,
+                                }
+                            }
+                        }
+
+                        ShowDesktopIndicator {
+                            on_show_desktop,
+                        }
+                    }
+                }
+            } else {
+                button {
+                    class: "prompt-theme-btn",
+                    style: "width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--window-bg, #1f2937); color: var(--text-secondary, #9ca3af); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); cursor: pointer; flex-shrink: 0;",
+                    onclick: move |_| on_toggle_theme.call(()),
+                    title: "Toggle theme",
+                    if current_theme == "dark" {
+                        "☀️"
+                    } else {
+                        "🌙"
                     }
                 }
 
-                // Success message display
-                if let Some(success_msg) = conductor_state().success_message() {
-                    div {
-                        class: "conductor-success-indicator",
-                        style: "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.75rem; background: var(--success-bg, #10b981); color: white; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 500;",
+                div {
+                    class: "prompt-input-container",
+                    style: "flex: 1; min-width: 0; position: relative; display: flex; align-items: center;",
 
-                        span { "✓" }
-                        span { "{success_msg}" }
+                    input {
+                        class: "prompt-input",
+                        style: "flex: 1; padding: 0.5rem 1rem; background: var(--input-bg, #1f2937); color: var(--text-primary, white); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); font-size: 0.875rem; outline: none; min-width: 0;",
+                        placeholder: "Ask anything, paste URL, or type ? for commands...",
+                        value: "{input_value}",
+                        disabled: conductor_state().is_active(),
+                        oninput: move |e| {
+                            input_value.set(e.value().clone());
+                            if matches!(
+                                conductor_state(),
+                                ConductorSubmissionState::Success { .. }
+                                    | ConductorSubmissionState::ToastReady { .. }
+                            ) {
+                                conductor_state.set(ConductorSubmissionState::Idle);
+                            }
+                        },
+                        onkeydown: move |e| {
+                            if e.key() == Key::Enter {
+                                let text = input_value.to_string();
+                                if !text.trim().is_empty() {
+                                    handle_conductor_submit.call(text);
+                                    input_value.set(String::new());
+                                }
+                            }
+                        }
+                    }
+
+                    // Conductor state indicator overlay
+                    if let Some(display_text) = conductor_state().display_text() {
+                        div {
+                            class: "conductor-status-indicator",
+                            style: "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.75rem; background: var(--accent-bg, #3b82f6); color: white; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 500;",
+
+                            // Spinner animation
+                            div {
+                                style: "width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 1s linear infinite;",
+                            }
+
+                            span { "{display_text}" }
+                        }
+                    }
+
+                    // Error message display
+                    if let Some(error_msg) = conductor_state().error_message() {
+                        div {
+                            class: "conductor-error-indicator",
+                            style: "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.75rem; background: var(--danger-bg, #ef4444); color: white; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 500; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;",
+                            title: "{error_msg}",
+
+                            span { "⚠" }
+                            span { "{error_msg}" }
+                        }
+                    }
+
+                    if let Some(toast) = conductor_state().toast_payload().cloned() {
+                        button {
+                            class: "conductor-toast-indicator",
+                            style: "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; background: #14b8a6; color: #042f2e; border: 1px solid #2dd4bf; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 600; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;",
+                            title: "{toast.message}",
+                            onclick: move |_| {
+                                let toast = toast.clone();
+                                let desktop_id = desktop_id_signal.read().clone();
+                                spawn(async move {
+                                    if let Some(report_path) = toast.report_path {
+                                        let toast_props = WriterWindowProps {
+                                            x: 0,
+                                            y: 0,
+                                            width: 0,
+                                            height: 0,
+                                            path: report_path,
+                                            preview_mode: true,
+                                            run_id: None,
+                                        };
+                                        if let Err(e) = open_writer_window(&desktop_id, Some(toast_props))
+                                            .await
+                                        {
+                                            dioxus_logger::tracing::error!(
+                                                "Failed to open writer from conductor toast: {}",
+                                                e
+                                            );
+                                        }
+                                    }
+                                });
+                            },
+                            span { "✓" }
+                            span { "{toast.title}: {toast.message}" }
+                        }
+                    }
+
+                    // Success message display
+                    if let Some(success_msg) = conductor_state().success_message() {
+                        div {
+                            class: "conductor-success-indicator",
+                            style: "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.75rem; background: var(--success-bg, #10b981); color: white; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 500;",
+
+                            span { "✓" }
+                            span { "{success_msg}" }
+                        }
                     }
                 }
             }
@@ -626,29 +776,20 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
             if is_mobile {
                 div {
                     class: "mobile-dock",
-                    style: "display: flex; align-items: center; gap: 0.25rem; flex-shrink: 0; margin-left: auto;",
+                    style: "display: flex; align-items: center; gap: 0.25rem; flex-shrink: 0;",
 
-                    ShowDesktopIndicator {
-                        on_show_desktop,
-                    }
-
-                    for window in windows.iter().take(visible_mobile_icons) {
-                        RunningAppIndicator {
-                            key: "{window.id}",
-                            window: window.clone(),
-                            is_active: active_window.as_ref() == Some(&window.id),
-                            on_focus: on_focus_window,
-                        }
-                    }
-
-                    if windows.len() > visible_mobile_icons {
-                        button {
-                            class: "mobile-dock-more",
-                            style: "position: relative; z-index: 2100; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--window-bg, #1f2937); color: var(--text-secondary, #9ca3af); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); cursor: pointer; font-size: 0.75rem; font-weight: 600;",
-                            onclick: move |_| mobile_dock_expanded.set(!mobile_dock_expanded()),
-                            title: "Show all open windows",
-                            "+{windows.len() - visible_mobile_icons}"
-                        }
+                    button {
+                        class: "mobile-mode-toggle",
+                        style: if prompt_expanded() {
+                            "position: relative; z-index: 2100; width: 40px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--accent-bg, #3b82f6); color: white; border: none; border-radius: var(--radius-md, 8px); cursor: pointer; font-size: 0.75rem; font-weight: 700; box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.3));"
+                        } else {
+                            "position: relative; z-index: 2100; width: 40px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--window-bg, #1f2937); color: var(--text-secondary, #9ca3af); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); cursor: pointer; font-size: 0.75rem; font-weight: 700; box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.3));"
+                        },
+                        onclick: move |_| {
+                            prompt_expanded.set(!prompt_expanded());
+                        },
+                        title: if prompt_expanded() { "Show windows tray" } else { "Show prompt" },
+                        "{windows.len()}"
                     }
 
                     div {
@@ -658,21 +799,6 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
                             "display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; color: #f59e0b; font-size: 0.8rem;"
                         },
                         if connected { "●" } else { "◐" }
-                    }
-                }
-
-                if mobile_dock_expanded() && windows.len() > visible_mobile_icons {
-                    div {
-                        class: "mobile-dock-panel",
-                        style: "position: absolute; right: 0.75rem; bottom: 3.5rem; z-index: 2200; display: flex; flex-wrap: wrap; gap: 0.35rem; max-width: min(80vw, 320px); padding: 0.5rem; background: var(--window-bg, #1f2937); border: 1px solid var(--border-color, #374151); border-radius: var(--radius-md, 8px); box-shadow: var(--shadow-lg, 0 10px 40px rgba(0,0,0,0.5));",
-                        for window in windows.iter().skip(visible_mobile_icons) {
-                            RunningAppIndicator {
-                                key: "mobile-overflow-{window.id}",
-                                window: window.clone(),
-                                is_active: active_window.as_ref() == Some(&window.id),
-                                on_focus: on_focus_window,
-                            }
-                        }
                     }
                 }
             } else {
@@ -746,7 +872,6 @@ mod tests {
         assert_eq!(code, "EXEC_FAIL");
         assert_eq!(message, "Typed failure");
     }
-
 }
 
 #[component]

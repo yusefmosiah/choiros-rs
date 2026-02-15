@@ -401,7 +401,11 @@ pub fn FloatingWindow(
                         if elapsed >= PATCH_INTERVAL_MS {
                             let pending_resize = { queued_resize.write().take() };
                             if let Some((next_w, next_h)) = pending_resize {
-                                on_resize.call((window_id_for_pointer_move.clone(), next_w, next_h));
+                                on_resize.call((
+                                    window_id_for_pointer_move.clone(),
+                                    next_w,
+                                    next_h,
+                                ));
                                 last_resize_sent_ms.set(now_ms());
                             }
                         } else if !resize_flush_scheduled() {
@@ -884,7 +888,8 @@ pub fn FloatingWindow(
                 mobile_pinch_anchor_doc.set(None);
                 mobile_pinch_doc.set(None);
                 interaction_doc.set(None);
-            }) as Box<dyn FnMut(web_sys::PointerEvent)>);
+            })
+                as Box<dyn FnMut(web_sys::PointerEvent)>);
 
             let pointer_cancel_closure =
                 Closure::wrap(Box::new(move |event: web_sys::PointerEvent| {
@@ -970,7 +975,11 @@ pub fn FloatingWindow(
                 div {
                     class: "window-titlebar",
                     tabindex: "0",
-                    style: "display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: var(--titlebar-bg, #111827); border-bottom: 1px solid var(--border-color, #374151); cursor: grab; user-select: none; touch-action: none;",
+                    style: if is_mobile {
+                        "display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0.5rem; background: var(--titlebar-bg, #111827); border-bottom: 1px solid var(--border-color, #374151); cursor: grab; user-select: none; touch-action: none;"
+                    } else {
+                        "display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: var(--titlebar-bg, #111827); border-bottom: 1px solid var(--border-color, #374151); cursor: grab; user-select: none; touch-action: none;"
+                    },
                     onkeydown: move |e| {
                         if e.key() == Key::Enter || e.key() == Key::Character(" ".to_string()) {
                             on_focus.call(window_id_for_title_key.clone());
@@ -1017,9 +1026,13 @@ pub fn FloatingWindow(
                     },
 
                     div {
-                        style: "display: flex; align-items: center; gap: 0.5rem;",
-                        span { style: "font-size: 1rem;", {get_app_icon(&window.app_id)} }
-                        span { style: "font-weight: 500; color: var(--text-primary, white);", "{window.title}" }
+                        style: if is_mobile {
+                            "display: flex; align-items: center; gap: 0.35rem; min-width: 0;"
+                        } else {
+                            "display: flex; align-items: center; gap: 0.5rem;"
+                        },
+                        span { style: if is_mobile { "font-size: 0.9rem;" } else { "font-size: 1rem;" }, {get_app_icon(&window.app_id)} }
+                        span { style: if is_mobile { "font-weight: 500; color: var(--text-primary, white); font-size: 0.92rem; max-width: 36vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" } else { "font-weight: 500; color: var(--text-primary, white);" }, "{window.title}" }
                     }
 
                     WindowControls {

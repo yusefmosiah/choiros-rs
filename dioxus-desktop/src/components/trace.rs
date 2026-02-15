@@ -153,11 +153,7 @@ impl TraceGroup {
         self.started
             .as_ref()
             .and_then(|e| e.provider.as_deref())
-            .or_else(|| {
-                self.terminal
-                    .as_ref()
-                    .and_then(|e| e.provider.as_deref())
-            })
+            .or_else(|| self.terminal.as_ref().and_then(|e| e.provider.as_deref()))
     }
 
     fn duration_ms(&self) -> Option<i64> {
@@ -168,44 +164,28 @@ impl TraceGroup {
         self.started
             .as_ref()
             .and_then(|e| e.run_id.as_deref())
-            .or_else(|| {
-                self.terminal
-                    .as_ref()
-                    .and_then(|e| e.run_id.as_deref())
-            })
+            .or_else(|| self.terminal.as_ref().and_then(|e| e.run_id.as_deref()))
     }
 
     fn call_id(&self) -> Option<&str> {
         self.started
             .as_ref()
             .and_then(|e| e.call_id.as_deref())
-            .or_else(|| {
-                self.terminal
-                    .as_ref()
-                    .and_then(|e| e.call_id.as_deref())
-            })
+            .or_else(|| self.terminal.as_ref().and_then(|e| e.call_id.as_deref()))
     }
 
     fn session_id(&self) -> Option<&str> {
         self.started
             .as_ref()
             .and_then(|e| e.session_id.as_deref())
-            .or_else(|| {
-                self.terminal
-                    .as_ref()
-                    .and_then(|e| e.session_id.as_deref())
-            })
+            .or_else(|| self.terminal.as_ref().and_then(|e| e.session_id.as_deref()))
     }
 
     fn thread_id(&self) -> Option<&str> {
         self.started
             .as_ref()
             .and_then(|e| e.thread_id.as_deref())
-            .or_else(|| {
-                self.terminal
-                    .as_ref()
-                    .and_then(|e| e.thread_id.as_deref())
-            })
+            .or_else(|| self.terminal.as_ref().and_then(|e| e.thread_id.as_deref()))
     }
 
     fn actor_id(&self) -> &str {
@@ -223,7 +203,10 @@ fn parse_trace_event(event: &LogsEvent) -> Option<TraceEvent> {
     }
 
     let payload = &event.payload;
-    let scope = payload.get("scope").cloned().unwrap_or(serde_json::Value::Null);
+    let scope = payload
+        .get("scope")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
 
     Some(TraceEvent {
         seq: event.seq,
@@ -250,14 +233,23 @@ fn parse_trace_event(event: &LogsEvent) -> Option<TraceEvent> {
             .and_then(|v| v.as_str())
             .unwrap_or("unknown")
             .to_string(),
-        provider: payload.get("provider").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        provider: payload
+            .get("provider")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
         actor_id: payload
             .get("actor_id")
             .and_then(|v| v.as_str())
             .unwrap_or_else(|| event.actor_id.as_str())
             .to_string(),
-        run_id: payload.get("run_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        call_id: payload.get("call_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        run_id: payload
+            .get("run_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        call_id: payload
+            .get("call_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
         session_id: scope
             .get("session_id")
             .and_then(|v| v.as_str())
@@ -309,10 +301,7 @@ fn parse_prompt_event(event: &LogsEvent) -> Option<PromptEvent> {
         return None;
     }
     let payload = &event.payload;
-    let run_id = payload
-        .get("run_id")
-        .and_then(|v| v.as_str())?
-        .to_string();
+    let run_id = payload.get("run_id").and_then(|v| v.as_str())?.to_string();
     let objective = payload
         .get("objective")
         .and_then(|v| v.as_str())
@@ -353,8 +342,14 @@ fn parse_tool_trace_event(event: &LogsEvent) -> Option<ToolTraceEvent> {
             .and_then(|v| v.as_str())
             .unwrap_or("unknown")
             .to_string(),
-        run_id: payload.get("run_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        call_id: payload.get("call_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        run_id: payload
+            .get("run_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        call_id: payload
+            .get("call_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
         success: payload.get("success").and_then(|v| v.as_bool()),
         duration_ms: payload.get("duration_ms").and_then(|v| v.as_i64()),
     })
@@ -624,7 +619,10 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                                 .and_then(|v| v.as_str())
                                                 .unwrap_or_default()
                                                 .to_string(),
-                                            payload: json.get("payload").cloned().unwrap_or(serde_json::Value::Null),
+                                            payload: json
+                                                .get("payload")
+                                                .cloned()
+                                                .unwrap_or(serde_json::Value::Null),
                                         };
 
                                         let next_seq = since_seq().max(logs_event.seq);
@@ -640,7 +638,8 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                                 list.drain(0..trim);
                                             }
                                         }
-                                        if let Some(prompt_event) = parse_prompt_event(&logs_event) {
+                                        if let Some(prompt_event) = parse_prompt_event(&logs_event)
+                                        {
                                             let mut list = prompt_events.write();
                                             list.push(prompt_event);
                                             list.sort_by_key(|e| e.seq);
@@ -650,7 +649,9 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                                 list.drain(0..trim);
                                             }
                                         }
-                                        if let Some(tool_event) = parse_tool_trace_event(&logs_event) {
+                                        if let Some(tool_event) =
+                                            parse_tool_trace_event(&logs_event)
+                                        {
                                             let mut list = tool_events.write();
                                             list.push(tool_event);
                                             list.sort_by_key(|e| e.seq);
