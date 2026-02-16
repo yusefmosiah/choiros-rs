@@ -19,7 +19,7 @@ use crate::actors::run_writer::{
     DocumentVersion, Overlay, OverlayStatus, RunWriterMsg, VersionSource,
 };
 use crate::actors::terminal::TerminalMsg;
-use crate::actors::writer::{WriterInboundEnvelope, WriterMsg, WriterSource};
+use crate::actors::writer::{WriterError, WriterMsg};
 
 /// ConductorActor - main orchestration actor.
 #[derive(Debug, Default)]
@@ -194,6 +194,22 @@ impl Actor for ConductorActor {
 }
 
 impl ConductorActor {
+    fn map_writer_error(error: WriterError) -> crate::actors::conductor::ConductorError {
+        match error {
+            WriterError::Validation(message) => {
+                if message.contains("run writer not found") {
+                    crate::actors::conductor::ConductorError::NotFound(message)
+                } else {
+                    crate::actors::conductor::ConductorError::InvalidRequest(message)
+                }
+            }
+            WriterError::ActorUnavailable(message) => {
+                crate::actors::conductor::ConductorError::ActorUnavailable(message)
+            }
+            other => crate::actors::conductor::ConductorError::WorkerFailed(other.to_string()),
+        }
+    }
+
     async fn handle_submit_user_prompt(
         &self,
         state: &mut ConductorState,
@@ -202,71 +218,19 @@ impl ConductorActor {
         base_version_id: u64,
     ) -> Result<crate::actors::writer::WriterQueueAck, crate::actors::conductor::ConductorError>
     {
-        if prompt_diff.is_empty() {
-            return Err(crate::actors::conductor::ConductorError::InvalidRequest(
-                "prompt_diff cannot be empty".to_string(),
-            ));
-        }
-
         let writer_actor = state.writer_actor.as_ref().ok_or_else(|| {
             crate::actors::conductor::ConductorError::ActorUnavailable(
                 "writer actor unavailable".to_string(),
             )
         })?;
-        let run_writer = state.run_writers.get(&run_id).cloned().ok_or_else(|| {
-            crate::actors::conductor::ConductorError::NotFound(format!(
-                "run writer not found for run_id={run_id}"
-            ))
-        })?;
-
-        let head = ractor::call!(run_writer.clone(), |reply| RunWriterMsg::GetHeadVersion {
+        ractor::call!(writer_actor, |reply| WriterMsg::SubmitUserPrompt {
+            run_id,
+            prompt_diff,
+            base_version_id,
             reply
         })
         .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
-        .map_err(|e| {
-            crate::actors::conductor::ConductorError::WorkerFailed(format!(
-                "failed to read run-writer head version: {e}"
-            ))
-        })?;
-        if base_version_id != head.version_id {
-            return Err(crate::actors::conductor::ConductorError::InvalidRequest(
-                format!(
-                    "stale base_version_id: expected {}, got {}",
-                    head.version_id, base_version_id
-                ),
-            ));
-        }
-
-        let message_id = format!("{run_id}:user:prompt:{}", ulid::Ulid::new());
-        let envelope = WriterInboundEnvelope {
-            message_id,
-            correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
-            kind: "human_prompt".to_string(),
-            run_id: run_id.clone(),
-            section_id: "user".to_string(),
-            source: WriterSource::User,
-            content: "user_prompt_diff".to_string(),
-            base_version_id: Some(base_version_id),
-            prompt_diff: Some(prompt_diff),
-            overlay_id: None,
-            session_id: None,
-            thread_id: None,
-            call_id: None,
-            origin_actor: Some("conductor".to_string()),
-        };
-        let ack = ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
-            envelope,
-            run_writer_actor: run_writer,
-            reply,
-        })
-        .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
-        .map_err(|e| {
-            crate::actors::conductor::ConductorError::WorkerFailed(format!(
-                "writer enqueue failed: {e}"
-            ))
-        })?;
-
-        Ok(ack)
+        .map_err(Self::map_writer_error)
     }
 
     async fn handle_list_run_writer_versions(
@@ -274,14 +238,17 @@ impl ConductorActor {
         state: &mut ConductorState,
         run_id: String,
     ) -> Result<Vec<DocumentVersion>, crate::actors::conductor::ConductorError> {
-        let run_writer = state.run_writers.get(&run_id).cloned().ok_or_else(|| {
-            crate::actors::conductor::ConductorError::NotFound(format!(
-                "run writer not found for run_id={run_id}"
-            ))
+        let writer_actor = state.writer_actor.as_ref().ok_or_else(|| {
+            crate::actors::conductor::ConductorError::ActorUnavailable(
+                "writer actor unavailable".to_string(),
+            )
         })?;
-        ractor::call!(run_writer, |reply| RunWriterMsg::ListVersions { reply })
-            .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
-            .map_err(|e| crate::actors::conductor::ConductorError::WorkerFailed(e.to_string()))
+        ractor::call!(writer_actor, |reply| WriterMsg::ListRunWriterVersions {
+            run_id,
+            reply
+        })
+        .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
+        .map_err(Self::map_writer_error)
     }
 
     async fn handle_get_run_writer_version(
@@ -290,17 +257,18 @@ impl ConductorActor {
         run_id: String,
         version_id: u64,
     ) -> Result<DocumentVersion, crate::actors::conductor::ConductorError> {
-        let run_writer = state.run_writers.get(&run_id).cloned().ok_or_else(|| {
-            crate::actors::conductor::ConductorError::NotFound(format!(
-                "run writer not found for run_id={run_id}"
-            ))
+        let writer_actor = state.writer_actor.as_ref().ok_or_else(|| {
+            crate::actors::conductor::ConductorError::ActorUnavailable(
+                "writer actor unavailable".to_string(),
+            )
         })?;
-        ractor::call!(run_writer, |reply| RunWriterMsg::GetVersion {
+        ractor::call!(writer_actor, |reply| WriterMsg::GetRunWriterVersion {
+            run_id,
             version_id,
             reply
         })
         .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
-        .map_err(|e| crate::actors::conductor::ConductorError::WorkerFailed(e.to_string()))
+        .map_err(Self::map_writer_error)
     }
 
     async fn handle_list_run_writer_overlays(
@@ -310,18 +278,19 @@ impl ConductorActor {
         base_version_id: Option<u64>,
         status: Option<OverlayStatus>,
     ) -> Result<Vec<Overlay>, crate::actors::conductor::ConductorError> {
-        let run_writer = state.run_writers.get(&run_id).cloned().ok_or_else(|| {
-            crate::actors::conductor::ConductorError::NotFound(format!(
-                "run writer not found for run_id={run_id}"
-            ))
+        let writer_actor = state.writer_actor.as_ref().ok_or_else(|| {
+            crate::actors::conductor::ConductorError::ActorUnavailable(
+                "writer actor unavailable".to_string(),
+            )
         })?;
-        ractor::call!(run_writer, |reply| RunWriterMsg::ListOverlays {
+        ractor::call!(writer_actor, |reply| WriterMsg::ListRunWriterOverlays {
+            run_id,
             base_version_id,
             status,
             reply
         })
         .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
-        .map_err(|e| crate::actors::conductor::ConductorError::WorkerFailed(e.to_string()))
+        .map_err(Self::map_writer_error)
     }
 
     async fn handle_create_run_writer_version(
@@ -332,20 +301,20 @@ impl ConductorActor {
         content: String,
         source: VersionSource,
     ) -> Result<DocumentVersion, crate::actors::conductor::ConductorError> {
-        let run_writer = state.run_writers.get(&run_id).cloned().ok_or_else(|| {
-            crate::actors::conductor::ConductorError::NotFound(format!(
-                "run writer not found for run_id={run_id}"
-            ))
+        let writer_actor = state.writer_actor.as_ref().ok_or_else(|| {
+            crate::actors::conductor::ConductorError::ActorUnavailable(
+                "writer actor unavailable".to_string(),
+            )
         })?;
-        ractor::call!(run_writer, |reply| RunWriterMsg::CreateVersion {
-            run_id: run_id.clone(),
+        ractor::call!(writer_actor, |reply| WriterMsg::CreateRunWriterVersion {
+            run_id,
             parent_version_id,
             content,
             source,
             reply,
         })
         .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
-        .map_err(|e| crate::actors::conductor::ConductorError::WorkerFailed(e.to_string()))
+        .map_err(Self::map_writer_error)
     }
 
     async fn handle_process_event(

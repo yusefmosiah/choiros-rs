@@ -18,9 +18,9 @@ This is what grep cannot do — fuzzy temporal/semantic association across sessi
 
 Two scopes:
 - **Local (per-user):** Session history, conductor strategy outcomes, personal patterns.
-  Stored in-process with redb. Runs inside the user's Firecracker VM.
+  Stored as `.rvf` files (RuVector Format) inside the user's Firecracker VM.
 - **Global (platform):** Published documents, agents, apps — intellectual property that
-  users opt into sharing. Stored in a central ruvector-core instance. Users benefit from
+  users opt into sharing. Stored in a central RVF-backed service. Users benefit from
   each other's published learnings.
 
 SONA (Self-Optimizing Neural Architecture) makes local retrieval scoring improve over time.
@@ -33,8 +33,12 @@ that queries bias toward patterns that led to successful outcomes.
   deterministic work. MemoryAgent is the associative layer on top, not a replacement.
 - Identified three trigger points: user input, living doc creation, SONA trajectory completion.
 - Added global knowledge layer for published intellectual property across the platform.
-- Completed deep analysis of the full RuVector ecosystem (5 crates) — determined that
-  only `ruvector-core` and `ruvector-sona` are needed; the other 3 are wrong abstractions.
+- Completed deep analysis of the full RuVector ecosystem (13+ crates).
+- **Corrected storage layer:** RVF (RuVector Format) is the file format for vector
+  persistence, not redb. The RVF stack (`rvf-runtime` + `rvf-index` + `rvf-types`)
+  provides append-only vector storage with progressive HNSW indexing built in.
+  `ruvector-core` with redb is a separate, older system — we use RVF instead.
+- Only `ruvllm` is excluded (local LLM inference — wrong abstraction for us).
 
 ## What To Do Next
 
@@ -82,61 +86,88 @@ The connection is semantic — similar intent, similar domain, similar outcome p
 
 ## 2. RuVector Ecosystem: What We Use and What We Skip
 
-### What we use
+The ruvector monorepo contains 13+ crates organized into two independent subsystems:
+the older `ruvector-core` (redb-backed) and the newer RVF stack (append-only file format
+with progressive HNSW). We use the RVF stack.
+
+### The RVF Stack (what we use)
 
 | Crate | Version | Size | Purpose in ChoirOS |
 |---|---|---|---|
-| `ruvector-core` | 2.0.3 | 148KB / 8.9K LoC | HNSW vector index + redb persistence. The storage and search engine for memories. |
-| `ruvector-sona` | 0.1.5 | 104KB / 7.4K LoC | Adaptive learning. MicroLoRA + EWC++ + ReasoningBank. Makes retrieval improve over time. |
+| `rvf-runtime` | 0.1.0 | 5.5K+ LoC | The vector store runtime. API: `create`, `ingest_batch`, `query`, `delete`, `compact`. Append-only segment-based `.rvf` files. Single-writer / multi-reader. COW branching for snapshots. Orchestrates `rvf-index` for HNSW search. |
+| `rvf-index` | 0.1.0 | 2.7K LoC | Pure-Rust HNSW implementation with **progressive 3-tier loading** (Layer A/B/C). Stored as `INDEX_SEG` segments inside `.rvf` files. No external dependencies. `no_std` compatible. |
+| `rvf-types` | 0.1.0 | 3.2K LoC | Format specification as Rust types. Segment headers, type enums, flags. `no_std` compatible. Transitive dependency of `rvf-runtime`. |
+| `ruvector-sona` | 0.1.5 | 7.4K LoC | Adaptive learning. MicroLoRA + EWC++ + ReasoningBank. Independent of storage layer — works with any vector source. Makes retrieval improve over time. |
 | `ort` | latest | varies | ONNX Runtime for MiniLM-L6-v2 embeddings. 384-dim, ~1ms/embed on CPU, ~22MB model file. |
 
-### What we skip (and why)
+### Why RVF over ruvector-core
 
-| Crate | Version | Size | Why we skip it |
-|---|---|---|---|
-| `rvf-runtime` | 0.1.0 | 44KB / 3.8K LoC | "Cognitive container" file format (.rvf). Designed for self-booting deployable vector databases as microservices. Includes COW branching, witness chains, embedded Linux kernels, eBPF acceleration. This is a distributable artifact format — we need in-process search, not deployable containers. Wrong abstraction for ChoirOS. Also brand new (Feb 14 2026, 39 downloads). |
-| `rvf-types` | 0.1.0 | 37KB / 3.2K LoC | Type definitions for the RVF binary format (segment headers, eBPF program types, TEE attestation, post-quantum signatures). Only useful if using `rvf-runtime`. Transitive dependency we don't need. |
-| `ruvllm` | 2.0.2 | 1MB / 84K LoC | Full local LLM inference engine (Candle framework, Metal shaders, CUDA, GGUF loading, paged attention). ChoirOS uses external model providers (Claude Bedrock, ZaiGLM) via BAML. We don't need local inference. This would triple compile time and binary size for zero value. |
+`ruvector-core` (v2.0.1, 8.9K LoC) uses redb for storage and the external `hnsw_rs`
+crate for indexing. It works, but it's the older approach in the ruvector ecosystem.
 
-### Detailed analysis of the crates we skip
+`rvf-runtime` is the newer, purpose-built vector file format with key advantages:
 
-**`rvf-runtime` — Cognitive Containers**
+1. **Self-contained `.rvf` files.** One file = one vector store. No external state,
+   no separate index files, no database process. The file IS the database.
+   Perfect for per-user isolation in Firecracker VMs.
 
-This is architecturally interesting but solves a problem we don't have. The RVF format
-is designed for scenarios where a vector database needs to be:
-- Self-contained as a single deployable file
-- Git-like branching of vector stores (COW segments)
-- Cryptographically auditable (witness chains per operation)
-- Bootable as a microservice (can embed a Linux kernel in the .rvf file)
-- Runnable on no_std / WASM targets
+2. **Progressive HNSW loading (Layer A/B/C).** The HNSW graph is split into three
+   independently-loadable tiers stored as separate `INDEX_SEG` segments:
 
-ChoirOS needs: in-process HNSW search with redb persistence inside a Firecracker VM.
-The `ruvector-core` crate does this directly. We don't need our vector store to boot
-itself as a microservice or carry an embedded kernel.
+   | Layer | Contents | Load Time | Recall@10 |
+   |-------|----------|-----------|-----------|
+   | A | Entry points + top HNSW layers + cluster centroids | < 5 ms | ~0.70 |
+   | B | Partial adjacency for hot nodes (10-20% of data) | 100ms-1s | ~0.85 |
+   | C | Full HNSW adjacency for every node at every level | Seconds | >= 0.95 |
 
-**Potential future relevance:** If we ever ship vector stores as portable artifacts
-(e.g., a user exports their learned patterns as a file they can import elsewhere),
-the RVF format could be interesting. But that's speculative and far out.
+   You can start answering queries at 70% recall within 5ms of opening the file.
+   Full recall improves in the background. This is ideal for MemoryAgent startup.
 
-**`ruvllm` — Local LLM Inference**
+3. **Append-only writes.** No in-place mutation. Crash-safe by construction.
+   Compaction reclaims space from deleted records without blocking queries.
 
-This is a complete llama.cpp alternative in Rust:
-- Candle ML framework (Rust-native tensor library)
-- Metal GPU compute shaders for Apple Silicon (9 shader files, 3.8K LoC)
-- CUDA acceleration for NVIDIA
-- CoreML / Apple Neural Engine support
-- Paged attention, KV cache management
-- GGUF model loading with memory mapping
-- Streaming token generation
+4. **COW branching.** Fork a vector store like a Git branch. Useful for:
+   - Snapshotting user memory before experimental sessions
+   - Publishing a copy of local patterns to global store without modifying the original
 
-ChoirOS uses external model providers via BAML:
-- Human Interface: `ClaudeBedrockSonnet45`
-- Conductor: `ClaudeBedrockOpus46`
-- Summarizer: `ZaiGLM47Flash`
+5. **Minimal dependency chain.** `rvf-runtime` -> `rvf-types` -> (optionally) `serde`.
+   The HNSW implementation in `rvf-index` has zero runtime dependencies.
 
-There is no use case for local LLM inference in our architecture. Our embedding
-needs are served by MiniLM-L6-v2 via ONNX Runtime (`ort` crate), which is a tiny
-encoder model — not a generative LLM.
+6. **Firecracker-friendly.** Append-only files + mmap survive VM snapshot/restore
+   naturally. No database process to restart.
+
+### The HNSW Implementation in rvf-index
+
+`rvf-index` contains a self-contained HNSW implementation (Malkov & Yashunin 2018):
+
+- **Algorithm:** Greedy search at upper layers, beam search at layer 0
+- **Defaults:** M=16, M0=32, ef_construction=200
+- **Layer selection:** `level = floor(-ln(rand) * (1/ln(M)))`
+- **Bidirectional edges** with pruning (keep closest `max_neighbors`)
+- **`VectorStore` trait abstraction** — vectors accessed through a trait, not stored in graph
+- **`no_std` compatible** — uses `BTreeMap`/`BTreeSet` as fallbacks
+
+The binary wire format for `INDEX_SEG` segments uses delta-encoded neighbor IDs
+(LEB128 varints) with restart points every 64 nodes for random access. Compact
+on disk, fast to deserialize.
+
+### What we skip
+
+| Crate | Why we skip it |
+|---|---|
+| `ruvector-core` | Uses redb + external `hnsw_rs`. The older storage approach. We use RVF instead. No integration path between ruvector-core and RVF exists today. |
+| `ruvllm` (v2.0.2, 84K LoC) | Full local LLM inference engine (Candle framework, Metal/CUDA shaders, paged attention, GGUF loading). ChoirOS uses external model providers (Claude Bedrock, ZaiGLM) via BAML. Our embedding needs are served by MiniLM-L6-v2 via ONNX Runtime — a 22MB encoder model, not a generative LLM. Using ruvllm for this would triple compile time and binary size for zero value. |
+
+### Additional RVF crates (available but not required for Phase 1)
+
+The `crates/rvf/` directory contains additional crates that may be useful later:
+
+- `rvf-wire` — Low-level segment header I/O
+- `rvf-cli` — CLI tools (`rvf create`, `rvf ingest`, `rvf query`) — useful for debugging
+- Others (TBD as ecosystem matures)
+
+These are optional. `rvf-runtime` + `rvf-types` is the minimal dependency set,
+and `rvf-runtime` pulls in `rvf-index` internally.
 
 ### Ecosystem health caveat
 
@@ -147,7 +178,9 @@ The entire RuVector ecosystem is young:
 - `rust_version` requirement is 1.87
 
 Mitigation: Wrap behind traits (`VectorStore`, `LearningEngine`) so implementations
-can be swapped if the ecosystem stalls or breaks. Pin exact versions.
+can be swapped if the ecosystem stalls or breaks. Pin exact versions. The `.rvf` file
+format is simple enough (append-only segments) that we could write our own reader
+if the crate is abandoned.
 
 ---
 
@@ -169,8 +202,9 @@ ApplicationSupervisor
 ```
 
 MemoryAgent is session-scoped. Each user gets their own actor with their own
-vector index and SONA state. Persistence path: `data/{user_id}/memory.redb`
-for vectors, `data/{user_id}/sona.json` for learned weights.
+vector store and SONA state. Persistence path: `data/{user_id}/memory.rvf`
+for vectors (HNSW index baked into the file), `data/{user_id}/sona.json` for
+learned weights.
 
 ### 3.2 What Gets Stored
 
@@ -309,10 +343,14 @@ pub struct MemoryFilter {
 
 Per-user memory footprint for the local episodic store:
 
-| Tier | Memories | HNSW Index | SONA State | redb File | Total RAM | Disk |
+| Tier | Memories | HNSW Index | SONA State | .rvf File | Total RAM | Disk |
 |---|---|---|---|---|---|---|
-| Standard (10K) | 10K records | ~15 MB | ~2 KB LoRA + ~500 KB ReasoningBank | ~20 MB | 30-60 MB | 25 MB |
-| Pro (100K) | 100K records | ~150 MB | ~2 KB LoRA + ~5 MB ReasoningBank | ~200 MB | 200-400 MB | 250 MB |
+| Standard (10K) | 10K records | Progressive (Layer A ~100KB, full ~15MB) | ~2 KB LoRA + ~500 KB ReasoningBank | ~20 MB | 30-60 MB | 25 MB |
+| Pro (100K) | 100K records | Progressive (Layer A ~1MB, full ~150MB) | ~2 KB LoRA + ~5 MB ReasoningBank | ~200 MB | 200-400 MB | 250 MB |
+
+Progressive loading advantage: Layer A loads in <5ms at ~70% recall. The MemoryAgent
+is answering queries almost immediately on actor startup, with recall improving in
+the background as Layers B and C load.
 
 MiniLM-L6-v2 model: ~22 MB loaded once per process (shared across users in multi-tenant).
 
@@ -332,14 +370,14 @@ Once we deploy with hypervisor, auth, and user accounts, users will publish:
 - **Apps** — desktop applications built on the ChoirOS runtime
 
 These are forms of **intellectual property**. When published, their embeddings
-enter a global ruvector-core index that all users benefit from.
+enter a global RVF-backed index that all users benefit from.
 
 ### 4.2 Two-Tier Memory Model
 
 ```
 ┌─────────────────────────────────────────────────┐
 │              GLOBAL KNOWLEDGE STORE              │
-│  (Central ruvector-core instance, platform-wide) │
+│    (Central rvf-runtime instance, platform-wide) │
 │                                                   │
 │  Published documents, agents, apps               │
 │  Cross-user pattern aggregation                  │
@@ -352,7 +390,7 @@ enter a global ruvector-core index that all users benefit from.
                │
 ┌──────────────┴──────────────────────────────────┐
 │         LOCAL EPISODIC MEMORY (per-user)         │
-│  (In-VM ruvector-core instance)                  │
+│  (In-VM rvf-runtime instance, single .rvf file)  │
 │                                                   │
 │  Session history, strategies, personal patterns  │
 │  Per-user SONA (instant + background loops)      │
@@ -423,20 +461,21 @@ The merge respects a priority order:
 The global store is NOT inside any user's VM. It's a platform service:
 
 ```
-┌─────────────────────────────────┐
-│     Global Knowledge Service     │
-│  (standalone ruvector-core)      │
-│                                   │
-│  ├── HNSW index (all published)  │
-│  ├── SONA coordination loop      │
-│  ├── Publish API (authed)        │
-│  └── Query API (authed, rated)   │
-└─────────────────────────────────┘
+┌─────────────────────────────────────────┐
+│     Global Knowledge Service             │
+│  (rvf-runtime backed, single .rvf file)  │
+│                                           │
+│  ├── Progressive HNSW (all published)    │
+│  ├── SONA coordination loop              │
+│  ├── Publish API (authed)                │
+│  ├── Query API (authed, rated)           │
+│  └── COW branches for versioned snapshots│
+└─────────────────────────────────────────┘
          │              │
     ┌────┘              └────┐
     │                        │
   User A's VM           User B's VM
-  (local memory)        (local memory)
+  (local .rvf)          (local .rvf)
 ```
 
 **SONA coordination loop (global level):**
@@ -562,8 +601,8 @@ Using ruvllm for this is like using a crane to pick up a pencil.
 - Create `sandbox/src/actors/memory/embedder.rs` — MiniLM via ort
 - Create `sandbox/src/actors/memory/relay.rs` — EventBus subscriber
 - Add to supervision tree in `supervisor/session.rs`
-- Add `ruvector-core`, `ruvector-sona`, `ort` to `sandbox/Cargo.toml`
-- Gate: events flow from EventBus -> MemoryAgent -> embedded and stored in HNSW
+- Add `rvf-runtime`, `ruvector-sona`, `ort` to `sandbox/Cargo.toml`
+- Gate: events flow from EventBus -> MemoryAgent -> embedded and stored in `.rvf` file
 
 ### Phase 2: Retrieval Integration (1 week)
 
@@ -587,8 +626,8 @@ Using ruvllm for this is like using a crane to pick up a pencil.
 
 ### Phase 4: Global Knowledge Store (after hypervisor + auth)
 
-- Deploy standalone ruvector-core instance as platform service
-- Implement publish API (user -> global store)
+- Deploy standalone rvf-runtime instance as platform service
+- Implement publish API (user -> global store, COW branch from local .rvf)
 - Implement query API (user VM -> global store)
 - Implement two-tier retrieval merge (local + global)
 - Implement SONA coordination loop (cross-user pattern aggregation)
@@ -610,7 +649,7 @@ Using ruvllm for this is like using a crane to pick up a pencil.
 
 | File | Change |
 |---|---|
-| `sandbox/Cargo.toml` | Add `ruvector-core`, `ruvector-sona`, `ort` dependencies |
+| `sandbox/Cargo.toml` | Add `rvf-runtime`, `ruvector-sona`, `ort` dependencies |
 | `supervisor/session.rs` | Spawn MemorySupervisor in SessionSupervisor::pre_start |
 | `supervisor/mod.rs` | Add GetOrCreateMemory to ApplicationSupervisorMsg |
 | `actors/conductor/actor.rs` | Add memory_provider to ConductorArguments + ConductorState |
@@ -633,14 +672,23 @@ Using ruvllm for this is like using a crane to pick up a pencil.
    rough. We may want explicit feedback mechanisms ("was this helpful?") or implicit
    signals (time-to-next-prompt, session continuation patterns).
 
-3. **Global store consistency:** When a user unpublishes, we need to remove from
-   the global HNSW index. HNSW doesn't support true deletion well — we may need
-   periodic index rebuilds or tombstone filtering.
+3. **Global store deletion:** When a user unpublishes, we need to remove from
+   the global index. RVF supports soft-delete with tombstone journal segments
+   and background compaction — cleaner than HNSW-only approaches. But we should
+   verify compaction behavior at scale.
 
 4. **Cross-user privacy in SONA coordination:** The global SONA coordination loop
    aggregates trajectory scores but must never leak raw content across users.
    Anonymized quality metrics only.
 
-5. **ruvector-core maturity:** Single-maintainer, ~4K downloads. We should pin
-   versions, wrap behind traits, and have a fallback plan. The trait boundary
-   (`VectorStore`, `LearningEngine`) makes this swappable.
+5. **RVF ecosystem maturity:** Single-maintainer, v0.1.0, very new (Feb 2026).
+   We should pin versions, wrap behind traits, and have a fallback plan. The `.rvf`
+   file format is simple enough (append-only segments with documented headers) that
+   we could write our own reader/writer if the crate is abandoned. The trait boundary
+   (`VectorStore`, `LearningEngine`) makes the storage layer swappable.
+
+6. **COW branching for publish workflow:** When a user publishes local patterns to
+   the global store, RVF's COW branching could enable zero-copy forking — the
+   published branch shares storage with the local file until divergence. Need to
+   verify this works across VM boundaries (local .rvf in Firecracker, global .rvf
+   on platform service).

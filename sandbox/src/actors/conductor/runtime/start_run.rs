@@ -9,6 +9,7 @@ use crate::actors::conductor::{
 use crate::actors::run_writer::{
     PatchOp, PatchOpKind, RunWriterActor, RunWriterArguments, RunWriterMsg,
 };
+use crate::actors::writer::WriterMsg;
 
 impl ConductorActor {
     fn run_document_path(run_id: &str) -> String {
@@ -22,34 +23,46 @@ impl ConductorActor {
         desktop_id: &str,
         objective: &str,
     ) -> Result<ActorRef<RunWriterMsg>, ConductorError> {
-        if let Some(existing) = state.run_writers.get(run_id).cloned() {
-            return Ok(existing);
-        }
+        let run_writer = if let Some(existing) = state.run_writers.get(run_id).cloned() {
+            existing
+        } else {
+            let run_writer_args = RunWriterArguments {
+                run_id: run_id.to_string(),
+                desktop_id: desktop_id.to_string(),
+                objective: objective.to_string(),
+                session_id: desktop_id.to_string(),
+                thread_id: run_id.to_string(),
+                root_dir: Some(env!("CARGO_MANIFEST_DIR").to_string()),
+                event_store: state.event_store.clone(),
+            };
 
-        let run_writer_args = RunWriterArguments {
-            run_id: run_id.to_string(),
-            desktop_id: desktop_id.to_string(),
-            objective: objective.to_string(),
-            session_id: desktop_id.to_string(),
-            thread_id: run_id.to_string(),
-            root_dir: Some(env!("CARGO_MANIFEST_DIR").to_string()),
-            event_store: state.event_store.clone(),
+            let (actor_ref, _handle) = ractor::Actor::spawn(
+                Some(format!("run-writer-{run_id}")),
+                RunWriterActor,
+                run_writer_args,
+            )
+            .await
+            .map_err(|e| {
+                ConductorError::ActorUnavailable(format!("Failed to spawn RunWriterActor: {e}"))
+            })?;
+
+            state
+                .run_writers
+                .insert(run_id.to_string(), actor_ref.clone());
+            actor_ref
         };
 
-        let (actor_ref, _handle) = ractor::Actor::spawn(
-            Some(format!("run-writer-{run_id}")),
-            RunWriterActor,
-            run_writer_args,
-        )
-        .await
-        .map_err(|e| {
-            ConductorError::ActorUnavailable(format!("Failed to spawn RunWriterActor: {e}"))
-        })?;
+        if let Some(writer_actor) = state.writer_actor.as_ref() {
+            ractor::call!(writer_actor, |reply| WriterMsg::RegisterRunWriter {
+                run_id: run_id.to_string(),
+                run_writer_actor: run_writer.clone(),
+                reply,
+            })
+            .map_err(|e| ConductorError::ActorUnavailable(e.to_string()))?
+            .map_err(|e| ConductorError::WorkerFailed(e.to_string()))?;
+        }
 
-        state
-            .run_writers
-            .insert(run_id.to_string(), actor_ref.clone());
-        Ok(actor_ref)
+        Ok(run_writer)
     }
 
     fn capability_contract_prefix(capability: &str) -> &'static str {

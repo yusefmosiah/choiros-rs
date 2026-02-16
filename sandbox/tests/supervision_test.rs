@@ -331,14 +331,18 @@ mod integration_tests {
                 .await
                 .expect("Failed to spawn ApplicationSupervisor");
 
-        let _chat_ref = ractor::call!(app_supervisor, |reply| {
-            ApplicationSupervisorMsg::GetOrCreateChat {
-                actor_id: "chat-corr-test".to_string(),
+        let _conductor_ref = ractor::call!(app_supervisor, |reply| {
+            ApplicationSupervisorMsg::GetOrCreateConductor {
+                conductor_id: "conductor-corr-test".to_string(),
                 user_id: "user-corr-test".to_string(),
+                researcher_actor: None,
+                terminal_actor: None,
+                writer_actor: None,
                 reply,
             }
         })
-        .expect("GetOrCreateChat RPC failed");
+        .expect("GetOrCreateConductor RPC failed")
+        .expect("GetOrCreateConductor should return actor");
 
         let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
         let mut observed = Vec::new();
@@ -354,10 +358,10 @@ mod integration_tests {
 
             if observed
                 .iter()
-                .any(|evt| evt.event_type == "custom.supervisor.chat.get_or_create.started")
+                .any(|evt| evt.event_type == "supervisor.conductor.get_or_create.started")
                 && observed
                     .iter()
-                    .any(|evt| evt.event_type == "custom.supervisor.chat.get_or_create.completed")
+                    .any(|evt| evt.event_type == "supervisor.conductor.get_or_create.completed")
             {
                 break;
             }
@@ -368,13 +372,13 @@ mod integration_tests {
         assert!(
             observed
                 .iter()
-                .any(|evt| evt.event_type == "custom.supervisor.chat.get_or_create.started"),
+                .any(|evt| evt.event_type == "supervisor.conductor.get_or_create.started"),
             "expected started lifecycle event from ApplicationSupervisor"
         );
         assert!(
             observed
                 .iter()
-                .any(|evt| evt.event_type == "custom.supervisor.chat.get_or_create.completed"),
+                .any(|evt| evt.event_type == "supervisor.conductor.get_or_create.completed"),
             "expected completed lifecycle event from ApplicationSupervisor"
         );
     }

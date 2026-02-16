@@ -762,6 +762,20 @@ Guidelines:
                     });
                 }
 
+                if self.has_run_writer() {
+                    let elapsed = start_time.elapsed().as_millis() as u64;
+                    return Ok(ToolExecution {
+                        tool_name: call.tool_name.clone(),
+                        success: false,
+                        output: String::new(),
+                        error: Some(
+                            "Run writer mode is active; use message_writer instead of file_write"
+                                .to_string(),
+                        ),
+                        execution_time_ms: elapsed,
+                    });
+                }
+
                 let is_run_doc_path = is_run_document_path(path)
                     || self
                         .run_document_path()
@@ -852,6 +866,20 @@ Guidelines:
                         model_used: Some(ctx.model_used.clone()),
                         result_count: None,
                         timestamp: chrono::Utc::now().to_rfc3339(),
+                    });
+                }
+
+                if self.has_run_writer() {
+                    let elapsed = start_time.elapsed().as_millis() as u64;
+                    return Ok(ToolExecution {
+                        tool_name: call.tool_name.clone(),
+                        success: false,
+                        output: String::new(),
+                        error: Some(
+                            "Run writer mode is active; use message_writer instead of file_edit"
+                                .to_string(),
+                        ),
+                        execution_time_ms: elapsed,
                     });
                 }
 

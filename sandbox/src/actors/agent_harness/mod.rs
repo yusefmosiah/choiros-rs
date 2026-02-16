@@ -185,6 +185,14 @@ fn is_input_token_spike(current: i64, previous: Option<i64>, delta: Option<i64>)
     delta_spike || ratio_spike
 }
 
+fn is_retryable_decision_error_message(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("parsing error")
+        || lower.contains("failed to parse llm response")
+        || lower.contains("missing required field")
+        || lower.contains("missing required fields")
+}
+
 async fn persist_tool_execution_artifact(
     loop_id: &str,
     step_number: usize,
@@ -512,6 +520,13 @@ pub struct AgentHarness<W: WorkerPort> {
 }
 
 impl<W: WorkerPort> AgentHarness<W> {
+    fn is_retryable_decide_error(error: &HarnessError) -> bool {
+        match error {
+            HarnessError::Decision(message) => is_retryable_decision_error_message(message),
+            _ => false,
+        }
+    }
+
     /// Create a new agent harness with the given worker port and model registry
     pub fn new(
         worker_port: W,
@@ -641,15 +656,51 @@ impl<W: WorkerPort> AgentHarness<W> {
             .await?;
 
             // Call BAML Decide
-            let (decision, decide_usage) = match self
-                .decide(&client_registry, &messages, &ctx, &system_context)
-                .await
-            {
-                Ok(result) => result,
-                Err(e) => {
-                    error!(error = %e, "Decision failed");
+            let mut decision_result: Option<(AgentDecision, Option<LlmTokenUsage>)> = None;
+            let mut decision_error: Option<HarnessError> = None;
+
+            for attempt in 0..=1 {
+                match self
+                    .decide(&client_registry, &messages, &ctx, &system_context)
+                    .await
+                {
+                    Ok(result) => {
+                        decision_result = Some(result);
+                        break;
+                    }
+                    Err(err) => {
+                        let retryable = Self::is_retryable_decide_error(&err);
+                        if attempt == 0 && retryable {
+                            self.emit_progress_internal(
+                                &ctx,
+                                &progress_tx,
+                                "decide_retry",
+                                "Decision parse failed; retrying with stricter schema reminder",
+                                Some(step_count),
+                                Some(self.config.max_steps),
+                            )
+                            .await?;
+                            messages.push(BamlMessage {
+                                role: "assistant".to_string(),
+                                content: "Previous output was invalid AgentDecision JSON. Retry with strict JSON object including both required fields: tool_calls (array) and message (string).".to_string(),
+                            });
+                            continue;
+                        }
+                        decision_error = Some(err);
+                        break;
+                    }
+                }
+            }
+
+            let (decision, decide_usage) = match decision_result {
+                Some(result) => result,
+                None => {
+                    let error = decision_error.unwrap_or_else(|| {
+                        HarnessError::Decision("Unknown decision failure".into())
+                    });
+                    error!(error = %error, "Decision failed");
                     objective_status = ObjectiveStatus::Blocked;
-                    completion_reason = format!("Decision failed: {e}");
+                    completion_reason = format!("Decision failed: {error}");
                     loop_state = AgentLoopState::Blocked;
                     break;
                 }

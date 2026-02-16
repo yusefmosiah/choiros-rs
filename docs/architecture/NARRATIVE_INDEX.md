@@ -119,12 +119,12 @@ Immediate app pattern: human UX first, then headless API, then app-agent harness
 - Run narrative + semantic events are first-class UX and conductor wake context.
 - Backend is canonical for app/window UI state; browser localStorage is non-authoritative.
 - Filesystem (grep/find/read) is the primary deterministic retrieval path for agents; vector memory is the associative/episodic layer on top.
-- MemoryAgent uses `ruvector-core` + `ruvector-sona` + `ort` (MiniLM); `rvf-runtime`, `rvf-types`, and `ruvllm` are explicitly excluded.
+- MemoryAgent uses the RVF stack (`rvf-runtime` + `rvf-index` + `rvf-types`) for vector persistence with progressive HNSW, plus `ruvector-sona` for learning, plus `ort` for MiniLM embeddings. `ruvector-core` (redb-backed, older approach) and `ruvllm` (local LLM inference) are excluded.
 - Local memory is private per-user. Global knowledge store receives only explicitly published content.
 
 ## One-Line Summary Per Core Doc
 
-- `2026-02-16-memory-agent-architecture.md`: "Episodic memory layer — filesystem is deterministic truth, vector memory is associative resonance across sessions, SONA makes retrieval improve over time, global store lets users benefit from each other's published learnings."
+- `2026-02-16-memory-agent-architecture.md`: "Episodic memory layer — filesystem is deterministic truth, vector memory is associative resonance across sessions, RVF file format with progressive HNSW for storage, SONA makes retrieval improve over time, global store lets users benefit from each other's published learnings."
 - `2026-02-14-living-document-human-interface-pillar.md`: "Human interaction runs through living documents first; conductor remains orchestration authority behind the interface."
 - `2026-02-14-conductor-non-blocking-subagent-pillar.md`: "Conductor treats workers/apps as logical subagents via actor messaging with no polling, no blocking, and bounded agent-tree wake context."
 - `2026-02-14-agent-tree-snapshot-contract.md`: "Typed wake context contract for conductor: bounded agent-tree digest with deterministic truncation and freshness markers."

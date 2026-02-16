@@ -55,12 +55,28 @@ marks Phase 1 as immediately implementable in this cycle.
 - Preserve writer authority over revision commits by routing final mutations through run-document
   patch/version APIs.
 
+Status:
+- Completed.
+- Writer delegation and synthesis now run through `AgentHarness`.
+- Delegated researcher runs receive writer/run-writer context so `message_writer` updates can flow.
+
 #### Phase 3: Writeractor Structural Unification
 
 - Collapse duplicated state/ownership boundaries between Writer and RunWriter while preserving
   version durability interfaces.
 - Reconcile naming and APIs so `WriterActor` is the canonical app-facing actor; internal storage
   components become implementation details.
+
+Status:
+- Completed.
+- `WriterActor` now tracks run-id to run-writer bindings to propagate run context across delegated
+  worker calls.
+- Conductor run-writer version/overlay APIs now route through `WriterActor` message handlers.
+- Run start now registers `run_id -> run_writer` bindings in `WriterActor` so API reads do not
+  depend on prior enqueue traffic.
+- `SubmitUserPrompt` ingress now routes through `WriterActor` end-to-end (validation, head-version
+  check, envelope build, enqueue), so Conductor no longer resolves run-writer actors for user
+  prompt ingress.
 
 #### Phase 4: Persistence and Retrieval Hardening
 
@@ -84,14 +100,13 @@ Each inbound writer message must include:
 - All writer enqueue paths use one typed envelope.
 - `cargo check -p sandbox` passes after migration.
 - Existing writer/researcher/conductor test surfaces still pass.
+- In run-writer mode, researcher writes/edits no longer create sidecar draft artifacts outside
+  writer authority (`file_write`/`file_edit` blocked; `message_writer` required).
 
 ## What To Do Next
 
-1. Implement Phase 1 code changes in `sandbox/src/app_state.rs`,
-   `sandbox/src/supervisor/*.rs`, `sandbox/src/actors/writer/mod.rs`, and Writer callsites.
-2. Run `cargo fmt`, `cargo check -p sandbox`, and targeted tests for supervisor/writer/conductor.
-3. Open Phase 2 branch for harness integration with explicit test-first checklist:
-   - writer delegation contract tests
-   - websocket actor-call streaming assertions
-   - regression tests for writer queue dedupe and revision sequencing
-4. Add persistence ADR for version/offload retrieval before Phase 4 implementation.
+1. Start Phase 4 with a persistence ADR covering reboot restore, lineage guarantees, and
+   offload retrieval behavior.
+2. Implement durable version/overlay persistence and cold-start restoration tests.
+3. Add retrieval APIs for archived/offloaded versions and verify Writer can hydrate older versions.
+4. Implement compaction/tiering policy that preserves lineage metadata under storage pressure.

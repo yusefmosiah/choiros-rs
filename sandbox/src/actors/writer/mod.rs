@@ -5,21 +5,26 @@
 //! documents through RunWriterActor. When multi-step work is needed, it can
 //! delegate to researcher/terminal actors via typed actor messages.
 
+mod adapter;
+
 use async_trait::async_trait;
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::PathBuf;
 use tokio::sync::mpsc;
 
+use crate::actors::agent_harness::{AgentHarness, HarnessConfig, ObjectiveStatus, ToolExecution};
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
-use crate::actors::model_config::{ModelRegistry, ModelResolutionContext};
+use crate::actors::model_config::ModelRegistry;
 use crate::actors::researcher::{ResearcherMsg, ResearcherProgress, ResearcherResult};
 use crate::actors::run_writer::{
-    OverlayAuthor, OverlayKind, PatchOp, PatchOpKind, RunWriterMsg, SectionState, VersionSource,
+    DocumentVersion, Overlay, OverlayAuthor, OverlayKind, OverlayStatus, PatchOp, PatchOpKind,
+    RunWriterActor, RunWriterArguments, RunWriterMsg, SectionState, VersionSource,
 };
 use crate::actors::terminal::{TerminalAgentProgress, TerminalAgentResult, TerminalMsg};
-use crate::baml_client::{new_collector, B};
-use crate::observability::llm_trace::{token_usage_from_collector, LlmCallScope, LlmTraceEmitter};
+use crate::observability::llm_trace::LlmTraceEmitter;
+use adapter::{WriterDelegationAdapter, WriterSynthesisAdapter};
 
 #[derive(Debug, Default)]
 pub struct WriterActor;
@@ -31,6 +36,7 @@ pub struct WriterArguments {
     pub event_store: ActorRef<EventStoreMsg>,
     pub researcher_actor: Option<ActorRef<ResearcherMsg>>,
     pub terminal_actor: Option<ActorRef<TerminalMsg>>,
+    pub root_dir: Option<String>,
 }
 
 pub struct WriterState {
@@ -44,6 +50,8 @@ pub struct WriterState {
     seen_message_ids: HashSet<String>,
     seen_order: VecDeque<String>,
     inbox_processing: bool,
+    run_writers_by_run_id: HashMap<String, ActorRef<RunWriterMsg>>,
+    root_dir: String,
 }
 
 #[derive(Debug, Clone)]
@@ -71,20 +79,6 @@ pub struct WriterInboundEnvelope {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct WriterDelegationPlan {
-    capability: Option<String>,
-    objective: Option<String>,
-    max_steps: Option<u8>,
-}
-
-#[derive(Debug, Clone)]
-struct WriterDelegationDispatch {
-    capability: WriterDelegateCapability,
-    objective: String,
-    max_steps: Option<u8>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WriterQueueAck {
     pub message_id: String,
     pub accepted: bool,
@@ -95,6 +89,45 @@ pub struct WriterQueueAck {
 
 #[derive(Debug)]
 pub enum WriterMsg {
+    /// Register a run_id -> RunWriterActor binding.
+    RegisterRunWriter {
+        run_id: String,
+        run_writer_actor: ActorRef<RunWriterMsg>,
+        reply: RpcReplyPort<Result<(), WriterError>>,
+    },
+    /// List run document versions for a registered run.
+    ListRunWriterVersions {
+        run_id: String,
+        reply: RpcReplyPort<Result<Vec<DocumentVersion>, WriterError>>,
+    },
+    /// Fetch a single run document version for a registered run.
+    GetRunWriterVersion {
+        run_id: String,
+        version_id: u64,
+        reply: RpcReplyPort<Result<DocumentVersion, WriterError>>,
+    },
+    /// List overlays for a registered run.
+    ListRunWriterOverlays {
+        run_id: String,
+        base_version_id: Option<u64>,
+        status: Option<OverlayStatus>,
+        reply: RpcReplyPort<Result<Vec<Overlay>, WriterError>>,
+    },
+    /// Create a canonical document version for a registered run.
+    CreateRunWriterVersion {
+        run_id: String,
+        parent_version_id: Option<u64>,
+        content: String,
+        source: VersionSource,
+        reply: RpcReplyPort<Result<DocumentVersion, WriterError>>,
+    },
+    /// Submit a user prompt diff into writer ingress for a run.
+    SubmitUserPrompt {
+        run_id: String,
+        prompt_diff: Vec<shared_types::PatchOp>,
+        base_version_id: u64,
+        reply: RpcReplyPort<Result<WriterQueueAck, WriterError>>,
+    },
     /// Apply text to a run section via RunWriterActor.
     ApplyText {
         run_writer_actor: ActorRef<RunWriterMsg>,
@@ -226,6 +259,10 @@ impl Actor for WriterActor {
             seen_message_ids: HashSet::new(),
             seen_order: VecDeque::new(),
             inbox_processing: false,
+            run_writers_by_run_id: HashMap::new(),
+            root_dir: args
+                .root_dir
+                .unwrap_or_else(|| env!("CARGO_MANIFEST_DIR").to_string()),
         })
     }
 
@@ -236,6 +273,64 @@ impl Actor for WriterActor {
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
+            WriterMsg::RegisterRunWriter {
+                run_id,
+                run_writer_actor,
+                reply,
+            } => {
+                state.run_writers_by_run_id.insert(run_id, run_writer_actor);
+                let _ = reply.send(Ok(()));
+            }
+            WriterMsg::ListRunWriterVersions { run_id, reply } => {
+                let result = Self::list_run_writer_versions(state, run_id).await;
+                let _ = reply.send(result);
+            }
+            WriterMsg::GetRunWriterVersion {
+                run_id,
+                version_id,
+                reply,
+            } => {
+                let result = Self::get_run_writer_version(state, run_id, version_id).await;
+                let _ = reply.send(result);
+            }
+            WriterMsg::ListRunWriterOverlays {
+                run_id,
+                base_version_id,
+                status,
+                reply,
+            } => {
+                let result =
+                    Self::list_run_writer_overlays(state, run_id, base_version_id, status).await;
+                let _ = reply.send(result);
+            }
+            WriterMsg::CreateRunWriterVersion {
+                run_id,
+                parent_version_id,
+                content,
+                source,
+                reply,
+            } => {
+                let result = Self::create_run_writer_version(
+                    state,
+                    run_id,
+                    parent_version_id,
+                    content,
+                    source,
+                )
+                .await;
+                let _ = reply.send(result);
+            }
+            WriterMsg::SubmitUserPrompt {
+                run_id,
+                prompt_diff,
+                base_version_id,
+                reply,
+            } => {
+                let result =
+                    Self::submit_user_prompt(&myself, state, run_id, prompt_diff, base_version_id)
+                        .await;
+                let _ = reply.send(result);
+            }
             WriterMsg::ApplyText {
                 run_writer_actor,
                 run_id,
@@ -337,7 +432,7 @@ impl Actor for WriterActor {
                 reply,
             } => {
                 let result = Self::delegate_task(
-                    state, capability, objective, timeout_ms, max_steps, run_id, call_id,
+                    &myself, state, capability, objective, timeout_ms, max_steps, run_id, call_id,
                 )
                 .await;
                 let _ = reply.send(result);
@@ -349,6 +444,85 @@ impl Actor for WriterActor {
 
 impl WriterActor {
     const MAX_SEEN_IDS: usize = 4096;
+
+    fn resolve_run_writer(
+        state: &WriterState,
+        run_id: &str,
+    ) -> Result<ActorRef<RunWriterMsg>, WriterError> {
+        state
+            .run_writers_by_run_id
+            .get(run_id)
+            .cloned()
+            .ok_or_else(|| {
+                WriterError::Validation(format!("run writer not found for run_id={run_id}"))
+            })
+    }
+
+    fn run_writer_state_exists(state: &WriterState, run_id: &str) -> bool {
+        let run_dir = PathBuf::from(&state.root_dir)
+            .join("conductor")
+            .join("runs")
+            .join(run_id);
+        run_dir.join("draft.writer-state.json").exists() || run_dir.join("draft.md").exists()
+    }
+
+    async fn ensure_run_writer(
+        state: &mut WriterState,
+        run_id: &str,
+    ) -> Result<ActorRef<RunWriterMsg>, WriterError> {
+        if let Some(existing) = state.run_writers_by_run_id.get(run_id).cloned() {
+            return Ok(existing);
+        }
+
+        let actor_name = format!("run-writer-{run_id}");
+        if let Some(cell) = ractor::registry::where_is(actor_name.clone()) {
+            let actor_ref: ActorRef<RunWriterMsg> = cell.into();
+            state
+                .run_writers_by_run_id
+                .insert(run_id.to_string(), actor_ref.clone());
+            return Ok(actor_ref);
+        }
+
+        if !Self::run_writer_state_exists(state, run_id) {
+            return Err(WriterError::Validation(format!(
+                "run writer not found for run_id={run_id}"
+            )));
+        }
+
+        let (actor_ref, _handle) = ractor::Actor::spawn(
+            Some(actor_name),
+            RunWriterActor,
+            RunWriterArguments {
+                run_id: run_id.to_string(),
+                desktop_id: run_id.to_string(),
+                objective: String::new(),
+                session_id: run_id.to_string(),
+                thread_id: run_id.to_string(),
+                root_dir: Some(state.root_dir.clone()),
+                event_store: state.event_store.clone(),
+            },
+        )
+        .await
+        .map_err(|e| {
+            WriterError::ActorUnavailable(format!(
+                "failed to restore run writer for run_id={run_id}: {e}"
+            ))
+        })?;
+
+        state
+            .run_writers_by_run_id
+            .insert(run_id.to_string(), actor_ref.clone());
+        Self::emit_event(
+            state,
+            "writer.actor.run_writer.restored",
+            serde_json::json!({
+                "run_id": run_id,
+                "actor_name": format!("run-writer-{run_id}"),
+            }),
+        );
+
+        Ok(actor_ref)
+    }
 
     fn emit_event(state: &WriterState, event_type: &str, payload: serde_json::Value) {
         let event = AppendEvent {
@@ -388,6 +562,11 @@ impl WriterActor {
         state: &mut WriterState,
         mut inbound: WriterInboxMessage,
     ) -> Result<WriterQueueAck, WriterError> {
+        state.run_writers_by_run_id.insert(
+            inbound.envelope.run_id.clone(),
+            inbound.run_writer_actor.clone(),
+        );
+
         let has_prompt_diff = inbound
             .envelope
             .prompt_diff
@@ -546,6 +725,48 @@ impl WriterActor {
         }
     }
 
+    fn build_synthesis_objective(
+        inbound: &WriterInboxMessage,
+        message_content: &str,
+        history: &str,
+        delegation_context: &str,
+    ) -> String {
+        let mut objective = format!(
+            "You are WriterActor.\n\
+             Produce a full revised document body (single coherent narrative) for this run.\n\
+             Use the new inbox message and current document context.\n\
+             Requirements:\n\
+             - prioritize readability for humans\n\
+             - prefer concise paragraphs/bullets over rigid report templates\n\
+             - preserve factual claims from the inbox message, but reconcile contradictions with existing document context\n\
+             - if a new claim conflicts with earlier text, explicitly correct/supersede the earlier claim\n\
+             - avoid duplicating stale or disproven claims\n\
+             - produce a self-contained best-integrated revision (not just delta snippets)\n\
+             - do not include section headers like 'Conductor/Researcher/Terminal/User'\n\
+             - do not include markdown title '# ...' (title is handled separately)\n\
+             - do not include proposal metadata or actor message wrappers\n\
+             - output markdown only\n\
+             - do not call tools; return the revised markdown in the final message\n\
+             \n\
+             Inbox message id: {message_id}\n\
+             Message kind: {kind}\n\
+             Message source: {source}\n\
+             Message content:\n{message_content}\n\
+             \n\
+             Current document excerpt:\n{history}",
+            message_id = inbound.envelope.message_id,
+            kind = inbound.envelope.kind,
+            source = inbound.envelope.source.as_str(),
+            message_content = message_content,
+            history = history
+        );
+        if !delegation_context.trim().is_empty() {
+            objective.push_str("\n\nDelegation context:\n");
+            objective.push_str(delegation_context);
+        }
+        objective
+    }
+
     async fn synthesize_with_llm(
         state: &WriterState,
         inbound: &WriterInboxMessage,
@@ -558,16 +779,6 @@ impl WriterActor {
             Ok(Err(error)) => return Err(WriterError::RunWriterFailed(error.to_string())),
             Err(error) => return Err(WriterError::RunWriterFailed(error.to_string())),
         };
-
-        let resolved = state
-            .model_registry
-            .resolve_for_role("writer", &ModelResolutionContext::default())
-            .map_err(|e| WriterError::ModelResolution(e.to_string()))?;
-        let model_id = resolved.config.id.clone();
-        let client_registry = state
-            .model_registry
-            .create_runtime_client_registry_for_model(&model_id)
-            .map_err(|e| WriterError::ModelResolution(e.to_string()))?;
 
         let message_content = if let Some(diff_ops) = inbound.envelope.prompt_diff.as_ref() {
             let diff_json = serde_json::to_string_pretty(diff_ops).unwrap_or_default();
@@ -590,35 +801,6 @@ impl WriterActor {
             inbound.envelope.content.clone()
         };
 
-        let prompt = format!(
-            "You are WriterActor.\n\
-             Produce a full revised document body (single coherent narrative) for this run.\n\
-             Use the new inbox message and current document context.\n\
-             Requirements:\n\
-             - prioritize readability for humans\n\
-             - prefer concise paragraphs/bullets over rigid report templates\n\
-             - preserve factual claims from the inbox message, but reconcile contradictions with existing document context\n\
-             - if a new claim conflicts with earlier text, explicitly correct/supersede the earlier claim\n\
-             - avoid duplicating stale or disproven claims\n\
-             - produce a self-contained best-integrated revision (not just delta snippets)\n\
-             - do not include section headers like 'Conductor/Researcher/Terminal/User'\n\
-             - do not include markdown title '# ...' (title is handled separately)\n\
-             - do not include proposal metadata or actor message wrappers\n\
-             - output markdown only\n\n\
-             Inbox message id: {message_id}\n\
-             Message kind: {kind}\n\
-             Message source: {source}\n\
-             Message content:\n{content}",
-            message_id = inbound.envelope.message_id.as_str(),
-            kind = inbound.envelope.kind.as_str(),
-            source = inbound.envelope.source.as_str(),
-            content = message_content
-        );
-        let prompt = if delegation_context.trim().is_empty() {
-            prompt
-        } else {
-            format!("{prompt}\n\nDelegation context:\n{delegation_context}")
-        };
         let history = if doc.len() > 12_000 {
             doc.chars()
                 .rev()
@@ -630,76 +812,58 @@ impl WriterActor {
         } else {
             doc
         };
-
-        let trace = LlmTraceEmitter::new(state.event_store.clone());
-        let trace_ctx = trace.start_call(
-            "writer",
-            "QuickResponse",
-            &state.writer_id,
-            &model_id,
-            None,
-            "Writer inbox synthesis",
-            &serde_json::json!({
-                "run_id": inbound.envelope.run_id.clone(),
-                "section_id": inbound.envelope.section_id.clone(),
-                "message_id": inbound.envelope.message_id.clone(),
-                "kind": inbound.envelope.kind.clone(),
-                "source": inbound.envelope.source.as_str(),
-                "correlation_id": inbound.envelope.correlation_id.clone(),
-                "session_id": inbound.envelope.session_id.clone(),
-                "thread_id": inbound.envelope.thread_id.clone(),
-                "call_id": inbound.envelope.call_id.clone(),
-                "message_content": message_content,
-                "history_excerpt": history,
-            }),
-            "Writer synthesizes queued inbound message",
-            Some(LlmCallScope {
-                run_id: Some(inbound.envelope.run_id.clone()),
-                task_id: Some(inbound.envelope.message_id.clone()),
-                call_id: inbound.envelope.call_id.clone(),
-                session_id: inbound.envelope.session_id.clone(),
-                thread_id: inbound.envelope.thread_id.clone(),
-            }),
+        let objective = Self::build_synthesis_objective(
+            inbound,
+            &message_content,
+            &history,
+            &delegation_context,
         );
 
-        let collector = new_collector("writer.quick_response");
-        let result = B
-            .QuickResponse
-            .with_client_registry(&client_registry)
-            .with_collector(&collector)
-            .call(prompt, history)
+        let adapter = WriterSynthesisAdapter::new(
+            state.writer_id.clone(),
+            state.user_id.clone(),
+            state.event_store.clone(),
+        );
+        let harness = AgentHarness::with_config(
+            adapter,
+            state.model_registry.clone(),
+            HarnessConfig {
+                timeout_budget_ms: 90_000,
+                max_steps: 3,
+                emit_progress: true,
+                emit_worker_report: true,
+            },
+            LlmTraceEmitter::new(state.event_store.clone()),
+        );
+
+        let result = harness
+            .run(
+                format!(
+                    "{}:synthesis:{}",
+                    state.writer_id, inbound.envelope.message_id
+                ),
+                state.user_id.clone(),
+                objective,
+                None,
+                None,
+                Some(inbound.envelope.run_id.clone()),
+                inbound.envelope.call_id.clone(),
+            )
             .await;
-        let usage = token_usage_from_collector(&collector);
 
         match result {
-            Ok(output) => {
-                trace.complete_call_with_usage(
-                    &trace_ctx,
-                    &model_id,
-                    None,
-                    &serde_json::json!({ "output": output }),
-                    "writer synthesis complete",
-                    usage.clone(),
-                );
-                let trimmed = output.trim();
+            Ok(agent_result) => {
+                if agent_result.objective_status == ObjectiveStatus::Blocked {
+                    return Err(WriterError::WriterLlmFailed(agent_result.completion_reason));
+                }
+                let trimmed = agent_result.summary.trim();
                 if trimmed.is_empty() {
                     Ok(None)
                 } else {
                     Ok(Some(trimmed.to_string()))
                 }
             }
-            Err(error) => {
-                trace.fail_call_with_usage(
-                    &trace_ctx,
-                    &model_id,
-                    None,
-                    None,
-                    &error.to_string(),
-                    Some(shared_types::FailureKind::Unknown),
-                    usage,
-                );
-                Err(WriterError::WriterLlmFailed(error.to_string()))
-            }
+            Err(error) => Err(WriterError::WriterLlmFailed(error.to_string())),
         }
     }
 
@@ -750,16 +914,199 @@ impl WriterActor {
         }
     }
 
-    fn parse_json_object(raw: &str) -> Option<serde_json::Value> {
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) {
-            return Some(value);
+    async fn list_run_writer_versions(
+        state: &mut WriterState,
+        run_id: String,
+    ) -> Result<Vec<DocumentVersion>, WriterError> {
+        let run_writer = Self::ensure_run_writer(state, &run_id).await?;
+        match ractor::call!(run_writer, |reply| RunWriterMsg::ListVersions { reply }) {
+            Ok(Ok(versions)) => Ok(versions),
+            Ok(Err(error)) => Err(WriterError::RunWriterFailed(error.to_string())),
+            Err(error) => Err(WriterError::RunWriterFailed(error.to_string())),
         }
-        let start = raw.find('{')?;
-        let end = raw.rfind('}')?;
-        if end <= start {
-            return None;
+    }
+
+    async fn get_run_writer_version(
+        state: &mut WriterState,
+        run_id: String,
+        version_id: u64,
+    ) -> Result<DocumentVersion, WriterError> {
+        let run_writer = Self::ensure_run_writer(state, &run_id).await?;
+        match ractor::call!(run_writer, |reply| RunWriterMsg::GetVersion {
+            version_id,
+            reply
+        }) {
+            Ok(Ok(version)) => Ok(version),
+            Ok(Err(error)) => Err(WriterError::RunWriterFailed(error.to_string())),
+            Err(error) => Err(WriterError::RunWriterFailed(error.to_string())),
         }
-        serde_json::from_str::<serde_json::Value>(&raw[start..=end]).ok()
+    }
+
+    async fn list_run_writer_overlays(
+        state: &mut WriterState,
+        run_id: String,
+        base_version_id: Option<u64>,
+        status: Option<OverlayStatus>,
+    ) -> Result<Vec<Overlay>, WriterError> {
+        let run_writer = Self::ensure_run_writer(state, &run_id).await?;
+        match ractor::call!(run_writer, |reply| RunWriterMsg::ListOverlays {
+            base_version_id,
+            status,
+            reply
+        }) {
+            Ok(Ok(overlays)) => Ok(overlays),
+            Ok(Err(error)) => Err(WriterError::RunWriterFailed(error.to_string())),
+            Err(error) => Err(WriterError::RunWriterFailed(error.to_string())),
+        }
+    }
+
+    async fn create_run_writer_version(
+        state: &mut WriterState,
+        run_id: String,
+        parent_version_id: Option<u64>,
+        content: String,
+        source: VersionSource,
+    ) -> Result<DocumentVersion, WriterError> {
+        let run_writer = Self::ensure_run_writer(state, &run_id).await?;
+        match ractor::call!(run_writer, |reply| RunWriterMsg::CreateVersion {
+            run_id,
+            parent_version_id,
+            content,
+            source,
+            reply
+        }) {
+            Ok(Ok(version)) => Ok(version),
+            Ok(Err(error)) => Err(WriterError::RunWriterFailed(error.to_string())),
+            Err(error) => Err(WriterError::RunWriterFailed(error.to_string())),
+        }
+    }
+
+    async fn submit_user_prompt(
+        myself: &ActorRef<WriterMsg>,
+        state: &mut WriterState,
+        run_id: String,
+        prompt_diff: Vec<shared_types::PatchOp>,
+        base_version_id: u64,
+    ) -> Result<WriterQueueAck, WriterError> {
+        if prompt_diff.is_empty() {
+            return Err(WriterError::Validation(
+                "prompt_diff cannot be empty".to_string(),
+            ));
+        }
+        let run_writer_actor = Self::ensure_run_writer(state, &run_id).await?;
+
+        let head = match ractor::call!(run_writer_actor.clone(), |reply| {
+            RunWriterMsg::GetHeadVersion { reply }
+        }) {
+            Ok(Ok(head)) => head,
+            Ok(Err(error)) => return Err(WriterError::RunWriterFailed(error.to_string())),
+            Err(error) => return Err(WriterError::RunWriterFailed(error.to_string())),
+        };
+        if base_version_id != head.version_id {
+            return Err(WriterError::Validation(format!(
+                "stale base_version_id: expected {}, got {}",
+                head.version_id, base_version_id
+            )));
+        }
+
+        let envelope = WriterInboundEnvelope {
+            message_id: format!("{run_id}:user:prompt:{}", ulid::Ulid::new()),
+            correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
+            kind: "human_prompt".to_string(),
+            run_id,
+            section_id: "user".to_string(),
+            source: WriterSource::User,
+            content: "user_prompt_diff".to_string(),
+            base_version_id: Some(base_version_id),
+            prompt_diff: Some(prompt_diff),
+            overlay_id: None,
+            session_id: None,
+            thread_id: None,
+            call_id: None,
+            origin_actor: Some("conductor".to_string()),
+        };
+        Self::enqueue_inbound(
+            myself,
+            state,
+            WriterInboxMessage {
+                envelope,
+                run_writer_actor,
+            },
+        )
+        .await
+    }
+
+    fn build_delegation_objective(inbound: &WriterInboxMessage) -> String {
+        let prompt_payload = if let Some(diff_ops) = inbound.envelope.prompt_diff.as_ref() {
+            serde_json::to_string_pretty(diff_ops)
+                .unwrap_or_else(|_| inbound.envelope.content.clone())
+        } else {
+            inbound.envelope.content.clone()
+        };
+
+        format!(
+            "Determine whether Writer should delegate before revising this run document.\n\
+             Delegate only if additional execution is required.\n\
+             Use message_writer tool with one of:\n\
+             - mode: \"delegate_researcher\" for facts, links, verification, or web research\n\
+             - mode: \"delegate_terminal\" for repository inspection, shell commands, or local execution\n\
+             In both cases, set content to a concise objective for the delegated worker.\n\
+             If no delegation is needed, return no tool calls and explain why in message.\n\
+             \n\
+             Run ID: {}\n\
+             Inbox Message ID: {}\n\
+             Prompt Payload:\n{}",
+            inbound.envelope.run_id, inbound.envelope.message_id, prompt_payload
+        )
+    }
+
+    fn extract_capability_from_tool_output(output: &str) -> Option<String> {
+        let value: serde_json::Value = serde_json::from_str(output).ok()?;
+        value
+            .get("capability")
+            .and_then(|v| v.as_str())
+            .map(|v| v.to_string())
+    }
+
+    fn summarize_delegation_calls(tool_executions: &[ToolExecution]) -> String {
+        let mut lines = Vec::new();
+        for execution in tool_executions
+            .iter()
+            .filter(|exec| exec.tool_name == "message_writer")
+        {
+            let capability = Self::extract_capability_from_tool_output(&execution.output)
+                .unwrap_or_else(|| "unknown".to_string());
+            let summary = serde_json::from_str::<serde_json::Value>(&execution.output)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("summary")
+                        .and_then(|summary| summary.as_str())
+                        .map(|s| s.to_string())
+                })
+                .unwrap_or_else(|| execution.output.clone());
+            lines.push(format!(
+                "- capability={capability} success={} summary={summary}",
+                execution.success
+            ));
+        }
+        if lines.is_empty() {
+            "none".to_string()
+        } else {
+            lines.join("\n")
+        }
+    }
+
+    fn delegation_section_for_result(tool_executions: &[ToolExecution]) -> String {
+        for execution in tool_executions
+            .iter()
+            .filter(|exec| exec.tool_name == "message_writer" && exec.success)
+        {
+            if let Some(capability) = Self::extract_capability_from_tool_output(&execution.output) {
+                return capability;
+            }
+        }
+        "conductor".to_string()
     }
 
     async fn dispatch_user_prompt_delegation(
@@ -767,230 +1114,125 @@ impl WriterActor {
         state: &WriterState,
         inbound: &WriterInboxMessage,
     ) -> Result<String, WriterError> {
-        let Some(dispatch) = Self::plan_user_prompt_delegation(state, inbound).await? else {
-            return Ok(String::new());
-        };
-        let call_id = format!("writer-delegate:{}", ulid::Ulid::new());
-        let capability_name = match dispatch.capability {
-            WriterDelegateCapability::Researcher => "researcher",
-            WriterDelegateCapability::Terminal => "terminal",
-        };
-        let section_id = capability_name.to_string();
-        let queued_note = format!(
-            "> [writer] delegated_{capability_name}_queued ({call_id})\n\
-             Objective: {}\n\
-             Status: queued\n",
-            dispatch.objective
-        );
-        let _ = Self::apply_text(
-            state,
-            inbound.run_writer_actor.clone(),
-            inbound.envelope.run_id.clone(),
-            section_id.clone(),
-            WriterSource::Writer,
-            queued_note.clone(),
-            true,
-        )
-        .await?;
-
+        let delegation_call_id = format!("writer-delegation:{}", ulid::Ulid::new());
+        let objective = Self::build_delegation_objective(inbound);
         let writer_actor = myself.clone();
         let run_writer_actor = inbound.run_writer_actor.clone();
-        let run_id = inbound.envelope.run_id.clone();
-        let thread_id = inbound.envelope.thread_id.clone();
-        let session_id = inbound.envelope.session_id.clone();
-        let objective = dispatch.objective.clone();
-        let max_steps = dispatch.max_steps;
-        let capability = dispatch.capability;
-        let correlation_id = inbound.envelope.correlation_id.clone();
-        let call_id_for_task = call_id.clone();
-        tokio::spawn(async move {
-            let result = ractor::call!(writer_actor, |reply| WriterMsg::DelegateTask {
-                capability,
-                objective: objective.clone(),
-                timeout_ms: Some(180_000),
-                max_steps,
-                run_id: Some(run_id.clone()),
-                call_id: Some(call_id_for_task.clone()),
-                reply,
-            });
+        let seed_envelope = inbound.envelope.clone();
+        let writer_id = state.writer_id.clone();
+        let user_id = state.user_id.clone();
+        let event_store = state.event_store.clone();
+        let model_registry = state.model_registry.clone();
+        let adapter = WriterDelegationAdapter::new(
+            writer_id.clone(),
+            user_id.clone(),
+            event_store.clone(),
+            writer_actor.clone(),
+            state.researcher_actor.is_some(),
+            state.terminal_actor.is_some(),
+        );
+        let trace_emitter = LlmTraceEmitter::new(event_store.clone());
+        let harness = AgentHarness::with_config(
+            adapter,
+            model_registry,
+            HarnessConfig {
+                timeout_budget_ms: 180_000,
+                max_steps: 100,
+                emit_progress: true,
+                emit_worker_report: true,
+            },
+            trace_emitter,
+        );
 
-            let completion_content = match result {
-                Ok(Ok(delegate_result)) => format!(
-                    "Objective: {objective}\nSuccess: {}\nSummary: {}\n",
-                    delegate_result.success, delegate_result.summary
-                ),
-                Ok(Err(error)) => {
-                    format!("Objective: {objective}\nSuccess: false\nError: {error}\n")
+        Self::emit_event(
+            state,
+            "writer.actor.delegation_harness.dispatched",
+            serde_json::json!({
+                "run_id": seed_envelope.run_id.clone(),
+                "message_id": seed_envelope.message_id.clone(),
+                "correlation_id": seed_envelope.correlation_id.clone(),
+                "delegation_call_id": delegation_call_id.clone(),
+            }),
+        );
+
+        tokio::spawn(async move {
+            let harness_result = harness
+                .run(
+                    format!("{writer_id}:{delegation_call_id}"),
+                    user_id,
+                    objective.clone(),
+                    None,
+                    None,
+                    Some(seed_envelope.run_id.clone()),
+                    Some(delegation_call_id.clone()),
+                )
+                .await;
+
+            let (summary, status, tool_executions, success, should_enqueue) = match harness_result {
+                Ok(result) => {
+                    let tool_executions = result.tool_executions.clone();
+                    let should_enqueue = tool_executions
+                        .iter()
+                        .any(|exec| exec.tool_name == "message_writer");
+                    (
+                        result.summary,
+                        result.objective_status,
+                        tool_executions,
+                        result.success,
+                        should_enqueue,
+                    )
                 }
-                Err(error) => format!("Objective: {objective}\nSuccess: false\nError: {error}\n"),
+                Err(error) => (
+                    format!("Writer delegation harness failed: {error}"),
+                    ObjectiveStatus::Blocked,
+                    Vec::new(),
+                    false,
+                    true,
+                ),
             };
 
+            if !should_enqueue {
+                return;
+            }
+
             let completion_message = format!(
-                "{prefix}\n{completion}",
-                prefix = format!("> [writer] delegated_{capability_name}_completed ({call_id})"),
-                completion = completion_content
+                "> [writer] delegation_harness_completed ({delegation_call_id})\n\
+                 Objective: {objective}\n\
+                 Success: {success}\n\
+                 Status: {status:?}\n\
+                 Summary: {summary}\n\
+                 Delegation Calls:\n{}\n",
+                Self::summarize_delegation_calls(&tool_executions)
             );
-            let envelope = WriterInboundEnvelope {
-                message_id: format!("{run_id}:{capability_name}:delegate_completion:{call_id}"),
-                correlation_id,
-                kind: format!("delegated_{capability_name}_completion"),
-                run_id,
+            let section_id = Self::delegation_section_for_result(&tool_executions);
+            let completion_envelope = WriterInboundEnvelope {
+                message_id: format!(
+                    "{}:writer:delegation_harness_completion:{}",
+                    seed_envelope.run_id.clone(),
+                    delegation_call_id
+                ),
+                correlation_id: seed_envelope.correlation_id.clone(),
+                kind: "delegation_harness_completion".to_string(),
+                run_id: seed_envelope.run_id.clone(),
                 section_id,
                 source: WriterSource::Writer,
                 content: completion_message,
                 base_version_id: None,
                 prompt_diff: None,
                 overlay_id: None,
-                session_id,
-                thread_id,
-                call_id: Some(call_id.clone()),
+                session_id: seed_envelope.session_id.clone(),
+                thread_id: seed_envelope.thread_id.clone(),
+                call_id: Some(delegation_call_id),
                 origin_actor: Some("writer".to_string()),
             };
             let _ = ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
-                envelope,
+                envelope: completion_envelope,
                 run_writer_actor,
                 reply,
             });
         });
 
-        Ok(format!(
-            "Delegation dispatched asynchronously:\n{queued_note}"
-        ))
-    }
-
-    async fn plan_user_prompt_delegation(
-        state: &WriterState,
-        inbound: &WriterInboxMessage,
-    ) -> Result<Option<WriterDelegationDispatch>, WriterError> {
-        let resolved = state
-            .model_registry
-            .resolve_for_role("writer", &ModelResolutionContext::default())
-            .map_err(|e| WriterError::ModelResolution(e.to_string()))?;
-        let model_id = resolved.config.id.clone();
-        let client_registry = state
-            .model_registry
-            .create_runtime_client_registry_for_model(&model_id)
-            .map_err(|e| WriterError::ModelResolution(e.to_string()))?;
-
-        let planner_input = if let Some(diff_ops) = inbound.envelope.prompt_diff.as_ref() {
-            serde_json::to_string_pretty(diff_ops)
-                .unwrap_or_else(|_| inbound.envelope.content.clone())
-        } else {
-            inbound.envelope.content.clone()
-        };
-
-        let planner_prompt = format!(
-            "You are WriterActor planning whether to delegate work.\n\
-             Decide if this human prompt requires new worker execution before revising the document.\n\
-             Output strict JSON only with keys:\n\
-             - capability: \"researcher\" | \"terminal\" | null\n\
-             - objective: string | null\n\
-             - max_steps: integer 1-100 | null\n\
-             Rules:\n\
-             - choose researcher when the prompt asks for new facts, links, topics, or verification\n\
-             - choose terminal when the prompt asks for repo/code inspection or command execution\n\
-             - choose null when the prompt is purely editorial (style, clarity, prose, structure)\n\
-             - objective must be concise and actionable when capability is not null\n\
-             Human prompt:\n{}",
-            planner_input
-        );
-
-        let trace = LlmTraceEmitter::new(state.event_store.clone());
-        let planner_task_id = format!("{}:planner", inbound.envelope.message_id);
-        let trace_ctx = trace.start_call(
-            "writer",
-            "DelegationPlanner",
-            &state.writer_id,
-            &model_id,
-            None,
-            "Writer delegation planner",
-            &serde_json::json!({
-                "run_id": inbound.envelope.run_id.clone(),
-                "section_id": inbound.envelope.section_id.clone(),
-                "message_id": inbound.envelope.message_id.clone(),
-                "kind": inbound.envelope.kind.clone(),
-                "source": inbound.envelope.source.as_str(),
-                "correlation_id": inbound.envelope.correlation_id.clone(),
-                "planner_input": planner_input,
-            }),
-            "Writer decides whether to delegate researcher/terminal work",
-            Some(LlmCallScope {
-                run_id: Some(inbound.envelope.run_id.clone()),
-                task_id: Some(planner_task_id),
-                call_id: inbound.envelope.call_id.clone(),
-                session_id: inbound.envelope.session_id.clone(),
-                thread_id: inbound.envelope.thread_id.clone(),
-            }),
-        );
-
-        let collector = new_collector("writer.delegation_planner");
-        let planner_result = B
-            .QuickResponse
-            .with_client_registry(&client_registry)
-            .with_collector(&collector)
-            .call(planner_prompt, String::new())
-            .await;
-        let usage = token_usage_from_collector(&collector);
-
-        let planner_output = match planner_result {
-            Ok(output) => {
-                trace.complete_call_with_usage(
-                    &trace_ctx,
-                    &model_id,
-                    None,
-                    &serde_json::json!({ "output": output }),
-                    "writer delegation planner completed",
-                    usage,
-                );
-                output
-            }
-            Err(e) => {
-                trace.fail_call_with_usage(
-                    &trace_ctx,
-                    &model_id,
-                    None,
-                    None,
-                    &e.to_string(),
-                    Some(shared_types::FailureKind::Unknown),
-                    usage,
-                );
-                return Err(WriterError::WriterLlmFailed(e.to_string()));
-            }
-        };
-        let plan_value = Self::parse_json_object(&planner_output).ok_or_else(|| {
-            WriterError::WriterLlmFailed("writer delegation planner returned invalid JSON".into())
-        })?;
-        let plan: WriterDelegationPlan = serde_json::from_value(plan_value)
-            .map_err(|e| WriterError::WriterLlmFailed(e.to_string()))?;
-
-        let Some(capability_raw) = plan
-            .capability
-            .map(|v| v.trim().to_ascii_lowercase())
-            .filter(|v| !v.is_empty() && v != "null" && v != "none")
-        else {
-            return Ok(None);
-        };
-        let objective = plan
-            .objective
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                WriterError::Validation(
-                    "writer delegation plan missing objective for non-null capability".to_string(),
-                )
-            })?;
-
-        let capability = match capability_raw.as_str() {
-            "researcher" => WriterDelegateCapability::Researcher,
-            "terminal" => WriterDelegateCapability::Terminal,
-            _ => return Ok(None),
-        };
-        let max_steps = plan.max_steps.map(|s| s.clamp(1, 100));
-        Ok(Some(WriterDelegationDispatch {
-            capability,
-            objective,
-            max_steps,
-        }))
+        Ok("Delegation harness dispatched asynchronously.".to_string())
     }
 
     async fn set_section_content(
@@ -1120,6 +1362,7 @@ impl WriterActor {
 
     #[allow(clippy::too_many_arguments)]
     async fn delegate_task(
+        myself: &ActorRef<WriterMsg>,
         state: &WriterState,
         capability: WriterDelegateCapability,
         objective: String,
@@ -1136,6 +1379,9 @@ impl WriterActor {
                 let researcher_actor = state.researcher_actor.as_ref().ok_or_else(|| {
                     WriterError::ActorUnavailable("researcher actor unavailable".to_string())
                 })?;
+                let run_writer_actor = run_id
+                    .as_ref()
+                    .and_then(|rid| state.run_writers_by_run_id.get(rid).cloned());
                 let (tx, _rx) = mpsc::unbounded_channel::<ResearcherProgress>();
                 let result =
                     ractor::call!(researcher_actor, |reply| ResearcherMsg::RunAgenticTask {
@@ -1145,10 +1391,10 @@ impl WriterActor {
                         max_rounds: max_steps,
                         model_override: None,
                         progress_tx: Some(tx),
-                        writer_actor: None,
-                        run_writer_actor: None,
-                        run_id,
-                        call_id,
+                        writer_actor: Some(myself.clone()),
+                        run_writer_actor,
+                        run_id: run_id.clone(),
+                        call_id: call_id.clone(),
                         reply,
                     })
                     .map_err(|e| WriterError::WorkerFailed(e.to_string()))?
@@ -1166,8 +1412,8 @@ impl WriterActor {
                     max_steps,
                     model_override: None,
                     progress_tx: Some(tx),
-                    run_id,
-                    call_id,
+                    run_id: run_id.clone(),
+                    call_id: call_id.clone(),
                     reply,
                 })
                 .map_err(|e| WriterError::WorkerFailed(e.to_string()))?
