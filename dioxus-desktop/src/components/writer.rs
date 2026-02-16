@@ -1128,8 +1128,9 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                 match current_view_mode {
                     ViewMode::Edit => rsx! {
                         textarea {
-                            style: "flex: 1; width: calc(100% - 1rem); height: 100%; padding: 1rem; background: var(--input-bg, var(--window-bg)); color: var(--text-primary); border: 1px solid var(--border-color); resize: none; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; line-height: 1.6; outline: none; border-radius: 0.25rem; margin: 0.5rem;",
+                            style: "flex: 1; width: calc(100% - 1rem); height: 100%; padding: 1rem; background: var(--input-bg, var(--window-bg)); color: var(--text-primary); border: 1px solid var(--border-color); resize: none; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; line-height: 1.6; font-kerning: none; font-variant-ligatures: none; text-rendering: optimizeSpeed; outline: none; border-radius: 0.25rem; margin: 0.5rem; overflow-y: scroll; scrollbar-gutter: stable;",
                             value: "{current_editor_text}",
+                            wrap: "soft",
                             readonly: current_readonly,
                             oninput: move |e: FormEvent| {
                                 let stripped = strip_inline_overlay_block(&e.value());

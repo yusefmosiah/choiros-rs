@@ -265,25 +265,25 @@ pub fn FloatingWindow(
 
     let z_index = window.z_index;
     let viewer_props = parse_viewer_window_props(&window.props).ok();
-    let border_color = if is_active && !window.maximized {
-        "var(--accent-bg, #3b82f6)"
+    let window_shadow = if window.maximized {
+        "none"
     } else {
-        "var(--border-color, #374151)"
+        "var(--shadow-lg, 0 10px 40px rgba(0,0,0,0.5))"
     };
     let window_style = if window.maximized {
         format!(
             "position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: {z_index}; \
              display: flex; flex-direction: column; background: var(--window-bg, #1f2937); \
-             border: none; border-radius: 0; overflow: hidden; box-shadow: none; \
+             border: none; border-radius: 0; overflow: hidden; box-shadow: {window_shadow}; \
              outline: none;"
         )
     } else {
         format!(
             "position: absolute; left: {}px; top: {}px; width: {}px; height: {}px; z-index: \
              {z_index}; display: flex; flex-direction: column; background: var(--window-bg, \
-             #1f2937); border: 1px solid {border_color}; border-radius: \
-             var(--radius-lg, 12px); overflow: hidden; box-shadow: var(--shadow-lg, 0 10px 40px \
-             rgba(0,0,0,0.5)); outline: none;",
+             #1f2937); border: 1px solid var(--border-color, #374151); border-radius: \
+             var(--radius-lg, 12px); overflow: hidden; box-shadow: {window_shadow}; outline: \
+             none;",
             bounds.x, bounds.y, bounds.width, bounds.height
         )
     };
@@ -1014,7 +1014,7 @@ pub fn FloatingWindow(
 
     rsx! {
         div {
-            class: if is_active { "floating-window active" } else { "floating-window" },
+            class: "floating-window",
             role: "dialog",
             "aria-label": window.title.clone(),
             "aria-modal": if is_active { "false" } else { "true" },
