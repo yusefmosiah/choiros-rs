@@ -39,7 +39,7 @@ impl ConductorActor {
                 "Capability Contract (researcher): external research only. Use research tools, citations, and source synthesis. Do not perform local shell orchestration. When sending updates for Writer, provide concise diff intent only: short additions, removals, or explicit rewrite instructions."
             }
             "terminal" => {
-                "Capability Contract (terminal): local execution only. Use shell/file/system inspection and execution. Do not perform general web research. When sending updates for Writer, provide concise diff intent only: short additions, removals, or explicit rewrite instructions."
+                "Capability Contract (terminal): local execution and local codebase research. Use shell/file/system inspection and execution, including code/docs architecture analysis in this repository. Do not perform general web research. For research-oriented objectives, prefer docs/findings outputs and avoid source-code edits unless implementation is explicitly requested. When sending updates for Writer, provide concise diff intent only: short additions, removals, or explicit rewrite instructions."
             }
             _ => "Capability Contract: execute only within your assigned capability scope.",
         }
@@ -323,7 +323,7 @@ mod tests {
         let actor = ConductorActor;
         let objective = actor.objective_with_capability_contract("terminal", "Run tests".into());
         assert!(objective.contains("Capability Contract (terminal)"));
-        assert!(objective.contains("local execution only"));
+        assert!(objective.contains("local execution and local codebase research"));
         assert!(objective.contains("Objective:\nRun tests"));
     }
 

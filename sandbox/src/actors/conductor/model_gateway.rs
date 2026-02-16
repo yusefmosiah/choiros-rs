@@ -17,7 +17,7 @@ use crate::observability::llm_trace::{token_usage_from_collector, LlmCallScope, 
 
 pub type SharedConductorModelGateway = Arc<dyn ConductorModelGateway>;
 
-const CAPABILITY_ROUTING_GUIDANCE: &str = "Capability routing guidance:\n- Use researcher for external information gathering, web search, URL fetch, citations, source synthesis, and current-events/news questions.\n- Use terminal for local shell/file/system execution only (build, test, inspect, edit files, run local commands).\n- Never route web/news/current-events objectives to terminal when researcher is available.";
+const CAPABILITY_ROUTING_GUIDANCE: &str = "Capability routing guidance:\n- Use researcher for external information gathering, web search, URL fetch, citations, source synthesis, and current-events/news questions.\n- Use terminal for local shell/file/system execution and codebase research (build, test, inspect code/docs, architecture analysis, edit files, run local commands).\n- If objective needs both codebase evidence and external evidence, dispatch both terminal and researcher capabilities.\n- Never route web/news/current-events objectives to terminal when researcher is available.";
 
 #[async_trait]
 pub trait ConductorModelGateway: Send + Sync {

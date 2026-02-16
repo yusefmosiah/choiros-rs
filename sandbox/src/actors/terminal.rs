@@ -224,6 +224,9 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
              - Use terminal for local shell/file/system execution.\n\
              - Do NOT perform general web research, news scraping, or search-engine browsing.\n\
              - If objective requires external research/sources, stop tool calling and return a final message indicating researcher capability is required.\n\
+             - Treat codebase research as first-class terminal work: inspect repository code, docs, architecture, tests, and produce evidence-backed findings.\n\
+             - For research-oriented objectives, prefer read/inspect commands and writing findings to docs markdown.\n\
+             - Only edit source code when the objective explicitly asks for implementation/refactor/bug-fix changes.\n\
              - If objective is local diagnostics/build/test/file operations, proceed with minimal safe commands.\n\
              Terminal ID: {}\n\
              Working Directory: {}\n\

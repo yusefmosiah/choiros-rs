@@ -210,17 +210,19 @@ Required args:
 Optional args:
 - mode_arg: max steps for delegated worker (1-100)
 Important:
-- Use at most one delegation tool call per turn unless absolutely required.
+- Use one or multiple delegation calls when useful.
+- Combine delegate_terminal + delegate_researcher when the objective needs both local codebase evidence and external/web evidence.
 - If delegation is unnecessary, return no tool calls and complete in message."#
             .to_string()
     }
 
     fn get_system_context(&self, ctx: &ExecutionContext) -> String {
         format!(
-            "You are WriterActor delegation planner/executor.\n\
+             "You are WriterActor delegation planner/executor.\n\
              Decide whether this user prompt needs worker delegation before writer revision.\n\
              - Use delegate_researcher for fact-finding, links, verification, or web research.\n\
-             - Use delegate_terminal for repository inspection, shell commands, or local execution.\n\
+             - Use delegate_terminal for repository inspection, architecture analysis, docs/codebase research, shell commands, or local execution.\n\
+             - When objective spans both local codebase understanding and external evidence, call both delegate_terminal and delegate_researcher.\n\
              - If the prompt is editorial only, return no tool calls.\n\
              - Keep delegated objectives concise and actionable.\n\
              - Do not rewrite the document here; only decide delegation.\n\

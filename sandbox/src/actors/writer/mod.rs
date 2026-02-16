@@ -908,9 +908,11 @@ impl WriterActor {
         format!(
             "Determine whether Writer should delegate before revising this run document.\n\
              Delegate only if additional execution is required.\n\
-             Use message_writer tool with one of:\n\
+             Use message_writer tool with one or both of:\n\
              - mode: \"delegate_researcher\" for facts, links, verification, or web research\n\
-             - mode: \"delegate_terminal\" for repository inspection, shell commands, or local execution\n\
+             - mode: \"delegate_terminal\" for repository inspection, architecture/codebase research, shell commands, or local execution\n\
+             If the objective needs both local codebase evidence and external/web evidence, call both modes in the same run.\n\
+             For research-oriented objectives delegated to terminal, prefer writing findings in docs; only ask for source-code edits when the objective explicitly requests implementation.\n\
              In both cases, set content to a concise objective for the delegated worker.\n\
              If no delegation is needed, return no tool calls and explain why in message.\n\
              \n\
