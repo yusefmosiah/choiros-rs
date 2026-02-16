@@ -261,7 +261,11 @@ fn determine_event_category(event_type: &str, _payload: &Value) -> EventCategory
     }
 
     // Agent conduct - run start + assignment formation
-    if event_type.contains("agenda") || event_type == "conductor.run.started" {
+    if event_type.contains("agenda")
+        || event_type == "conductor.run.started"
+        || event_type == "conductor.writer.enqueue"
+        || event_type == "conductor.writer.enqueue.failed"
+    {
         return EventCategory::AgentConduct;
     }
 
@@ -353,6 +357,27 @@ fn build_event_data(event_type: &str, payload: &Value, seq: i64) -> Value {
             }
             if let Some(success) = payload.get("success") {
                 data.insert("success".to_string(), success.clone());
+            }
+        }
+        "conductor.writer.enqueue" | "conductor.writer.enqueue.failed" => {
+            let envelope = payload.get("data").unwrap_or(payload);
+            if let Some(kind) = envelope.get("kind") {
+                data.insert("kind".to_string(), kind.clone());
+            }
+            if let Some(message_id) = envelope.get("message_id") {
+                data.insert("message_id".to_string(), message_id.clone());
+            }
+            if let Some(section_id) = envelope.get("target_section_id") {
+                data.insert("target_section_id".to_string(), section_id.clone());
+            }
+            if let Some(queue_len) = envelope.get("queue_len") {
+                data.insert("queue_len".to_string(), queue_len.clone());
+            }
+            if let Some(revision) = envelope.get("revision") {
+                data.insert("revision".to_string(), revision.clone());
+            }
+            if let Some(error) = envelope.get("error") {
+                data.insert("error".to_string(), error.clone());
             }
         }
         "conductor.task.completed" | "conductor.task.failed" => {
@@ -472,6 +497,8 @@ fn extract_artifact_summaries(events: &[shared_types::Event]) -> Vec<ArtifactSum
             event.event_type.as_str(),
             "conductor.worker.result"
                 | "conductor.capability.completed"
+                | "conductor.writer.enqueue"
+                | "conductor.writer.enqueue.failed"
                 | "worker.task.finding"
                 | "worker.task.learning"
         ) {
@@ -673,6 +700,14 @@ mod tests {
         );
         assert_eq!(
             determine_event_category("conductor.run.started", &payload),
+            EventCategory::AgentConduct
+        );
+        assert_eq!(
+            determine_event_category("conductor.writer.enqueue", &payload),
+            EventCategory::AgentConduct
+        );
+        assert_eq!(
+            determine_event_category("conductor.writer.enqueue.failed", &payload),
             EventCategory::AgentConduct
         );
     }

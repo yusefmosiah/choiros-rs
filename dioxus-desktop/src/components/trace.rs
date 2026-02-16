@@ -323,6 +323,16 @@ struct ToolTraceEvent {
 }
 
 #[derive(Clone, Debug)]
+struct WriterEnqueueEvent {
+    seq: i64,
+    event_id: String,
+    event_type: String,
+    timestamp: String,
+    run_id: String,
+    call_id: Option<String>,
+}
+
+#[derive(Clone, Debug)]
 struct RunGraphSummary {
     run_id: String,
     objective: String,
@@ -330,6 +340,8 @@ struct RunGraphSummary {
     llm_calls: usize,
     tool_calls: usize,
     tool_failures: usize,
+    writer_enqueues: usize,
+    writer_enqueue_failures: usize,
     actor_count: usize,
     loop_count: usize,
 }
@@ -350,6 +362,7 @@ struct GraphNode {
     llm_calls: usize,
     tool_calls: usize,
     tool_failures: usize,
+    inbound_events: usize,
     loop_count: usize,
     status: String,
 }
@@ -788,6 +801,30 @@ fn parse_tool_trace_event(event: &LogsEvent) -> Option<ToolTraceEvent> {
     })
 }
 
+fn parse_writer_enqueue_event(event: &LogsEvent) -> Option<WriterEnqueueEvent> {
+    if event.event_type != "conductor.writer.enqueue"
+        && event.event_type != "conductor.writer.enqueue.failed"
+    {
+        return None;
+    }
+
+    let payload = &event.payload;
+    let data = payload.get("data").unwrap_or(payload);
+    let run_id = payload_run_id(payload)?;
+
+    Some(WriterEnqueueEvent {
+        seq: event.seq,
+        event_id: event.event_id.clone(),
+        event_type: event.event_type.clone(),
+        timestamp: event.timestamp.clone(),
+        run_id,
+        call_id: data
+            .get("call_id")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+    })
+}
+
 fn payload_run_id(payload: &serde_json::Value) -> Option<String> {
     payload
         .get("run_id")
@@ -845,6 +882,7 @@ fn build_run_graph_summaries(
     traces: &[TraceGroup],
     prompts: &[PromptEvent],
     tools: &[ToolTraceEvent],
+    writer_enqueues: &[WriterEnqueueEvent],
 ) -> Vec<RunGraphSummary> {
     #[derive(Default)]
     struct RunAccumulator {
@@ -853,6 +891,8 @@ fn build_run_graph_summaries(
         llm_calls: usize,
         tool_calls: usize,
         tool_failures: usize,
+        writer_enqueues: usize,
+        writer_enqueue_failures: usize,
         actor_keys: BTreeSet<String>,
         loop_ids: BTreeSet<String>,
     }
@@ -909,6 +949,21 @@ fn build_run_graph_summaries(
         }
     }
 
+    for enqueue in writer_enqueues {
+        let entry = by_run.entry(enqueue.run_id.clone()).or_default();
+        entry.writer_enqueues += 1;
+        if enqueue.event_type == "conductor.writer.enqueue.failed" {
+            entry.writer_enqueue_failures += 1;
+        }
+        entry.actor_keys.insert("writer".to_string());
+        if let Some(call_id) = enqueue.call_id.as_ref() {
+            entry.loop_ids.insert(format!("call:{call_id}"));
+        }
+        if enqueue.timestamp > entry.timestamp {
+            entry.timestamp = enqueue.timestamp.clone();
+        }
+    }
+
     let mut result: Vec<RunGraphSummary> = by_run
         .into_iter()
         .map(|(run_id, acc)| RunGraphSummary {
@@ -922,6 +977,8 @@ fn build_run_graph_summaries(
             llm_calls: acc.llm_calls,
             tool_calls: acc.tool_calls,
             tool_failures: acc.tool_failures,
+            writer_enqueues: acc.writer_enqueues,
+            writer_enqueue_failures: acc.writer_enqueue_failures,
             actor_count: acc.actor_keys.len(),
             loop_count: acc.loop_ids.len(),
         })
@@ -934,12 +991,15 @@ fn build_graph_nodes_for_run(
     run_id: &str,
     traces: &[TraceGroup],
     tools: &[ToolTraceEvent],
+    writer_enqueues: &[WriterEnqueueEvent],
 ) -> Vec<GraphNode> {
     #[derive(Default)]
     struct NodeAccumulator {
         llm_calls: usize,
         tool_calls: usize,
         tool_failures: usize,
+        inbound_events: usize,
+        inbound_failures: usize,
         loop_ids: BTreeSet<String>,
         has_failed: bool,
         has_started_only: bool,
@@ -985,6 +1045,20 @@ fn build_graph_nodes_for_run(
         }
     }
 
+    for enqueue in writer_enqueues {
+        if enqueue.run_id != run_id {
+            continue;
+        }
+        let entry = actors.entry("writer".to_string()).or_default();
+        entry.inbound_events += 1;
+        if enqueue.event_type == "conductor.writer.enqueue.failed" {
+            entry.inbound_failures += 1;
+        }
+        if let Some(call_id) = enqueue.call_id.as_ref() {
+            entry.loop_ids.insert(format!("call:{call_id}"));
+        }
+    }
+
     let mut actor_keys: Vec<String> = actors.keys().cloned().collect();
     actor_keys.sort_by(|a, b| {
         let rank_a = actor_rank(a);
@@ -1000,6 +1074,7 @@ fn build_graph_nodes_for_run(
         llm_calls: 0,
         tool_calls: 0,
         tool_failures: 0,
+        inbound_events: 0,
         loop_count: 0,
         status: "completed".to_string(),
     }];
@@ -1011,7 +1086,7 @@ fn build_graph_nodes_for_run(
         if let Some(acc) = actors.get(&actor_key) {
             any_tool_calls += acc.tool_calls;
             any_tool_failures += acc.tool_failures;
-            let status = if acc.has_failed {
+            let status = if acc.has_failed || acc.inbound_failures > 0 {
                 "failed"
             } else if acc.has_started_only {
                 "started"
@@ -1026,6 +1101,7 @@ fn build_graph_nodes_for_run(
                 llm_calls: acc.llm_calls,
                 tool_calls: acc.tool_calls,
                 tool_failures: acc.tool_failures,
+                inbound_events: acc.inbound_events,
                 loop_count: acc.loop_ids.len(),
                 status: status.to_string(),
             });
@@ -1038,13 +1114,14 @@ fn build_graph_nodes_for_run(
             label: "Tools".to_string(),
             kind: GraphNodeKind::Tools,
             actor_key: None,
-            llm_calls: 0,
-            tool_calls: any_tool_calls,
-            tool_failures: any_tool_failures,
-            loop_count: 0,
-            status: if any_tool_failures > 0 {
-                "degraded".to_string()
-            } else {
+        llm_calls: 0,
+        tool_calls: any_tool_calls,
+        tool_failures: any_tool_failures,
+        inbound_events: 0,
+        loop_count: 0,
+        status: if any_tool_failures > 0 {
+            "degraded".to_string()
+        } else {
                 "completed".to_string()
             },
         });
@@ -1423,6 +1500,7 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
     let mut trace_events = use_signal(Vec::<TraceEvent>::new);
     let mut prompt_events = use_signal(Vec::<PromptEvent>::new);
     let mut tool_events = use_signal(Vec::<ToolTraceEvent>::new);
+    let mut writer_enqueue_events = use_signal(Vec::<WriterEnqueueEvent>::new);
     let mut since_seq = use_signal(|| 0_i64);
     let mut selected_run_id = use_signal(|| None::<String>);
     let mut selected_actor_key = use_signal(|| None::<String>);
@@ -1465,6 +1543,7 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                         let mut parsed_traces = Vec::<TraceEvent>::new();
                         let mut parsed_prompts = Vec::<PromptEvent>::new();
                         let mut parsed_tools = Vec::<ToolTraceEvent>::new();
+                        let mut parsed_writer_enqueues = Vec::<WriterEnqueueEvent>::new();
 
                         for event in events {
                             max_seq = max_seq.max(event.seq);
@@ -1477,6 +1556,9 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                             if let Some(tool_event) = parse_tool_trace_event(&event) {
                                 parsed_tools.push(tool_event);
                             }
+                            if let Some(writer_enqueue_event) = parse_writer_enqueue_event(&event) {
+                                parsed_writer_enqueues.push(writer_enqueue_event);
+                            }
                         }
 
                         parsed_traces.sort_by_key(|event| event.seq);
@@ -1485,10 +1567,13 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                         parsed_prompts.dedup_by(|a, b| a.event_id == b.event_id);
                         parsed_tools.sort_by_key(|event| event.seq);
                         parsed_tools.dedup_by(|a, b| a.event_id == b.event_id);
+                        parsed_writer_enqueues.sort_by_key(|event| event.seq);
+                        parsed_writer_enqueues.dedup_by(|a, b| a.event_id == b.event_id);
 
                         trace_events.set(parsed_traces);
                         prompt_events.set(parsed_prompts);
                         tool_events.set(parsed_tools);
+                        writer_enqueue_events.set(parsed_writer_enqueues);
                         since_seq.set(max_seq);
                     }
                     Err(fetch_error) => {
@@ -1624,6 +1709,19 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                                 list.drain(0..trim);
                                             }
                                         }
+
+                                        if let Some(writer_enqueue_event) =
+                                            parse_writer_enqueue_event(&logs_event)
+                                        {
+                                            let mut list = writer_enqueue_events.write();
+                                            list.push(writer_enqueue_event);
+                                            list.sort_by_key(|event| event.seq);
+                                            list.dedup_by(|a, b| a.event_id == b.event_id);
+                                            if list.len() > 1_000 {
+                                                let trim = list.len() - 1_000;
+                                                list.drain(0..trim);
+                                            }
+                                        }
                                     }
                                     _ => {}
                                 }
@@ -1708,9 +1806,15 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
     let trace_snapshot = trace_events.read().clone();
     let prompt_snapshot = prompt_events.read().clone();
     let tool_snapshot = tool_events.read().clone();
+    let writer_enqueue_snapshot = writer_enqueue_events.read().clone();
 
     let traces_all = group_traces(&trace_snapshot);
-    let run_summaries = build_run_graph_summaries(&traces_all, &prompt_snapshot, &tool_snapshot);
+    let run_summaries = build_run_graph_summaries(
+        &traces_all,
+        &prompt_snapshot,
+        &tool_snapshot,
+        &writer_enqueue_snapshot,
+    );
 
     let active_run_id = selected_run_id()
         .filter(|run_id| run_summaries.iter().any(|run| run.run_id == *run_id))
@@ -1740,7 +1844,12 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
         .cloned();
 
     let graph_nodes = if let Some(run_id) = active_run_id.as_deref() {
-        build_graph_nodes_for_run(run_id, &traces_for_run, &tools_for_run)
+        build_graph_nodes_for_run(
+            run_id,
+            &traces_for_run,
+            &tools_for_run,
+            &writer_enqueue_snapshot,
+        )
     } else {
         Vec::new()
     };
@@ -1917,6 +2026,10 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                         span { class: "trace-pill", "{run.llm_calls} llm calls" }
                                         span { class: "trace-pill", "{run.tool_calls} tool calls" }
                                         span { class: "trace-pill", "{run.tool_failures} tool failures" }
+                                        span { class: "trace-pill", "{run.writer_enqueues} writer enqueues" }
+                                        if run.writer_enqueue_failures > 0 {
+                                            span { class: "trace-pill", "{run.writer_enqueue_failures} enqueue failures" }
+                                        }
                                         span { class: "trace-pill", "{run.loop_count} loops" }
                                     }
                                 }
@@ -1953,6 +2066,13 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                                 };
                                                 let metrics = if render.node.kind == GraphNodeKind::Tools {
                                                     format!("{} calls", render.node.tool_calls)
+                                                } else if render.node.inbound_events > 0 {
+                                                    format!(
+                                                        "{} llm / {} tools / {} inbound",
+                                                        render.node.llm_calls,
+                                                        render.node.tool_calls,
+                                                        render.node.inbound_events
+                                                    )
                                                 } else {
                                                     format!("{} llm / {} tools", render.node.llm_calls, render.node.tool_calls)
                                                 };

@@ -6,6 +6,7 @@ use crate::actors::conductor::{
     protocol::{CapabilityWorkerOutput, ConductorError},
 };
 use crate::actors::writer::{SectionState, WriterInboundEnvelope, WriterMsg, WriterSource};
+use shared_types::EventImportance;
 
 impl ConductorActor {
     fn writer_section_for_capability(capability: &str) -> String {
@@ -35,23 +36,53 @@ impl ConductorActor {
         if content.trim().is_empty() {
             return;
         }
+
+        let section_id = Self::writer_section_for_capability(capability);
+        let source = Self::writer_source_for_capability(capability);
+        let message_id = format!(
+            "conductor:{}:{}:{}:{}",
+            run_id,
+            call_id,
+            kind,
+            ulid::Ulid::new()
+        );
+        let source_label = match source {
+            WriterSource::Writer => "writer",
+            WriterSource::Researcher => "researcher",
+            WriterSource::Terminal => "terminal",
+            WriterSource::User => "user",
+            WriterSource::Conductor => "conductor",
+        }
+        .to_string();
+
         let Some(writer_actor) = state.writer_actor.clone() else {
+            events::emit_telemetry_event(
+                &state.event_store,
+                "conductor.writer.enqueue.failed",
+                run_id,
+                capability,
+                "writer_enqueue",
+                EventImportance::High,
+                serde_json::json!({
+                    "call_id": call_id,
+                    "kind": kind,
+                    "message_id": message_id,
+                    "target_section_id": section_id,
+                    "source": source_label,
+                    "error": "writer actor unavailable",
+                }),
+            )
+            .await;
             return;
         };
 
         let envelope = WriterInboundEnvelope {
-            message_id: format!(
-                "conductor:{}:{}:{}:{}",
-                run_id,
-                call_id,
-                kind,
-                ulid::Ulid::new()
-            ),
+            message_id: message_id.clone(),
             correlation_id: call_id.to_string(),
             kind: kind.to_string(),
             run_id: run_id.to_string(),
-            section_id: Self::writer_section_for_capability(capability),
-            source: Self::writer_source_for_capability(capability),
+            section_id: section_id.clone(),
+            source,
             content,
             base_version_id: None,
             prompt_diff: None,
@@ -66,7 +97,28 @@ impl ConductorActor {
             envelope,
             reply
         }) {
-            Ok(Ok(_)) => {}
+            Ok(Ok(ack)) => {
+                events::emit_telemetry_event(
+                    &state.event_store,
+                    "conductor.writer.enqueue",
+                    run_id,
+                    capability,
+                    "writer_enqueue",
+                    EventImportance::Normal,
+                    serde_json::json!({
+                        "call_id": call_id,
+                        "kind": kind,
+                        "message_id": ack.message_id,
+                        "accepted": ack.accepted,
+                        "duplicate": ack.duplicate,
+                        "queue_len": ack.queue_len,
+                        "revision": ack.revision,
+                        "target_section_id": section_id,
+                        "source": source_label,
+                    }),
+                )
+                .await;
+            }
             Ok(Err(err)) => {
                 tracing::warn!(
                     run_id = %run_id,
@@ -75,6 +127,23 @@ impl ConductorActor {
                     error = %err,
                     "Failed to enqueue capability inbound for writer"
                 );
+                events::emit_telemetry_event(
+                    &state.event_store,
+                    "conductor.writer.enqueue.failed",
+                    run_id,
+                    capability,
+                    "writer_enqueue",
+                    EventImportance::High,
+                    serde_json::json!({
+                        "call_id": call_id,
+                        "kind": kind,
+                        "message_id": message_id,
+                        "target_section_id": section_id,
+                        "source": source_label,
+                        "error": err.to_string(),
+                    }),
+                )
+                .await;
             }
             Err(err) => {
                 tracing::warn!(
@@ -84,6 +153,23 @@ impl ConductorActor {
                     error = %err,
                     "Writer actor call failed while enqueueing capability inbound"
                 );
+                events::emit_telemetry_event(
+                    &state.event_store,
+                    "conductor.writer.enqueue.failed",
+                    run_id,
+                    capability,
+                    "writer_enqueue",
+                    EventImportance::High,
+                    serde_json::json!({
+                        "call_id": call_id,
+                        "kind": kind,
+                        "message_id": message_id,
+                        "target_section_id": section_id,
+                        "source": source_label,
+                        "error": err.to_string(),
+                    }),
+                )
+                .await;
             }
         }
     }
