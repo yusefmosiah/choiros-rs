@@ -102,8 +102,6 @@ pub enum Types {
     WebSearchToolCall(WebSearchToolCall),
 
 
-    Action(Action),
-
     ConductorAction(ConductorAction),
 
     EscalationAction(EscalationAction),
@@ -211,8 +209,6 @@ impl baml::KnownTypes for Types {
 
             Types::WebSearchToolCall(_) => "WebSearchToolCall",
 
-
-            Types::Action(_) => "Action",
 
             Types::ConductorAction(_) => "ConductorAction",
 

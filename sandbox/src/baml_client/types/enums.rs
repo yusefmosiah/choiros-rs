@@ -9,56 +9,6 @@ use baml::{BamlDecode, BamlEncode};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
-pub enum Action {
-    ToolCall,
-
-    Complete,
-
-    Block,
-}
-
-impl Default for Action {
-    fn default() -> Self {
-        Self::ToolCall
-    }
-}
-
-impl std::fmt::Display for Action {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ToolCall => write!(f, "ToolCall"),
-
-            Self::Complete => write!(f, "Complete"),
-
-            Self::Block => write!(f, "Block"),
-        }
-    }
-}
-
-impl std::str::FromStr for Action {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "ToolCall" => Ok(Self::ToolCall),
-
-            "Complete" => Ok(Self::Complete),
-
-            "Block" => Ok(Self::Block),
-
-            _ => Err(()),
-        }
-    }
-}
-
-impl AsRef<Action> for Action {
-    fn as_ref(&self) -> &Action {
-        self
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
-
 pub enum ConductorAction {
     SpawnWorker,
 

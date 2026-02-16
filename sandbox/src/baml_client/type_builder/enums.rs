@@ -5,59 +5,6 @@
 
 //! Generated enum builder wrappers for type-safe value access.
 
-/// Wrapper for the `Action` enum builder.
-///
-/// Provides type-safe method access to values defined in the schema.
-/// Access values via methods: `builder.ValueName()`
-
-pub struct ActionEnumBuilder {
-    inner: baml::EnumBuilder,
-}
-
-impl ActionEnumBuilder {
-    /// Create wrapper from runtime EnumBuilder.
-    pub(crate) fn new(inner: baml::EnumBuilder) -> Self {
-        Self { inner }
-    }
-
-    /// Get the underlying EnumBuilder.
-    pub fn inner(&self) -> &baml::EnumBuilder {
-        &self.inner
-    }
-
-    /// Get the enum as a type definition.
-    pub fn r#type(&self) -> baml::TypeDef {
-        self.inner
-            .as_type()
-            .expect("Action is statically defined in .baml and should always have a type")
-    }
-
-    // =========================================================================
-    // Value Accessors (1:1 with schema value names)
-    // =========================================================================
-
-    /// Access the `ToolCall` value builder.
-    pub fn value_ToolCall(&self) -> baml::EnumValueBuilder {
-        self.inner
-            .get_value("ToolCall")
-            .expect("Action.ToolCall is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `Complete` value builder.
-    pub fn value_Complete(&self) -> baml::EnumValueBuilder {
-        self.inner
-            .get_value("Complete")
-            .expect("Action.Complete is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `Block` value builder.
-    pub fn value_Block(&self) -> baml::EnumValueBuilder {
-        self.inner
-            .get_value("Block")
-            .expect("Action.Block is statically defined in .baml and should always be present")
-    }
-}
-
 /// Wrapper for the `ConductorAction` enum builder.
 ///
 /// Provides type-safe method access to values defined in the schema.

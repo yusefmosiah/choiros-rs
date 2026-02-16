@@ -2,14 +2,14 @@
 //!
 //! This module provides a generic harness for building agentic workers with:
 //! - Model resolution via ModelRegistry
-//! - BAML-based decision loop (simplified: Decide -> Execute -> loop/return)
+//! - BAML-based decision loop (simplified: Decide -> Execute tools -> loop/return)
 //! - Structured event emission (started, progress, completed/failed)
 //! - WorkerTurnReport generation at completion
 //!
 //! ## Architecture
 //!
 //! The harness uses a simplified loop:
-//! DECIDE -> EXECUTE -> (loop or return)
+//! DECIDE -> EXECUTE TOOLS -> (loop or return final message)
 //!
 //! ## Usage
 //!
@@ -36,7 +36,7 @@ use tracing::{debug, error, info};
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::{ModelConfigError, ModelRegistry, ModelResolutionContext};
 use crate::baml_client::types::{
-    Action, AgentDecision, Message as BamlMessage,
+    AgentDecision, Message as BamlMessage,
     Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall as AgentToolCall,
 };
 use crate::baml_client::{new_collector, ClientRegistry, B};
@@ -52,7 +52,7 @@ pub use shared_types::{
 // Core Types
 // ============================================================================
 
-// Action and AgentDecision are now imported from crate::baml_client::types
+const MAX_TOOL_OUTPUT_ECHO_CHARS: usize = 12_000;
 
 fn tool_call_name(tool_call: &AgentToolCall) -> &str {
     match tool_call {
@@ -82,26 +82,15 @@ fn tool_call_args_json(tool_call: &AgentToolCall) -> serde_json::Value {
     match tool_call {
         AgentToolCall::BashToolCall(call) => serde_json::json!({
             "command": call.tool_args.command,
-            "cwd": call.tool_args.cwd,
-            "timeout_ms": call.tool_args.timeout_ms,
         }),
         AgentToolCall::WebSearchToolCall(call) => serde_json::json!({
             "query": call.tool_args.query,
-            "provider": call.tool_args.provider,
-            "max_results": call.tool_args.max_results,
-            "time_range": call.tool_args.time_range,
-            "include_domains": call.tool_args.include_domains,
-            "exclude_domains": call.tool_args.exclude_domains,
-            "timeout_ms": call.tool_args.timeout_ms,
         }),
         AgentToolCall::FetchUrlToolCall(call) => serde_json::json!({
             "path": call.tool_args.path,
-            "max_chars": call.tool_args.max_chars,
         }),
         AgentToolCall::FileReadToolCall(call) => serde_json::json!({
             "path": call.tool_args.path,
-            "limit": call.tool_args.limit,
-            "offset": call.tool_args.offset,
         }),
         AgentToolCall::FileWriteToolCall(call) => serde_json::json!({
             "path": call.tool_args.path,
@@ -121,14 +110,41 @@ fn tool_call_args_json(tool_call: &AgentToolCall) -> serde_json::Value {
     }
 }
 
+fn truncate_for_next_turn(value: &str, max_chars: usize) -> (String, bool) {
+    let mut iter = value.chars();
+    let truncated: String = iter.by_ref().take(max_chars).collect();
+    let was_truncated = iter.next().is_some();
+    (truncated, was_truncated)
+}
+
+fn tool_execution_message(tool_name: &str, execution: &ToolExecution) -> String {
+    let (output_excerpt, output_truncated) =
+        truncate_for_next_turn(&execution.output, MAX_TOOL_OUTPUT_ECHO_CHARS);
+    let output_label = if output_truncated {
+        "Output (truncated)"
+    } else {
+        "Output"
+    };
+    let error_line = execution
+        .error
+        .as_ref()
+        .map(|err| format!("\nError: {err}"))
+        .unwrap_or_default();
+
+    format!(
+        "Executed {tool_name}\nSuccess: {}\n{output_label}: {output_excerpt}{error_line}",
+        execution.success
+    )
+}
+
 /// State machine states for the agentic loop (simplified)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentLoopState {
     /// Still deciding/executing
     Running,
-    /// Got Complete action with summary
+    /// Got final model response
     Complete,
-    /// Got Block action
+    /// Blocked due to model/tool failure
     Blocked,
 }
 
@@ -353,7 +369,7 @@ pub trait WorkerPort: Send + Sync {
         }
     }
 
-    /// Validate whether a terminal decision (Complete/Block) is allowed.
+    /// Validate whether a terminal model response (no tool calls) is allowed.
     ///
     /// Adapters can enforce capability-specific completion invariants.
     fn validate_terminal_decision(
@@ -422,7 +438,7 @@ impl<W: WorkerPort> AgentHarness<W> {
     /// This is the main entry point for executing an agentic task.
     /// The simplified loop:
     /// 1. Resolve the model to use
-    /// 2. Call BAML Decide to get action
+    /// 2. Call BAML Decide to get tool calls or a final response
     /// 3. Execute tools or return result
     /// 4. Emit a WorkerTurnReport
     pub async fn run(
@@ -526,144 +542,103 @@ impl<W: WorkerPort> AgentHarness<W> {
                 }
             };
 
-            match decision.action {
-                Action::ToolCall => {
-                    // Execute tools from decision.tool_calls
-                    for tool_call in &decision.tool_calls {
-                        let tool_name = tool_call_name(tool_call).to_string();
-                        let tool_reasoning = tool_call_reasoning(tool_call);
-                        let tool_args_json = tool_call_args_json(tool_call);
+            if decision.tool_calls.is_empty() {
+                if let Err(reason) =
+                    self.worker_port
+                        .validate_terminal_decision(&ctx, &decision, &tool_executions)
+                {
+                    self.emit_progress_internal(
+                        &ctx,
+                        &progress_tx,
+                        "completion_guard",
+                        &reason,
+                        Some(step_count),
+                        Some(self.config.max_steps),
+                    )
+                    .await?;
+                    messages.push(BamlMessage {
+                        role: "assistant".to_string(),
+                        content: format!(
+                            "Completion rejected by worker guard: {reason}\n\
+                             Continue and use tools to satisfy this requirement."
+                        ),
+                    });
+                    continue;
+                }
 
-                        if self.worker_port.should_defer(&tool_name) {
-                            debug!(tool = %tool_name, "Tool deferred");
-                            continue;
-                        }
+                final_summary = decision.message.clone();
+                completion_reason = "Model returned final response".to_string();
+                objective_status = ObjectiveStatus::Complete;
+                loop_state = AgentLoopState::Complete;
+                break;
+            }
 
-                        self.emit_progress_internal(
-                            &ctx,
-                            &progress_tx,
-                            "executing_tool",
-                            &format!("Executing tool: {}", tool_name),
-                            Some(step_count),
-                            Some(self.config.max_steps),
-                        )
-                        .await?;
+            // Execute tools from decision.tool_calls
+            for tool_call in &decision.tool_calls {
+                let tool_name = tool_call_name(tool_call).to_string();
+                let tool_reasoning = tool_call_reasoning(tool_call);
+                let tool_args_json = tool_call_args_json(tool_call);
 
-                        let tool_scope = LlmCallScope {
-                            run_id: ctx.run_id.clone(),
-                            task_id: Some(ctx.loop_id.clone()),
-                            call_id: ctx.call_id.clone(),
-                            session_id: None,
-                            thread_id: None,
-                        };
-                        let tool_ctx = self.trace_emitter.start_tool_call(
-                            self.worker_port.get_model_role(),
-                            &ctx.worker_id,
-                            &tool_name,
-                            &tool_args_json,
-                            tool_reasoning,
-                            Some(tool_scope),
+                if self.worker_port.should_defer(&tool_name) {
+                    debug!(tool = %tool_name, "Tool deferred");
+                    continue;
+                }
+
+                self.emit_progress_internal(
+                    &ctx,
+                    &progress_tx,
+                    "executing_tool",
+                    &format!("Executing tool: {}", tool_name),
+                    Some(step_count),
+                    Some(self.config.max_steps),
+                )
+                .await?;
+
+                let tool_scope = LlmCallScope {
+                    run_id: ctx.run_id.clone(),
+                    task_id: Some(ctx.loop_id.clone()),
+                    call_id: ctx.call_id.clone(),
+                    session_id: None,
+                    thread_id: None,
+                };
+                let tool_ctx = self.trace_emitter.start_tool_call(
+                    self.worker_port.get_model_role(),
+                    &ctx.worker_id,
+                    &tool_name,
+                    &tool_args_json,
+                    tool_reasoning,
+                    Some(tool_scope),
+                );
+
+                let tool_result = self.worker_port.execute_tool_call(&ctx, tool_call).await;
+
+                match tool_result {
+                    Ok(execution) => {
+                        self.trace_emitter.complete_tool_call(
+                            &tool_ctx,
+                            execution.success,
+                            &execution.output,
+                            execution.error.as_deref(),
                         );
-
-                        let tool_result = self.worker_port.execute_tool_call(&ctx, tool_call).await;
-
-                        match tool_result {
-                            Ok(execution) => {
-                                self.trace_emitter.complete_tool_call(
-                                    &tool_ctx,
-                                    execution.success,
-                                    &execution.output,
-                                    execution.error.as_deref(),
-                                );
-                                // Add to messages for next decision round
-                                messages.push(BamlMessage {
-                                    role: "assistant".to_string(),
-                                    content: format!(
-                                        "Executed {}:\nOutput: {}\nSuccess: {}",
-                                        tool_name, execution.output, execution.success
-                                    ),
-                                });
-                                tool_executions.push(execution);
-                            }
-                            Err(e) => {
-                                error!(tool = %tool_name, error = %e, "Tool execution failed");
-                                self.trace_emitter.complete_tool_call(
-                                    &tool_ctx,
-                                    false,
-                                    "",
-                                    Some(&e.to_string()),
-                                );
-                                messages.push(BamlMessage {
-                                    role: "assistant".to_string(),
-                                    content: format!("Tool {} failed: {}", tool_name, e),
-                                });
-                            }
-                        }
-                    }
-                    // Continue loop for next decision
-                }
-                Action::Complete => {
-                    if let Err(reason) = self.worker_port.validate_terminal_decision(
-                        &ctx,
-                        &decision,
-                        &tool_executions,
-                    ) {
-                        self.emit_progress_internal(
-                            &ctx,
-                            &progress_tx,
-                            "completion_guard",
-                            &reason,
-                            Some(step_count),
-                            Some(self.config.max_steps),
-                        )
-                        .await?;
                         messages.push(BamlMessage {
                             role: "assistant".to_string(),
-                            content: format!(
-                                "Completion rejected by worker guard: {reason}\n\
-                                 Continue and use tools to satisfy this requirement."
-                            ),
+                            content: tool_execution_message(&tool_name, &execution),
                         });
-                        continue;
+                        tool_executions.push(execution);
                     }
-                    final_summary = decision.summary.unwrap_or_default();
-                    objective_status = ObjectiveStatus::Complete;
-                    completion_reason = decision.reason.unwrap_or_default();
-                    loop_state = AgentLoopState::Complete;
-                    break;
-                }
-                Action::Block => {
-                    if let Err(reason) = self.worker_port.validate_terminal_decision(
-                        &ctx,
-                        &decision,
-                        &tool_executions,
-                    ) {
-                        self.emit_progress_internal(
-                            &ctx,
-                            &progress_tx,
-                            "completion_guard",
-                            &reason,
-                            Some(step_count),
-                            Some(self.config.max_steps),
-                        )
-                        .await?;
+                    Err(e) => {
+                        error!(tool = %tool_name, error = %e, "Tool execution failed");
+                        self.trace_emitter.complete_tool_call(
+                            &tool_ctx,
+                            false,
+                            "",
+                            Some(&e.to_string()),
+                        );
                         messages.push(BamlMessage {
                             role: "assistant".to_string(),
-                            content: format!(
-                                "Block rejected by worker guard: {reason}\n\
-                                 Continue and use tools to satisfy this requirement."
-                            ),
+                            content: format!("Tool {} failed: {}", tool_name, e),
                         });
-                        continue;
                     }
-                    let reason = decision
-                        .reason
-                        .unwrap_or_else(|| "Blocked without reason".to_string());
-                    final_summary = reason.clone();
-                    objective_status = ObjectiveStatus::Blocked;
-                    completion_reason = reason;
-                    loop_state = AgentLoopState::Blocked;
-                    break;
                 }
             }
         }
@@ -672,7 +647,7 @@ impl<W: WorkerPort> AgentHarness<W> {
         if loop_state == AgentLoopState::Running {
             objective_status = ObjectiveStatus::Incomplete;
             completion_reason = format!("Reached max steps ({})", self.config.max_steps);
-            // Use last reasoning as summary if available
+            // Set a fallback summary when no final response was produced
             if final_summary.is_empty() {
                 final_summary = format!(
                     "Reached maximum steps without completion. Executed {} tool calls.",
@@ -728,7 +703,7 @@ impl<W: WorkerPort> AgentHarness<W> {
     // Internal Methods
     // ========================================================================
 
-    /// Call BAML Decide function to get the next action
+    /// Call BAML Decide function to get tool calls or a final message
     async fn decide(
         &self,
         client_registry: &ClientRegistry,
@@ -805,18 +780,21 @@ impl<W: WorkerPort> AgentHarness<W> {
                     })
                     .collect();
                 let output = serde_json::json!({
-                    "action": format!("{:?}", decision.action),
                     "tool_calls_count": decision.tool_calls.len(),
                     "tool_calls": tool_calls,
-                    "summary": decision.summary,
-                    "reason": decision.reason,
+                    "message": decision.message,
                 });
+                let output_summary = if decision.tool_calls.is_empty() {
+                    "final_message"
+                } else {
+                    "tool_calls"
+                };
                 self.trace_emitter.complete_call_with_usage(
                     &trace_ctx,
                     model_used,
                     provider,
                     &output,
-                    &format!("{:?}", decision.action),
+                    output_summary,
                     usage.clone(),
                 );
             }
@@ -1203,18 +1181,5 @@ mod tests {
         for state in states {
             assert!(unique.insert(std::mem::discriminant(&state)));
         }
-    }
-
-    #[test]
-    fn test_action_variants() {
-        // Test Action enum variants (BAML-generated simple enums)
-        let tool_call = Action::ToolCall;
-        assert!(matches!(tool_call, Action::ToolCall));
-
-        let complete = Action::Complete;
-        assert!(matches!(complete, Action::Complete));
-
-        let block = Action::Block;
-        assert!(matches!(block, Action::Block));
     }
 }

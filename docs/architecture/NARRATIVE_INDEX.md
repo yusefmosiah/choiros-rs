@@ -1,6 +1,6 @@
 # ChoirOS Narrative Index (Read This First)
 
-Date: 2026-02-14
+Date: 2026-02-16
 Purpose: Human-readable map of the architecture docs, in plain language.
 
 ## 60-Second Story
@@ -47,6 +47,8 @@ Immediate app pattern: human UX first, then headless API, then app-agent harness
 
 ## Read Order (High-Level to Deep Dive)
 
+0. `/Users/wiz/choiros-rs/docs/architecture/2026-02-16-memory-agent-architecture.md`
+   - MemoryAgent: episodic memory (per-user HNSW + SONA learning) + global knowledge store for published IP. Filesystem is truth, memory is resonance.
 1. `/Users/wiz/choiros-rs/docs/architecture/2026-02-14-living-document-human-interface-pillar.md`
    - Human interface pillar: living-document UX is the primary human interaction model and feeds conductor orchestration.
 2. `/Users/wiz/choiros-rs/docs/architecture/2026-02-14-conductor-non-blocking-subagent-pillar.md`
@@ -116,9 +118,13 @@ Immediate app pattern: human UX first, then headless API, then app-agent harness
 - Watcher/Wake are not normal run progression authority.
 - Run narrative + semantic events are first-class UX and conductor wake context.
 - Backend is canonical for app/window UI state; browser localStorage is non-authoritative.
+- Filesystem (grep/find/read) is the primary deterministic retrieval path for agents; vector memory is the associative/episodic layer on top.
+- MemoryAgent uses `ruvector-core` + `ruvector-sona` + `ort` (MiniLM); `rvf-runtime`, `rvf-types`, and `ruvllm` are explicitly excluded.
+- Local memory is private per-user. Global knowledge store receives only explicitly published content.
 
 ## One-Line Summary Per Core Doc
 
+- `2026-02-16-memory-agent-architecture.md`: "Episodic memory layer — filesystem is deterministic truth, vector memory is associative resonance across sessions, SONA makes retrieval improve over time, global store lets users benefit from each other's published learnings."
 - `2026-02-14-living-document-human-interface-pillar.md`: "Human interaction runs through living documents first; conductor remains orchestration authority behind the interface."
 - `2026-02-14-conductor-non-blocking-subagent-pillar.md`: "Conductor treats workers/apps as logical subagents via actor messaging with no polling, no blocking, and bounded agent-tree wake context."
 - `2026-02-14-agent-tree-snapshot-contract.md`: "Typed wake context contract for conductor: bounded agent-tree digest with deterministic truncation and freshness markers."

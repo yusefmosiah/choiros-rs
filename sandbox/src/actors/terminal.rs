@@ -223,7 +223,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
              Capability boundary:\n\
              - Use terminal for local shell/file/system execution.\n\
              - Do NOT perform general web research, news scraping, or search-engine browsing.\n\
-             - If objective requires external research/sources, stop and return a blocked reason indicating researcher capability is required.\n\
+             - If objective requires external research/sources, stop tool calling and return a final message indicating researcher capability is required.\n\
              - If objective is local diagnostics/build/test/file operations, proceed with minimal safe commands.\n\
              Terminal ID: {}\n\
              Working Directory: {}\n\
@@ -253,12 +253,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
 
         let command = bash_call.tool_args.command.as_str();
 
-        let timeout_ms = bash_call
-            .tool_args
-            .timeout_ms
-            .and_then(|value| u64::try_from(value).ok())
-            .unwrap_or(30_000)
-            .clamp(1_000, 120_000);
+        let timeout_ms = 30_000;
 
         let start_time = std::time::Instant::now();
 

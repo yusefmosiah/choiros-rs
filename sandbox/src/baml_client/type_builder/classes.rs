@@ -36,13 +36,6 @@ impl AgentDecisionClassBuilder {
     // Field Accessors (1:1 with schema field names)
     // =========================================================================
 
-    /// Access the `action` field builder.
-    pub fn property_action(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("action").expect(
-            "AgentDecision.action is statically defined in .baml and should always be present",
-        )
-    }
-
     /// Access the `tool_calls` field builder.
     pub fn property_tool_calls(&self) -> baml::ClassPropertyBuilder {
         self.inner.get_property("tool_calls").expect(
@@ -50,17 +43,10 @@ impl AgentDecisionClassBuilder {
         )
     }
 
-    /// Access the `summary` field builder.
-    pub fn property_summary(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("summary").expect(
-            "AgentDecision.summary is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `reason` field builder.
-    pub fn property_reason(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("reason").expect(
-            "AgentDecision.reason is statically defined in .baml and should always be present",
+    /// Access the `message` field builder.
+    pub fn property_message(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("message").expect(
+            "AgentDecision.message is statically defined in .baml and should always be present",
         )
     }
 }
@@ -159,20 +145,6 @@ impl BashToolArgsClassBuilder {
     pub fn property_command(&self) -> baml::ClassPropertyBuilder {
         self.inner.get_property("command").expect(
             "BashToolArgs.command is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `cwd` field builder.
-    pub fn property_cwd(&self) -> baml::ClassPropertyBuilder {
-        self.inner
-            .get_property("cwd")
-            .expect("BashToolArgs.cwd is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `timeout_ms` field builder.
-    pub fn property_timeout_ms(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("timeout_ms").expect(
-            "BashToolArgs.timeout_ms is statically defined in .baml and should always be present",
         )
     }
 }
@@ -643,12 +615,6 @@ impl FetchUrlToolArgsClassBuilder {
             "FetchUrlToolArgs.path is statically defined in .baml and should always be present",
         )
     }
-
-    /// Access the `max_chars` field builder.
-    pub fn property_max_chars(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("max_chars")
-            .expect("FetchUrlToolArgs.max_chars is statically defined in .baml and should always be present")
-    }
 }
 
 /// Wrapper for the `FetchUrlToolCall` class builder.
@@ -839,20 +805,6 @@ impl FileReadToolArgsClassBuilder {
     pub fn property_path(&self) -> baml::ClassPropertyBuilder {
         self.inner.get_property("path").expect(
             "FileReadToolArgs.path is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `limit` field builder.
-    pub fn property_limit(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("limit").expect(
-            "FileReadToolArgs.limit is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `offset` field builder.
-    pub fn property_offset(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("offset").expect(
-            "FileReadToolArgs.offset is statically defined in .baml and should always be present",
         )
     }
 }
@@ -1130,12 +1082,6 @@ impl MessageWriterToolArgsClassBuilder {
     // Field Accessors (1:1 with schema field names)
     // =========================================================================
 
-    /// Access the `path` field builder.
-    pub fn property_path(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("path")
-            .expect("MessageWriterToolArgs.path is statically defined in .baml and should always be present")
-    }
-
     /// Access the `content` field builder.
     pub fn property_content(&self) -> baml::ClassPropertyBuilder {
         self.inner.get_property("content")
@@ -1146,6 +1092,12 @@ impl MessageWriterToolArgsClassBuilder {
     pub fn property_mode(&self) -> baml::ClassPropertyBuilder {
         self.inner.get_property("mode")
             .expect("MessageWriterToolArgs.mode is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `path` field builder.
+    pub fn property_path(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("path")
+            .expect("MessageWriterToolArgs.path is statically defined in .baml and should always be present")
     }
 
     /// Access the `mode_arg` field builder.
@@ -2209,42 +2161,6 @@ impl WebSearchToolArgsClassBuilder {
         self.inner.get_property("query").expect(
             "WebSearchToolArgs.query is statically defined in .baml and should always be present",
         )
-    }
-
-    /// Access the `provider` field builder.
-    pub fn property_provider(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("provider")
-            .expect("WebSearchToolArgs.provider is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `max_results` field builder.
-    pub fn property_max_results(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("max_results")
-            .expect("WebSearchToolArgs.max_results is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `time_range` field builder.
-    pub fn property_time_range(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("time_range")
-            .expect("WebSearchToolArgs.time_range is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `include_domains` field builder.
-    pub fn property_include_domains(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("include_domains")
-            .expect("WebSearchToolArgs.include_domains is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `exclude_domains` field builder.
-    pub fn property_exclude_domains(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("exclude_domains")
-            .expect("WebSearchToolArgs.exclude_domains is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `timeout_ms` field builder.
-    pub fn property_timeout_ms(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("timeout_ms")
-            .expect("WebSearchToolArgs.timeout_ms is statically defined in .baml and should always be present")
     }
 }
 

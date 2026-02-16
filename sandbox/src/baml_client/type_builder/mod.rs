@@ -405,15 +405,6 @@ impl TypeBuilder {
     // Schema Enum Accessors (1:1 with schema enum names)
     // =========================================================================
 
-    /// Access the `Action` enum builder.
-    pub fn Action(&self) -> ActionEnumBuilder {
-        ActionEnumBuilder::new(
-            self.inner
-                .get_enum("Action")
-                .expect("enum Action is defined in schema"),
-        )
-    }
-
     /// Access the `ConductorAction` enum builder.
     pub fn ConductorAction(&self) -> ConductorActionEnumBuilder {
         ConductorActionEnumBuilder::new(

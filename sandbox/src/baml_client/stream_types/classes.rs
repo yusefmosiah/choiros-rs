@@ -18,19 +18,11 @@ pub struct AgentDecision {
 
 
 
-    pub action: Option<types::Action>,
-
-
-
     pub tool_calls: Vec<Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall>,
 
 
 
-    pub summary: Option<String>,
-
-
-
-    pub reason: Option<String>,
+    pub message: Option<String>,
 
 
 }
@@ -63,10 +55,6 @@ impl AsRef<AlternativeAction> for AlternativeAction {
 
 pub struct BashToolArgs {
     pub command: Option<String>,
-
-    pub cwd: Option<String>,
-
-    pub timeout_ms: Option<i64>,
 }
 
 impl AsRef<BashToolArgs> for BashToolArgs {
@@ -215,8 +203,6 @@ impl AsRef<DetectedAnomaly> for DetectedAnomaly {
 
 pub struct FetchUrlToolArgs {
     pub path: Option<String>,
-
-    pub max_chars: Option<i64>,
 }
 
 impl AsRef<FetchUrlToolArgs> for FetchUrlToolArgs {
@@ -277,10 +263,6 @@ impl AsRef<FileEditToolCall> for FileEditToolCall {
 
 pub struct FileReadToolArgs {
     pub path: Option<String>,
-
-    pub limit: Option<i64>,
-
-    pub offset: Option<i64>,
 }
 
 impl AsRef<FileReadToolArgs> for FileReadToolArgs {
@@ -368,11 +350,11 @@ impl AsRef<Message> for Message {
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct MessageWriterToolArgs {
-    pub path: Option<String>,
-
     pub content: Option<String>,
 
     pub mode: Option<String>,
+
+    pub path: Option<String>,
 
     pub mode_arg: Option<String>,
 }
@@ -705,18 +687,6 @@ impl AsRef<WatcherReviewOutput> for WatcherReviewOutput {
 
 pub struct WebSearchToolArgs {
     pub query: Option<String>,
-
-    pub provider: Option<String>,
-
-    pub max_results: Option<i64>,
-
-    pub time_range: Option<String>,
-
-    pub include_domains: Option<Vec<String>>,
-
-    pub exclude_domains: Option<Vec<String>>,
-
-    pub timeout_ms: Option<i64>,
 }
 
 impl AsRef<WebSearchToolArgs> for WebSearchToolArgs {

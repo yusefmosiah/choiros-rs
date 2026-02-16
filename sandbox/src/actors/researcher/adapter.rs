@@ -279,13 +279,8 @@ impl ResearcherAdapter {
 
         let args = &tool_call.tool_args;
         let section_id = Self::resolve_writer_section(args.path.as_deref());
-        let content = args.content.clone().unwrap_or_default();
-        let mode = args
-            .mode
-            .clone()
-            .unwrap_or_else(|| "proposal_append".to_string())
-            .trim()
-            .to_ascii_lowercase();
+        let content = args.content.clone();
+        let mode = args.mode.trim().to_ascii_lowercase();
         let mode_arg = args.mode_arg.clone();
 
         let result = match mode.as_str() {
@@ -445,8 +440,6 @@ impl WorkerPort for ResearcherAdapter {
 2. fetch_url - Fetch and extract content from a URL
    Args:
    - path: string (required) - The URL to fetch (http:// or https://)
-   - query: string (optional alias) - URL if model emits query instead of path
-   - max_chars: number (optional) - Max chars to extract (default: 8000)
    Example:
    - tool=fetch_url, path="https://github.com/theonlyhennygod/zeroclaw"
 
@@ -469,7 +462,7 @@ impl WorkerPort for ResearcherAdapter {
    Args:
    - path: string (optional) - section_id: conductor|researcher|terminal|user (default: researcher)
    - content: string (required for append/progress)
-   - mode: string (optional) - proposal_append|canon_append|progress|state (default: proposal_append)
+   - mode: string (required) - proposal_append|canon_append|progress|state
    - mode_arg: string (optional) - mode argument:
      - progress: phase string
      - state: pending|running|complete|failed
@@ -477,7 +470,7 @@ impl WorkerPort for ResearcherAdapter {
    - Use message_writer with mode=\"proposal_append\" for substantive updates
    - Publish first substantive update by step 2 at latest
    - Publish again whenever you have new findings or changed conclusions
-   - Before Complete/Block, publish a final proposal_append summary
+   - Before final response (no tool calls), publish a final proposal_append summary
    - Keep each update concise and incremental (delta from prior update), not a full report
    - If evidence conflicts with earlier claims, explicitly mark the old claim as superseded
    Examples:
@@ -529,8 +522,8 @@ Guidelines:
   - Use mode proposal_append for substantive content updates.
   - Emit first substantive proposal_append by step 2 (latest).
   - Emit another proposal_append whenever findings materially change.
-  - Emit a final proposal_append immediately before Complete or Block.
-  - Never return Complete/Block with zero successful message_writer calls.
+  - Emit a final proposal_append immediately before returning a final response.
+  - Never stop tool calling with zero successful message_writer calls.
 - Content quality protocol:
   - Do not output long, rigid report templates from researcher.
   - Send concise evidence deltas (what changed since last update).
@@ -546,7 +539,7 @@ Guidelines:
   1) fetch_url for any explicit URLs in the objective/user message
   2) web_search to fill context gaps and discover corroborating sources
   3) message_writer proposal_append with concise findings + citations
-  4) repeat until objective is satisfied, then final proposal_append and Complete
+  4) repeat until objective is satisfied, then final proposal_append and a final response with no tool calls
 {}
 "#,
             ctx.objective, run_doc_hint
@@ -565,27 +558,17 @@ Guidelines:
             AgentToolCall::WebSearchToolCall(call) => {
                 let args = &call.tool_args;
                 let query = args.query.clone();
-                let provider = args.provider.clone();
-                let max_results = args.max_results.and_then(|v| u32::try_from(v).ok());
-                let time_range = args.time_range.clone();
-                let include_domains = args.include_domains.clone();
-                let exclude_domains = args.exclude_domains.clone();
-                let timeout_ms = args
-                    .timeout_ms
-                    .and_then(|v| u64::try_from(v).ok())
-                    .map(|v| v.clamp(1_000, 120_000))
-                    .unwrap_or(30_000);
 
                 let request = ResearcherWebSearchRequest {
                     query: query.clone(),
                     objective: Some(ctx.objective.clone()),
-                    provider,
-                    max_results,
+                    provider: None,
+                    max_results: None,
                     max_rounds: Some(1),
-                    time_range,
-                    include_domains,
-                    exclude_domains,
-                    timeout_ms: Some(timeout_ms),
+                    time_range: None,
+                    include_domains: None,
+                    exclude_domains: None,
+                    timeout_ms: Some(30_000),
                     model_override: None,
                     reasoning: call.reasoning.clone(),
                 };
@@ -645,12 +628,11 @@ Guidelines:
                         "Missing URL argument (path cannot be empty)".to_string(),
                     ));
                 }
-                let max_chars = args.max_chars.and_then(|v| usize::try_from(v).ok());
 
                 let request = ResearcherFetchUrlRequest {
                     url: url.clone(),
                     timeout_ms: Some(30_000),
-                    max_chars,
+                    max_chars: None,
                 };
 
                 if let Some(tx) = &self.progress_tx {

@@ -85,15 +85,8 @@ class MessageWriterToolCall {
 
 // Simplified agent decision - what to do next
 class AgentDecision {
-  action Action
-  tool_calls (BashToolCall | WebSearchToolCall | FetchUrlToolCall | FileReadToolCall | FileWriteToolCall | FileEditToolCall | MessageWriterToolCall)[]  // Empty if Complete/Block
+  tool_calls (BashToolCall | WebSearchToolCall | FetchUrlToolCall | FileReadToolCall | FileWriteToolCall | FileEditToolCall | MessageWriterToolCall)[]  // Empty means final response in message
   message string
-}
-
-enum Action {
-  ToolCall    // Execute tools in tool_calls
-  Complete    // Done, summary contains answer
-  Block       // Stuck, reason explains why
 }
 
 // Result of executing a tool
