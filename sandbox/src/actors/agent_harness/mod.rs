@@ -36,8 +36,8 @@ use tracing::{debug, error, info};
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::{ModelConfigError, ModelRegistry, ModelResolutionContext};
 use crate::baml_client::types::{Action, AgentDecision, AgentToolCall, Message as BamlMessage};
-use crate::baml_client::{ClientRegistry, B};
-use crate::observability::llm_trace::{LlmCallScope, LlmTraceEmitter};
+use crate::baml_client::{new_collector, ClientRegistry, B};
+use crate::observability::llm_trace::{token_usage_from_collector, LlmCallScope, LlmTraceEmitter};
 
 // Re-export shared types for convenience
 pub use shared_types::{
@@ -422,6 +422,9 @@ impl<W: WorkerPort> AgentHarness<W> {
             .model_registry
             .create_runtime_client_registry_for_model(&model_used)
             .map_err(HarnessError::from)?;
+        // Build a stable system context once per loop. This prevents per-step
+        // prompt churn that defeats upstream prompt caching.
+        let system_context = self.worker_port.get_system_context(&ctx);
 
         // Main loop: Decide -> Execute -> (loop or return)
         while step_count < self.config.max_steps && loop_state == AgentLoopState::Running {
@@ -439,7 +442,10 @@ impl<W: WorkerPort> AgentHarness<W> {
             .await?;
 
             // Call BAML Decide
-            let decision = match self.decide(&client_registry, &messages, &ctx).await {
+            let decision = match self
+                .decide(&client_registry, &messages, &ctx, &system_context)
+                .await
+            {
                 Ok(decision) => decision,
                 Err(e) => {
                     error!(error = %e, "Decision failed");
@@ -657,13 +663,25 @@ impl<W: WorkerPort> AgentHarness<W> {
         client_registry: &ClientRegistry,
         messages: &[BamlMessage],
         ctx: &ExecutionContext,
+        system_context: &str,
     ) -> Result<AgentDecision, HarnessError> {
-        let system_context = self.worker_port.get_system_context(ctx);
         let tools_description = self.worker_port.get_tool_description();
 
+        let message_payload: Vec<serde_json::Value> = messages
+            .iter()
+            .map(|message| {
+                serde_json::json!({
+                    "role": message.role,
+                    "content": message.content,
+                })
+            })
+            .collect();
         let input = serde_json::json!({
-            "message_count": messages.len(),
-            "tools_description_length": tools_description.len(),
+            "objective": ctx.objective,
+            "step_number": ctx.step_number,
+            "max_steps": ctx.max_steps,
+            "messages": message_payload,
+            "tools_description": tools_description,
         });
         let input_summary = format!(
             "{} messages, step {}/{}",
@@ -693,34 +711,53 @@ impl<W: WorkerPort> AgentHarness<W> {
             }),
         );
 
+        let collector = new_collector("agent_harness.decide");
         let result = B
             .Decide
             .with_client_registry(client_registry)
-            .call(messages, &system_context, &tools_description)
+            .with_collector(&collector)
+            .call(messages, system_context, &tools_description)
             .await;
+        let usage = token_usage_from_collector(&collector);
 
         match &result {
             Ok(decision) => {
+                let tool_calls: Vec<serde_json::Value> = decision
+                    .tool_calls
+                    .iter()
+                    .map(|tool_call| {
+                        serde_json::json!({
+                            "tool_name": tool_call.tool_name,
+                            "reasoning": tool_call.reasoning,
+                            "tool_args": format!("{:?}", tool_call.tool_args),
+                        })
+                    })
+                    .collect();
                 let output = serde_json::json!({
                     "action": format!("{:?}", decision.action),
                     "tool_calls_count": decision.tool_calls.len(),
+                    "tool_calls": tool_calls,
+                    "summary": decision.summary,
+                    "reason": decision.reason,
                 });
-                self.trace_emitter.complete_call(
+                self.trace_emitter.complete_call_with_usage(
                     &trace_ctx,
                     model_used,
                     provider,
                     &output,
                     &format!("{:?}", decision.action),
+                    usage.clone(),
                 );
             }
             Err(e) => {
-                self.trace_emitter.fail_call(
+                self.trace_emitter.fail_call_with_usage(
                     &trace_ctx,
                     model_used,
                     provider,
                     None,
                     &e.to_string(),
                     None,
+                    usage,
                 );
             }
         }

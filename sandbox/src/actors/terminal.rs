@@ -17,7 +17,6 @@
 //! - Integration with opencode CLI
 
 use async_trait::async_trait;
-use chrono::Utc;
 use portable_pty::{ChildKiller, CommandBuilder, PtySize};
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use std::io::{Read, Write};
@@ -214,14 +213,10 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
              - Do NOT perform general web research, news scraping, or search-engine browsing.\n\
              - If objective requires external research/sources, stop and return a blocked reason indicating researcher capability is required.\n\
              - If objective is local diagnostics/build/test/file operations, proceed with minimal safe commands.\n\
-             System Prompt Timestamp (UTC): {}\n\
-             Current UTC Timestamp: {}\n\
              Terminal ID: {}\n\
              Working Directory: {}\n\
              Shell: {}\n\
              Prefer minimal safe command sequences.",
-            Utc::now().to_rfc3339(),
-            Utc::now().to_rfc3339(),
             self.terminal_id,
             self.working_dir,
             self.shell

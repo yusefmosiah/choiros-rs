@@ -46,6 +46,7 @@ sandbox/reports/
 .agents/
 .augment/
 .claude/
+.claude-flow/
 .cline/
 .codebuddy/
 .codex/
@@ -76,6 +77,10 @@ sandbox/reports/
 .vibe/
 .windsurf/
 .zencoder/
+
+# MCP and Swarm
+.mcp.json
+.swarm/
 
 # Dev Browser Runtime Data
 skills/dev-browser/profiles/

@@ -52,6 +52,51 @@ pub struct LlmCallScope {
     pub thread_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct LlmTokenUsage {
+    pub input_tokens: Option<i64>,
+    pub output_tokens: Option<i64>,
+    pub cached_input_tokens: Option<i64>,
+}
+
+impl LlmTokenUsage {
+    pub fn total_tokens(&self) -> Option<i64> {
+        match (self.input_tokens, self.output_tokens) {
+            (Some(input), Some(output)) => Some(input.saturating_add(output)),
+            (Some(input), None) => Some(input),
+            (None, Some(output)) => Some(output),
+            (None, None) => None,
+        }
+    }
+
+    fn to_json_value(&self) -> Option<serde_json::Value> {
+        let mut usage = serde_json::Map::new();
+        if let Some(input_tokens) = self.input_tokens {
+            usage.insert("input_tokens".to_string(), serde_json::json!(input_tokens));
+        }
+        if let Some(output_tokens) = self.output_tokens {
+            usage.insert(
+                "output_tokens".to_string(),
+                serde_json::json!(output_tokens),
+            );
+        }
+        if let Some(cached_input_tokens) = self.cached_input_tokens {
+            usage.insert(
+                "cached_input_tokens".to_string(),
+                serde_json::json!(cached_input_tokens),
+            );
+        }
+        if let Some(total_tokens) = self.total_tokens() {
+            usage.insert("total_tokens".to_string(), serde_json::json!(total_tokens));
+        }
+        if usage.is_empty() {
+            None
+        } else {
+            Some(serde_json::Value::Object(usage))
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct LlmCallContext {
     pub trace_id: String,
@@ -204,6 +249,18 @@ impl LlmTraceEmitter {
         output: &serde_json::Value,
         output_summary: &str,
     ) {
+        self.complete_call_with_usage(ctx, model_used, provider, output, output_summary, None);
+    }
+
+    pub fn complete_call_with_usage(
+        &self,
+        ctx: &LlmCallContext,
+        model_used: &str,
+        provider: Option<&str>,
+        output: &serde_json::Value,
+        output_summary: &str,
+        usage: Option<LlmTokenUsage>,
+    ) {
         let ended_at = Utc::now();
         let duration_ms = (ended_at - ctx.started_at).num_milliseconds().max(0) as u64;
 
@@ -239,6 +296,9 @@ impl LlmTraceEmitter {
                         "original_size": o_original_size,
                     }),
                 );
+            }
+            if let Some(usage_value) = usage.and_then(|u| u.to_json_value()) {
+                obj.insert("usage".to_string(), usage_value);
             }
             if let Some(ref run_id) = ctx.run_id {
                 obj.insert("run_id".to_string(), serde_json::json!(run_id));
@@ -282,6 +342,27 @@ impl LlmTraceEmitter {
         error_message: &str,
         failure_kind: Option<FailureKind>,
     ) {
+        self.fail_call_with_usage(
+            ctx,
+            model_used,
+            provider,
+            error_code,
+            error_message,
+            failure_kind,
+            None,
+        );
+    }
+
+    pub fn fail_call_with_usage(
+        &self,
+        ctx: &LlmCallContext,
+        model_used: &str,
+        provider: Option<&str>,
+        error_code: Option<&str>,
+        error_message: &str,
+        failure_kind: Option<FailureKind>,
+        usage: Option<LlmTokenUsage>,
+    ) {
         let ended_at = Utc::now();
         let duration_ms = (ended_at - ctx.started_at).num_milliseconds().max(0) as u64;
 
@@ -306,6 +387,9 @@ impl LlmTraceEmitter {
             }
             if let Some(kind) = failure_kind {
                 obj.insert("failure_kind".to_string(), serde_json::json!(kind));
+            }
+            if let Some(usage_value) = usage.and_then(|u| u.to_json_value()) {
+                obj.insert("usage".to_string(), usage_value);
             }
             if let Some(ref run_id) = ctx.run_id {
                 obj.insert("run_id".to_string(), serde_json::json!(run_id));
@@ -469,6 +553,23 @@ impl LlmTraceEmitter {
             .event_store
             .send_message(EventStoreMsg::AppendAsync { event });
     }
+}
+
+pub fn token_usage_from_collector(collector: &baml::Collector) -> Option<LlmTokenUsage> {
+    let usage = collector.usage();
+    let input_tokens = usage.input_tokens();
+    let output_tokens = usage.output_tokens();
+    let cached_input_tokens = usage.cached_input_tokens();
+
+    if input_tokens <= 0 && output_tokens <= 0 && cached_input_tokens.unwrap_or(0) <= 0 {
+        return None;
+    }
+
+    Some(LlmTokenUsage {
+        input_tokens: Some(input_tokens),
+        output_tokens: Some(output_tokens),
+        cached_input_tokens,
+    })
 }
 
 fn inject_scope_fields(

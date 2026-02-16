@@ -18,8 +18,8 @@ use crate::actors::run_writer::{
     OverlayAuthor, OverlayKind, PatchOp, PatchOpKind, RunWriterMsg, SectionState, VersionSource,
 };
 use crate::actors::terminal::{TerminalAgentProgress, TerminalAgentResult, TerminalMsg};
-use crate::baml_client::B;
-use crate::observability::llm_trace::{LlmCallScope, LlmTraceEmitter};
+use crate::baml_client::{new_collector, B};
+use crate::observability::llm_trace::{token_usage_from_collector, LlmCallScope, LlmTraceEmitter};
 
 #[derive(Debug, Default)]
 pub struct WriterActor;
@@ -646,6 +646,9 @@ impl WriterActor {
                 "section_id": inbound.section_id,
                 "message_id": inbound.message_id,
                 "kind": inbound.kind,
+                "source": inbound.source.as_str(),
+                "message_content": message_content,
+                "history_excerpt": history,
             }),
             "Writer synthesizes queued inbound message",
             Some(LlmCallScope {
@@ -657,20 +660,24 @@ impl WriterActor {
             }),
         );
 
+        let collector = new_collector("writer.quick_response");
         let result = B
             .QuickResponse
             .with_client_registry(&client_registry)
+            .with_collector(&collector)
             .call(prompt, history)
             .await;
+        let usage = token_usage_from_collector(&collector);
 
         match result {
             Ok(output) => {
-                trace.complete_call(
+                trace.complete_call_with_usage(
                     &trace_ctx,
                     &model_id,
                     None,
                     &serde_json::json!({ "output": output }),
                     "writer synthesis complete",
+                    usage.clone(),
                 );
                 let trimmed = output.trim();
                 if trimmed.is_empty() {
@@ -680,13 +687,14 @@ impl WriterActor {
                 }
             }
             Err(error) => {
-                trace.fail_call(
+                trace.fail_call_with_usage(
                     &trace_ctx,
                     &model_id,
                     None,
                     None,
                     &error.to_string(),
                     Some(shared_types::FailureKind::Unknown),
+                    usage,
                 );
                 Err(WriterError::WriterLlmFailed(error.to_string()))
             }
@@ -873,12 +881,67 @@ impl WriterActor {
             planner_input
         );
 
-        let planner_output = B
+        let trace = LlmTraceEmitter::new(state.event_store.clone());
+        let planner_task_id = format!("{}:planner", inbound.message_id);
+        let trace_ctx = trace.start_call(
+            "writer",
+            "DelegationPlanner",
+            &state.writer_id,
+            &model_id,
+            None,
+            "Writer delegation planner",
+            &serde_json::json!({
+                "run_id": inbound.run_id,
+                "section_id": inbound.section_id,
+                "message_id": inbound.message_id,
+                "kind": inbound.kind,
+                "source": inbound.source.as_str(),
+                "planner_input": planner_input,
+            }),
+            "Writer decides whether to delegate researcher/terminal work",
+            Some(LlmCallScope {
+                run_id: Some(inbound.run_id.clone()),
+                task_id: Some(planner_task_id),
+                call_id: None,
+                session_id: None,
+                thread_id: None,
+            }),
+        );
+
+        let collector = new_collector("writer.delegation_planner");
+        let planner_result = B
             .QuickResponse
             .with_client_registry(&client_registry)
+            .with_collector(&collector)
             .call(planner_prompt, String::new())
-            .await
-            .map_err(|e| WriterError::WriterLlmFailed(e.to_string()))?;
+            .await;
+        let usage = token_usage_from_collector(&collector);
+
+        let planner_output = match planner_result {
+            Ok(output) => {
+                trace.complete_call_with_usage(
+                    &trace_ctx,
+                    &model_id,
+                    None,
+                    &serde_json::json!({ "output": output }),
+                    "writer delegation planner completed",
+                    usage,
+                );
+                output
+            }
+            Err(e) => {
+                trace.fail_call_with_usage(
+                    &trace_ctx,
+                    &model_id,
+                    None,
+                    None,
+                    &e.to_string(),
+                    Some(shared_types::FailureKind::Unknown),
+                    usage,
+                );
+                return Err(WriterError::WriterLlmFailed(e.to_string()));
+            }
+        };
         let plan_value = Self::parse_json_object(&planner_output).ok_or_else(|| {
             WriterError::WriterLlmFailed("writer delegation planner returned invalid JSON".into())
         })?;

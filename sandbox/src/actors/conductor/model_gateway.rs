@@ -12,8 +12,8 @@ use crate::actors::model_config::{
     ModelRegistry, ModelResolutionContext, ProviderConfig, ResolvedModel,
 };
 use crate::baml_client::types::{ConductorBootstrapInput, ConductorBootstrapOutput};
-use crate::baml_client::{ClientRegistry, B};
-use crate::observability::llm_trace::{LlmCallScope, LlmTraceEmitter};
+use crate::baml_client::{new_collector, ClientRegistry, B};
+use crate::observability::llm_trace::{token_usage_from_collector, LlmCallScope, LlmTraceEmitter};
 
 pub type SharedConductorModelGateway = Arc<dyn ConductorModelGateway>;
 
@@ -118,11 +118,14 @@ impl ConductorModelGateway for BamlConductorModelGateway {
             }),
         );
 
+        let collector = new_collector("conductor.bootstrap_agenda");
         let result = B
             .ConductorBootstrapAgenda
             .with_client_registry(&client_registry)
+            .with_collector(&collector)
             .call(&input)
             .await;
+        let usage = token_usage_from_collector(&collector);
 
         match &result {
             Ok(output) => {
@@ -132,22 +135,24 @@ impl ConductorModelGateway for BamlConductorModelGateway {
                     "rationale": output.rationale,
                     "confidence": output.confidence,
                 });
-                self.trace_emitter.complete_call(
+                self.trace_emitter.complete_call_with_usage(
                     &ctx,
                     model_used,
                     provider,
                     &output_json,
                     "Conduct assignments completed",
+                    usage.clone(),
                 );
             }
             Err(e) => {
-                self.trace_emitter.fail_call(
+                self.trace_emitter.fail_call_with_usage(
                     &ctx,
                     model_used,
                     provider,
                     None,
                     &e.to_string(),
                     None,
+                    usage,
                 );
             }
         }

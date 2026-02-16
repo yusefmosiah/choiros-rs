@@ -502,8 +502,6 @@ impl WorkerPort for ResearcherAdapter {
         format!(
             r#"You are a research agent. Your goal is to gather information and maintain a working draft document.
 
-Current step: {}/{}
-Model: {}
 Objective: {}
 
 Guidelines:
@@ -545,7 +543,7 @@ Guidelines:
   4) repeat until objective is satisfied, then final proposal_append and Complete
 {}
 "#,
-            ctx.step_number, ctx.max_steps, ctx.model_used, ctx.objective, run_doc_hint
+            ctx.objective, run_doc_hint
         )
     }
 
