@@ -7,9 +7,11 @@
 //!
 //! ApplicationSupervisor (one_for_one strategy)
 //! └── SessionSupervisor (one_for_one strategy)
+//!     ├── ConductorSupervisor
 //!     ├── DesktopSupervisor
 //!     ├── TerminalSupervisor
-//!     └── ResearcherSupervisor
+//!     ├── ResearcherSupervisor
+//!     └── WriterSupervisor
 //!
 //! ## Supervision Events
 //!
@@ -22,6 +24,7 @@
 //!
 //! This module is gated by the `supervision_refactor` feature flag.
 
+pub mod conductor;
 pub mod desktop;
 pub mod researcher;
 pub mod session;
@@ -31,6 +34,11 @@ pub mod writer;
 // Re-export from session module
 pub use session::{
     SessionSupervisor, SessionSupervisorArgs, SessionSupervisorMsg, SessionSupervisorState,
+};
+
+// Re-export from conductor module
+pub use conductor::{
+    ConductorSupervisor, ConductorSupervisorArgs, ConductorSupervisorMsg, ConductorSupervisorState,
 };
 
 // Re-export from desktop module
@@ -198,6 +206,16 @@ pub enum ApplicationSupervisorMsg {
         researcher_actor: Option<ractor::ActorRef<crate::actors::researcher::ResearcherMsg>>,
         terminal_actor: Option<ractor::ActorRef<crate::actors::terminal::TerminalMsg>>,
         reply: RpcReplyPort<Result<ractor::ActorRef<crate::actors::writer::WriterMsg>, String>>,
+    },
+    /// Get or create a conductor actor
+    GetOrCreateConductor {
+        conductor_id: String,
+        user_id: String,
+        researcher_actor: Option<ractor::ActorRef<crate::actors::researcher::ResearcherMsg>>,
+        terminal_actor: Option<ractor::ActorRef<crate::actors::terminal::TerminalMsg>>,
+        writer_actor: Option<ractor::ActorRef<crate::actors::writer::WriterMsg>>,
+        reply:
+            RpcReplyPort<Result<ractor::ActorRef<crate::actors::conductor::ConductorMsg>, String>>,
     },
     /// Ingest a typed worker turn report and emit canonical signal events.
     IngestWorkerTurnReport {
@@ -806,6 +824,103 @@ impl Actor for ApplicationSupervisor {
                                 ),
                                 serde_json::json!({
                                     "writer_id": writer_id,
+                                    "user_id": user_id,
+                                    "error": e.to_string(),
+                                    "supervisor_id": myself.get_id().to_string(),
+                                }),
+                                correlation_id,
+                            )
+                            .await;
+                            let _ = reply.send(Err(e.to_string()));
+                            return Ok(());
+                        }
+                    }
+                } else {
+                    let _ = reply.send(Err("SessionSupervisor not available".to_string()));
+                    return Ok(());
+                }
+            }
+            ApplicationSupervisorMsg::GetOrCreateConductor {
+                conductor_id,
+                user_id,
+                researcher_actor,
+                terminal_actor,
+                writer_actor,
+                reply,
+            } => {
+                let correlation_id = ulid::Ulid::new().to_string();
+                self.emit_request_event(
+                    state,
+                    "supervisor.conductor.get_or_create.started",
+                    EventType::Custom("supervisor.conductor.get_or_create.started".to_string()),
+                    serde_json::json!({
+                        "conductor_id": conductor_id,
+                        "user_id": user_id,
+                        "supervisor_id": myself.get_id().to_string(),
+                    }),
+                    correlation_id.clone(),
+                )
+                .await;
+
+                if let Some(ref session_supervisor) = state.session_supervisor {
+                    match ractor::call!(session_supervisor, |ss_reply| {
+                        SessionSupervisorMsg::GetOrCreateConductor {
+                            conductor_id: conductor_id.clone(),
+                            user_id: user_id.clone(),
+                            researcher_actor: researcher_actor.clone(),
+                            terminal_actor: terminal_actor.clone(),
+                            writer_actor: writer_actor.clone(),
+                            reply: ss_reply,
+                        }
+                    }) {
+                        Ok(result) => match result {
+                            Ok(actor_ref) => {
+                                self.emit_request_event(
+                                    state,
+                                    "supervisor.conductor.get_or_create.completed",
+                                    EventType::Custom(
+                                        "supervisor.conductor.get_or_create.completed".to_string(),
+                                    ),
+                                    serde_json::json!({
+                                        "conductor_id": conductor_id,
+                                        "user_id": user_id,
+                                        "conductor_ref": actor_ref.get_id().to_string(),
+                                        "supervisor_id": myself.get_id().to_string(),
+                                    }),
+                                    correlation_id,
+                                )
+                                .await;
+                                let _ = reply.send(Ok(actor_ref));
+                            }
+                            Err(e) => {
+                                self.emit_request_event(
+                                    state,
+                                    "supervisor.conductor.get_or_create.failed",
+                                    EventType::Custom(
+                                        "supervisor.conductor.get_or_create.failed".to_string(),
+                                    ),
+                                    serde_json::json!({
+                                        "conductor_id": conductor_id,
+                                        "user_id": user_id,
+                                        "error": e,
+                                        "supervisor_id": myself.get_id().to_string(),
+                                    }),
+                                    correlation_id,
+                                )
+                                .await;
+                                let _ = reply.send(Err(e));
+                                return Ok(());
+                            }
+                        },
+                        Err(e) => {
+                            self.emit_request_event(
+                                state,
+                                "supervisor.conductor.get_or_create.failed",
+                                EventType::Custom(
+                                    "supervisor.conductor.get_or_create.failed".to_string(),
+                                ),
+                                serde_json::json!({
+                                    "conductor_id": conductor_id,
                                     "user_id": user_id,
                                     "error": e.to_string(),
                                     "supervisor_id": myself.get_id().to_string(),

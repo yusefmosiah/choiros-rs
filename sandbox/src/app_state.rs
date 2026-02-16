@@ -2,7 +2,7 @@ use ractor::{Actor, ActorRef};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::actors::conductor::{ConductorActor, ConductorArguments, ConductorMsg};
+use crate::actors::conductor::ConductorMsg;
 use crate::actors::desktop::{DesktopActorMsg, DesktopArguments};
 use crate::actors::event_store::EventStoreMsg;
 use crate::actors::researcher::ResearcherMsg;
@@ -226,17 +226,18 @@ impl AppState {
             ));
         }
 
-        let (conductor, _) = Actor::spawn(
-            Some(format!("conductor:{}", ulid::Ulid::new())),
-            ConductorActor,
-            ConductorArguments {
-                event_store: self.inner.event_store.clone(),
+        let supervisor = self.ensure_supervisor().await?;
+        let conductor = ractor::call!(supervisor, |reply| {
+            ApplicationSupervisorMsg::GetOrCreateConductor {
+                conductor_id: "conductor-default".to_string(),
+                user_id: "system".to_string(),
                 researcher_actor,
                 terminal_actor,
                 writer_actor,
-            },
-        )
-        .await
+                reply,
+            }
+        })
+        .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
 
         *guard = Some(conductor.clone());

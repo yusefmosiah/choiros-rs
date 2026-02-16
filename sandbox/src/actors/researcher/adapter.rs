@@ -26,7 +26,7 @@ use crate::actors::agent_harness::{
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::ModelRegistry;
 use crate::actors::run_writer::{RunWriterMsg, SectionState};
-use crate::actors::writer::{WriterMsg, WriterSource};
+use crate::actors::writer::{WriterInboundEnvelope, WriterMsg, WriterSource};
 use crate::baml_client::types::{
     MessageWriterToolCall,
     Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall as AgentToolCall,
@@ -366,10 +366,10 @@ impl ResearcherAdapter {
                     Err("message_writer proposal_append mode requires content".to_string())
                 } else {
                     let message_id = format!("{run_id}:researcher:tool:{}", ulid::Ulid::new());
-                    ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+                    let envelope = WriterInboundEnvelope {
                         message_id,
+                        correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
                         kind: "researcher_tool_update".to_string(),
-                        run_writer_actor: run_writer_actor.clone(),
                         run_id: run_id.clone(),
                         section_id: section_id.clone(),
                         source: WriterSource::Researcher,
@@ -377,6 +377,14 @@ impl ResearcherAdapter {
                         base_version_id: None,
                         prompt_diff: None,
                         overlay_id: None,
+                        session_id: None,
+                        thread_id: None,
+                        call_id: None,
+                        origin_actor: Some(self.state.researcher_id.clone()),
+                    };
+                    ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+                        envelope,
+                        run_writer_actor: run_writer_actor.clone(),
                         reply,
                     })
                     .map_err(|e| format!("WriterActor call failed: {e}"))

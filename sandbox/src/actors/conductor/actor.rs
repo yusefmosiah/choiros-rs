@@ -19,7 +19,7 @@ use crate::actors::run_writer::{
     DocumentVersion, Overlay, OverlayStatus, RunWriterMsg, VersionSource,
 };
 use crate::actors::terminal::TerminalMsg;
-use crate::actors::writer::{WriterMsg, WriterSource};
+use crate::actors::writer::{WriterInboundEnvelope, WriterMsg, WriterSource};
 
 /// ConductorActor - main orchestration actor.
 #[derive(Debug, Default)]
@@ -238,10 +238,10 @@ impl ConductorActor {
         }
 
         let message_id = format!("{run_id}:user:prompt:{}", ulid::Ulid::new());
-        let ack = ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+        let envelope = WriterInboundEnvelope {
             message_id,
+            correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
             kind: "human_prompt".to_string(),
-            run_writer_actor: run_writer,
             run_id: run_id.clone(),
             section_id: "user".to_string(),
             source: WriterSource::User,
@@ -249,6 +249,14 @@ impl ConductorActor {
             base_version_id: Some(base_version_id),
             prompt_diff: Some(prompt_diff),
             overlay_id: None,
+            session_id: None,
+            thread_id: None,
+            call_id: None,
+            origin_actor: Some("conductor".to_string()),
+        };
+        let ack = ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+            envelope,
+            run_writer_actor: run_writer,
             reply,
         })
         .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?

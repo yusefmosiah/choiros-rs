@@ -48,16 +48,26 @@ pub struct WriterState {
 
 #[derive(Debug, Clone)]
 struct WriterInboxMessage {
-    message_id: String,
-    kind: String,
+    envelope: WriterInboundEnvelope,
     run_writer_actor: ActorRef<RunWriterMsg>,
-    run_id: String,
-    section_id: String,
-    source: WriterSource,
-    content: String,
-    base_version_id: Option<u64>,
-    prompt_diff: Option<Vec<shared_types::PatchOp>>,
-    overlay_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WriterInboundEnvelope {
+    pub message_id: String,
+    pub correlation_id: String,
+    pub kind: String,
+    pub run_id: String,
+    pub section_id: String,
+    pub source: WriterSource,
+    pub content: String,
+    pub base_version_id: Option<u64>,
+    pub prompt_diff: Option<Vec<shared_types::PatchOp>>,
+    pub overlay_id: Option<String>,
+    pub session_id: Option<String>,
+    pub thread_id: Option<String>,
+    pub call_id: Option<String>,
+    pub origin_actor: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,16 +134,8 @@ pub enum WriterMsg {
     ///
     /// Control flow uses this actor message path; EventStore remains trace-only.
     EnqueueInbound {
-        message_id: String,
-        kind: String,
+        envelope: WriterInboundEnvelope,
         run_writer_actor: ActorRef<RunWriterMsg>,
-        run_id: String,
-        section_id: String,
-        source: WriterSource,
-        content: String,
-        base_version_id: Option<u64>,
-        prompt_diff: Option<Vec<shared_types::PatchOp>>,
-        overlay_id: Option<String>,
         reply: RpcReplyPort<Result<WriterQueueAck, WriterError>>,
     },
     /// Internal wake to process the next queued inbox item.
@@ -307,32 +309,16 @@ impl Actor for WriterActor {
                 let _ = reply.send(result);
             }
             WriterMsg::EnqueueInbound {
-                message_id,
-                kind,
+                envelope,
                 run_writer_actor,
-                run_id,
-                section_id,
-                source,
-                content,
-                base_version_id,
-                prompt_diff,
-                overlay_id,
                 reply,
             } => {
                 let result = Self::enqueue_inbound(
                     &myself,
                     state,
                     WriterInboxMessage {
-                        message_id,
-                        kind,
+                        envelope,
                         run_writer_actor,
-                        run_id,
-                        section_id,
-                        source,
-                        content,
-                        base_version_id,
-                        prompt_diff,
-                        overlay_id,
                     },
                 )
                 .await;
@@ -390,10 +376,10 @@ impl WriterActor {
     fn format_inbox_note(inbound: &WriterInboxMessage) -> String {
         format!(
             "> [{source}] {kind} ({id})\n{content}\n",
-            source = inbound.source.as_str(),
-            kind = inbound.kind,
-            id = inbound.message_id,
-            content = inbound.content
+            source = inbound.envelope.source.as_str(),
+            kind = inbound.envelope.kind.as_str(),
+            id = inbound.envelope.message_id.as_str(),
+            content = inbound.envelope.content.as_str()
         )
     }
 
@@ -403,19 +389,23 @@ impl WriterActor {
         mut inbound: WriterInboxMessage,
     ) -> Result<WriterQueueAck, WriterError> {
         let has_prompt_diff = inbound
+            .envelope
             .prompt_diff
             .as_ref()
             .map(|ops| !ops.is_empty())
             .unwrap_or(false);
-        if inbound.content.trim().is_empty() && !has_prompt_diff {
+        if inbound.envelope.content.trim().is_empty() && !has_prompt_diff {
             return Err(WriterError::Validation(
                 "inbound content cannot be empty when prompt_diff is absent".to_string(),
             ));
         }
 
-        if state.seen_message_ids.contains(&inbound.message_id) {
+        if state
+            .seen_message_ids
+            .contains(&inbound.envelope.message_id)
+        {
             return Ok(WriterQueueAck {
-                message_id: inbound.message_id,
+                message_id: inbound.envelope.message_id,
                 accepted: true,
                 duplicate: true,
                 queue_len: state.inbox_queue.len(),
@@ -423,11 +413,11 @@ impl WriterActor {
             });
         }
 
-        let initial_revision = if inbound.source == WriterSource::User {
-            let base_version_id = inbound.base_version_id.ok_or_else(|| {
+        let initial_revision = if inbound.envelope.source == WriterSource::User {
+            let base_version_id = inbound.envelope.base_version_id.ok_or_else(|| {
                 WriterError::Validation("base_version_id is required for user prompt".to_string())
             })?;
-            let prompt_diff = inbound.prompt_diff.clone().ok_or_else(|| {
+            let prompt_diff = inbound.envelope.prompt_diff.clone().ok_or_else(|| {
                 WriterError::Validation("prompt_diff is required for user prompt".to_string())
             })?;
             if prompt_diff.is_empty() {
@@ -438,7 +428,7 @@ impl WriterActor {
 
             let overlay = ractor::call!(inbound.run_writer_actor.clone(), |reply| {
                 RunWriterMsg::CreateOverlay {
-                    run_id: inbound.run_id.clone(),
+                    run_id: inbound.envelope.run_id.clone(),
                     base_version_id,
                     author: OverlayAuthor::User,
                     kind: OverlayKind::Proposal,
@@ -448,7 +438,7 @@ impl WriterActor {
             })
             .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?
             .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?;
-            inbound.overlay_id = Some(overlay.overlay_id);
+            inbound.envelope.overlay_id = Some(overlay.overlay_id);
 
             ractor::call!(inbound.run_writer_actor.clone(), |reply| {
                 RunWriterMsg::GetRevision { reply }
@@ -458,30 +448,35 @@ impl WriterActor {
             Self::apply_text(
                 state,
                 inbound.run_writer_actor.clone(),
-                inbound.run_id.clone(),
-                inbound.section_id.clone(),
-                inbound.source,
+                inbound.envelope.run_id.clone(),
+                inbound.envelope.section_id.clone(),
+                inbound.envelope.source,
                 Self::format_inbox_note(&inbound),
                 true,
             )
             .await?
         };
 
-        Self::remember_message_id(state, &inbound.message_id);
+        Self::remember_message_id(state, &inbound.envelope.message_id);
         state.inbox_queue.push_back(inbound.clone());
         Self::emit_event(
             state,
             "writer.actor.inbox.enqueued",
             serde_json::json!({
-                "run_id": inbound.run_id,
-                "section_id": inbound.section_id,
-                "source": inbound.source.as_str(),
-                "kind": inbound.kind,
-                "message_id": inbound.message_id,
+                "run_id": inbound.envelope.run_id.clone(),
+                "section_id": inbound.envelope.section_id.clone(),
+                "source": inbound.envelope.source.as_str(),
+                "kind": inbound.envelope.kind.clone(),
+                "message_id": inbound.envelope.message_id.clone(),
                 "queue_len": state.inbox_queue.len(),
                 "revision": initial_revision,
-                "base_version_id": inbound.base_version_id,
-                "overlay_id": inbound.overlay_id,
+                "correlation_id": inbound.envelope.correlation_id.clone(),
+                "base_version_id": inbound.envelope.base_version_id,
+                "overlay_id": inbound.envelope.overlay_id.clone(),
+                "session_id": inbound.envelope.session_id.clone(),
+                "thread_id": inbound.envelope.thread_id.clone(),
+                "call_id": inbound.envelope.call_id.clone(),
+                "origin_actor": inbound.envelope.origin_actor.clone(),
             }),
         );
 
@@ -490,7 +485,7 @@ impl WriterActor {
         }
 
         Ok(WriterQueueAck {
-            message_id: inbound.message_id,
+            message_id: inbound.envelope.message_id,
             accepted: true,
             duplicate: false,
             queue_len: state.inbox_queue.len(),
@@ -508,7 +503,7 @@ impl WriterActor {
         };
         state.inbox_processing = true;
 
-        let delegation_context = if inbound.source == WriterSource::User {
+        let delegation_context = if inbound.envelope.source == WriterSource::User {
             Self::dispatch_user_prompt_delegation(myself, state, &inbound)
                 .await
                 .unwrap_or_default()
@@ -522,7 +517,7 @@ impl WriterActor {
                 let _ = Self::set_section_content(
                     state,
                     inbound.run_writer_actor.clone(),
-                    inbound.run_id.clone(),
+                    inbound.envelope.run_id.clone(),
                     "conductor".to_string(),
                     WriterSource::Writer,
                     markdown,
@@ -535,9 +530,10 @@ impl WriterActor {
                     state,
                     "writer.actor.inbox.synthesis_failed",
                     serde_json::json!({
-                        "run_id": inbound.run_id,
-                        "section_id": inbound.section_id,
-                        "message_id": inbound.message_id,
+                        "run_id": inbound.envelope.run_id.clone(),
+                        "section_id": inbound.envelope.section_id.clone(),
+                        "message_id": inbound.envelope.message_id.clone(),
+                        "correlation_id": inbound.envelope.correlation_id.clone(),
                         "error": error.to_string(),
                     }),
                 );
@@ -573,15 +569,17 @@ impl WriterActor {
             .create_runtime_client_registry_for_model(&model_id)
             .map_err(|e| WriterError::ModelResolution(e.to_string()))?;
 
-        let message_content = if let Some(diff_ops) = inbound.prompt_diff.as_ref() {
+        let message_content = if let Some(diff_ops) = inbound.envelope.prompt_diff.as_ref() {
             let diff_json = serde_json::to_string_pretty(diff_ops).unwrap_or_default();
             format!(
                 "base_version_id: {}\noverlay_id: {}\nTyped diff intent (insert/delete/replace):\n{}",
                 inbound
+                    .envelope
                     .base_version_id
                     .map(|v| v.to_string())
                     .unwrap_or_else(|| "unknown".to_string()),
                 inbound
+                    .envelope
                     .overlay_id
                     .as_ref()
                     .cloned()
@@ -589,7 +587,7 @@ impl WriterActor {
                 diff_json
             )
         } else {
-            inbound.content.clone()
+            inbound.envelope.content.clone()
         };
 
         let prompt = format!(
@@ -611,9 +609,9 @@ impl WriterActor {
              Message kind: {kind}\n\
              Message source: {source}\n\
              Message content:\n{content}",
-            message_id = inbound.message_id,
-            kind = inbound.kind,
-            source = inbound.source.as_str(),
+            message_id = inbound.envelope.message_id.as_str(),
+            kind = inbound.envelope.kind.as_str(),
+            source = inbound.envelope.source.as_str(),
             content = message_content
         );
         let prompt = if delegation_context.trim().is_empty() {
@@ -642,21 +640,25 @@ impl WriterActor {
             None,
             "Writer inbox synthesis",
             &serde_json::json!({
-                "run_id": inbound.run_id,
-                "section_id": inbound.section_id,
-                "message_id": inbound.message_id,
-                "kind": inbound.kind,
-                "source": inbound.source.as_str(),
+                "run_id": inbound.envelope.run_id.clone(),
+                "section_id": inbound.envelope.section_id.clone(),
+                "message_id": inbound.envelope.message_id.clone(),
+                "kind": inbound.envelope.kind.clone(),
+                "source": inbound.envelope.source.as_str(),
+                "correlation_id": inbound.envelope.correlation_id.clone(),
+                "session_id": inbound.envelope.session_id.clone(),
+                "thread_id": inbound.envelope.thread_id.clone(),
+                "call_id": inbound.envelope.call_id.clone(),
                 "message_content": message_content,
                 "history_excerpt": history,
             }),
             "Writer synthesizes queued inbound message",
             Some(LlmCallScope {
-                run_id: Some(inbound.run_id.clone()),
-                task_id: Some(inbound.message_id.clone()),
-                call_id: None,
-                session_id: None,
-                thread_id: None,
+                run_id: Some(inbound.envelope.run_id.clone()),
+                task_id: Some(inbound.envelope.message_id.clone()),
+                call_id: inbound.envelope.call_id.clone(),
+                session_id: inbound.envelope.session_id.clone(),
+                thread_id: inbound.envelope.thread_id.clone(),
             }),
         );
 
@@ -783,7 +785,7 @@ impl WriterActor {
         let _ = Self::apply_text(
             state,
             inbound.run_writer_actor.clone(),
-            inbound.run_id.clone(),
+            inbound.envelope.run_id.clone(),
             section_id.clone(),
             WriterSource::Writer,
             queued_note.clone(),
@@ -793,10 +795,13 @@ impl WriterActor {
 
         let writer_actor = myself.clone();
         let run_writer_actor = inbound.run_writer_actor.clone();
-        let run_id = inbound.run_id.clone();
+        let run_id = inbound.envelope.run_id.clone();
+        let thread_id = inbound.envelope.thread_id.clone();
+        let session_id = inbound.envelope.session_id.clone();
         let objective = dispatch.objective.clone();
         let max_steps = dispatch.max_steps;
         let capability = dispatch.capability;
+        let correlation_id = inbound.envelope.correlation_id.clone();
         let call_id_for_task = call_id.clone();
         tokio::spawn(async move {
             let result = ractor::call!(writer_actor, |reply| WriterMsg::DelegateTask {
@@ -825,10 +830,10 @@ impl WriterActor {
                 prefix = format!("> [writer] delegated_{capability_name}_completed ({call_id})"),
                 completion = completion_content
             );
-            let _ = ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+            let envelope = WriterInboundEnvelope {
                 message_id: format!("{run_id}:{capability_name}:delegate_completion:{call_id}"),
+                correlation_id,
                 kind: format!("delegated_{capability_name}_completion"),
-                run_writer_actor,
                 run_id,
                 section_id,
                 source: WriterSource::Writer,
@@ -836,6 +841,14 @@ impl WriterActor {
                 base_version_id: None,
                 prompt_diff: None,
                 overlay_id: None,
+                session_id,
+                thread_id,
+                call_id: Some(call_id.clone()),
+                origin_actor: Some("writer".to_string()),
+            };
+            let _ = ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+                envelope,
+                run_writer_actor,
                 reply,
             });
         });
@@ -859,10 +872,11 @@ impl WriterActor {
             .create_runtime_client_registry_for_model(&model_id)
             .map_err(|e| WriterError::ModelResolution(e.to_string()))?;
 
-        let planner_input = if let Some(diff_ops) = inbound.prompt_diff.as_ref() {
-            serde_json::to_string_pretty(diff_ops).unwrap_or_else(|_| inbound.content.clone())
+        let planner_input = if let Some(diff_ops) = inbound.envelope.prompt_diff.as_ref() {
+            serde_json::to_string_pretty(diff_ops)
+                .unwrap_or_else(|_| inbound.envelope.content.clone())
         } else {
-            inbound.content.clone()
+            inbound.envelope.content.clone()
         };
 
         let planner_prompt = format!(
@@ -882,7 +896,7 @@ impl WriterActor {
         );
 
         let trace = LlmTraceEmitter::new(state.event_store.clone());
-        let planner_task_id = format!("{}:planner", inbound.message_id);
+        let planner_task_id = format!("{}:planner", inbound.envelope.message_id);
         let trace_ctx = trace.start_call(
             "writer",
             "DelegationPlanner",
@@ -891,20 +905,21 @@ impl WriterActor {
             None,
             "Writer delegation planner",
             &serde_json::json!({
-                "run_id": inbound.run_id,
-                "section_id": inbound.section_id,
-                "message_id": inbound.message_id,
-                "kind": inbound.kind,
-                "source": inbound.source.as_str(),
+                "run_id": inbound.envelope.run_id.clone(),
+                "section_id": inbound.envelope.section_id.clone(),
+                "message_id": inbound.envelope.message_id.clone(),
+                "kind": inbound.envelope.kind.clone(),
+                "source": inbound.envelope.source.as_str(),
+                "correlation_id": inbound.envelope.correlation_id.clone(),
                 "planner_input": planner_input,
             }),
             "Writer decides whether to delegate researcher/terminal work",
             Some(LlmCallScope {
-                run_id: Some(inbound.run_id.clone()),
+                run_id: Some(inbound.envelope.run_id.clone()),
                 task_id: Some(planner_task_id),
-                call_id: None,
-                session_id: None,
-                thread_id: None,
+                call_id: inbound.envelope.call_id.clone(),
+                session_id: inbound.envelope.session_id.clone(),
+                thread_id: inbound.envelope.thread_id.clone(),
             }),
         );
 

@@ -3,11 +3,15 @@
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort, SupervisionEvent};
 use tracing::{error, info};
 
+use crate::actors::conductor::ConductorMsg;
 use crate::actors::desktop::{DesktopActorMsg, DesktopArguments};
 use crate::actors::event_store::EventStoreMsg;
 use crate::actors::researcher::ResearcherMsg;
 use crate::actors::terminal::TerminalMsg;
 use crate::actors::writer::WriterMsg;
+use crate::supervisor::conductor::{
+    ConductorSupervisor, ConductorSupervisorArgs, ConductorSupervisorMsg,
+};
 use crate::supervisor::desktop::{DesktopSupervisor, DesktopSupervisorArgs, DesktopSupervisorMsg};
 use crate::supervisor::researcher::{
     ResearcherSupervisor, ResearcherSupervisorArgs, ResearcherSupervisorMsg,
@@ -29,6 +33,7 @@ pub struct SessionSupervisorArgs {
 
 pub struct SessionSupervisorState {
     pub event_store: ActorRef<EventStoreMsg>,
+    pub conductor_supervisor: Option<ActorRef<ConductorSupervisorMsg>>,
     pub desktop_supervisor: Option<ActorRef<DesktopSupervisorMsg>>,
     pub terminal_supervisor: Option<ActorRef<TerminalSupervisorMsg>>,
     pub researcher_supervisor: Option<ActorRef<ResearcherSupervisorMsg>>,
@@ -63,6 +68,14 @@ pub enum SessionSupervisorMsg {
         terminal_actor: Option<ActorRef<TerminalMsg>>,
         reply: RpcReplyPort<Result<ActorRef<WriterMsg>, String>>,
     },
+    GetOrCreateConductor {
+        conductor_id: String,
+        user_id: String,
+        researcher_actor: Option<ActorRef<ResearcherMsg>>,
+        terminal_actor: Option<ActorRef<TerminalMsg>>,
+        writer_actor: Option<ActorRef<WriterMsg>>,
+        reply: RpcReplyPort<Result<ActorRef<ConductorMsg>, String>>,
+    },
 }
 
 #[ractor::async_trait]
@@ -77,6 +90,20 @@ impl Actor for SessionSupervisor {
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         info!(supervisor = %myself.get_id(), "SessionSupervisor starting");
+
+        let (conductor_supervisor, _) = Actor::spawn_linked(
+            None,
+            ConductorSupervisor,
+            ConductorSupervisorArgs {
+                event_store: args.event_store.clone(),
+                researcher_actor: None,
+                terminal_actor: None,
+                writer_actor: None,
+            },
+            myself.get_cell(),
+        )
+        .await
+        .map_err(ActorProcessingErr::from)?;
 
         let (desktop_supervisor, _) = Actor::spawn_linked(
             None,
@@ -126,6 +153,7 @@ impl Actor for SessionSupervisor {
 
         Ok(SessionSupervisorState {
             event_store: args.event_store,
+            conductor_supervisor: Some(conductor_supervisor),
             desktop_supervisor: Some(desktop_supervisor),
             terminal_supervisor: Some(terminal_supervisor),
             researcher_supervisor: Some(researcher_supervisor),
@@ -260,6 +288,37 @@ impl Actor for SessionSupervisor {
                     }
                 } else {
                     let _ = reply.send(Err("WriterSupervisor not available".to_string()));
+                }
+            }
+            SessionSupervisorMsg::GetOrCreateConductor {
+                conductor_id,
+                user_id,
+                researcher_actor,
+                terminal_actor,
+                writer_actor,
+                reply,
+            } => {
+                if let Some(conductor_supervisor) = &state.conductor_supervisor {
+                    match ractor::call!(conductor_supervisor, |cs_reply| {
+                        ConductorSupervisorMsg::GetOrCreateConductor {
+                            conductor_id: conductor_id.clone(),
+                            user_id: user_id.clone(),
+                            researcher_actor: researcher_actor.clone(),
+                            terminal_actor: terminal_actor.clone(),
+                            writer_actor: writer_actor.clone(),
+                            reply: cs_reply,
+                        }
+                    }) {
+                        Ok(result) => {
+                            let _ = reply.send(result);
+                        }
+                        Err(e) => {
+                            error!(error = %e, "Conductor supervisor RPC failed");
+                            let _ = reply.send(Err(e.to_string()));
+                        }
+                    }
+                } else {
+                    let _ = reply.send(Err("ConductorSupervisor not available".to_string()));
                 }
             }
         }
