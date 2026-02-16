@@ -737,7 +737,7 @@ impl WriterActor {
             state.model_registry.clone(),
             HarnessConfig {
                 timeout_budget_ms: 90_000,
-                max_steps: 3,
+                max_steps: 100,
                 emit_progress: true,
                 emit_worker_report: true,
             },

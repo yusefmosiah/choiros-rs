@@ -229,9 +229,8 @@ Important:
              \n\
              Run ID: {:?}\n\
              Delegation Call ID: {:?}\n\
-             Writer ID: {}\n\
-             Current Step: {}/{}",
-            ctx.run_id, ctx.call_id, self.writer_id, ctx.step_number, ctx.max_steps
+             Writer ID: {}",
+            ctx.run_id, ctx.call_id, self.writer_id
         )
     }
 
@@ -348,9 +347,8 @@ impl WorkerPort for WriterSynthesisAdapter {
              \n\
              Run ID: {:?}\n\
              Call ID: {:?}\n\
-             Writer ID: {}\n\
-             Step: {}/{}",
-            ctx.run_id, ctx.call_id, self.writer_id, ctx.step_number, ctx.max_steps
+             Writer ID: {}",
+            ctx.run_id, ctx.call_id, self.writer_id
         )
     }
 

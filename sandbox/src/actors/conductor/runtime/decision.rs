@@ -253,7 +253,7 @@ impl ConductorActor {
                             objective,
                             None,
                             Some(60_000),
-                            Some(6),
+                            Some(100),
                             progress_tx,
                             Some(run_id_owned.clone()),
                             Some(call_id_owned.clone()),

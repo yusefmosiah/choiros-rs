@@ -1365,14 +1365,8 @@ impl WorkerPort for DefaultAdapter {
         self.tool_description.clone()
     }
 
-    fn get_system_context(&self, ctx: &ExecutionContext) -> String {
-        format!(
-            "You are a {} agent. Current step {}/{}\nTimestamp: {}",
-            self.model_role,
-            ctx.step_number,
-            ctx.max_steps,
-            chrono::Utc::now().to_rfc3339()
-        )
+    fn get_system_context(&self, _ctx: &ExecutionContext) -> String {
+        format!("You are a {} agent.", self.model_role)
     }
 
     async fn execute_tool_call(
