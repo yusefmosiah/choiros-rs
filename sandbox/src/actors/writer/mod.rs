@@ -6,6 +6,7 @@
 //! delegate to researcher/terminal actors via typed actor messages.
 
 mod adapter;
+pub mod document_runtime;
 
 use async_trait::async_trait;
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
@@ -17,13 +18,14 @@ use crate::actors::agent_harness::{AgentHarness, HarnessConfig, ObjectiveStatus,
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::ModelRegistry;
 use crate::actors::researcher::{ResearcherMsg, ResearcherProgress, ResearcherResult};
-use crate::actors::run_writer::{
-    DocumentVersion, Overlay, OverlayAuthor, OverlayKind, OverlayStatus, PatchOp, PatchOpKind,
-    RunWriterArguments, RunWriterRuntime, SectionState, VersionSource,
-};
 use crate::actors::terminal::{TerminalAgentProgress, TerminalAgentResult, TerminalMsg};
 use crate::observability::llm_trace::LlmTraceEmitter;
 use adapter::{WriterDelegationAdapter, WriterSynthesisAdapter};
+pub use document_runtime::{
+    ApplyPatchResult, DocumentVersion, Overlay, OverlayAuthor, OverlayKind, OverlayStatus, PatchOp,
+    PatchOpKind, RunDocument, SectionState, VersionSource, WriterDocumentArguments,
+    WriterDocumentError, WriterDocumentRuntime,
+};
 
 #[derive(Debug, Default)]
 pub struct WriterActor;
@@ -48,7 +50,7 @@ pub struct WriterState {
     seen_message_ids: HashSet<String>,
     seen_order: VecDeque<String>,
     inbox_processing: bool,
-    run_documents_by_run_id: HashMap<String, RunWriterRuntime>,
+    run_documents_by_run_id: HashMap<String, WriterDocumentRuntime>,
 }
 
 #[derive(Debug, Clone)]
@@ -93,25 +95,25 @@ pub enum WriterMsg {
         reply: RpcReplyPort<Result<(), WriterError>>,
     },
     /// List run document versions for a registered run.
-    ListRunWriterVersions {
+    ListWriterDocumentVersions {
         run_id: String,
         reply: RpcReplyPort<Result<Vec<DocumentVersion>, WriterError>>,
     },
     /// Fetch a single run document version for a registered run.
-    GetRunWriterVersion {
+    GetWriterDocumentVersion {
         run_id: String,
         version_id: u64,
         reply: RpcReplyPort<Result<DocumentVersion, WriterError>>,
     },
     /// List overlays for a registered run.
-    ListRunWriterOverlays {
+    ListWriterDocumentOverlays {
         run_id: String,
         base_version_id: Option<u64>,
         status: Option<OverlayStatus>,
         reply: RpcReplyPort<Result<Vec<Overlay>, WriterError>>,
     },
     /// Create a canonical document version for a registered run.
-    CreateRunWriterVersion {
+    CreateWriterDocumentVersion {
         run_id: String,
         parent_version_id: Option<u64>,
         content: String,
@@ -221,8 +223,8 @@ pub enum WriterError {
     ActorUnavailable(String),
     #[error("worker failed: {0}")]
     WorkerFailed(String),
-    #[error("run writer failed: {0}")]
-    RunWriterFailed(String),
+    #[error("document runtime failed: {0}")]
+    WriterDocumentFailed(String),
     #[error("model resolution failed: {0}")]
     ModelResolution(String),
     #[error("writer llm failed: {0}")]
@@ -271,36 +273,37 @@ impl Actor for WriterActor {
                 let result = Self::ensure_run_document(state, run_id, desktop_id, objective).await;
                 let _ = reply.send(result);
             }
-            WriterMsg::ListRunWriterVersions { run_id, reply } => {
-                let result = Self::list_run_writer_versions(state, run_id).await;
+            WriterMsg::ListWriterDocumentVersions { run_id, reply } => {
+                let result = Self::list_writer_document_versions(state, run_id).await;
                 let _ = reply.send(result);
             }
-            WriterMsg::GetRunWriterVersion {
+            WriterMsg::GetWriterDocumentVersion {
                 run_id,
                 version_id,
                 reply,
             } => {
-                let result = Self::get_run_writer_version(state, run_id, version_id).await;
+                let result = Self::get_writer_document_version(state, run_id, version_id).await;
                 let _ = reply.send(result);
             }
-            WriterMsg::ListRunWriterOverlays {
+            WriterMsg::ListWriterDocumentOverlays {
                 run_id,
                 base_version_id,
                 status,
                 reply,
             } => {
                 let result =
-                    Self::list_run_writer_overlays(state, run_id, base_version_id, status).await;
+                    Self::list_writer_document_overlays(state, run_id, base_version_id, status)
+                        .await;
                 let _ = reply.send(result);
             }
-            WriterMsg::CreateRunWriterVersion {
+            WriterMsg::CreateWriterDocumentVersion {
                 run_id,
                 parent_version_id,
                 content,
                 source,
                 reply,
             } => {
-                let result = Self::create_run_writer_version(
+                let result = Self::create_writer_document_version(
                     state,
                     run_id,
                     parent_version_id,
@@ -411,7 +414,7 @@ impl WriterActor {
         if state.run_documents_by_run_id.contains_key(&run_id) {
             return Ok(());
         }
-        let runtime = RunWriterRuntime::load(RunWriterArguments {
+        let runtime = WriterDocumentRuntime::load(WriterDocumentArguments {
             run_id: run_id.clone(),
             desktop_id: desktop_id.clone(),
             objective: objective.clone(),
@@ -421,7 +424,7 @@ impl WriterActor {
             event_store: state.event_store.clone(),
         })
         .await
-        .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?;
+        .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
         state.run_documents_by_run_id.insert(run_id, runtime);
         Ok(())
     }
@@ -429,21 +432,21 @@ impl WriterActor {
     fn resolve_run_document_mut<'a>(
         state: &'a mut WriterState,
         run_id: &str,
-    ) -> Result<&'a mut RunWriterRuntime, WriterError> {
+    ) -> Result<&'a mut WriterDocumentRuntime, WriterError> {
         state
             .run_documents_by_run_id
             .get_mut(run_id)
             .ok_or_else(|| {
-                WriterError::Validation(format!("run writer not found for run_id={run_id}"))
+                WriterError::Validation(format!("document runtime not found for run_id={run_id}"))
             })
     }
 
     fn resolve_run_document<'a>(
         state: &'a WriterState,
         run_id: &str,
-    ) -> Result<&'a RunWriterRuntime, WriterError> {
+    ) -> Result<&'a WriterDocumentRuntime, WriterError> {
         state.run_documents_by_run_id.get(run_id).ok_or_else(|| {
-            WriterError::Validation(format!("run writer not found for run_id={run_id}"))
+            WriterError::Validation(format!("document runtime not found for run_id={run_id}"))
         })
     }
 
@@ -533,7 +536,7 @@ impl WriterActor {
                     prompt_diff,
                 )
                 .await
-                .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?;
+                .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
             inbound.envelope.overlay_id = Some(overlay.overlay_id);
             run_doc.revision()
         } else {
@@ -795,7 +798,7 @@ impl WriterActor {
             run_doc
                 .apply_patch(&run_id, source.as_str(), &section_id, ops, proposal)
                 .await
-                .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?
+                .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?
         };
         Self::emit_event(
             state,
@@ -812,24 +815,24 @@ impl WriterActor {
         Ok(result.revision)
     }
 
-    async fn list_run_writer_versions(
+    async fn list_writer_document_versions(
         state: &WriterState,
         run_id: String,
     ) -> Result<Vec<DocumentVersion>, WriterError> {
         Ok(Self::resolve_run_document(state, &run_id)?.list_versions())
     }
 
-    async fn get_run_writer_version(
+    async fn get_writer_document_version(
         state: &WriterState,
         run_id: String,
         version_id: u64,
     ) -> Result<DocumentVersion, WriterError> {
         Self::resolve_run_document(state, &run_id)?
             .get_version(version_id)
-            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))
+            .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))
     }
 
-    async fn list_run_writer_overlays(
+    async fn list_writer_document_overlays(
         state: &WriterState,
         run_id: String,
         base_version_id: Option<u64>,
@@ -838,7 +841,7 @@ impl WriterActor {
         Ok(Self::resolve_run_document(state, &run_id)?.list_overlays(base_version_id, status))
     }
 
-    async fn create_run_writer_version(
+    async fn create_writer_document_version(
         state: &mut WriterState,
         run_id: String,
         parent_version_id: Option<u64>,
@@ -849,7 +852,7 @@ impl WriterActor {
         run_doc
             .create_version(&run_id, parent_version_id, content, source)
             .await
-            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))
+            .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))
     }
 
     async fn submit_user_prompt(
@@ -867,7 +870,7 @@ impl WriterActor {
 
         let head = Self::resolve_run_document(state, &run_id)?
             .head_version()
-            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?;
+            .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
         if base_version_id != head.version_id {
             return Err(WriterError::Validation(format!(
                 "stale base_version_id: expected {}, got {}",
@@ -1106,7 +1109,7 @@ impl WriterActor {
         let run_doc = Self::resolve_run_document_mut(state, &run_id)?;
         let parent_version_id = run_doc
             .head_version()
-            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?
+            .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?
             .version_id;
 
         let version_source = match source {
@@ -1125,7 +1128,7 @@ impl WriterActor {
                 version_source,
             )
             .await
-            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?;
+            .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
         let revision = run_doc.revision();
         Self::emit_event(
             state,
@@ -1158,7 +1161,7 @@ impl WriterActor {
         let revision = run_doc
             .report_section_progress(&run_id, source.as_str(), &section_id, &phase, &message)
             .await
-            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?;
+            .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
         Self::emit_event(
             state,
             "writer.actor.progress",
@@ -1184,7 +1187,7 @@ impl WriterActor {
         run_doc
             .mark_section_state(&run_id, &section_id, section_state)
             .await
-            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))
+            .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))
     }
 
     #[allow(clippy::too_many_arguments)]

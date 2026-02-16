@@ -13,7 +13,7 @@ use std::path::{Component, Path, PathBuf};
 use tokio::fs;
 
 use crate::actors::conductor::ConductorMsg;
-use crate::actors::run_writer::{DocumentVersion, Overlay, OverlayStatus, VersionSource};
+use crate::actors::writer::{DocumentVersion, Overlay, OverlayStatus, VersionSource};
 use crate::api::ApiState;
 
 /// Sandbox root path - all file operations are constrained to this directory
@@ -748,9 +748,11 @@ pub async fn list_versions(
         }
     };
 
-    let mut versions = match ractor::call!(conductor, |reply| ConductorMsg::ListRunWriterVersions {
-        run_id: run_id.clone(),
-        reply,
+    let mut versions = match ractor::call!(conductor, |reply| {
+        ConductorMsg::ListWriterDocumentVersions {
+            run_id: run_id.clone(),
+            reply,
+        }
     }) {
         Ok(Ok(versions)) => versions,
         Ok(Err(err)) => {
@@ -806,7 +808,7 @@ pub async fn get_version(
     };
 
     let version = match ractor::call!(conductor.clone(), |reply| {
-        ConductorMsg::GetRunWriterVersion {
+        ConductorMsg::GetWriterDocumentVersion {
             run_id: run_id.clone(),
             version_id: query.version_id,
             reply,
@@ -824,11 +826,13 @@ pub async fn get_version(
         }
     };
 
-    let overlays = match ractor::call!(conductor, |reply| ConductorMsg::ListRunWriterOverlays {
-        run_id: run_id.clone(),
-        base_version_id: Some(query.version_id),
-        status: Some(OverlayStatus::Pending),
-        reply,
+    let overlays = match ractor::call!(conductor, |reply| {
+        ConductorMsg::ListWriterDocumentOverlays {
+            run_id: run_id.clone(),
+            base_version_id: Some(query.version_id),
+            status: Some(OverlayStatus::Pending),
+            reply,
+        }
     }) {
         Ok(Ok(overlays)) => overlays,
         Ok(Err(err)) => {
@@ -886,7 +890,7 @@ pub async fn save_version(
         Some(parent)
     } else {
         let versions = match ractor::call!(conductor.clone(), |reply| {
-            ConductorMsg::ListRunWriterVersions {
+            ConductorMsg::ListWriterDocumentVersions {
                 run_id: run_id.clone(),
                 reply,
             }
@@ -902,12 +906,14 @@ pub async fn save_version(
         versions.iter().map(|v| v.version_id).max()
     };
 
-    let version = match ractor::call!(conductor, |reply| ConductorMsg::CreateRunWriterVersion {
-        run_id: run_id.clone(),
-        parent_version_id,
-        content: req.content.clone(),
-        source: VersionSource::UserSave,
-        reply,
+    let version = match ractor::call!(conductor, |reply| {
+        ConductorMsg::CreateWriterDocumentVersion {
+            run_id: run_id.clone(),
+            parent_version_id,
+            content: req.content.clone(),
+            source: VersionSource::UserSave,
+            reply,
+        }
     }) {
         Ok(Ok(version)) => version,
         Ok(Err(err)) => {

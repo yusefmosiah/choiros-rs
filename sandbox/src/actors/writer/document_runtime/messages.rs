@@ -36,7 +36,7 @@ pub enum SectionState {
 }
 
 #[derive(Debug, thiserror::Error, Clone)]
-pub enum RunWriterError {
+pub enum WriterDocumentError {
     #[error("Section not found: {0}")]
     SectionNotFound(String),
 
@@ -65,8 +65,8 @@ pub enum RunWriterError {
     ParseError(String),
 }
 
-impl From<std::io::Error> for RunWriterError {
+impl From<std::io::Error> for WriterDocumentError {
     fn from(e: std::io::Error) -> Self {
-        RunWriterError::Io(e.to_string())
+        WriterDocumentError::Io(e.to_string())
     }
 }

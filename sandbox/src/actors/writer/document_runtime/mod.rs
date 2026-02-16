@@ -1,6 +1,6 @@
 //! Run-document runtime used by WriterActor.
 //!
-//! This replaces the former per-run RunWriterActor process with an in-process
+//! This replaces the former per-run actor process with an in-process
 //! runtime object owned by WriterActor.
 
 mod messages;
@@ -11,10 +11,10 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::fs;
 
-pub use messages::{ApplyPatchResult, PatchOp, PatchOpKind, RunWriterError, SectionState};
+pub use messages::{ApplyPatchResult, PatchOp, PatchOpKind, SectionState, WriterDocumentError};
 pub use state::{
     DocumentVersion, Overlay, OverlayAuthor, OverlayKind, OverlayStatus, RunDocument,
-    RunWriterState, VersionSource,
+    VersionSource, WriterDocumentState,
 };
 
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
@@ -22,7 +22,7 @@ use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 const BASE_RUNS_DIR: &str = "conductor/runs";
 
 #[derive(Debug, Clone)]
-pub struct RunWriterArguments {
+pub struct WriterDocumentArguments {
     pub run_id: String,
     pub desktop_id: String,
     pub objective: String,
@@ -33,17 +33,17 @@ pub struct RunWriterArguments {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct PersistedRunWriterSnapshot {
+struct PersistedWriterDocumentSnapshot {
     revision: u64,
     document: RunDocument,
 }
 
-pub struct RunWriterRuntime {
-    state: RunWriterState,
+pub struct WriterDocumentRuntime {
+    state: WriterDocumentState,
 }
 
-impl RunWriterRuntime {
-    pub async fn load(args: RunWriterArguments) -> Result<Self, RunWriterError> {
+impl WriterDocumentRuntime {
+    pub async fn load(args: WriterDocumentArguments) -> Result<Self, WriterDocumentError> {
         let run_dir_relative = PathBuf::from(BASE_RUNS_DIR).join(&args.run_id);
         let document_path_relative = run_dir_relative.join("draft.md");
         let document_meta_path_relative = run_dir_relative.join("draft.writer-state.json");
@@ -60,13 +60,13 @@ impl RunWriterRuntime {
         let (mut document, revision) =
             Self::load_or_create_document(&document_path, &document_meta_path, &args.objective)
                 .await
-                .map_err(|e| RunWriterError::WriteFailed(e.to_string()))?;
+                .map_err(|e| WriterDocumentError::WriteFailed(e.to_string()))?;
         if document.objective.trim().is_empty() {
             document.objective = args.objective.clone();
         }
 
         let mut runtime = Self {
-            state: RunWriterState {
+            state: WriterDocumentState {
                 run_id: args.run_id,
                 desktop_id: args.desktop_id,
                 session_id: args.session_id,
@@ -97,22 +97,22 @@ impl RunWriterRuntime {
         self.state.document.to_markdown()
     }
 
-    pub fn head_version(&self) -> Result<DocumentVersion, RunWriterError> {
+    pub fn head_version(&self) -> Result<DocumentVersion, WriterDocumentError> {
         self.state
             .document
             .head_version()
             .cloned()
-            .ok_or(RunWriterError::VersionNotFound(
+            .ok_or(WriterDocumentError::VersionNotFound(
                 self.state.document.head_version_id,
             ))
     }
 
-    pub fn get_version(&self, version_id: u64) -> Result<DocumentVersion, RunWriterError> {
+    pub fn get_version(&self, version_id: u64) -> Result<DocumentVersion, WriterDocumentError> {
         self.state
             .document
             .get_version(version_id)
             .cloned()
-            .ok_or(RunWriterError::VersionNotFound(version_id))
+            .ok_or(WriterDocumentError::VersionNotFound(version_id))
     }
 
     pub fn list_versions(&self) -> Vec<DocumentVersion> {
@@ -152,7 +152,7 @@ impl RunWriterRuntime {
         parent_version_id: Option<u64>,
         content: String,
         source: VersionSource,
-    ) -> Result<DocumentVersion, RunWriterError> {
+    ) -> Result<DocumentVersion, WriterDocumentError> {
         self.ensure_run_id(run_id)?;
         let version = self
             .create_version_internal(parent_version_id, content, source, "writer", None)
@@ -172,7 +172,7 @@ impl RunWriterRuntime {
         author: OverlayAuthor,
         kind: OverlayKind,
         diff_ops: Vec<shared_types::PatchOp>,
-    ) -> Result<Overlay, RunWriterError> {
+    ) -> Result<Overlay, WriterDocumentError> {
         self.ensure_run_id(run_id)?;
         let overlay = self
             .create_overlay_internal(
@@ -200,7 +200,7 @@ impl RunWriterRuntime {
         section_id: &str,
         ops: Vec<PatchOp>,
         proposal: bool,
-    ) -> Result<ApplyPatchResult, RunWriterError> {
+    ) -> Result<ApplyPatchResult, WriterDocumentError> {
         self.ensure_run_id(run_id)?;
 
         let base_version_id = self.state.document.head_version_id;
@@ -270,7 +270,7 @@ impl RunWriterRuntime {
         section_id: &str,
         phase: &str,
         message: &str,
-    ) -> Result<u64, RunWriterError> {
+    ) -> Result<u64, WriterDocumentError> {
         self.ensure_run_id(run_id)?;
         self.emit_progress_event(
             format!("{source}:{section_id}:{phase}"),
@@ -285,7 +285,7 @@ impl RunWriterRuntime {
         run_id: &str,
         section_id: &str,
         section_state: SectionState,
-    ) -> Result<(), RunWriterError> {
+    ) -> Result<(), WriterDocumentError> {
         self.ensure_run_id(run_id)?;
 
         let status_message = format!("{section_id} -> {:?}", section_state);
@@ -312,7 +312,7 @@ impl RunWriterRuntime {
 
         if meta_path.exists() {
             match fs::read_to_string(meta_path).await {
-                Ok(raw) => match serde_json::from_str::<PersistedRunWriterSnapshot>(&raw) {
+                Ok(raw) => match serde_json::from_str::<PersistedWriterDocumentSnapshot>(&raw) {
                     Ok(snapshot) => return Ok((snapshot.document, snapshot.revision)),
                     Err(e) => {
                         tracing::warn!(
@@ -381,7 +381,7 @@ impl RunWriterRuntime {
         0
     }
 
-    async fn persist_document(&mut self) -> Result<(), RunWriterError> {
+    async fn persist_document(&mut self) -> Result<(), WriterDocumentError> {
         self.state.revision += 1;
 
         let content = format!(
@@ -391,26 +391,31 @@ impl RunWriterRuntime {
         );
 
         let temp_path = self.state.document_path.with_extension("md.tmp");
-        fs::write(&temp_path, &content)
-            .await
-            .map_err(|e| RunWriterError::WriteFailed(format!("Failed to write temp file: {e}")))?;
+        fs::write(&temp_path, &content).await.map_err(|e| {
+            WriterDocumentError::WriteFailed(format!("Failed to write temp file: {e}"))
+        })?;
         fs::rename(&temp_path, &self.state.document_path)
             .await
-            .map_err(|e| RunWriterError::WriteFailed(format!("Failed to rename temp file: {e}")))?;
+            .map_err(|e| {
+                WriterDocumentError::WriteFailed(format!("Failed to rename temp file: {e}"))
+            })?;
 
-        let sidecar = PersistedRunWriterSnapshot {
+        let sidecar = PersistedWriterDocumentSnapshot {
             revision: self.state.revision,
             document: self.state.document.clone(),
         };
-        let sidecar_raw = serde_json::to_string_pretty(&sidecar)
-            .map_err(|e| RunWriterError::WriteFailed(format!("Failed to encode sidecar: {e}")))?;
+        let sidecar_raw = serde_json::to_string_pretty(&sidecar).map_err(|e| {
+            WriterDocumentError::WriteFailed(format!("Failed to encode sidecar: {e}"))
+        })?;
         let temp_meta = self.state.document_meta_path.with_extension("json.tmp");
-        fs::write(&temp_meta, sidecar_raw)
-            .await
-            .map_err(|e| RunWriterError::WriteFailed(format!("Failed to write sidecar: {e}")))?;
+        fs::write(&temp_meta, sidecar_raw).await.map_err(|e| {
+            WriterDocumentError::WriteFailed(format!("Failed to write sidecar: {e}"))
+        })?;
         fs::rename(&temp_meta, &self.state.document_meta_path)
             .await
-            .map_err(|e| RunWriterError::WriteFailed(format!("Failed to rename sidecar: {e}")))?;
+            .map_err(|e| {
+                WriterDocumentError::WriteFailed(format!("Failed to rename sidecar: {e}"))
+            })?;
 
         Ok(())
     }
@@ -523,9 +528,9 @@ impl RunWriterRuntime {
         (target, lines_modified)
     }
 
-    fn ensure_run_id(&self, run_id: &str) -> Result<(), RunWriterError> {
+    fn ensure_run_id(&self, run_id: &str) -> Result<(), WriterDocumentError> {
         if run_id != self.state.run_id {
-            return Err(RunWriterError::RunIdMismatch {
+            return Err(WriterDocumentError::RunIdMismatch {
                 expected: self.state.run_id.clone(),
                 actual: run_id.to_string(),
             });
@@ -540,10 +545,10 @@ impl RunWriterRuntime {
         source: VersionSource,
         event_source: &str,
         section_id: Option<&str>,
-    ) -> Result<DocumentVersion, RunWriterError> {
+    ) -> Result<DocumentVersion, WriterDocumentError> {
         let parent = parent_version_id.unwrap_or(self.state.document.head_version_id);
         if self.state.document.get_version(parent).is_none() {
-            return Err(RunWriterError::VersionNotFound(parent));
+            return Err(WriterDocumentError::VersionNotFound(parent));
         }
 
         let version = DocumentVersion {
@@ -588,12 +593,12 @@ impl RunWriterRuntime {
         event_source: &str,
         section_id: Option<&str>,
         proposal: Option<String>,
-    ) -> Result<Overlay, RunWriterError> {
+    ) -> Result<Overlay, WriterDocumentError> {
         if self.state.document.get_version(base_version_id).is_none() {
-            return Err(RunWriterError::VersionNotFound(base_version_id));
+            return Err(WriterDocumentError::VersionNotFound(base_version_id));
         }
         if diff_ops.is_empty() {
-            return Err(RunWriterError::InvalidPatch(
+            return Err(WriterDocumentError::InvalidPatch(
                 "overlay diff_ops cannot be empty".to_string(),
             ));
         }
@@ -762,13 +767,19 @@ impl RunWriterRuntime {
 
 #[cfg(test)]
 mod tests {
-    use super::{PatchOp, PatchOpKind, RunWriterRuntime};
+    use super::{PatchOp, PatchOpKind, WriterDocumentRuntime};
 
     #[test]
     fn extract_revision_from_content_parses_marker() {
         let content = "<!-- revision:42 -->\n# Test\nBody";
-        assert_eq!(RunWriterRuntime::extract_revision_from_content(content), 42);
-        assert_eq!(RunWriterRuntime::extract_revision_from_content("# Test"), 0);
+        assert_eq!(
+            WriterDocumentRuntime::extract_revision_from_content(content),
+            42
+        );
+        assert_eq!(
+            WriterDocumentRuntime::extract_revision_from_content("# Test"),
+            0
+        );
     }
 
     #[test]
@@ -780,7 +791,7 @@ mod tests {
         }];
 
         let (content, lines_modified) =
-            RunWriterRuntime::apply_legacy_line_patch_ops("hello", &ops);
+            WriterDocumentRuntime::apply_legacy_line_patch_ops("hello", &ops);
         assert_eq!(content, "hello\nworld");
         assert_eq!(lines_modified, 1);
     }

@@ -8,8 +8,8 @@ use crate::actors::conductor::{
     workers::{call_researcher, call_terminal},
 };
 use crate::actors::researcher::ResearcherProgress;
-use crate::actors::run_writer::SectionState;
 use crate::actors::terminal::TerminalAgentProgress;
+use crate::actors::writer::SectionState;
 use crate::actors::writer::{WriterMsg, WriterSource};
 
 impl ConductorActor {

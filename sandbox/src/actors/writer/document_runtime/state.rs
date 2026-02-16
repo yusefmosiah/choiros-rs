@@ -219,7 +219,7 @@ impl RunDocument {
     }
 }
 
-pub struct RunWriterState {
+pub struct WriterDocumentState {
     pub run_id: String,
     pub desktop_id: String,
     pub session_id: String,

@@ -4,9 +4,9 @@
 //! the error types used throughout the conductor system.
 
 use crate::actors::researcher::ResearcherResult;
-use crate::actors::run_writer::{DocumentVersion, Overlay, OverlayStatus, VersionSource};
 use crate::actors::terminal::TerminalAgentResult;
 use crate::actors::writer::WriterQueueAck;
+use crate::actors::writer::{DocumentVersion, Overlay, OverlayStatus, VersionSource};
 use ractor::RpcReplyPort;
 use shared_types::{ConductorExecuteRequest, ConductorRunState, EventMetadata};
 
@@ -51,26 +51,26 @@ pub enum ConductorMsg {
         base_version_id: u64,
         reply: RpcReplyPort<Result<WriterQueueAck, ConductorError>>,
     },
-    /// List run document versions from run-writer actor.
-    ListRunWriterVersions {
+    /// List run document versions from writer document runtime.
+    ListWriterDocumentVersions {
         run_id: String,
         reply: RpcReplyPort<Result<Vec<DocumentVersion>, ConductorError>>,
     },
-    /// Fetch a specific run document version from run-writer actor.
-    GetRunWriterVersion {
+    /// Fetch a specific run document version from writer document runtime.
+    GetWriterDocumentVersion {
         run_id: String,
         version_id: u64,
         reply: RpcReplyPort<Result<DocumentVersion, ConductorError>>,
     },
     /// List overlays for a run document.
-    ListRunWriterOverlays {
+    ListWriterDocumentOverlays {
         run_id: String,
         base_version_id: Option<u64>,
         status: Option<OverlayStatus>,
         reply: RpcReplyPort<Result<Vec<Overlay>, ConductorError>>,
     },
     /// Create a canonical version for a run document.
-    CreateRunWriterVersion {
+    CreateWriterDocumentVersion {
         run_id: String,
         parent_version_id: Option<u64>,
         content: String,

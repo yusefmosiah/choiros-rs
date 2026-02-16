@@ -25,7 +25,7 @@ use crate::actors::agent_harness::{
 };
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::ModelRegistry;
-use crate::actors::run_writer::SectionState;
+use crate::actors::writer::SectionState;
 use crate::actors::writer::{WriterInboundEnvelope, WriterMsg, WriterSource};
 use crate::baml_client::types::{
     MessageWriterToolCall,
@@ -102,7 +102,7 @@ impl ResearcherAdapter {
             .map(|run_id| format!("conductor/runs/{run_id}/draft.md"))
     }
 
-    fn has_run_writer(&self) -> bool {
+    fn has_writer_document_context(&self) -> bool {
         self.writer_actor.is_some() && self.run_id.is_some()
     }
 
@@ -450,7 +450,7 @@ impl WorkerPort for ResearcherAdapter {
    - old_text: string (required) - Text to find and replace
    - new_text: string (required) - Replacement text
 
-6. message_writer - Send a typed actor message to the run writer
+6. message_writer - Send a typed actor message to the run document
    Args:
    - path: string (optional) - section_id: conductor|researcher|terminal|user (default: researcher)
    - content: string (required for append/progress)
@@ -458,7 +458,7 @@ impl WorkerPort for ResearcherAdapter {
    - mode_arg: string (optional) - mode argument:
      - progress: phase string
      - state: pending|running|complete|failed
-   Required behavior in run writer mode:
+   Required behavior in writer document mode:
    - Use message_writer with mode=\"proposal_append\" for substantive updates
    - Publish first substantive update by step 2 at latest
    - Publish again whenever you have new findings or changed conclusions
@@ -508,7 +508,7 @@ Guidelines:
 - Use file_read to reference existing documents, code, or previous research
 - Use file_write to create your working draft (overwrites existing)
 - Use file_edit to refine specific sections without rewriting everything
-- Use message_writer for run-document updates when run writer mode is active
+- Use message_writer for run-document updates when writer document mode is active
 - Parallel tool planning protocol:
   - Prefer multiple independent tool calls in a single step instead of serial one-by-one calls.
   - When objective has multiple sub-questions, issue parallel web_search calls for each sub-question.
@@ -533,7 +533,7 @@ Guidelines:
 - Cite sources inline as markdown links: [title](url)
 - Put the most important finding first (don't bury the lede)
 - Use freeform markdown - no forced structure
-- Recommended loop shape in run writer mode:
+- Recommended loop shape in writer document mode:
   1) fetch_url for any explicit URLs in the objective/user message
   2) web_search to fill context gaps and discover corroborating sources
   3) message_writer proposal_append with concise findings + citations
@@ -746,7 +746,7 @@ Guidelines:
                     });
                 }
 
-                if self.has_run_writer() {
+                if self.has_writer_document_context() {
                     let elapsed = start_time.elapsed().as_millis() as u64;
                     return Ok(ToolExecution {
                         tool_name: call.tool_name.clone(),
@@ -766,7 +766,7 @@ Guidelines:
                         .as_ref()
                         .map(|p| p == path)
                         .unwrap_or(false);
-                if is_run_doc_path && self.has_run_writer() {
+                if is_run_doc_path && self.has_writer_document_context() {
                     let elapsed = start_time.elapsed().as_millis() as u64;
                     Ok(ToolExecution {
                         tool_name: call.tool_name.clone(),
@@ -782,7 +782,7 @@ Guidelines:
                         success: false,
                         output: String::new(),
                         error: Some(
-                            "Run document writes are unavailable without run writer context"
+                            "Run document writes are unavailable without writer document context"
                                 .to_string(),
                         ),
                         execution_time_ms: elapsed,
@@ -853,7 +853,7 @@ Guidelines:
                     });
                 }
 
-                if self.has_run_writer() {
+                if self.has_writer_document_context() {
                     let elapsed = start_time.elapsed().as_millis() as u64;
                     return Ok(ToolExecution {
                         tool_name: call.tool_name.clone(),
@@ -873,7 +873,7 @@ Guidelines:
                         .as_ref()
                         .map(|p| p == path)
                         .unwrap_or(false);
-                if is_run_doc_path && self.has_run_writer() {
+                if is_run_doc_path && self.has_writer_document_context() {
                     let elapsed = start_time.elapsed().as_millis() as u64;
                     Ok(ToolExecution {
                         tool_name: call.tool_name.clone(),
@@ -889,7 +889,7 @@ Guidelines:
                         success: false,
                         output: String::new(),
                         error: Some(
-                            "Run document edits are unavailable without run writer context"
+                            "Run document edits are unavailable without writer document context"
                                 .to_string(),
                         ),
                         execution_time_ms: elapsed,
@@ -984,7 +984,7 @@ Guidelines:
         _decision: &crate::baml_client::types::AgentDecision,
         tool_executions: &[ToolExecution],
     ) -> Result<(), String> {
-        let writer_mode_active = self.writer_actor.is_some() && self.has_run_writer();
+        let writer_mode_active = self.writer_actor.is_some() && self.has_writer_document_context();
         if !Self::terminal_decision_has_required_writer_message(writer_mode_active, tool_executions)
         {
             return Err(

@@ -5,7 +5,7 @@ use crate::actors::conductor::{
     events,
     protocol::{CapabilityWorkerOutput, ConductorError},
 };
-use crate::actors::run_writer::SectionState;
+use crate::actors::writer::SectionState;
 use crate::actors::writer::WriterMsg;
 
 impl ConductorActor {
