@@ -296,7 +296,6 @@ impl WriterDocumentRuntime {
             SectionState::Failed => shared_types::WriterRunStatusKind::Failed,
         };
 
-        self.persist_document().await?;
         self.emit_status_event(status, Some(status_message)).await;
         Ok(())
     }
@@ -727,7 +726,7 @@ impl WriterDocumentRuntime {
             );
         }
 
-        self.emit_event("writer.run.patch.applied", payload).await;
+        self.emit_event("writer.run.patch", payload).await;
     }
 
     async fn emit_progress_event(&self, phase: impl Into<String>, message: impl Into<String>) {
