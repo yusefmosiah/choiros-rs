@@ -10,10 +10,10 @@
 //! - file_write: Write/create files
 //! - file_edit: Edit existing files
 //!
-//! Writer-First Integration (Phase D):
-//! - When run_writer_actor is set, writes to run document paths are delegated
+//! Writer-First Integration:
+//! - When run context is set, writes to run document paths are delegated
 //! - Run document path pattern: conductor/runs/{run_id}/draft.md
-//! - Workers send typed patches via RunWriterActor instead of direct writes
+//! - Workers send typed writer messages instead of direct run-document file writes
 
 use async_trait::async_trait;
 use ractor::ActorRef;
@@ -25,7 +25,7 @@ use crate::actors::agent_harness::{
 };
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::ModelRegistry;
-use crate::actors::run_writer::{RunWriterMsg, SectionState};
+use crate::actors::run_writer::SectionState;
 use crate::actors::writer::{WriterInboundEnvelope, WriterMsg, WriterSource};
 use crate::baml_client::types::{
     MessageWriterToolCall,
@@ -92,7 +92,6 @@ pub struct ResearcherAdapter {
     progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
     http_client: reqwest::Client,
     writer_actor: Option<ActorRef<WriterMsg>>,
-    run_writer_actor: Option<ActorRef<RunWriterMsg>>,
     run_id: Option<String>,
 }
 
@@ -104,7 +103,7 @@ impl ResearcherAdapter {
     }
 
     fn has_run_writer(&self) -> bool {
-        self.run_writer_actor.is_some() && self.run_id.is_some()
+        self.writer_actor.is_some() && self.run_id.is_some()
     }
 
     pub fn new(
@@ -122,7 +121,6 @@ impl ResearcherAdapter {
             progress_tx,
             http_client,
             writer_actor: None,
-            run_writer_actor: None,
             run_id: None,
         })
     }
@@ -132,13 +130,8 @@ impl ResearcherAdapter {
         self
     }
 
-    pub fn with_run_writer(
-        mut self,
-        run_writer_actor: ActorRef<RunWriterMsg>,
-        run_id: String,
-    ) -> Self {
-        self.run_writer_actor = Some(run_writer_actor);
-        self.run_id = Some(run_id);
+    pub fn with_run_context(mut self, run_id: Option<String>) -> Self {
+        self.run_id = run_id;
         self
     }
 
@@ -214,20 +207,15 @@ impl ResearcherAdapter {
         }
     }
 
-    fn writer_context(&self) -> Option<(ActorRef<WriterMsg>, ActorRef<RunWriterMsg>, String)> {
-        Some((
-            self.writer_actor.clone()?,
-            self.run_writer_actor.clone()?,
-            self.run_id.clone()?,
-        ))
+    fn writer_context(&self) -> Option<(ActorRef<WriterMsg>, String)> {
+        Some((self.writer_actor.clone()?, self.run_id.clone()?))
     }
 
     async fn writer_set_state(&self, state: SectionState) {
-        let Some((writer_actor, run_writer_actor, run_id)) = self.writer_context() else {
+        let Some((writer_actor, run_id)) = self.writer_context() else {
             return;
         };
         let _ = ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
-            run_writer_actor,
             run_id,
             section_id: "researcher".to_string(),
             state,
@@ -264,14 +252,14 @@ impl ResearcherAdapter {
                 });
             }
         };
-        let (run_writer_actor, run_id) = match (&self.run_writer_actor, &self.run_id) {
-            (Some(actor), Some(run_id)) => (actor.clone(), run_id.clone()),
+        let run_id = match &self.run_id {
+            Some(run_id) => run_id.clone(),
             _ => {
                 return Ok(ToolExecution {
                     tool_name: "message_writer".to_string(),
                     success: false,
                     output: String::new(),
-                    error: Some("RunWriterActor not configured for this run".to_string()),
+                    error: Some("Run writer context not configured for this run".to_string()),
                     execution_time_ms: start_time.elapsed().as_millis() as u64,
                 });
             }
@@ -294,7 +282,6 @@ impl ResearcherAdapter {
                     Err("message_writer progress mode requires content".to_string())
                 } else {
                     ractor::call!(writer_actor, |reply| WriterMsg::ReportProgress {
-                        run_writer_actor: run_writer_actor.clone(),
                         run_id: run_id.clone(),
                         section_id: section_id.clone(),
                         source: WriterSource::Researcher,
@@ -320,7 +307,6 @@ impl ResearcherAdapter {
                 });
                 match state {
                     Ok(state) => ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
-                        run_writer_actor: run_writer_actor.clone(),
                         run_id: run_id.clone(),
                         section_id: section_id.clone(),
                         state,
@@ -342,7 +328,6 @@ impl ResearcherAdapter {
                     Err("message_writer canon_append mode requires content".to_string())
                 } else {
                     ractor::call!(writer_actor, |reply| WriterMsg::ApplyText {
-                        run_writer_actor: run_writer_actor.clone(),
                         run_id: run_id.clone(),
                         section_id: section_id.clone(),
                         source: WriterSource::Researcher,
@@ -384,7 +369,6 @@ impl ResearcherAdapter {
                     };
                     ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
                         envelope,
-                        run_writer_actor: run_writer_actor.clone(),
                         reply,
                     })
                     .map_err(|e| format!("WriterActor call failed: {e}"))
@@ -798,7 +782,7 @@ Guidelines:
                         success: false,
                         output: String::new(),
                         error: Some(
-                            "Run document writes are unavailable without RunWriterActor"
+                            "Run document writes are unavailable without run writer context"
                                 .to_string(),
                         ),
                         execution_time_ms: elapsed,
@@ -905,7 +889,8 @@ Guidelines:
                         success: false,
                         output: String::new(),
                         error: Some(
-                            "Run document edits are unavailable without RunWriterActor".to_string(),
+                            "Run document edits are unavailable without run writer context"
+                                .to_string(),
                         ),
                         execution_time_ms: elapsed,
                     })

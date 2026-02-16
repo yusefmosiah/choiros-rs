@@ -2,7 +2,7 @@
 //!
 //! Unlike researcher/terminal, WriterActor does not run a planning loop.
 //! It reacts to typed actor messages from workers/humans and mutates run
-//! documents through RunWriterActor. When multi-step work is needed, it can
+//! documents through in-process run-document runtime state. When multi-step work is needed, it can
 //! delegate to researcher/terminal actors via typed actor messages.
 
 mod adapter;
@@ -11,7 +11,6 @@ use async_trait::async_trait;
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 use crate::actors::agent_harness::{AgentHarness, HarnessConfig, ObjectiveStatus, ToolExecution};
@@ -20,7 +19,7 @@ use crate::actors::model_config::ModelRegistry;
 use crate::actors::researcher::{ResearcherMsg, ResearcherProgress, ResearcherResult};
 use crate::actors::run_writer::{
     DocumentVersion, Overlay, OverlayAuthor, OverlayKind, OverlayStatus, PatchOp, PatchOpKind,
-    RunWriterActor, RunWriterArguments, RunWriterMsg, SectionState, VersionSource,
+    RunWriterArguments, RunWriterRuntime, SectionState, VersionSource,
 };
 use crate::actors::terminal::{TerminalAgentProgress, TerminalAgentResult, TerminalMsg};
 use crate::observability::llm_trace::LlmTraceEmitter;
@@ -36,7 +35,6 @@ pub struct WriterArguments {
     pub event_store: ActorRef<EventStoreMsg>,
     pub researcher_actor: Option<ActorRef<ResearcherMsg>>,
     pub terminal_actor: Option<ActorRef<TerminalMsg>>,
-    pub root_dir: Option<String>,
 }
 
 pub struct WriterState {
@@ -50,14 +48,12 @@ pub struct WriterState {
     seen_message_ids: HashSet<String>,
     seen_order: VecDeque<String>,
     inbox_processing: bool,
-    run_writers_by_run_id: HashMap<String, ActorRef<RunWriterMsg>>,
-    root_dir: String,
+    run_documents_by_run_id: HashMap<String, RunWriterRuntime>,
 }
 
 #[derive(Debug, Clone)]
 struct WriterInboxMessage {
     envelope: WriterInboundEnvelope,
-    run_writer_actor: ActorRef<RunWriterMsg>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,10 +85,11 @@ pub struct WriterQueueAck {
 
 #[derive(Debug)]
 pub enum WriterMsg {
-    /// Register a run_id -> RunWriterActor binding.
-    RegisterRunWriter {
+    /// Ensure run-scoped writer document exists for run_id.
+    EnsureRunDocument {
         run_id: String,
-        run_writer_actor: ActorRef<RunWriterMsg>,
+        desktop_id: String,
+        objective: String,
         reply: RpcReplyPort<Result<(), WriterError>>,
     },
     /// List run document versions for a registered run.
@@ -128,9 +125,8 @@ pub enum WriterMsg {
         base_version_id: u64,
         reply: RpcReplyPort<Result<WriterQueueAck, WriterError>>,
     },
-    /// Apply text to a run section via RunWriterActor.
+    /// Apply text to a run section in run-document state.
     ApplyText {
-        run_writer_actor: ActorRef<RunWriterMsg>,
         run_id: String,
         section_id: String,
         source: WriterSource,
@@ -140,7 +136,6 @@ pub enum WriterMsg {
     },
     /// Emit non-mutating progress for a run section.
     ReportProgress {
-        run_writer_actor: ActorRef<RunWriterMsg>,
         run_id: String,
         section_id: String,
         source: WriterSource,
@@ -150,7 +145,6 @@ pub enum WriterMsg {
     },
     /// Update section state for writer UX.
     SetSectionState {
-        run_writer_actor: ActorRef<RunWriterMsg>,
         run_id: String,
         section_id: String,
         state: SectionState,
@@ -158,7 +152,6 @@ pub enum WriterMsg {
     },
     /// Append a human comment into `user` proposal context.
     ApplyHumanComment {
-        run_writer_actor: ActorRef<RunWriterMsg>,
         run_id: String,
         comment: String,
         reply: RpcReplyPort<Result<u64, WriterError>>,
@@ -168,7 +161,6 @@ pub enum WriterMsg {
     /// Control flow uses this actor message path; EventStore remains trace-only.
     EnqueueInbound {
         envelope: WriterInboundEnvelope,
-        run_writer_actor: ActorRef<RunWriterMsg>,
         reply: RpcReplyPort<Result<WriterQueueAck, WriterError>>,
     },
     /// Internal wake to process the next queued inbox item.
@@ -259,10 +251,7 @@ impl Actor for WriterActor {
             seen_message_ids: HashSet::new(),
             seen_order: VecDeque::new(),
             inbox_processing: false,
-            run_writers_by_run_id: HashMap::new(),
-            root_dir: args
-                .root_dir
-                .unwrap_or_else(|| env!("CARGO_MANIFEST_DIR").to_string()),
+            run_documents_by_run_id: HashMap::new(),
         })
     }
 
@@ -273,13 +262,14 @@ impl Actor for WriterActor {
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            WriterMsg::RegisterRunWriter {
+            WriterMsg::EnsureRunDocument {
                 run_id,
-                run_writer_actor,
+                desktop_id,
+                objective,
                 reply,
             } => {
-                state.run_writers_by_run_id.insert(run_id, run_writer_actor);
-                let _ = reply.send(Ok(()));
+                let result = Self::ensure_run_document(state, run_id, desktop_id, objective).await;
+                let _ = reply.send(result);
             }
             WriterMsg::ListRunWriterVersions { run_id, reply } => {
                 let result = Self::list_run_writer_versions(state, run_id).await;
@@ -332,7 +322,6 @@ impl Actor for WriterActor {
                 let _ = reply.send(result);
             }
             WriterMsg::ApplyText {
-                run_writer_actor,
                 run_id,
                 section_id,
                 source,
@@ -340,20 +329,11 @@ impl Actor for WriterActor {
                 proposal,
                 reply,
             } => {
-                let result = Self::apply_text(
-                    state,
-                    run_writer_actor,
-                    run_id,
-                    section_id,
-                    source,
-                    content,
-                    proposal,
-                )
-                .await;
+                let result =
+                    Self::apply_text(state, run_id, section_id, source, content, proposal).await;
                 let _ = reply.send(result);
             }
             WriterMsg::ReportProgress {
-                run_writer_actor,
                 run_id,
                 section_id,
                 source,
@@ -361,39 +341,27 @@ impl Actor for WriterActor {
                 message,
                 reply,
             } => {
-                let result = Self::report_progress(
-                    state,
-                    run_writer_actor,
-                    run_id,
-                    section_id,
-                    source,
-                    phase,
-                    message,
-                )
-                .await;
+                let result =
+                    Self::report_progress(state, run_id, section_id, source, phase, message).await;
                 let _ = reply.send(result);
             }
             WriterMsg::SetSectionState {
-                run_writer_actor,
                 run_id,
                 section_id,
                 state: section_state,
                 reply,
             } => {
                 let result =
-                    Self::set_section_state(run_writer_actor, run_id, section_id, section_state)
-                        .await;
+                    Self::set_section_state(state, run_id, section_id, section_state).await;
                 let _ = reply.send(result);
             }
             WriterMsg::ApplyHumanComment {
-                run_writer_actor,
                 run_id,
                 comment,
                 reply,
             } => {
                 let result = Self::apply_text(
                     state,
-                    run_writer_actor,
                     run_id,
                     "user".to_string(),
                     WriterSource::User,
@@ -403,20 +371,9 @@ impl Actor for WriterActor {
                 .await;
                 let _ = reply.send(result);
             }
-            WriterMsg::EnqueueInbound {
-                envelope,
-                run_writer_actor,
-                reply,
-            } => {
-                let result = Self::enqueue_inbound(
-                    &myself,
-                    state,
-                    WriterInboxMessage {
-                        envelope,
-                        run_writer_actor,
-                    },
-                )
-                .await;
+            WriterMsg::EnqueueInbound { envelope, reply } => {
+                let result =
+                    Self::enqueue_inbound(&myself, state, WriterInboxMessage { envelope }).await;
                 let _ = reply.send(result);
             }
             WriterMsg::ProcessInbox => {
@@ -445,83 +402,49 @@ impl Actor for WriterActor {
 impl WriterActor {
     const MAX_SEEN_IDS: usize = 4096;
 
-    fn resolve_run_writer(
-        state: &WriterState,
+    async fn ensure_run_document(
+        state: &mut WriterState,
+        run_id: String,
+        desktop_id: String,
+        objective: String,
+    ) -> Result<(), WriterError> {
+        if state.run_documents_by_run_id.contains_key(&run_id) {
+            return Ok(());
+        }
+        let runtime = RunWriterRuntime::load(RunWriterArguments {
+            run_id: run_id.clone(),
+            desktop_id: desktop_id.clone(),
+            objective: objective.clone(),
+            session_id: desktop_id,
+            thread_id: run_id.clone(),
+            root_dir: Some(env!("CARGO_MANIFEST_DIR").to_string()),
+            event_store: state.event_store.clone(),
+        })
+        .await
+        .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?;
+        state.run_documents_by_run_id.insert(run_id, runtime);
+        Ok(())
+    }
+
+    fn resolve_run_document_mut<'a>(
+        state: &'a mut WriterState,
         run_id: &str,
-    ) -> Result<ActorRef<RunWriterMsg>, WriterError> {
+    ) -> Result<&'a mut RunWriterRuntime, WriterError> {
         state
-            .run_writers_by_run_id
-            .get(run_id)
-            .cloned()
+            .run_documents_by_run_id
+            .get_mut(run_id)
             .ok_or_else(|| {
                 WriterError::Validation(format!("run writer not found for run_id={run_id}"))
             })
     }
 
-    fn run_writer_state_exists(state: &WriterState, run_id: &str) -> bool {
-        let run_dir = PathBuf::from(&state.root_dir)
-            .join("conductor")
-            .join("runs")
-            .join(run_id);
-        run_dir.join("draft.writer-state.json").exists() || run_dir.join("draft.md").exists()
-    }
-
-    async fn ensure_run_writer(
-        state: &mut WriterState,
+    fn resolve_run_document<'a>(
+        state: &'a WriterState,
         run_id: &str,
-    ) -> Result<ActorRef<RunWriterMsg>, WriterError> {
-        if let Some(existing) = state.run_writers_by_run_id.get(run_id).cloned() {
-            return Ok(existing);
-        }
-
-        let actor_name = format!("run-writer-{run_id}");
-        if let Some(cell) = ractor::registry::where_is(actor_name.clone()) {
-            let actor_ref: ActorRef<RunWriterMsg> = cell.into();
-            state
-                .run_writers_by_run_id
-                .insert(run_id.to_string(), actor_ref.clone());
-            return Ok(actor_ref);
-        }
-
-        if !Self::run_writer_state_exists(state, run_id) {
-            return Err(WriterError::Validation(format!(
-                "run writer not found for run_id={run_id}"
-            )));
-        }
-
-        let (actor_ref, _handle) = ractor::Actor::spawn(
-            Some(actor_name),
-            RunWriterActor,
-            RunWriterArguments {
-                run_id: run_id.to_string(),
-                desktop_id: run_id.to_string(),
-                objective: String::new(),
-                session_id: run_id.to_string(),
-                thread_id: run_id.to_string(),
-                root_dir: Some(state.root_dir.clone()),
-                event_store: state.event_store.clone(),
-            },
-        )
-        .await
-        .map_err(|e| {
-            WriterError::ActorUnavailable(format!(
-                "failed to restore run writer for run_id={run_id}: {e}"
-            ))
-        })?;
-
-        state
-            .run_writers_by_run_id
-            .insert(run_id.to_string(), actor_ref.clone());
-        Self::emit_event(
-            state,
-            "writer.actor.run_writer.restored",
-            serde_json::json!({
-                "run_id": run_id,
-                "actor_name": format!("run-writer-{run_id}"),
-            }),
-        );
-
-        Ok(actor_ref)
+    ) -> Result<&'a RunWriterRuntime, WriterError> {
+        state.run_documents_by_run_id.get(run_id).ok_or_else(|| {
+            WriterError::Validation(format!("run writer not found for run_id={run_id}"))
+        })
     }
 
     fn emit_event(state: &WriterState, event_type: &str, payload: serde_json::Value) {
@@ -562,11 +485,6 @@ impl WriterActor {
         state: &mut WriterState,
         mut inbound: WriterInboxMessage,
     ) -> Result<WriterQueueAck, WriterError> {
-        state.run_writers_by_run_id.insert(
-            inbound.envelope.run_id.clone(),
-            inbound.run_writer_actor.clone(),
-        );
-
         let has_prompt_diff = inbound
             .envelope
             .prompt_diff
@@ -605,28 +523,22 @@ impl WriterActor {
                 ));
             }
 
-            let overlay = ractor::call!(inbound.run_writer_actor.clone(), |reply| {
-                RunWriterMsg::CreateOverlay {
-                    run_id: inbound.envelope.run_id.clone(),
+            let run_doc = Self::resolve_run_document_mut(state, &inbound.envelope.run_id)?;
+            let overlay = run_doc
+                .create_overlay(
+                    &inbound.envelope.run_id,
                     base_version_id,
-                    author: OverlayAuthor::User,
-                    kind: OverlayKind::Proposal,
-                    diff_ops: prompt_diff,
-                    reply,
-                }
-            })
-            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?
-            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?;
+                    OverlayAuthor::User,
+                    OverlayKind::Proposal,
+                    prompt_diff,
+                )
+                .await
+                .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?;
             inbound.envelope.overlay_id = Some(overlay.overlay_id);
-
-            ractor::call!(inbound.run_writer_actor.clone(), |reply| {
-                RunWriterMsg::GetRevision { reply }
-            })
-            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?
+            run_doc.revision()
         } else {
             Self::apply_text(
                 state,
-                inbound.run_writer_actor.clone(),
                 inbound.envelope.run_id.clone(),
                 inbound.envelope.section_id.clone(),
                 inbound.envelope.source,
@@ -695,7 +607,6 @@ impl WriterActor {
             Ok(Some(markdown)) => {
                 let _ = Self::set_section_content(
                     state,
-                    inbound.run_writer_actor.clone(),
                     inbound.envelope.run_id.clone(),
                     "conductor".to_string(),
                     WriterSource::Writer,
@@ -772,13 +683,7 @@ impl WriterActor {
         inbound: &WriterInboxMessage,
         delegation_context: String,
     ) -> Result<Option<String>, WriterError> {
-        let doc = match ractor::call!(inbound.run_writer_actor, |reply| {
-            RunWriterMsg::GetDocument { reply }
-        }) {
-            Ok(Ok(doc)) => doc,
-            Ok(Err(error)) => return Err(WriterError::RunWriterFailed(error.to_string())),
-            Err(error) => return Err(WriterError::RunWriterFailed(error.to_string())),
-        };
+        let doc = Self::resolve_run_document(state, &inbound.envelope.run_id)?.document_markdown();
 
         let message_content = if let Some(diff_ops) = inbound.envelope.prompt_diff.as_ref() {
             let diff_json = serde_json::to_string_pretty(diff_ops).unwrap_or_default();
@@ -868,8 +773,7 @@ impl WriterActor {
     }
 
     async fn apply_text(
-        state: &WriterState,
-        run_writer_actor: ActorRef<RunWriterMsg>,
+        state: &mut WriterState,
         run_id: String,
         section_id: String,
         source: WriterSource,
@@ -886,78 +790,52 @@ impl WriterActor {
             position: None,
             text: Some(content.clone()),
         }];
-        match ractor::call!(run_writer_actor, |reply| RunWriterMsg::ApplyPatch {
-            run_id: run_id.clone(),
-            source: source.as_str().to_string(),
-            section_id: section_id.clone(),
-            ops,
-            proposal,
-            reply,
-        }) {
-            Ok(Ok(result)) => {
-                Self::emit_event(
-                    state,
-                    "writer.actor.apply_text",
-                    serde_json::json!({
-                        "run_id": run_id,
-                        "section_id": section_id,
-                        "source": source.as_str(),
-                        "proposal": proposal,
-                        "revision": result.revision,
-                        "lines_modified": result.lines_modified,
-                    }),
-                );
-                Ok(result.revision)
-            }
-            Ok(Err(e)) => Err(WriterError::RunWriterFailed(e.to_string())),
-            Err(e) => Err(WriterError::RunWriterFailed(e.to_string())),
-        }
+        let result = {
+            let run_doc = Self::resolve_run_document_mut(state, &run_id)?;
+            run_doc
+                .apply_patch(&run_id, source.as_str(), &section_id, ops, proposal)
+                .await
+                .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?
+        };
+        Self::emit_event(
+            state,
+            "writer.actor.apply_text",
+            serde_json::json!({
+                "run_id": run_id,
+                "section_id": section_id,
+                "source": source.as_str(),
+                "proposal": proposal,
+                "revision": result.revision,
+                "lines_modified": result.lines_modified,
+            }),
+        );
+        Ok(result.revision)
     }
 
     async fn list_run_writer_versions(
-        state: &mut WriterState,
+        state: &WriterState,
         run_id: String,
     ) -> Result<Vec<DocumentVersion>, WriterError> {
-        let run_writer = Self::ensure_run_writer(state, &run_id).await?;
-        match ractor::call!(run_writer, |reply| RunWriterMsg::ListVersions { reply }) {
-            Ok(Ok(versions)) => Ok(versions),
-            Ok(Err(error)) => Err(WriterError::RunWriterFailed(error.to_string())),
-            Err(error) => Err(WriterError::RunWriterFailed(error.to_string())),
-        }
+        Ok(Self::resolve_run_document(state, &run_id)?.list_versions())
     }
 
     async fn get_run_writer_version(
-        state: &mut WriterState,
+        state: &WriterState,
         run_id: String,
         version_id: u64,
     ) -> Result<DocumentVersion, WriterError> {
-        let run_writer = Self::ensure_run_writer(state, &run_id).await?;
-        match ractor::call!(run_writer, |reply| RunWriterMsg::GetVersion {
-            version_id,
-            reply
-        }) {
-            Ok(Ok(version)) => Ok(version),
-            Ok(Err(error)) => Err(WriterError::RunWriterFailed(error.to_string())),
-            Err(error) => Err(WriterError::RunWriterFailed(error.to_string())),
-        }
+        Self::resolve_run_document(state, &run_id)?
+            .get_version(version_id)
+            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))
     }
 
     async fn list_run_writer_overlays(
-        state: &mut WriterState,
+        state: &WriterState,
         run_id: String,
         base_version_id: Option<u64>,
         status: Option<OverlayStatus>,
     ) -> Result<Vec<Overlay>, WriterError> {
-        let run_writer = Self::ensure_run_writer(state, &run_id).await?;
-        match ractor::call!(run_writer, |reply| RunWriterMsg::ListOverlays {
-            base_version_id,
-            status,
-            reply
-        }) {
-            Ok(Ok(overlays)) => Ok(overlays),
-            Ok(Err(error)) => Err(WriterError::RunWriterFailed(error.to_string())),
-            Err(error) => Err(WriterError::RunWriterFailed(error.to_string())),
-        }
+        Ok(Self::resolve_run_document(state, &run_id)?.list_overlays(base_version_id, status))
     }
 
     async fn create_run_writer_version(
@@ -967,18 +845,11 @@ impl WriterActor {
         content: String,
         source: VersionSource,
     ) -> Result<DocumentVersion, WriterError> {
-        let run_writer = Self::ensure_run_writer(state, &run_id).await?;
-        match ractor::call!(run_writer, |reply| RunWriterMsg::CreateVersion {
-            run_id,
-            parent_version_id,
-            content,
-            source,
-            reply
-        }) {
-            Ok(Ok(version)) => Ok(version),
-            Ok(Err(error)) => Err(WriterError::RunWriterFailed(error.to_string())),
-            Err(error) => Err(WriterError::RunWriterFailed(error.to_string())),
-        }
+        let run_doc = Self::resolve_run_document_mut(state, &run_id)?;
+        run_doc
+            .create_version(&run_id, parent_version_id, content, source)
+            .await
+            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))
     }
 
     async fn submit_user_prompt(
@@ -993,15 +864,10 @@ impl WriterActor {
                 "prompt_diff cannot be empty".to_string(),
             ));
         }
-        let run_writer_actor = Self::ensure_run_writer(state, &run_id).await?;
 
-        let head = match ractor::call!(run_writer_actor.clone(), |reply| {
-            RunWriterMsg::GetHeadVersion { reply }
-        }) {
-            Ok(Ok(head)) => head,
-            Ok(Err(error)) => return Err(WriterError::RunWriterFailed(error.to_string())),
-            Err(error) => return Err(WriterError::RunWriterFailed(error.to_string())),
-        };
+        let head = Self::resolve_run_document(state, &run_id)?
+            .head_version()
+            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?;
         if base_version_id != head.version_id {
             return Err(WriterError::Validation(format!(
                 "stale base_version_id: expected {}, got {}",
@@ -1025,15 +891,7 @@ impl WriterActor {
             call_id: None,
             origin_actor: Some("conductor".to_string()),
         };
-        Self::enqueue_inbound(
-            myself,
-            state,
-            WriterInboxMessage {
-                envelope,
-                run_writer_actor,
-            },
-        )
-        .await
+        Self::enqueue_inbound(myself, state, WriterInboxMessage { envelope }).await
     }
 
     fn build_delegation_objective(inbound: &WriterInboxMessage) -> String {
@@ -1117,7 +975,6 @@ impl WriterActor {
         let delegation_call_id = format!("writer-delegation:{}", ulid::Ulid::new());
         let objective = Self::build_delegation_objective(inbound);
         let writer_actor = myself.clone();
-        let run_writer_actor = inbound.run_writer_actor.clone();
         let seed_envelope = inbound.envelope.clone();
         let writer_id = state.writer_id.clone();
         let user_id = state.user_id.clone();
@@ -1227,7 +1084,6 @@ impl WriterActor {
             };
             let _ = ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
                 envelope: completion_envelope,
-                run_writer_actor,
                 reply,
             });
         });
@@ -1236,8 +1092,7 @@ impl WriterActor {
     }
 
     async fn set_section_content(
-        state: &WriterState,
-        run_writer_actor: ActorRef<RunWriterMsg>,
+        state: &mut WriterState,
         run_id: String,
         section_id: String,
         source: WriterSource,
@@ -1248,13 +1103,11 @@ impl WriterActor {
                 "content cannot be empty".to_string(),
             ));
         }
-        let parent_version_id = match ractor::call!(run_writer_actor.clone(), |reply| {
-            RunWriterMsg::GetHeadVersion { reply }
-        }) {
-            Ok(Ok(version)) => version.version_id,
-            Ok(Err(e)) => return Err(WriterError::RunWriterFailed(e.to_string())),
-            Err(e) => return Err(WriterError::RunWriterFailed(e.to_string())),
-        };
+        let run_doc = Self::resolve_run_document_mut(state, &run_id)?;
+        let parent_version_id = run_doc
+            .head_version()
+            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?
+            .version_id;
 
         let version_source = match source {
             WriterSource::Writer => VersionSource::Writer,
@@ -1264,43 +1117,32 @@ impl WriterActor {
             }
         };
 
-        match ractor::call!(run_writer_actor.clone(), |reply| {
-            RunWriterMsg::CreateVersion {
-                run_id: run_id.clone(),
-                parent_version_id: Some(parent_version_id),
-                content: content.clone(),
-                source: version_source,
-                reply,
-            }
-        }) {
-            Ok(Ok(version)) => {
-                let revision = match ractor::call!(run_writer_actor, |reply| {
-                    RunWriterMsg::GetRevision { reply }
-                }) {
-                    Ok(revision) => revision,
-                    Err(e) => return Err(WriterError::RunWriterFailed(e.to_string())),
-                };
-                Self::emit_event(
-                    state,
-                    "writer.actor.set_section_content",
-                    serde_json::json!({
-                        "run_id": run_id,
-                        "section_id": section_id,
-                        "source": source.as_str(),
-                        "version_id": version.version_id,
-                        "revision": revision,
-                    }),
-                );
-                Ok(revision)
-            }
-            Ok(Err(e)) => Err(WriterError::RunWriterFailed(e.to_string())),
-            Err(e) => Err(WriterError::RunWriterFailed(e.to_string())),
-        }
+        let version = run_doc
+            .create_version(
+                &run_id,
+                Some(parent_version_id),
+                content.clone(),
+                version_source,
+            )
+            .await
+            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?;
+        let revision = run_doc.revision();
+        Self::emit_event(
+            state,
+            "writer.actor.set_section_content",
+            serde_json::json!({
+                "run_id": run_id,
+                "section_id": section_id,
+                "source": source.as_str(),
+                "version_id": version.version_id,
+                "revision": revision,
+            }),
+        );
+        Ok(revision)
     }
 
     async fn report_progress(
-        state: &WriterState,
-        run_writer_actor: ActorRef<RunWriterMsg>,
+        state: &mut WriterState,
         run_id: String,
         section_id: String,
         source: WriterSource,
@@ -1312,52 +1154,37 @@ impl WriterActor {
                 "message cannot be empty".to_string(),
             ));
         }
-        match ractor::call!(run_writer_actor, |reply| {
-            RunWriterMsg::ReportSectionProgress {
-                run_id: run_id.clone(),
-                source: source.as_str().to_string(),
-                section_id: section_id.clone(),
-                phase: phase.clone(),
-                message: message.clone(),
-                reply,
-            }
-        }) {
-            Ok(Ok(revision)) => {
-                Self::emit_event(
-                    state,
-                    "writer.actor.progress",
-                    serde_json::json!({
-                        "run_id": run_id,
-                        "section_id": section_id,
-                        "source": source.as_str(),
-                        "phase": phase,
-                        "message": message,
-                        "revision": revision,
-                    }),
-                );
-                Ok(revision)
-            }
-            Ok(Err(e)) => Err(WriterError::RunWriterFailed(e.to_string())),
-            Err(e) => Err(WriterError::RunWriterFailed(e.to_string())),
-        }
+        let run_doc = Self::resolve_run_document_mut(state, &run_id)?;
+        let revision = run_doc
+            .report_section_progress(&run_id, source.as_str(), &section_id, &phase, &message)
+            .await
+            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))?;
+        Self::emit_event(
+            state,
+            "writer.actor.progress",
+            serde_json::json!({
+                "run_id": run_id,
+                "section_id": section_id,
+                "source": source.as_str(),
+                "phase": phase,
+                "message": message,
+                "revision": revision,
+            }),
+        );
+        Ok(revision)
     }
 
     async fn set_section_state(
-        run_writer_actor: ActorRef<RunWriterMsg>,
+        state: &mut WriterState,
         run_id: String,
         section_id: String,
         section_state: SectionState,
     ) -> Result<(), WriterError> {
-        match ractor::call!(run_writer_actor, |reply| RunWriterMsg::MarkSectionState {
-            run_id,
-            section_id,
-            state: section_state,
-            reply,
-        }) {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(e)) => Err(WriterError::RunWriterFailed(e.to_string())),
-            Err(e) => Err(WriterError::RunWriterFailed(e.to_string())),
-        }
+        let run_doc = Self::resolve_run_document_mut(state, &run_id)?;
+        run_doc
+            .mark_section_state(&run_id, &section_id, section_state)
+            .await
+            .map_err(|e| WriterError::RunWriterFailed(e.to_string()))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1379,9 +1206,6 @@ impl WriterActor {
                 let researcher_actor = state.researcher_actor.as_ref().ok_or_else(|| {
                     WriterError::ActorUnavailable("researcher actor unavailable".to_string())
                 })?;
-                let run_writer_actor = run_id
-                    .as_ref()
-                    .and_then(|rid| state.run_writers_by_run_id.get(rid).cloned());
                 let (tx, _rx) = mpsc::unbounded_channel::<ResearcherProgress>();
                 let result =
                     ractor::call!(researcher_actor, |reply| ResearcherMsg::RunAgenticTask {
@@ -1392,7 +1216,6 @@ impl WriterActor {
                         model_override: None,
                         progress_tx: Some(tx),
                         writer_actor: Some(myself.clone()),
-                        run_writer_actor,
                         run_id: run_id.clone(),
                         call_id: call_id.clone(),
                         reply,

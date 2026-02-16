@@ -5,7 +5,8 @@ use crate::actors::conductor::{
     events,
     protocol::{CapabilityWorkerOutput, ConductorError},
 };
-use crate::actors::run_writer::{RunWriterMsg, SectionState};
+use crate::actors::run_writer::SectionState;
+use crate::actors::writer::WriterMsg;
 
 impl ConductorActor {
     pub(crate) async fn handle_capability_call_finished(
@@ -75,8 +76,8 @@ impl ConductorActor {
                     "research capability completed",
                 )
                 .await;
-                if let Some(run_writer) = state.run_writers.get(&run_id).cloned() {
-                    let _ = ractor::call!(run_writer, |reply| RunWriterMsg::MarkSectionState {
+                if let Some(writer_actor) = state.writer_actor.clone() {
+                    let _ = ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
                         run_id: run_id.clone(),
                         section_id: "researcher".to_string(),
                         state: SectionState::Complete,
@@ -140,8 +141,8 @@ impl ConductorActor {
                         "terminal capability completed",
                     )
                     .await;
-                    if let Some(run_writer) = state.run_writers.get(&run_id).cloned() {
-                        let _ = ractor::call!(run_writer, |reply| RunWriterMsg::MarkSectionState {
+                    if let Some(writer_actor) = state.writer_actor.clone() {
+                        let _ = ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
                             run_id: run_id.clone(),
                             section_id: "terminal".to_string(),
                             state: SectionState::Complete,
@@ -185,8 +186,8 @@ impl ConductorActor {
                         &err,
                     )
                     .await;
-                    if let Some(run_writer) = state.run_writers.get(&run_id).cloned() {
-                        let _ = ractor::call!(run_writer, |reply| RunWriterMsg::MarkSectionState {
+                    if let Some(writer_actor) = state.writer_actor.clone() {
+                        let _ = ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
                             run_id: run_id.clone(),
                             section_id: "terminal".to_string(),
                             state: SectionState::Failed,
@@ -250,12 +251,12 @@ impl ConductorActor {
                 )
                 .await;
 
-                if let Some(run_writer) = state.run_writers.get(&run_id).cloned() {
+                if let Some(writer_actor) = state.writer_actor.clone() {
                     let section_id = match capability.as_str() {
                         "researcher" | "terminal" => capability.clone(),
                         _ => "conductor".to_string(),
                     };
-                    let _ = ractor::call!(run_writer, |reply| RunWriterMsg::MarkSectionState {
+                    let _ = ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
                         run_id: run_id.clone(),
                         section_id,
                         state: SectionState::Failed,

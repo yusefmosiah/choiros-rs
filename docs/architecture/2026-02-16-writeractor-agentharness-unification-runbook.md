@@ -69,20 +69,24 @@ Status:
 
 Status:
 - Completed.
-- `WriterActor` now tracks run-id to run-writer bindings to propagate run context across delegated
-  worker calls.
-- Conductor run-writer version/overlay APIs now route through `WriterActor` message handlers.
-- Run start now registers `run_id -> run_writer` bindings in `WriterActor` so API reads do not
-  depend on prior enqueue traffic.
-- `SubmitUserPrompt` ingress now routes through `WriterActor` end-to-end (validation, head-version
-  check, envelope build, enqueue), so Conductor no longer resolves run-writer actors for user
-  prompt ingress.
+- `RunWriterActor` was removed.
+- Run-document mutation/version/overlay behavior is now implemented by in-process
+  `RunWriterRuntime` state owned by `WriterActor`.
+- Conductor, Researcher, and Writer now use `run_id`-scoped `WriterMsg` semantics only (no
+  actor-ref passing for run writers).
+- `SubmitUserPrompt` ingress routes through `WriterActor` end-to-end (validation, head-version
+  check, envelope build, enqueue), and no longer depends on run-writer actor lookup.
 
 #### Phase 4: Persistence and Retrieval Hardening
 
 - Persist document versions/overlays to server durable storage on every mutation.
 - Add cold-start restoration and retrieval APIs for offloaded/archived versions.
 - Add compaction policy: preserve full lineage while allowing tiered storage for old snapshots.
+
+Status:
+- Deferred for a follow-up slice.
+- Current persistence guarantees are maintained from prior behavior, but archival retrieval and
+  storage tiering are not yet implemented.
 
 ### Message Semantics Contract (Writer Inbound)
 

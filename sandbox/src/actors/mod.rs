@@ -20,8 +20,8 @@ pub use event_store::{AppendEvent, EventStoreActor, EventStoreArguments, EventSt
 pub use researcher::{ResearcherActor, ResearcherArguments, ResearcherError, ResearcherMsg};
 pub use run_writer::{
     ApplyPatchResult, DocumentVersion, Overlay, OverlayAuthor, OverlayKind, OverlayStatus, PatchOp,
-    PatchOpKind, RunDocument, RunWriterActor, RunWriterArguments, RunWriterError, RunWriterMsg,
-    SectionState, VersionSource,
+    PatchOpKind, RunDocument, RunWriterArguments, RunWriterError, RunWriterRuntime, SectionState,
+    VersionSource,
 };
 pub use terminal::{TerminalActor, TerminalArguments, TerminalError, TerminalInfo, TerminalMsg};
 pub use writer::{

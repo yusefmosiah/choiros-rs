@@ -5,7 +5,6 @@
 
 use async_trait::async_trait;
 use ractor::{Actor, ActorProcessingErr, ActorRef};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::actors::conductor::{
@@ -15,9 +14,7 @@ use crate::actors::conductor::{
 };
 use crate::actors::event_store::EventStoreMsg;
 use crate::actors::researcher::ResearcherMsg;
-use crate::actors::run_writer::{
-    DocumentVersion, Overlay, OverlayStatus, RunWriterMsg, VersionSource,
-};
+use crate::actors::run_writer::{DocumentVersion, Overlay, OverlayStatus, VersionSource};
 use crate::actors::terminal::TerminalMsg;
 use crate::actors::writer::{WriterError, WriterMsg};
 
@@ -46,7 +43,6 @@ pub struct ConductorState {
     pub(crate) terminal_actor: Option<ActorRef<TerminalMsg>>,
     pub(crate) writer_actor: Option<ActorRef<WriterMsg>>,
     pub(crate) model_gateway: SharedConductorModelGateway,
-    pub(crate) run_writers: HashMap<String, ActorRef<RunWriterMsg>>,
 }
 
 #[async_trait]
@@ -69,7 +65,6 @@ impl Actor for ConductorActor {
             terminal_actor: args.terminal_actor,
             writer_actor: args.writer_actor,
             model_gateway,
-            run_writers: HashMap::new(),
         })
     }
 
@@ -394,7 +389,6 @@ mod tests {
         ConductorOutputMode, ConductorRunState, ConductorRunStatus, EventImportance, EventLane,
         EventMetadata,
     };
-    use std::collections::HashMap;
     use std::sync::Arc;
 
     #[derive(Default)]
@@ -450,7 +444,6 @@ mod tests {
                 terminal_actor: None,
                 writer_actor: None,
                 model_gateway: gateway,
-                run_writers: HashMap::new(),
             },
             event_store,
         )

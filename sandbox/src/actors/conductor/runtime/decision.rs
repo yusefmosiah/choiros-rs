@@ -8,8 +8,9 @@ use crate::actors::conductor::{
     workers::{call_researcher, call_terminal},
 };
 use crate::actors::researcher::ResearcherProgress;
-use crate::actors::run_writer::{RunWriterActor, RunWriterArguments, RunWriterMsg};
+use crate::actors::run_writer::SectionState;
 use crate::actors::terminal::TerminalAgentProgress;
+use crate::actors::writer::{WriterMsg, WriterSource};
 
 impl ConductorActor {
     pub(crate) async fn dispatch_seed_agenda(
@@ -136,43 +137,6 @@ impl ConductorActor {
             .await;
         }
 
-        let run_writer = if !state.run_writers.contains_key(run_id) {
-            let run_metadata = state.tasks.get_run(run_id).cloned().ok_or_else(|| {
-                ConductorError::NotFound(format!(
-                    "run metadata unavailable while spawning run writer: {run_id}"
-                ))
-            })?;
-            let run_writer_args = RunWriterArguments {
-                run_id: run_id.to_string(),
-                desktop_id: run_metadata.desktop_id.clone(),
-                objective: run_metadata.objective.clone(),
-                session_id: run_metadata.desktop_id.clone(),
-                thread_id: run_metadata.run_id.clone(),
-                root_dir: Some(env!("CARGO_MANIFEST_DIR").to_string()),
-                event_store: state.event_store.clone(),
-            };
-            match ractor::Actor::spawn(
-                Some(format!("run-writer-{}", run_id)),
-                RunWriterActor,
-                run_writer_args,
-            )
-            .await
-            {
-                Ok((actor_ref, _handle)) => {
-                    state
-                        .run_writers
-                        .insert(run_id.to_string(), actor_ref.clone());
-                    Some(actor_ref)
-                }
-                Err(e) => {
-                    tracing::warn!(run_id = %run_id, error = %e, "Failed to spawn RunWriterActor");
-                    None
-                }
-            }
-        } else {
-            state.run_writers.get(run_id).cloned()
-        };
-
         let conductor_ref = myself.clone();
         let run_id_owned = run_id.to_string();
         let call_id_owned = call_id.clone();
@@ -182,17 +146,16 @@ impl ConductorActor {
         let researcher = state.researcher_actor.clone();
         let terminal = state.terminal_actor.clone();
         let writer = state.writer_actor.clone();
-        let run_writer_for_logs = run_writer.clone();
 
-        if let Some(run_writer) = run_writer.clone() {
+        if let Some(writer_actor) = writer.clone() {
             let section_id = match capability.as_str() {
                 "researcher" | "terminal" => capability.clone(),
                 _ => "conductor".to_string(),
             };
-            let _ = ractor::call!(run_writer, |reply| RunWriterMsg::MarkSectionState {
-                run_id: run_id.to_string(),
+            let _ = ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
+                run_id: run_id_owned.clone(),
                 section_id,
-                state: crate::actors::run_writer::SectionState::Running,
+                state: SectionState::Running,
                 reply,
             });
         }
@@ -201,18 +164,18 @@ impl ConductorActor {
             let result = match capability.as_str() {
                 "researcher" => match researcher {
                     Some(researcher_ref) => {
-                        let progress_tx = if run_writer_for_logs.is_some() {
+                        let progress_tx = if writer.is_some() {
                             let (tx, mut rx) = mpsc::unbounded_channel::<ResearcherProgress>();
-                            let run_writer_for_progress = run_writer_for_logs.clone();
+                            let writer_for_progress = writer.clone();
                             let run_id_for_progress = run_id_owned.clone();
                             tokio::spawn(async move {
                                 while let Some(progress) = rx.recv().await {
-                                    if let Some(run_writer) = run_writer_for_progress.clone() {
-                                        let _ = ractor::call!(run_writer, |reply| {
-                                            RunWriterMsg::ReportSectionProgress {
+                                    if let Some(writer_actor) = writer_for_progress.clone() {
+                                        let _ = ractor::call!(writer_actor, |reply| {
+                                            WriterMsg::ReportProgress {
                                                 run_id: run_id_for_progress.clone(),
-                                                source: "researcher".to_string(),
                                                 section_id: "researcher".to_string(),
+                                                source: WriterSource::Researcher,
                                                 phase: progress.phase.clone(),
                                                 message: progress.message.clone(),
                                                 reply,
@@ -234,7 +197,6 @@ impl ConductorActor {
                             Some(100),
                             progress_tx,
                             writer.clone(),
-                            run_writer.clone(),
                             Some(run_id_owned.clone()),
                             Some(call_id_owned.clone()),
                         )
@@ -247,18 +209,18 @@ impl ConductorActor {
                 },
                 "terminal" => match terminal {
                     Some(terminal_ref) => {
-                        let progress_tx = if run_writer_for_logs.is_some() {
+                        let progress_tx = if writer.is_some() {
                             let (tx, mut rx) = mpsc::unbounded_channel::<TerminalAgentProgress>();
-                            let run_writer_for_progress = run_writer_for_logs.clone();
+                            let writer_for_progress = writer.clone();
                             let run_id_for_progress = run_id_owned.clone();
                             tokio::spawn(async move {
                                 while let Some(progress) = rx.recv().await {
-                                    if let Some(run_writer) = run_writer_for_progress.clone() {
-                                        let _ = ractor::call!(run_writer, |reply| {
-                                            RunWriterMsg::ReportSectionProgress {
+                                    if let Some(writer_actor) = writer_for_progress.clone() {
+                                        let _ = ractor::call!(writer_actor, |reply| {
+                                            WriterMsg::ReportProgress {
                                                 run_id: run_id_for_progress.clone(),
-                                                source: "terminal".to_string(),
                                                 section_id: "terminal".to_string(),
+                                                source: WriterSource::Terminal,
                                                 phase: progress.phase.clone(),
                                                 message: progress.message.clone(),
                                                 reply,

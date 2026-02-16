@@ -1,21 +1,17 @@
-//! RunWriterActor - Single mutation authority for run documents.
+//! Run-document runtime used by WriterActor.
 //!
-//! One actor per run, serializes all document writes with atomic persistence
-//! (temp + rename) and monotonic revision increment.
+//! This replaces the former per-run RunWriterActor process with an in-process
+//! runtime object owned by WriterActor.
 
 mod messages;
 mod state;
 
-use async_trait::async_trait;
 use chrono::Utc;
-use ractor::{Actor, ActorProcessingErr, ActorRef};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::fs;
 
-pub use messages::{
-    ApplyPatchResult, PatchOp, PatchOpKind, RunWriterError, RunWriterMsg, SectionState,
-};
+pub use messages::{ApplyPatchResult, PatchOp, PatchOpKind, RunWriterError, SectionState};
 pub use state::{
     DocumentVersion, Overlay, OverlayAuthor, OverlayKind, OverlayStatus, RunDocument,
     RunWriterState, VersionSource,
@@ -25,9 +21,6 @@ use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 
 const BASE_RUNS_DIR: &str = "conductor/runs";
 
-#[derive(Debug, Default)]
-pub struct RunWriterActor;
-
 #[derive(Debug, Clone)]
 pub struct RunWriterArguments {
     pub run_id: String,
@@ -36,7 +29,7 @@ pub struct RunWriterArguments {
     pub session_id: String,
     pub thread_id: String,
     pub root_dir: Option<String>,
-    pub event_store: ActorRef<EventStoreMsg>,
+    pub event_store: ractor::ActorRef<EventStoreMsg>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,265 +38,276 @@ struct PersistedRunWriterSnapshot {
     document: RunDocument,
 }
 
-#[async_trait]
-impl Actor for RunWriterActor {
-    type Msg = RunWriterMsg;
-    type State = RunWriterState;
-    type Arguments = RunWriterArguments;
+pub struct RunWriterRuntime {
+    state: RunWriterState,
+}
 
-    async fn pre_start(
-        &self,
-        myself: ActorRef<Self::Msg>,
-        args: Self::Arguments,
-    ) -> Result<Self::State, ActorProcessingErr> {
-        tracing::info!(
-            actor_id = %myself.get_id(),
-            run_id = %args.run_id,
-            "RunWriterActor starting"
-        );
-
+impl RunWriterRuntime {
+    pub async fn load(args: RunWriterArguments) -> Result<Self, RunWriterError> {
         let run_dir_relative = PathBuf::from(BASE_RUNS_DIR).join(&args.run_id);
         let document_path_relative = run_dir_relative.join("draft.md");
         let document_meta_path_relative = run_dir_relative.join("draft.writer-state.json");
+
         let root_dir = args
             .root_dir
             .as_deref()
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+
         let document_path = root_dir.join(&document_path_relative);
         let document_meta_path = root_dir.join(&document_meta_path_relative);
 
         let (mut document, revision) =
             Self::load_or_create_document(&document_path, &document_meta_path, &args.objective)
-                .await?;
+                .await
+                .map_err(|e| RunWriterError::WriteFailed(e.to_string()))?;
         if document.objective.trim().is_empty() {
             document.objective = args.objective.clone();
         }
 
-        tracing::info!(
-            actor_id = %myself.get_id(),
-            run_id = %args.run_id,
-            revision = revision,
-            head_version_id = document.head_version_id,
-            "RunWriterActor loaded document"
-        );
-
-        let mut state = RunWriterState {
-            run_id: args.run_id,
-            desktop_id: args.desktop_id,
-            session_id: args.session_id,
-            thread_id: args.thread_id,
-            objective: args.objective,
-            event_store: args.event_store,
-            document_path,
-            document_meta_path,
-            document_path_relative: document_path_relative.to_string_lossy().to_string(),
-            revision,
-            document,
+        let mut runtime = Self {
+            state: RunWriterState {
+                run_id: args.run_id,
+                desktop_id: args.desktop_id,
+                session_id: args.session_id,
+                thread_id: args.thread_id,
+                objective: args.objective,
+                event_store: args.event_store,
+                document_path,
+                document_meta_path,
+                document_path_relative: document_path_relative.to_string_lossy().to_string(),
+                revision,
+                document,
+            },
         };
 
-        Self::emit_started_event(&mut state).await;
-        Ok(state)
+        runtime.emit_started_event().await;
+        Ok(runtime)
     }
 
-    async fn handle(
+    pub fn run_id(&self) -> &str {
+        self.state.run_id.as_str()
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.state.revision
+    }
+
+    pub fn document_markdown(&self) -> String {
+        self.state.document.to_markdown()
+    }
+
+    pub fn head_version(&self) -> Result<DocumentVersion, RunWriterError> {
+        self.state
+            .document
+            .head_version()
+            .cloned()
+            .ok_or(RunWriterError::VersionNotFound(
+                self.state.document.head_version_id,
+            ))
+    }
+
+    pub fn get_version(&self, version_id: u64) -> Result<DocumentVersion, RunWriterError> {
+        self.state
+            .document
+            .get_version(version_id)
+            .cloned()
+            .ok_or(RunWriterError::VersionNotFound(version_id))
+    }
+
+    pub fn list_versions(&self) -> Vec<DocumentVersion> {
+        let mut versions = self.state.document.versions.clone();
+        versions.sort_by_key(|version| version.version_id);
+        versions
+    }
+
+    pub fn list_overlays(
         &self,
-        myself: ActorRef<Self::Msg>,
-        message: Self::Msg,
-        state: &mut Self::State,
-    ) -> Result<(), ActorProcessingErr> {
-        match message {
-            RunWriterMsg::ApplyPatch {
-                run_id,
-                source,
-                section_id,
-                ops,
-                proposal,
-                reply,
-            } => {
-                let result = self
-                    .handle_apply_patch(&myself, state, run_id, source, section_id, ops, proposal)
-                    .await;
-                let _ = reply.send(result);
-            }
-            RunWriterMsg::AppendLogLine {
-                run_id,
-                source,
-                section_id,
-                text,
-                proposal,
-                reply,
-            } => {
-                let result = self
-                    .handle_append_log_line(
-                        &myself, state, run_id, source, section_id, text, proposal,
-                    )
-                    .await;
-                let _ = reply.send(result);
-            }
-            RunWriterMsg::ReportSectionProgress {
-                run_id,
-                source,
-                section_id,
-                phase,
-                message,
-                reply,
-            } => {
-                let result = self
-                    .handle_report_section_progress(
-                        &myself, state, run_id, source, section_id, phase, message,
-                    )
-                    .await;
-                let _ = reply.send(result);
-            }
-            RunWriterMsg::MarkSectionState {
-                run_id,
-                section_id,
-                state: section_state,
-                reply,
-            } => {
-                let result = self
-                    .handle_mark_section_state(&myself, state, run_id, section_id, section_state)
-                    .await;
-                let _ = reply.send(result);
-            }
-            RunWriterMsg::GetDocument { reply } => {
-                let _ = reply.send(Ok(state.document.to_markdown()));
-            }
-            RunWriterMsg::GetRevision { reply } => {
-                let _ = reply.send(state.revision);
-            }
-            RunWriterMsg::GetHeadVersion { reply } => {
-                let result =
-                    state
-                        .document
-                        .head_version()
-                        .cloned()
-                        .ok_or(RunWriterError::VersionNotFound(
-                            state.document.head_version_id,
-                        ));
-                let _ = reply.send(result);
-            }
-            RunWriterMsg::GetVersion { version_id, reply } => {
-                let result = state
-                    .document
-                    .get_version(version_id)
-                    .cloned()
-                    .ok_or(RunWriterError::VersionNotFound(version_id));
-                let _ = reply.send(result);
-            }
-            RunWriterMsg::ListVersions { reply } => {
-                let mut versions = state.document.versions.clone();
-                versions.sort_by_key(|version| version.version_id);
-                let _ = reply.send(Ok(versions));
-            }
-            RunWriterMsg::ListOverlays {
-                base_version_id,
-                status,
-                reply,
-            } => {
-                let mut overlays: Vec<Overlay> = state
-                    .document
-                    .overlays
-                    .iter()
-                    .filter(|overlay| {
-                        base_version_id
-                            .map(|id| overlay.base_version_id == id)
-                            .unwrap_or(true)
-                            && status
-                                .as_ref()
-                                .map(|s| &overlay.status == s)
-                                .unwrap_or(true)
-                    })
-                    .cloned()
-                    .collect();
-                overlays.sort_by(|a, b| a.created_at.cmp(&b.created_at));
-                let _ = reply.send(Ok(overlays));
-            }
-            RunWriterMsg::CreateVersion {
-                run_id,
-                parent_version_id,
-                content,
-                source,
-                reply,
-            } => {
-                let result = self
-                    .handle_create_version(state, run_id, parent_version_id, content, source)
-                    .await;
-                let _ = reply.send(result);
-            }
-            RunWriterMsg::CreateOverlay {
-                run_id,
+        base_version_id: Option<u64>,
+        status: Option<OverlayStatus>,
+    ) -> Vec<Overlay> {
+        let mut overlays: Vec<Overlay> = self
+            .state
+            .document
+            .overlays
+            .iter()
+            .filter(|overlay| {
+                base_version_id
+                    .map(|id| overlay.base_version_id == id)
+                    .unwrap_or(true)
+                    && status
+                        .as_ref()
+                        .map(|s| &overlay.status == s)
+                        .unwrap_or(true)
+            })
+            .cloned()
+            .collect();
+        overlays.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        overlays
+    }
+
+    pub async fn create_version(
+        &mut self,
+        run_id: &str,
+        parent_version_id: Option<u64>,
+        content: String,
+        source: VersionSource,
+    ) -> Result<DocumentVersion, RunWriterError> {
+        self.ensure_run_id(run_id)?;
+        let version = self
+            .create_version_internal(parent_version_id, content, source, "writer", None)
+            .await?;
+        self.emit_progress_event(
+            "version_created",
+            format!("Created version {}", version.version_id),
+        )
+        .await;
+        Ok(version)
+    }
+
+    pub async fn create_overlay(
+        &mut self,
+        run_id: &str,
+        base_version_id: u64,
+        author: OverlayAuthor,
+        kind: OverlayKind,
+        diff_ops: Vec<shared_types::PatchOp>,
+    ) -> Result<Overlay, RunWriterError> {
+        self.ensure_run_id(run_id)?;
+        let overlay = self
+            .create_overlay_internal(
                 base_version_id,
                 author,
                 kind,
                 diff_ops,
-                reply,
-            } => {
-                let result = self
-                    .handle_create_overlay(state, run_id, base_version_id, author, kind, diff_ops)
-                    .await;
-                let _ = reply.send(result);
-            }
-            RunWriterMsg::ResolveOverlay {
-                run_id,
-                overlay_id,
-                status,
-                reply,
-            } => {
-                let result = self
-                    .handle_resolve_overlay(state, run_id, overlay_id, status)
-                    .await;
-                let _ = reply.send(result);
-            }
-            RunWriterMsg::CommitProposal { section_id, reply } => {
-                let result = self
-                    .handle_commit_proposal(&myself, state, section_id)
-                    .await;
-                let _ = reply.send(result);
-            }
-            RunWriterMsg::DiscardProposal { section_id, reply } => {
-                let result = self
-                    .handle_discard_proposal(&myself, state, section_id)
-                    .await;
-                let _ = reply.send(result);
-            }
-            RunWriterMsg::SetSectionContent {
-                run_id,
-                source,
-                section_id,
-                content,
-                reply,
-            } => {
-                let result = self
-                    .handle_set_section_content(&myself, state, run_id, source, section_id, content)
-                    .await;
-                let _ = reply.send(result);
-            }
+                "writer",
+                None,
+                None,
+            )
+            .await?;
+        self.emit_progress_event(
+            "overlay_created",
+            format!("Created overlay {}", overlay.overlay_id),
+        )
+        .await;
+        Ok(overlay)
+    }
+
+    pub async fn apply_patch(
+        &mut self,
+        run_id: &str,
+        source: &str,
+        section_id: &str,
+        ops: Vec<PatchOp>,
+        proposal: bool,
+    ) -> Result<ApplyPatchResult, RunWriterError> {
+        self.ensure_run_id(run_id)?;
+
+        let base_version_id = self.state.document.head_version_id;
+        let base_content = self
+            .state
+            .document
+            .head_version()
+            .map(|version| version.content.clone())
+            .unwrap_or_default();
+        let (next_content, lines_modified) = Self::apply_legacy_line_patch_ops(&base_content, &ops);
+
+        if proposal {
+            let diff_ops = Self::diff_full_replace(&base_content, &next_content);
+            let overlay = self
+                .create_overlay_internal(
+                    base_version_id,
+                    Self::source_to_overlay_author(source),
+                    OverlayKind::Proposal,
+                    diff_ops,
+                    source,
+                    Some(section_id),
+                    Some(next_content),
+                )
+                .await?;
+            self.emit_progress_event(
+                "patch_applied",
+                format!("Created proposal overlay for {section_id} via {source}"),
+            )
+            .await;
+            return Ok(ApplyPatchResult {
+                revision: self.state.revision,
+                lines_modified,
+                base_version_id,
+                target_version_id: None,
+                overlay_id: Some(overlay.overlay_id),
+            });
         }
+
+        let version = self
+            .create_version_internal(
+                Some(base_version_id),
+                next_content,
+                Self::source_to_version_source(source),
+                source,
+                Some(section_id),
+            )
+            .await?;
+        self.emit_progress_event(
+            "patch_applied",
+            format!("Updated canonical version via {source}"),
+        )
+        .await;
+
+        Ok(ApplyPatchResult {
+            revision: self.state.revision,
+            lines_modified,
+            base_version_id,
+            target_version_id: Some(version.version_id),
+            overlay_id: None,
+        })
+    }
+
+    pub async fn report_section_progress(
+        &mut self,
+        run_id: &str,
+        source: &str,
+        section_id: &str,
+        phase: &str,
+        message: &str,
+    ) -> Result<u64, RunWriterError> {
+        self.ensure_run_id(run_id)?;
+        self.emit_progress_event(
+            format!("{source}:{section_id}:{phase}"),
+            message.to_string(),
+        )
+        .await;
+        Ok(self.state.revision)
+    }
+
+    pub async fn mark_section_state(
+        &mut self,
+        run_id: &str,
+        section_id: &str,
+        section_state: SectionState,
+    ) -> Result<(), RunWriterError> {
+        self.ensure_run_id(run_id)?;
+
+        let status_message = format!("{section_id} -> {:?}", section_state);
+        let status = match section_state {
+            SectionState::Pending => shared_types::WriterRunStatusKind::WaitingForWorker,
+            SectionState::Running => shared_types::WriterRunStatusKind::Running,
+            SectionState::Complete => shared_types::WriterRunStatusKind::Completed,
+            SectionState::Failed => shared_types::WriterRunStatusKind::Failed,
+        };
+
+        self.persist_document().await?;
+        self.emit_status_event(status, Some(status_message)).await;
         Ok(())
     }
 
-    async fn post_stop(
-        &self,
-        myself: ActorRef<Self::Msg>,
-        _state: &mut Self::State,
-    ) -> Result<(), ActorProcessingErr> {
-        tracing::info!(actor_id = %myself.get_id(), "RunWriterActor stopped");
-        Ok(())
-    }
-}
-
-impl RunWriterActor {
     async fn load_or_create_document(
         path: &PathBuf,
         meta_path: &PathBuf,
         objective: &str,
-    ) -> Result<(RunDocument, u64), ActorProcessingErr> {
+    ) -> Result<(RunDocument, u64), std::io::Error> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .await
-                .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+            fs::create_dir_all(parent).await?;
         }
 
         if meta_path.exists() {
@@ -377,51 +381,38 @@ impl RunWriterActor {
         0
     }
 
-    async fn persist_document(state: &mut RunWriterState) -> Result<(), RunWriterError> {
-        state.revision += 1;
+    async fn persist_document(&mut self) -> Result<(), RunWriterError> {
+        self.state.revision += 1;
 
         let content = format!(
             "<!-- revision:{} -->\n{}",
-            state.revision,
-            state.document.to_markdown()
+            self.state.revision,
+            self.state.document.to_markdown()
         );
 
-        let temp_path = state.document_path.with_extension("md.tmp");
+        let temp_path = self.state.document_path.with_extension("md.tmp");
         fs::write(&temp_path, &content)
             .await
             .map_err(|e| RunWriterError::WriteFailed(format!("Failed to write temp file: {e}")))?;
-        fs::rename(&temp_path, &state.document_path)
+        fs::rename(&temp_path, &self.state.document_path)
             .await
             .map_err(|e| RunWriterError::WriteFailed(format!("Failed to rename temp file: {e}")))?;
 
         let sidecar = PersistedRunWriterSnapshot {
-            revision: state.revision,
-            document: state.document.clone(),
+            revision: self.state.revision,
+            document: self.state.document.clone(),
         };
         let sidecar_raw = serde_json::to_string_pretty(&sidecar)
             .map_err(|e| RunWriterError::WriteFailed(format!("Failed to encode sidecar: {e}")))?;
-        let temp_meta = state.document_meta_path.with_extension("json.tmp");
+        let temp_meta = self.state.document_meta_path.with_extension("json.tmp");
         fs::write(&temp_meta, sidecar_raw)
             .await
             .map_err(|e| RunWriterError::WriteFailed(format!("Failed to write sidecar: {e}")))?;
-        fs::rename(&temp_meta, &state.document_meta_path)
+        fs::rename(&temp_meta, &self.state.document_meta_path)
             .await
             .map_err(|e| RunWriterError::WriteFailed(format!("Failed to rename sidecar: {e}")))?;
 
         Ok(())
-    }
-
-    fn base_event_payload(state: &RunWriterState) -> serde_json::Value {
-        serde_json::json!({
-            "desktop_id": state.desktop_id,
-            "session_id": state.session_id,
-            "thread_id": state.thread_id,
-            "run_id": state.run_id,
-            "document_path": state.document_path_relative,
-            "revision": state.revision,
-            "head_version_id": state.document.head_version_id,
-            "timestamp": Utc::now().to_rfc3339(),
-        })
     }
 
     fn source_to_patch_source(source: &str) -> shared_types::PatchSource {
@@ -478,40 +469,6 @@ impl RunWriterActor {
         ]
     }
 
-    fn apply_shared_patch_ops(
-        content: &str,
-        ops: &[shared_types::PatchOp],
-    ) -> Result<String, RunWriterError> {
-        let mut chars: Vec<char> = content.chars().collect();
-        for op in ops {
-            match op {
-                shared_types::PatchOp::Insert { pos, text } => {
-                    let pos = (*pos as usize).min(chars.len());
-                    let insert_chars: Vec<char> = text.chars().collect();
-                    chars.splice(pos..pos, insert_chars);
-                }
-                shared_types::PatchOp::Delete { pos, len } => {
-                    let pos = (*pos as usize).min(chars.len());
-                    let end = pos.saturating_add(*len as usize).min(chars.len());
-                    if end < pos {
-                        return Err(RunWriterError::InvalidPatch(
-                            "delete range underflow".to_string(),
-                        ));
-                    }
-                    chars.drain(pos..end);
-                }
-                shared_types::PatchOp::Replace { pos, len, text } => {
-                    let pos = (*pos as usize).min(chars.len());
-                    let end = pos.saturating_add(*len as usize).min(chars.len());
-                    let replace_chars: Vec<char> = text.chars().collect();
-                    chars.splice(pos..end, replace_chars);
-                }
-                shared_types::PatchOp::Retain { .. } => {}
-            }
-        }
-        Ok(chars.into_iter().collect())
-    }
-
     fn apply_legacy_line_patch_ops(content: &str, ops: &[PatchOp]) -> (String, usize) {
         let mut target = content.to_string();
         let mut lines_modified = 0usize;
@@ -566,39 +523,146 @@ impl RunWriterActor {
         (target, lines_modified)
     }
 
-    async fn emit_event(state: &RunWriterState, event_type: &str, payload: serde_json::Value) {
+    fn ensure_run_id(&self, run_id: &str) -> Result<(), RunWriterError> {
+        if run_id != self.state.run_id {
+            return Err(RunWriterError::RunIdMismatch {
+                expected: self.state.run_id.clone(),
+                actual: run_id.to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    async fn create_version_internal(
+        &mut self,
+        parent_version_id: Option<u64>,
+        content: String,
+        source: VersionSource,
+        event_source: &str,
+        section_id: Option<&str>,
+    ) -> Result<DocumentVersion, RunWriterError> {
+        let parent = parent_version_id.unwrap_or(self.state.document.head_version_id);
+        if self.state.document.get_version(parent).is_none() {
+            return Err(RunWriterError::VersionNotFound(parent));
+        }
+
+        let version = DocumentVersion {
+            version_id: self.state.document.next_version_id(),
+            created_at: Utc::now(),
+            source,
+            content,
+            parent_version_id: Some(parent),
+        };
+        self.state.document.versions.push(version.clone());
+        self.state.document.head_version_id = version.version_id;
+
+        for overlay in &mut self.state.document.overlays {
+            if overlay.base_version_id == parent && overlay.status == OverlayStatus::Pending {
+                overlay.status = OverlayStatus::Superseded;
+            }
+        }
+
+        self.persist_document().await?;
+
+        let full_doc = self.state.document.to_markdown();
+        self.emit_patch_event(
+            event_source,
+            section_id,
+            Self::full_document_ops(&full_doc),
+            None,
+            Some(parent),
+            Some(version.version_id),
+            None,
+        )
+        .await;
+
+        Ok(version)
+    }
+
+    async fn create_overlay_internal(
+        &mut self,
+        base_version_id: u64,
+        author: OverlayAuthor,
+        kind: OverlayKind,
+        diff_ops: Vec<shared_types::PatchOp>,
+        event_source: &str,
+        section_id: Option<&str>,
+        proposal: Option<String>,
+    ) -> Result<Overlay, RunWriterError> {
+        if self.state.document.get_version(base_version_id).is_none() {
+            return Err(RunWriterError::VersionNotFound(base_version_id));
+        }
+        if diff_ops.is_empty() {
+            return Err(RunWriterError::InvalidPatch(
+                "overlay diff_ops cannot be empty".to_string(),
+            ));
+        }
+
+        let overlay = Overlay {
+            overlay_id: ulid::Ulid::new().to_string(),
+            base_version_id,
+            author,
+            kind,
+            diff_ops: diff_ops.clone(),
+            status: OverlayStatus::Pending,
+            created_at: Utc::now(),
+        };
+        self.state.document.overlays.push(overlay.clone());
+        self.persist_document().await?;
+
+        self.emit_patch_event(
+            event_source,
+            section_id,
+            diff_ops,
+            proposal,
+            Some(base_version_id),
+            None,
+            Some(&overlay.overlay_id),
+        )
+        .await;
+
+        Ok(overlay)
+    }
+
+    fn base_event_payload(&self) -> serde_json::Value {
+        serde_json::json!({
+            "desktop_id": self.state.desktop_id,
+            "session_id": self.state.session_id,
+            "thread_id": self.state.thread_id,
+            "run_id": self.state.run_id,
+            "document_path": self.state.document_path_relative,
+            "revision": self.state.revision,
+            "head_version_id": self.state.document.head_version_id,
+            "timestamp": Utc::now().to_rfc3339(),
+        })
+    }
+
+    async fn emit_event(&self, event_type: &str, payload: serde_json::Value) {
         let event = AppendEvent {
             event_type: event_type.to_string(),
             payload,
-            actor_id: format!("run_writer:{}", state.run_id),
+            actor_id: format!("writer:{}", self.state.run_id),
             user_id: "system".to_string(),
         };
-        if let Err(err) = state
+        let _ = self
+            .state
             .event_store
-            .send_message(EventStoreMsg::AppendAsync { event })
-        {
-            tracing::warn!(
-                run_id = %state.run_id,
-                event_type = event_type,
-                error = %err,
-                "Failed to append writer event"
-            );
-        }
+            .send_message(EventStoreMsg::AppendAsync { event });
     }
 
-    async fn emit_started_event(state: &mut RunWriterState) {
-        let mut payload = Self::base_event_payload(state);
+    async fn emit_started_event(&mut self) {
+        let mut payload = self.base_event_payload();
         if let Some(object) = payload.as_object_mut() {
             object.insert(
                 "objective".to_string(),
-                serde_json::Value::String(state.objective.clone()),
+                serde_json::Value::String(self.state.objective.clone()),
             );
         }
-        Self::emit_event(state, "writer.run.started", payload).await;
+        self.emit_event("writer.run.started", payload).await;
     }
 
     async fn emit_patch_event(
-        state: &RunWriterState,
+        &self,
         source: &str,
         section_id: Option<&str>,
         ops: Vec<shared_types::PatchOp>,
@@ -607,7 +671,7 @@ impl RunWriterActor {
         target_version_id: Option<u64>,
         overlay_id: Option<&str>,
     ) {
-        let mut payload = Self::base_event_payload(state);
+        let mut payload = self.base_event_payload();
         if let Some(object) = payload.as_object_mut() {
             object.insert(
                 "patch_id".to_string(),
@@ -619,14 +683,18 @@ impl RunWriterActor {
                     .unwrap_or_else(|_| serde_json::Value::String("system".to_string())),
             );
             object.insert(
+                "source_actor".to_string(),
+                serde_json::Value::String(source.to_string()),
+            );
+            object.insert(
                 "section_id".to_string(),
                 section_id
-                    .map(|s| serde_json::Value::String(s.to_string()))
+                    .map(|value| serde_json::Value::String(value.to_string()))
                     .unwrap_or(serde_json::Value::Null),
             );
             object.insert(
                 "ops".to_string(),
-                serde_json::to_value(ops).unwrap_or_else(|_| serde_json::Value::Array(vec![])),
+                serde_json::to_value(&ops).unwrap_or(serde_json::Value::Null),
             );
             object.insert(
                 "proposal".to_string(),
@@ -649,36 +717,32 @@ impl RunWriterActor {
             object.insert(
                 "overlay_id".to_string(),
                 overlay_id
-                    .map(|id| serde_json::Value::String(id.to_string()))
+                    .map(|value| serde_json::Value::String(value.to_string()))
                     .unwrap_or(serde_json::Value::Null),
             );
         }
-        Self::emit_event(state, "writer.run.patch", payload).await;
+
+        self.emit_event("writer.run.patch.applied", payload).await;
     }
 
-    async fn emit_progress_event(
-        state: &RunWriterState,
-        phase: impl Into<String>,
-        message: impl Into<String>,
-    ) {
-        let mut payload = Self::base_event_payload(state);
+    async fn emit_progress_event(&self, phase: impl Into<String>, message: impl Into<String>) {
+        let mut payload = self.base_event_payload();
         if let Some(object) = payload.as_object_mut() {
             object.insert("phase".to_string(), serde_json::Value::String(phase.into()));
             object.insert(
                 "message".to_string(),
                 serde_json::Value::String(message.into()),
             );
-            object.insert("progress_pct".to_string(), serde_json::Value::Null);
         }
-        Self::emit_event(state, "writer.run.progress", payload).await;
+        self.emit_event("writer.run.progress", payload).await;
     }
 
     async fn emit_status_event(
-        state: &RunWriterState,
+        &self,
         status: shared_types::WriterRunStatusKind,
         message: Option<String>,
     ) {
-        let mut payload = Self::base_event_payload(state);
+        let mut payload = self.base_event_payload();
         if let Some(object) = payload.as_object_mut() {
             object.insert(
                 "status".to_string(),
@@ -692,545 +756,32 @@ impl RunWriterActor {
                     .unwrap_or(serde_json::Value::Null),
             );
         }
-        Self::emit_event(state, "writer.run.status", payload).await;
-    }
-
-    fn ensure_run_id(state: &RunWriterState, run_id: &str) -> Result<(), RunWriterError> {
-        if run_id != state.run_id {
-            return Err(RunWriterError::RunIdMismatch {
-                expected: state.run_id.clone(),
-                actual: run_id.to_string(),
-            });
-        }
-        Ok(())
-    }
-
-    async fn create_version_internal(
-        state: &mut RunWriterState,
-        parent_version_id: Option<u64>,
-        content: String,
-        source: VersionSource,
-        event_source: &str,
-        section_id: Option<&str>,
-    ) -> Result<DocumentVersion, RunWriterError> {
-        let parent = parent_version_id.unwrap_or(state.document.head_version_id);
-        if state.document.get_version(parent).is_none() {
-            return Err(RunWriterError::VersionNotFound(parent));
-        }
-
-        let version = DocumentVersion {
-            version_id: state.document.next_version_id(),
-            created_at: Utc::now(),
-            source,
-            content,
-            parent_version_id: Some(parent),
-        };
-        state.document.versions.push(version.clone());
-        state.document.head_version_id = version.version_id;
-
-        for overlay in state.document.overlays.iter_mut() {
-            if overlay.base_version_id == parent && overlay.status == OverlayStatus::Pending {
-                overlay.status = OverlayStatus::Superseded;
-            }
-        }
-
-        Self::persist_document(state).await?;
-
-        let full_doc = state.document.to_markdown();
-        Self::emit_patch_event(
-            state,
-            event_source,
-            section_id,
-            Self::full_document_ops(&full_doc),
-            None,
-            Some(parent),
-            Some(version.version_id),
-            None,
-        )
-        .await;
-
-        Ok(version)
-    }
-
-    async fn create_overlay_internal(
-        state: &mut RunWriterState,
-        base_version_id: u64,
-        author: OverlayAuthor,
-        kind: OverlayKind,
-        diff_ops: Vec<shared_types::PatchOp>,
-        event_source: &str,
-        section_id: Option<&str>,
-        proposal: Option<String>,
-    ) -> Result<Overlay, RunWriterError> {
-        if state.document.get_version(base_version_id).is_none() {
-            return Err(RunWriterError::VersionNotFound(base_version_id));
-        }
-        if diff_ops.is_empty() {
-            return Err(RunWriterError::InvalidPatch(
-                "overlay diff_ops cannot be empty".to_string(),
-            ));
-        }
-
-        let overlay = Overlay {
-            overlay_id: ulid::Ulid::new().to_string(),
-            base_version_id,
-            author,
-            kind,
-            diff_ops: diff_ops.clone(),
-            status: OverlayStatus::Pending,
-            created_at: Utc::now(),
-        };
-        state.document.overlays.push(overlay.clone());
-        Self::persist_document(state).await?;
-
-        Self::emit_patch_event(
-            state,
-            event_source,
-            section_id,
-            diff_ops,
-            proposal,
-            Some(base_version_id),
-            None,
-            Some(&overlay.overlay_id),
-        )
-        .await;
-
-        Ok(overlay)
-    }
-
-    async fn resolve_overlay_internal(
-        state: &mut RunWriterState,
-        overlay_id: String,
-        status: OverlayStatus,
-    ) -> Result<Overlay, RunWriterError> {
-        let overlay = state
-            .document
-            .get_overlay_mut(&overlay_id)
-            .ok_or_else(|| RunWriterError::OverlayNotFound(overlay_id.clone()))?;
-        overlay.status = status;
-        let updated = overlay.clone();
-        Self::persist_document(state).await?;
-        Ok(updated)
-    }
-}
-
-impl RunWriterActor {
-    async fn handle_create_version(
-        &self,
-        state: &mut RunWriterState,
-        run_id: String,
-        parent_version_id: Option<u64>,
-        content: String,
-        source: VersionSource,
-    ) -> Result<DocumentVersion, RunWriterError> {
-        Self::ensure_run_id(state, &run_id)?;
-        let version = Self::create_version_internal(
-            state,
-            parent_version_id,
-            content,
-            source,
-            "writer",
-            None,
-        )
-        .await?;
-        Self::emit_progress_event(
-            state,
-            "version_created",
-            format!("Created version {}", version.version_id),
-        )
-        .await;
-        Ok(version)
-    }
-
-    async fn handle_create_overlay(
-        &self,
-        state: &mut RunWriterState,
-        run_id: String,
-        base_version_id: u64,
-        author: OverlayAuthor,
-        kind: OverlayKind,
-        diff_ops: Vec<shared_types::PatchOp>,
-    ) -> Result<Overlay, RunWriterError> {
-        Self::ensure_run_id(state, &run_id)?;
-        let overlay = Self::create_overlay_internal(
-            state,
-            base_version_id,
-            author,
-            kind,
-            diff_ops,
-            "writer",
-            None,
-            None,
-        )
-        .await?;
-        Self::emit_progress_event(
-            state,
-            "overlay_created",
-            format!("Created overlay {}", overlay.overlay_id),
-        )
-        .await;
-        Ok(overlay)
-    }
-
-    async fn handle_resolve_overlay(
-        &self,
-        state: &mut RunWriterState,
-        run_id: String,
-        overlay_id: String,
-        status: OverlayStatus,
-    ) -> Result<Overlay, RunWriterError> {
-        Self::ensure_run_id(state, &run_id)?;
-        let overlay =
-            Self::resolve_overlay_internal(state, overlay_id.clone(), status.clone()).await?;
-        Self::emit_progress_event(
-            state,
-            "overlay_resolved",
-            format!("Overlay {overlay_id} -> {:?}", status),
-        )
-        .await;
-        Ok(overlay)
-    }
-
-    async fn handle_apply_patch(
-        &self,
-        _myself: &ActorRef<RunWriterMsg>,
-        state: &mut RunWriterState,
-        run_id: String,
-        source: String,
-        section_id: String,
-        ops: Vec<PatchOp>,
-        proposal: bool,
-    ) -> Result<ApplyPatchResult, RunWriterError> {
-        Self::ensure_run_id(state, &run_id)?;
-
-        let base_version_id = state.document.head_version_id;
-        let base_content = state
-            .document
-            .head_version()
-            .map(|version| version.content.clone())
-            .unwrap_or_default();
-        let (next_content, lines_modified) = Self::apply_legacy_line_patch_ops(&base_content, &ops);
-
-        if proposal {
-            let diff_ops = Self::diff_full_replace(&base_content, &next_content);
-            let overlay = Self::create_overlay_internal(
-                state,
-                base_version_id,
-                Self::source_to_overlay_author(&source),
-                OverlayKind::Proposal,
-                diff_ops,
-                &source,
-                Some(&section_id),
-                Some(next_content),
-            )
-            .await?;
-            Self::emit_progress_event(
-                state,
-                "patch_applied",
-                format!("Created proposal overlay for {section_id} via {source}"),
-            )
-            .await;
-            return Ok(ApplyPatchResult {
-                revision: state.revision,
-                lines_modified,
-                base_version_id,
-                target_version_id: None,
-                overlay_id: Some(overlay.overlay_id),
-            });
-        }
-
-        let version = Self::create_version_internal(
-            state,
-            Some(base_version_id),
-            next_content,
-            Self::source_to_version_source(&source),
-            &source,
-            Some(&section_id),
-        )
-        .await?;
-        Self::emit_progress_event(
-            state,
-            "patch_applied",
-            format!("Updated canonical version via {source}"),
-        )
-        .await;
-
-        Ok(ApplyPatchResult {
-            revision: state.revision,
-            lines_modified,
-            base_version_id,
-            target_version_id: Some(version.version_id),
-            overlay_id: None,
-        })
-    }
-
-    async fn handle_append_log_line(
-        &self,
-        _myself: &ActorRef<RunWriterMsg>,
-        state: &mut RunWriterState,
-        run_id: String,
-        source: String,
-        section_id: String,
-        text: String,
-        proposal: bool,
-    ) -> Result<u64, RunWriterError> {
-        Self::ensure_run_id(state, &run_id)?;
-
-        let base_version_id = state.document.head_version_id;
-        let base_content = state
-            .document
-            .head_version()
-            .map(|version| version.content.clone())
-            .unwrap_or_default();
-        let timestamp = Utc::now().format("%H:%M:%S");
-        let log_line = format!("[{timestamp}] {text}");
-
-        let mut next_content = base_content.clone();
-        if !next_content.is_empty() && !next_content.ends_with('\n') {
-            next_content.push('\n');
-        }
-        next_content.push_str(&log_line);
-
-        if proposal {
-            let diff_ops = Self::diff_full_replace(&base_content, &next_content);
-            let _ = Self::create_overlay_internal(
-                state,
-                base_version_id,
-                Self::source_to_overlay_author(&source),
-                OverlayKind::Comment,
-                diff_ops,
-                &source,
-                Some(&section_id),
-                Some(log_line.clone()),
-            )
-            .await?;
-        } else {
-            let _ = Self::create_version_internal(
-                state,
-                Some(base_version_id),
-                next_content,
-                Self::source_to_version_source(&source),
-                &source,
-                Some(&section_id),
-            )
-            .await?;
-        }
-
-        Self::emit_progress_event(state, format!("{}:{}", source, section_id), log_line).await;
-        Ok(state.revision)
-    }
-
-    async fn handle_report_section_progress(
-        &self,
-        _myself: &ActorRef<RunWriterMsg>,
-        state: &mut RunWriterState,
-        run_id: String,
-        source: String,
-        section_id: String,
-        phase: String,
-        message: String,
-    ) -> Result<u64, RunWriterError> {
-        Self::ensure_run_id(state, &run_id)?;
-        Self::emit_progress_event(state, format!("{source}:{section_id}:{phase}"), message).await;
-        Ok(state.revision)
-    }
-
-    async fn handle_mark_section_state(
-        &self,
-        _myself: &ActorRef<RunWriterMsg>,
-        state: &mut RunWriterState,
-        run_id: String,
-        section_id: String,
-        section_state: SectionState,
-    ) -> Result<(), RunWriterError> {
-        Self::ensure_run_id(state, &run_id)?;
-
-        let status_message = format!("{section_id} -> {:?}", section_state);
-        let status = match section_state {
-            SectionState::Pending => shared_types::WriterRunStatusKind::WaitingForWorker,
-            SectionState::Running => shared_types::WriterRunStatusKind::Running,
-            SectionState::Complete => shared_types::WriterRunStatusKind::Completed,
-            SectionState::Failed => shared_types::WriterRunStatusKind::Failed,
-        };
-        Self::persist_document(state).await?;
-        Self::emit_status_event(state, status, Some(status_message)).await;
-
-        Ok(())
-    }
-
-    async fn handle_commit_proposal(
-        &self,
-        _myself: &ActorRef<RunWriterMsg>,
-        state: &mut RunWriterState,
-        _section_id: String,
-    ) -> Result<u64, RunWriterError> {
-        let pending = state
-            .document
-            .overlays
-            .iter()
-            .rev()
-            .find(|overlay| overlay.status == OverlayStatus::Pending)
-            .cloned()
-            .ok_or_else(|| RunWriterError::InvalidPatch("No proposal to commit".to_string()))?;
-
-        let base = state
-            .document
-            .get_version(pending.base_version_id)
-            .cloned()
-            .ok_or(RunWriterError::VersionNotFound(pending.base_version_id))?;
-
-        let content = Self::apply_shared_patch_ops(&base.content, &pending.diff_ops)?;
-
-        if let Some(overlay) = state.document.get_overlay_mut(&pending.overlay_id) {
-            overlay.status = OverlayStatus::Applied;
-        }
-
-        let _ = Self::create_version_internal(
-            state,
-            Some(state.document.head_version_id),
-            content,
-            VersionSource::System,
-            "system",
-            None,
-        )
-        .await?;
-
-        Self::emit_status_event(
-            state,
-            shared_types::WriterRunStatusKind::Running,
-            Some(format!("Committed overlay {}", pending.overlay_id)),
-        )
-        .await;
-
-        Ok(state.revision)
-    }
-
-    async fn handle_discard_proposal(
-        &self,
-        _myself: &ActorRef<RunWriterMsg>,
-        state: &mut RunWriterState,
-        _section_id: String,
-    ) -> Result<(), RunWriterError> {
-        let overlay = state
-            .document
-            .overlays
-            .iter_mut()
-            .rev()
-            .find(|overlay| overlay.status == OverlayStatus::Pending)
-            .ok_or_else(|| RunWriterError::InvalidPatch("No proposal to discard".to_string()))?;
-
-        let discarded_id = overlay.overlay_id.clone();
-        overlay.status = OverlayStatus::Discarded;
-
-        Self::persist_document(state).await?;
-        Self::emit_status_event(
-            state,
-            shared_types::WriterRunStatusKind::Running,
-            Some(format!("Discarded overlay {discarded_id}")),
-        )
-        .await;
-
-        Ok(())
-    }
-
-    async fn handle_set_section_content(
-        &self,
-        _myself: &ActorRef<RunWriterMsg>,
-        state: &mut RunWriterState,
-        run_id: String,
-        source: String,
-        section_id: String,
-        content: String,
-    ) -> Result<u64, RunWriterError> {
-        Self::ensure_run_id(state, &run_id)?;
-
-        let parent = state.document.head_version_id;
-        let _ = Self::create_version_internal(
-            state,
-            Some(parent),
-            content,
-            Self::source_to_version_source(&source),
-            &source,
-            Some(&section_id),
-        )
-        .await?;
-
-        Self::emit_progress_event(
-            state,
-            "section_rewritten",
-            format!("Rewrote canonical content for {section_id}"),
-        )
-        .await;
-
-        Ok(state.revision)
+        self.emit_event("writer.run.status", payload).await;
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{PatchOp, PatchOpKind, RunWriterRuntime};
 
     #[test]
-    fn test_extract_revision_from_content() {
-        let content = "<!-- revision:42 -->\n# Test\n\nBody";
-        assert_eq!(RunWriterActor::extract_revision_from_content(content), 42);
-        assert_eq!(RunWriterActor::extract_revision_from_content("# Test"), 0);
+    fn extract_revision_from_content_parses_marker() {
+        let content = "<!-- revision:42 -->\n# Test\nBody";
+        assert_eq!(RunWriterRuntime::extract_revision_from_content(content), 42);
+        assert_eq!(RunWriterRuntime::extract_revision_from_content("# Test"), 0);
     }
 
     #[test]
-    fn test_run_document_default_head_version() {
-        let doc = RunDocument::new("Objective");
-        assert_eq!(doc.head_version_id, 0);
-        assert_eq!(doc.versions.len(), 1);
-        assert_eq!(doc.head_version().map(|v| v.version_id), Some(0));
-    }
+    fn apply_legacy_line_patch_ops_append() {
+        let ops = vec![PatchOp {
+            kind: PatchOpKind::Append,
+            position: None,
+            text: Some("world".to_string()),
+        }];
 
-    #[test]
-    fn test_legacy_markdown_migration_creates_overlay() {
-        let md = "# Obj\n\nCanon\n\n<!-- proposal -->\nMaybe better\n<!-- /proposal -->\n";
-        let doc = RunDocument::from_legacy_markdown(md).expect("legacy parse");
-        assert_eq!(doc.head_version_id, 1);
-        assert_eq!(doc.versions.len(), 1);
-        assert_eq!(doc.overlays.len(), 1);
-        assert_eq!(doc.overlays[0].status, OverlayStatus::Pending);
-    }
-
-    #[test]
-    fn test_apply_shared_patch_ops_insert_delete_replace() {
-        let base = "abcd";
-        let ops = vec![
-            shared_types::PatchOp::Delete { pos: 1, len: 2 },
-            shared_types::PatchOp::Insert {
-                pos: 1,
-                text: "XY".to_string(),
-            },
-            shared_types::PatchOp::Replace {
-                pos: 0,
-                len: 1,
-                text: "Q".to_string(),
-            },
-        ];
-        let out = RunWriterActor::apply_shared_patch_ops(base, &ops).expect("patch ops");
-        assert_eq!(out, "QXYd");
-    }
-
-    #[test]
-    fn test_diff_full_replace_includes_delete_and_insert() {
-        let ops = RunWriterActor::diff_full_replace("hello", "bye");
-        assert_eq!(ops.len(), 2);
-        match &ops[0] {
-            shared_types::PatchOp::Delete { pos, len } => {
-                assert_eq!(*pos, 0);
-                assert_eq!(*len, 5);
-            }
-            _ => panic!("expected delete"),
-        }
-        match &ops[1] {
-            shared_types::PatchOp::Insert { pos, text } => {
-                assert_eq!(*pos, 0);
-                assert_eq!(text, "bye");
-            }
-            _ => panic!("expected insert"),
-        }
+        let (content, lines_modified) =
+            RunWriterRuntime::apply_legacy_line_patch_ops("hello", &ops);
+        assert_eq!(content, "hello\nworld");
+        assert_eq!(lines_modified, 1);
     }
 }

@@ -6,63 +6,31 @@ use crate::actors::conductor::{
     events,
     protocol::{ConductorError, ConductorMsg},
 };
-use crate::actors::run_writer::{
-    PatchOp, PatchOpKind, RunWriterActor, RunWriterArguments, RunWriterMsg,
-};
-use crate::actors::writer::WriterMsg;
+use crate::actors::writer::{WriterMsg, WriterSource};
 
 impl ConductorActor {
     fn run_document_path(run_id: &str) -> String {
         format!("conductor/runs/{run_id}/draft.md")
     }
 
-    async fn ensure_run_writer_for_run(
+    async fn ensure_run_document_for_run(
         &self,
         state: &mut ConductorState,
         run_id: &str,
         desktop_id: &str,
         objective: &str,
-    ) -> Result<ActorRef<RunWriterMsg>, ConductorError> {
-        let run_writer = if let Some(existing) = state.run_writers.get(run_id).cloned() {
-            existing
-        } else {
-            let run_writer_args = RunWriterArguments {
-                run_id: run_id.to_string(),
-                desktop_id: desktop_id.to_string(),
-                objective: objective.to_string(),
-                session_id: desktop_id.to_string(),
-                thread_id: run_id.to_string(),
-                root_dir: Some(env!("CARGO_MANIFEST_DIR").to_string()),
-                event_store: state.event_store.clone(),
-            };
-
-            let (actor_ref, _handle) = ractor::Actor::spawn(
-                Some(format!("run-writer-{run_id}")),
-                RunWriterActor,
-                run_writer_args,
-            )
-            .await
-            .map_err(|e| {
-                ConductorError::ActorUnavailable(format!("Failed to spawn RunWriterActor: {e}"))
-            })?;
-
-            state
-                .run_writers
-                .insert(run_id.to_string(), actor_ref.clone());
-            actor_ref
-        };
-
-        if let Some(writer_actor) = state.writer_actor.as_ref() {
-            ractor::call!(writer_actor, |reply| WriterMsg::RegisterRunWriter {
-                run_id: run_id.to_string(),
-                run_writer_actor: run_writer.clone(),
-                reply,
-            })
-            .map_err(|e| ConductorError::ActorUnavailable(e.to_string()))?
-            .map_err(|e| ConductorError::WorkerFailed(e.to_string()))?;
-        }
-
-        Ok(run_writer)
+    ) -> Result<(), ConductorError> {
+        let writer_actor = state.writer_actor.as_ref().ok_or_else(|| {
+            ConductorError::ActorUnavailable("writer actor unavailable".to_string())
+        })?;
+        ractor::call!(writer_actor, |reply| WriterMsg::EnsureRunDocument {
+            run_id: run_id.to_string(),
+            desktop_id: desktop_id.to_string(),
+            objective: objective.to_string(),
+            reply,
+        })
+        .map_err(|e| ConductorError::ActorUnavailable(e.to_string()))?
+        .map_err(|e| ConductorError::WorkerFailed(e.to_string()))
     }
 
     fn capability_contract_prefix(capability: &str) -> &'static str {
@@ -125,8 +93,7 @@ impl ConductorActor {
         .await;
 
         let document_path = Self::run_document_path(&run_id);
-        let run_writer = self
-            .ensure_run_writer_for_run(state, &run_id, &request.desktop_id, &request.objective)
+        self.ensure_run_document_for_run(state, &run_id, &request.desktop_id, &request.objective)
             .await?;
 
         let bootstrap_note = format!(
@@ -136,28 +103,26 @@ impl ConductorActor {
              Run ID: `{}`",
             request.objective, run_id
         );
-        let bootstrap_ops = vec![PatchOp {
-            kind: PatchOpKind::Append,
-            position: None,
-            text: Some(bootstrap_note),
-        }];
-        match ractor::call!(run_writer, |reply| RunWriterMsg::ApplyPatch {
+        let writer_actor = state.writer_actor.as_ref().ok_or_else(|| {
+            ConductorError::ActorUnavailable("writer actor unavailable".to_string())
+        })?;
+        match ractor::call!(writer_actor, |reply| WriterMsg::ApplyText {
             run_id: run_id.clone(),
-            source: "conductor".to_string(),
             section_id: "conductor".to_string(),
-            ops: bootstrap_ops,
+            source: WriterSource::Conductor,
+            content: bootstrap_note,
             proposal: false,
             reply,
         }) {
-            Ok(Ok(_)) => {}
+            Ok(Ok(_revision)) => {}
             Ok(Err(e)) => {
                 return Err(ConductorError::WorkerFailed(format!(
-                    "Failed to initialize run document via RunWriterActor: {e}"
+                    "Failed to initialize run document via WriterActor: {e}"
                 )));
             }
             Err(e) => {
                 return Err(ConductorError::WorkerFailed(format!(
-                    "RunWriterActor bootstrap call failed: {e}"
+                    "WriterActor bootstrap call failed: {e}"
                 )));
             }
         }

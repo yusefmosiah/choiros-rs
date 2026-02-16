@@ -1,4 +1,4 @@
-//! RunWriterActor state types.
+//! Run document runtime state types.
 
 use chrono::{DateTime, Utc};
 use ractor::ActorRef;

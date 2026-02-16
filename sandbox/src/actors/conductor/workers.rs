@@ -5,7 +5,6 @@ use tokio::sync::mpsc;
 
 use crate::actors::conductor::protocol::ConductorError;
 use crate::actors::researcher::{ResearcherMsg, ResearcherProgress, ResearcherResult};
-use crate::actors::run_writer::RunWriterMsg;
 use crate::actors::terminal::{
     TerminalAgentProgress, TerminalAgentResult, TerminalBashToolRequest, TerminalError, TerminalMsg,
 };
@@ -20,7 +19,6 @@ pub async fn call_researcher(
     max_rounds: Option<u8>,
     progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
     writer_actor: Option<ActorRef<WriterMsg>>,
-    run_writer_actor: Option<ActorRef<RunWriterMsg>>,
     run_id: Option<String>,
     call_id: Option<String>,
 ) -> Result<ResearcherResult, ConductorError> {
@@ -34,7 +32,6 @@ pub async fn call_researcher(
         model_override: None,
         progress_tx,
         writer_actor,
-        run_writer_actor,
         run_id,
         call_id,
         reply,

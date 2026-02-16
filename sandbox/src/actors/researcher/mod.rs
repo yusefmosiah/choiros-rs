@@ -54,7 +54,6 @@ pub enum ResearcherMsg {
         model_override: Option<String>,
         progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
         writer_actor: Option<ractor::ActorRef<crate::actors::writer::WriterMsg>>,
-        run_writer_actor: Option<ractor::ActorRef<crate::actors::run_writer::RunWriterMsg>>,
         run_id: Option<String>,
         call_id: Option<String>,
         reply: RpcReplyPort<Result<ResearcherResult, ResearcherError>>,
@@ -253,7 +252,6 @@ impl Actor for ResearcherActor {
                 model_override,
                 progress_tx,
                 writer_actor,
-                run_writer_actor,
                 run_id,
                 call_id,
                 reply,
@@ -267,7 +265,6 @@ impl Actor for ResearcherActor {
                         model_override,
                         progress_tx,
                         writer_actor,
-                        run_writer_actor,
                         run_id,
                         call_id,
                     )
@@ -287,7 +284,6 @@ impl Actor for ResearcherActor {
                         request.max_rounds,
                         request.model_override.clone(),
                         progress_tx,
-                        None,
                         None,
                         None,
                         None,
@@ -346,7 +342,6 @@ impl ResearcherActor {
         model_override: Option<String>,
         progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
         writer_actor: Option<ractor::ActorRef<crate::actors::writer::WriterMsg>>,
-        run_writer_actor: Option<ractor::ActorRef<crate::actors::run_writer::RunWriterMsg>>,
         run_id: Option<String>,
         call_id: Option<String>,
     ) -> Result<ResearcherResult, ResearcherError> {
@@ -363,10 +358,7 @@ impl ResearcherActor {
 
         let adapter = ResearcherAdapter::new(adapter_state, progress_tx.clone(), timeout)?;
 
-        let adapter = match (run_writer_actor, run_id.clone()) {
-            (Some(rw), Some(rid)) => adapter.with_run_writer(rw, rid),
-            _ => adapter,
-        };
+        let adapter = adapter.with_run_context(run_id.clone());
         let adapter = match writer_actor {
             Some(writer_actor_ref) => adapter.with_writer_actor(writer_actor_ref),
             None => adapter,
