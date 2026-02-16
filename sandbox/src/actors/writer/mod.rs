@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 use crate::actors::agent_harness::{AgentHarness, HarnessConfig, ObjectiveStatus, ToolExecution};
@@ -404,6 +405,64 @@ impl Actor for WriterActor {
 
 impl WriterActor {
     const MAX_SEEN_IDS: usize = 4096;
+    const RUN_DOCUMENTS_ROOT: &'static str = "conductor/runs";
+    const RUN_DOCUMENT_FILE: &'static str = "draft.md";
+    const RUN_DOCUMENT_STATE_FILE: &'static str = "draft.writer-state.json";
+    const DEFAULT_RESTORED_DESKTOP_ID: &'static str = "default-desktop";
+
+    fn run_document_dir(run_id: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join(Self::RUN_DOCUMENTS_ROOT)
+            .join(run_id)
+    }
+
+    fn persisted_run_document_exists(run_id: &str) -> bool {
+        let run_dir = Self::run_document_dir(run_id);
+        run_dir.join(Self::RUN_DOCUMENT_FILE).exists()
+            || run_dir.join(Self::RUN_DOCUMENT_STATE_FILE).exists()
+    }
+
+    async fn ensure_run_document_loaded(
+        state: &mut WriterState,
+        run_id: &str,
+    ) -> Result<(), WriterError> {
+        if state.run_documents_by_run_id.contains_key(run_id) {
+            return Ok(());
+        }
+
+        if !Self::persisted_run_document_exists(run_id) {
+            return Err(WriterError::Validation(format!(
+                "document runtime not found for run_id={run_id}"
+            )));
+        }
+
+        let runtime = WriterDocumentRuntime::load(WriterDocumentArguments {
+            run_id: run_id.to_string(),
+            desktop_id: Self::DEFAULT_RESTORED_DESKTOP_ID.to_string(),
+            objective: String::new(),
+            session_id: Self::DEFAULT_RESTORED_DESKTOP_ID.to_string(),
+            thread_id: run_id.to_string(),
+            root_dir: Some(env!("CARGO_MANIFEST_DIR").to_string()),
+            event_store: state.event_store.clone(),
+        })
+        .await
+        .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
+
+        let revision = runtime.revision();
+        state
+            .run_documents_by_run_id
+            .insert(run_id.to_string(), runtime);
+        Self::emit_event(
+            state,
+            "writer.actor.run_document.hydrated",
+            serde_json::json!({
+                "run_id": run_id,
+                "revision": revision,
+                "source": "persisted_state",
+            }),
+        );
+        Ok(())
+    }
 
     async fn ensure_run_document(
         state: &mut WriterState,
@@ -488,6 +547,8 @@ impl WriterActor {
         state: &mut WriterState,
         mut inbound: WriterInboxMessage,
     ) -> Result<WriterQueueAck, WriterError> {
+        Self::ensure_run_document_loaded(state, &inbound.envelope.run_id).await?;
+
         let has_prompt_diff = inbound
             .envelope
             .prompt_diff
@@ -783,6 +844,7 @@ impl WriterActor {
         content: String,
         proposal: bool,
     ) -> Result<u64, WriterError> {
+        Self::ensure_run_document_loaded(state, &run_id).await?;
         if content.trim().is_empty() {
             return Err(WriterError::Validation(
                 "content cannot be empty".to_string(),
@@ -816,28 +878,31 @@ impl WriterActor {
     }
 
     async fn list_writer_document_versions(
-        state: &WriterState,
+        state: &mut WriterState,
         run_id: String,
     ) -> Result<Vec<DocumentVersion>, WriterError> {
+        Self::ensure_run_document_loaded(state, &run_id).await?;
         Ok(Self::resolve_run_document(state, &run_id)?.list_versions())
     }
 
     async fn get_writer_document_version(
-        state: &WriterState,
+        state: &mut WriterState,
         run_id: String,
         version_id: u64,
     ) -> Result<DocumentVersion, WriterError> {
+        Self::ensure_run_document_loaded(state, &run_id).await?;
         Self::resolve_run_document(state, &run_id)?
             .get_version(version_id)
             .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))
     }
 
     async fn list_writer_document_overlays(
-        state: &WriterState,
+        state: &mut WriterState,
         run_id: String,
         base_version_id: Option<u64>,
         status: Option<OverlayStatus>,
     ) -> Result<Vec<Overlay>, WriterError> {
+        Self::ensure_run_document_loaded(state, &run_id).await?;
         Ok(Self::resolve_run_document(state, &run_id)?.list_overlays(base_version_id, status))
     }
 
@@ -848,6 +913,7 @@ impl WriterActor {
         content: String,
         source: VersionSource,
     ) -> Result<DocumentVersion, WriterError> {
+        Self::ensure_run_document_loaded(state, &run_id).await?;
         let run_doc = Self::resolve_run_document_mut(state, &run_id)?;
         run_doc
             .create_version(&run_id, parent_version_id, content, source)
@@ -862,6 +928,7 @@ impl WriterActor {
         prompt_diff: Vec<shared_types::PatchOp>,
         base_version_id: u64,
     ) -> Result<WriterQueueAck, WriterError> {
+        Self::ensure_run_document_loaded(state, &run_id).await?;
         if prompt_diff.is_empty() {
             return Err(WriterError::Validation(
                 "prompt_diff cannot be empty".to_string(),
@@ -1103,6 +1170,7 @@ impl WriterActor {
         source: WriterSource,
         content: String,
     ) -> Result<u64, WriterError> {
+        Self::ensure_run_document_loaded(state, &run_id).await?;
         if content.trim().is_empty() {
             return Err(WriterError::Validation(
                 "content cannot be empty".to_string(),
@@ -1154,6 +1222,7 @@ impl WriterActor {
         phase: String,
         message: String,
     ) -> Result<u64, WriterError> {
+        Self::ensure_run_document_loaded(state, &run_id).await?;
         if message.trim().is_empty() {
             return Err(WriterError::Validation(
                 "message cannot be empty".to_string(),
@@ -1185,6 +1254,7 @@ impl WriterActor {
         section_id: String,
         section_state: SectionState,
     ) -> Result<(), WriterError> {
+        Self::ensure_run_document_loaded(state, &run_id).await?;
         let run_doc = Self::resolve_run_document_mut(state, &run_id)?;
         run_doc
             .mark_section_state(&run_id, &section_id, section_state)
@@ -1264,6 +1334,113 @@ impl WriterActor {
             capability: WriterDelegateCapability::Terminal,
             success: result.success,
             summary: result.summary,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::actors::event_store::{EventStoreActor, EventStoreArguments};
+    use ractor::Actor;
+
+    fn run_dir(run_id: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join(WriterActor::RUN_DOCUMENTS_ROOT)
+            .join(run_id)
+    }
+
+    #[tokio::test]
+    async fn list_versions_rehydrates_persisted_document_after_writer_restart() {
+        let run_id = format!("run_writer_rehydrate_{}", ulid::Ulid::new());
+        let run_dir = run_dir(&run_id);
+        if run_dir.exists() {
+            tokio::fs::remove_dir_all(&run_dir).await.unwrap();
+        }
+
+        let (event_store, _event_store_handle) =
+            Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+                .await
+                .unwrap();
+
+        let writer_args = WriterArguments {
+            writer_id: "writer-test".to_string(),
+            user_id: "user-test".to_string(),
+            event_store: event_store.clone(),
+            researcher_actor: None,
+            terminal_actor: None,
+        };
+
+        let (writer_first, _writer_first_handle) =
+            Actor::spawn(None, WriterActor, writer_args.clone())
+                .await
+                .unwrap();
+
+        let ensured = ractor::call!(writer_first, |reply| WriterMsg::EnsureRunDocument {
+            run_id: run_id.clone(),
+            desktop_id: "desktop-test".to_string(),
+            objective: "Hydration test objective".to_string(),
+            reply,
+        })
+        .unwrap();
+        assert!(ensured.is_ok());
+
+        let revision = ractor::call!(writer_first, |reply| WriterMsg::ApplyText {
+            run_id: run_id.clone(),
+            section_id: "conductor".to_string(),
+            source: WriterSource::Conductor,
+            content: "Persisted content across restart.".to_string(),
+            proposal: false,
+            reply,
+        })
+        .unwrap()
+        .unwrap();
+        assert!(revision > 0);
+
+        let versions_before = ractor::call!(writer_first, |reply| {
+            WriterMsg::ListWriterDocumentVersions {
+                run_id: run_id.clone(),
+                reply,
+            }
+        })
+        .unwrap()
+        .unwrap();
+        assert!(versions_before.len() >= 2);
+        let head_before = versions_before
+            .iter()
+            .max_by_key(|version| version.version_id)
+            .cloned()
+            .expect("head version should exist");
+
+        writer_first.stop(None);
+
+        let (writer_second, _writer_second_handle) =
+            Actor::spawn(None, WriterActor, writer_args).await.unwrap();
+
+        // No EnsureRunDocument call on purpose. The writer should hydrate lazily.
+        let versions_after = ractor::call!(writer_second, |reply| {
+            WriterMsg::ListWriterDocumentVersions {
+                run_id: run_id.clone(),
+                reply,
+            }
+        })
+        .unwrap()
+        .unwrap();
+
+        let head_after = versions_after
+            .iter()
+            .max_by_key(|version| version.version_id)
+            .cloned()
+            .expect("head version should exist after rehydrate");
+
+        assert_eq!(head_after.version_id, head_before.version_id);
+        assert_eq!(head_after.content, head_before.content);
+        assert_eq!(versions_after.len(), versions_before.len());
+
+        writer_second.stop(None);
+        event_store.stop(None);
+        if run_dir.exists() {
+            tokio::fs::remove_dir_all(&run_dir).await.unwrap();
         }
     }
 }
