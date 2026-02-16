@@ -264,8 +264,6 @@ struct TraceEvent {
     run_id: Option<String>,
     task_id: Option<String>,
     call_id: Option<String>,
-    session_id: Option<String>,
-    thread_id: Option<String>,
     system_context: Option<String>,
     input: Option<serde_json::Value>,
     input_summary: Option<String>,
@@ -279,8 +277,6 @@ struct TraceEvent {
     output_tokens: Option<i64>,
     cached_input_tokens: Option<i64>,
     total_tokens: Option<i64>,
-    started_at: Option<String>,
-    ended_at: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -318,8 +314,6 @@ struct ToolTraceEvent {
     tool_args: Option<serde_json::Value>,
     output: Option<serde_json::Value>,
     error: Option<String>,
-    started_at: Option<String>,
-    ended_at: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -361,9 +355,7 @@ struct GraphNode {
     actor_key: Option<String>,
     llm_calls: usize,
     tool_calls: usize,
-    tool_failures: usize,
     inbound_events: usize,
-    loop_count: usize,
     status: String,
 }
 
@@ -608,7 +600,6 @@ fn parse_trace_event(event: &LogsEvent) -> Option<TraceEvent> {
     }
 
     let payload = &event.payload;
-    let scope = payload.get("scope").and_then(|v| v.as_object());
     let usage = payload.get("usage").and_then(|v| v.as_object());
 
     Some(TraceEvent {
@@ -654,14 +645,6 @@ fn parse_trace_event(event: &LogsEvent) -> Option<TraceEvent> {
             .get("call_id")
             .and_then(|v| v.as_str())
             .map(ToString::to_string),
-        session_id: scope
-            .and_then(|s| s.get("session_id"))
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        thread_id: scope
-            .and_then(|s| s.get("thread_id"))
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
         system_context: payload
             .get("system_context")
             .and_then(|v| v.as_str())
@@ -705,14 +688,6 @@ fn parse_trace_event(event: &LogsEvent) -> Option<TraceEvent> {
             .and_then(|u| u.get("total_tokens"))
             .and_then(|v| v.as_i64())
             .or_else(|| payload.get("total_tokens").and_then(|v| v.as_i64())),
-        started_at: payload
-            .get("started_at")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        ended_at: payload
-            .get("ended_at")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
     })
 }
 
@@ -788,14 +763,6 @@ fn parse_tool_trace_event(event: &LogsEvent) -> Option<ToolTraceEvent> {
         output: decode_json_payload(payload.get("output")),
         error: payload
             .get("error")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        started_at: payload
-            .get("started_at")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        ended_at: payload
-            .get("ended_at")
             .and_then(|v| v.as_str())
             .map(ToString::to_string),
     })
@@ -1073,9 +1040,7 @@ fn build_graph_nodes_for_run(
         actor_key: None,
         llm_calls: 0,
         tool_calls: 0,
-        tool_failures: 0,
         inbound_events: 0,
-        loop_count: 0,
         status: "completed".to_string(),
     }];
 
@@ -1100,9 +1065,7 @@ fn build_graph_nodes_for_run(
                 actor_key: Some(actor_key),
                 llm_calls: acc.llm_calls,
                 tool_calls: acc.tool_calls,
-                tool_failures: acc.tool_failures,
                 inbound_events: acc.inbound_events,
-                loop_count: acc.loop_ids.len(),
                 status: status.to_string(),
             });
         }
@@ -1114,14 +1077,12 @@ fn build_graph_nodes_for_run(
             label: "Tools".to_string(),
             kind: GraphNodeKind::Tools,
             actor_key: None,
-        llm_calls: 0,
-        tool_calls: any_tool_calls,
-        tool_failures: any_tool_failures,
-        inbound_events: 0,
-        loop_count: 0,
-        status: if any_tool_failures > 0 {
-            "degraded".to_string()
-        } else {
+            llm_calls: 0,
+            tool_calls: any_tool_calls,
+            inbound_events: 0,
+            status: if any_tool_failures > 0 {
+                "degraded".to_string()
+            } else {
                 "completed".to_string()
             },
         });

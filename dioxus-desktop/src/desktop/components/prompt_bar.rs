@@ -118,10 +118,6 @@ impl TelemetryStreamState {
     pub fn cleanup_expired(&mut self) {
         self.lines.retain(|line| !line.is_expired());
     }
-
-    pub fn clear(&mut self) {
-        self.lines.clear();
-    }
 }
 
 /// Props for the telemetry stream component
@@ -175,7 +171,7 @@ pub fn LiveTelemetryStream(props: LiveTelemetryStreamProps) -> Element {
                     // Capability indicator
                     span {
                         style: "display: inline-block; padding: 0.1rem 0.25rem; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border-radius: 2px; margin-right: 0.5rem; font-size: 0.65rem; text-transform: uppercase;",
-                        "[{line.1.capability}]"
+                        "[{line.1.capability}:{line.1.phase}]"
                     }
 
                     // Message
