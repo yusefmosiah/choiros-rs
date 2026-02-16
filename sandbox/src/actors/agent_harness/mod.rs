@@ -30,6 +30,7 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 
@@ -40,7 +41,9 @@ use crate::baml_client::types::{
     Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall as AgentToolCall,
 };
 use crate::baml_client::{new_collector, ClientRegistry, B};
-use crate::observability::llm_trace::{token_usage_from_collector, LlmCallScope, LlmTraceEmitter};
+use crate::observability::llm_trace::{
+    token_usage_from_collector, LlmCallScope, LlmTokenUsage, LlmTraceEmitter,
+};
 
 // Re-export shared types for convenience
 pub use shared_types::{
@@ -52,7 +55,11 @@ pub use shared_types::{
 // Core Types
 // ============================================================================
 
-const MAX_TOOL_OUTPUT_ECHO_CHARS: usize = 12_000;
+const TOOL_OUTPUT_ARTIFACT_DIR: &str = "agent_harness/tool_outputs";
+const MIN_TOOL_OUTPUT_ECHO_CHARS: usize = 1_000;
+const MAX_TOOL_OUTPUT_ECHO_CHARS: usize = 6_000;
+const INPUT_TOKEN_SPIKE_DELTA_THRESHOLD: i64 = 1_000;
+const INPUT_TOKEN_SPIKE_RATIO_THRESHOLD: f64 = 1.35;
 
 fn tool_call_name(tool_call: &AgentToolCall) -> &str {
     match tool_call {
@@ -117,22 +124,122 @@ fn truncate_for_next_turn(value: &str, max_chars: usize) -> (String, bool) {
     (truncated, was_truncated)
 }
 
-fn tool_execution_message(tool_name: &str, execution: &ToolExecution) -> String {
+fn tool_name_slug(tool_name: &str) -> String {
+    let slug: String = tool_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let trimmed = slug.trim_matches('_');
+    if trimmed.is_empty() {
+        "tool".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn adaptive_tool_output_echo_chars(step_number: usize, max_steps: usize) -> usize {
+    let remaining_steps = max_steps.saturating_sub(step_number);
+    if remaining_steps <= 1 {
+        MAX_TOOL_OUTPUT_ECHO_CHARS
+    } else if remaining_steps <= 3 {
+        3_000
+    } else {
+        MIN_TOOL_OUTPUT_ECHO_CHARS
+    }
+}
+
+fn tool_output_relative_path(
+    loop_id: &str,
+    step_number: usize,
+    tool_index: usize,
+    tool_name: &str,
+) -> String {
+    format!(
+        "{}/{}/step-{:02}-tool-{:02}-{}.json",
+        TOOL_OUTPUT_ARTIFACT_DIR,
+        loop_id,
+        step_number,
+        tool_index + 1,
+        tool_name_slug(tool_name)
+    )
+}
+
+fn option_delta(current: i64, previous: Option<i64>) -> Option<i64> {
+    previous.map(|prev| current.saturating_sub(prev))
+}
+
+fn is_input_token_spike(current: i64, previous: Option<i64>, delta: Option<i64>) -> bool {
+    let delta_spike = delta
+        .map(|value| value >= INPUT_TOKEN_SPIKE_DELTA_THRESHOLD)
+        .unwrap_or(false);
+    let ratio_spike = previous
+        .filter(|prev| *prev > 0)
+        .map(|prev| (current as f64 / prev as f64) >= INPUT_TOKEN_SPIKE_RATIO_THRESHOLD)
+        .unwrap_or(false);
+    delta_spike || ratio_spike
+}
+
+async fn persist_tool_execution_artifact(
+    loop_id: &str,
+    step_number: usize,
+    tool_index: usize,
+    tool_name: &str,
+    execution: &ToolExecution,
+) -> Result<String, std::io::Error> {
+    let relative_path = tool_output_relative_path(loop_id, step_number, tool_index, tool_name);
+    let absolute_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(&relative_path);
+    if let Some(parent) = absolute_path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    let payload = serde_json::json!({
+        "tool_name": execution.tool_name,
+        "success": execution.success,
+        "execution_time_ms": execution.execution_time_ms,
+        "error": execution.error,
+        "output": execution.output,
+        "created_at": chrono::Utc::now().to_rfc3339(),
+    });
+    let serialized = serde_json::to_string_pretty(&payload).unwrap_or_else(|_| payload.to_string());
+    tokio::fs::write(&absolute_path, serialized).await?;
+    Ok(relative_path)
+}
+
+fn tool_execution_message(
+    ctx: &ExecutionContext,
+    tool_name: &str,
+    execution: &ToolExecution,
+    output_artifact_path: Option<&str>,
+) -> String {
+    let max_echo_chars = adaptive_tool_output_echo_chars(ctx.step_number, ctx.max_steps);
     let (output_excerpt, output_truncated) =
-        truncate_for_next_turn(&execution.output, MAX_TOOL_OUTPUT_ECHO_CHARS);
+        truncate_for_next_turn(&execution.output, max_echo_chars);
     let output_label = if output_truncated {
         "Output (truncated)"
     } else {
         "Output"
     };
+    let artifact_line = output_artifact_path
+        .map(|path| format!("\nFullOutputPath: {path}"))
+        .unwrap_or_default();
     let error_line = execution
         .error
         .as_ref()
         .map(|err| format!("\nError: {err}"))
         .unwrap_or_default();
+    let retrieval_hint = if output_artifact_path.is_some() {
+        "\nIf needed, inspect full output via file_read or bash cat using FullOutputPath."
+    } else {
+        ""
+    };
 
     format!(
-        "Executed {tool_name}\nSuccess: {}\n{output_label}: {output_excerpt}{error_line}",
+        "Executed {tool_name}\nSuccess: {}{artifact_line}\n{output_label}: {output_excerpt}{error_line}{retrieval_hint}",
         execution.success
     )
 }
@@ -165,7 +272,7 @@ impl Default for HarnessConfig {
     fn default() -> Self {
         Self {
             timeout_budget_ms: 30_000,
-            max_steps: 6,
+            max_steps: 100,
             emit_progress: true,
             emit_worker_report: true,
         }
@@ -502,6 +609,12 @@ impl<W: WorkerPort> AgentHarness<W> {
         let mut completion_reason = String::new();
         let mut objective_status = ObjectiveStatus::Incomplete;
         let mut loop_state = AgentLoopState::Running;
+        let mut previous_decide_input_tokens: Option<i64> = None;
+        let mut previous_decide_output_tokens: Option<i64> = None;
+        let mut previous_decide_cached_input_tokens: Option<i64> = None;
+        let mut cumulative_decide_input_tokens: i64 = 0;
+        let mut cumulative_decide_output_tokens: i64 = 0;
+        let mut cumulative_decide_cached_input_tokens: i64 = 0;
 
         // Get client registry for BAML calls
         let client_registry = self
@@ -528,11 +641,11 @@ impl<W: WorkerPort> AgentHarness<W> {
             .await?;
 
             // Call BAML Decide
-            let decision = match self
+            let (decision, decide_usage) = match self
                 .decide(&client_registry, &messages, &ctx, &system_context)
                 .await
             {
-                Ok(decision) => decision,
+                Ok(result) => result,
                 Err(e) => {
                     error!(error = %e, "Decision failed");
                     objective_status = ObjectiveStatus::Blocked;
@@ -541,6 +654,83 @@ impl<W: WorkerPort> AgentHarness<W> {
                     break;
                 }
             };
+
+            if let Some(usage) = decide_usage {
+                let input_tokens = usage.input_tokens.unwrap_or(0).max(0);
+                let output_tokens = usage.output_tokens.unwrap_or(0).max(0);
+                let cached_input_tokens = usage.cached_input_tokens.unwrap_or(0).max(0);
+
+                let input_delta = option_delta(input_tokens, previous_decide_input_tokens);
+                let output_delta = option_delta(output_tokens, previous_decide_output_tokens);
+                let cached_input_delta =
+                    option_delta(cached_input_tokens, previous_decide_cached_input_tokens);
+                let input_spike =
+                    is_input_token_spike(input_tokens, previous_decide_input_tokens, input_delta);
+
+                cumulative_decide_input_tokens =
+                    cumulative_decide_input_tokens.saturating_add(input_tokens);
+                cumulative_decide_output_tokens =
+                    cumulative_decide_output_tokens.saturating_add(output_tokens);
+                cumulative_decide_cached_input_tokens =
+                    cumulative_decide_cached_input_tokens.saturating_add(cached_input_tokens);
+
+                let message_count = messages.len();
+                let message_chars: usize = messages.iter().map(|m| m.content.chars().count()).sum();
+                let delta_text = input_delta
+                    .map(|value| format!("{value:+}"))
+                    .unwrap_or_else(|| "n/a".to_string());
+
+                self.emit_progress_internal_with_context(
+                    &ctx,
+                    &progress_tx,
+                    "token_growth",
+                    &format!(
+                        "Decide token usage step {}/{}: in={} (Δ{}), out={}, cached_in={}",
+                        step_count,
+                        self.config.max_steps,
+                        input_tokens,
+                        delta_text,
+                        output_tokens,
+                        cached_input_tokens
+                    ),
+                    Some(step_count),
+                    Some(self.config.max_steps),
+                    Some(serde_json::json!({
+                        "step": step_count,
+                        "max_steps": self.config.max_steps,
+                        "decide_tokens": {
+                            "input": input_tokens,
+                            "output": output_tokens,
+                            "cached_input": cached_input_tokens,
+                            "total": input_tokens.saturating_add(output_tokens),
+                        },
+                        "decide_token_delta": {
+                            "input": input_delta,
+                            "output": output_delta,
+                            "cached_input": cached_input_delta,
+                        },
+                        "decide_token_cumulative": {
+                            "input": cumulative_decide_input_tokens,
+                            "output": cumulative_decide_output_tokens,
+                            "cached_input": cumulative_decide_cached_input_tokens,
+                        },
+                        "context_size": {
+                            "message_count": message_count,
+                            "message_chars": message_chars,
+                        },
+                        "input_spike": input_spike,
+                        "spike_thresholds": {
+                            "input_delta_tokens": INPUT_TOKEN_SPIKE_DELTA_THRESHOLD,
+                            "input_ratio": INPUT_TOKEN_SPIKE_RATIO_THRESHOLD,
+                        }
+                    })),
+                )
+                .await?;
+
+                previous_decide_input_tokens = Some(input_tokens);
+                previous_decide_output_tokens = Some(output_tokens);
+                previous_decide_cached_input_tokens = Some(cached_input_tokens);
+            }
 
             if decision.tool_calls.is_empty() {
                 if let Err(reason) =
@@ -574,7 +764,7 @@ impl<W: WorkerPort> AgentHarness<W> {
             }
 
             // Execute tools from decision.tool_calls
-            for tool_call in &decision.tool_calls {
+            for (tool_index, tool_call) in decision.tool_calls.iter().enumerate() {
                 let tool_name = tool_call_name(tool_call).to_string();
                 let tool_reasoning = tool_call_reasoning(tool_call);
                 let tool_args_json = tool_call_args_json(tool_call);
@@ -620,9 +810,33 @@ impl<W: WorkerPort> AgentHarness<W> {
                             &execution.output,
                             execution.error.as_deref(),
                         );
+                        let artifact_path = match persist_tool_execution_artifact(
+                            &ctx.loop_id,
+                            step_count,
+                            tool_index,
+                            &tool_name,
+                            &execution,
+                        )
+                        .await
+                        {
+                            Ok(path) => Some(path),
+                            Err(write_err) => {
+                                error!(
+                                    tool = %tool_name,
+                                    error = %write_err,
+                                    "Failed to persist tool output artifact"
+                                );
+                                None
+                            }
+                        };
                         messages.push(BamlMessage {
                             role: "assistant".to_string(),
-                            content: tool_execution_message(&tool_name, &execution),
+                            content: tool_execution_message(
+                                &ctx,
+                                &tool_name,
+                                &execution,
+                                artifact_path.as_deref(),
+                            ),
                         });
                         tool_executions.push(execution);
                     }
@@ -710,7 +924,7 @@ impl<W: WorkerPort> AgentHarness<W> {
         messages: &[BamlMessage],
         ctx: &ExecutionContext,
         system_context: &str,
-    ) -> Result<AgentDecision, HarnessError> {
+    ) -> Result<(AgentDecision, Option<LlmTokenUsage>), HarnessError> {
         let tools_description = self.worker_port.get_tool_description();
 
         let message_payload: Vec<serde_json::Value> = messages
@@ -806,12 +1020,14 @@ impl<W: WorkerPort> AgentHarness<W> {
                     None,
                     &e.to_string(),
                     None,
-                    usage,
+                    usage.clone(),
                 );
             }
         }
 
-        result.map_err(|e| HarnessError::Decision(e.to_string()))
+        result
+            .map(|decision| (decision, usage))
+            .map_err(|e| HarnessError::Decision(e.to_string()))
     }
 
     async fn emit_started(&self, ctx: &ExecutionContext) -> Result<(), HarnessError> {
@@ -883,6 +1099,28 @@ impl<W: WorkerPort> AgentHarness<W> {
         step_index: Option<usize>,
         step_total: Option<usize>,
     ) -> Result<(), HarnessError> {
+        self.emit_progress_internal_with_context(
+            ctx,
+            progress_tx,
+            phase,
+            message,
+            step_index,
+            step_total,
+            None,
+        )
+        .await
+    }
+
+    async fn emit_progress_internal_with_context(
+        &self,
+        ctx: &ExecutionContext,
+        progress_tx: &Option<mpsc::UnboundedSender<AgentProgress>>,
+        phase: &str,
+        message: &str,
+        step_index: Option<usize>,
+        step_total: Option<usize>,
+        context: Option<serde_json::Value>,
+    ) -> Result<(), HarnessError> {
         let progress = AgentProgress {
             phase: phase.to_string(),
             message: message.to_string(),
@@ -890,7 +1128,7 @@ impl<W: WorkerPort> AgentHarness<W> {
             step_total,
             model_used: Some(ctx.model_used.clone()),
             timestamp: chrono::Utc::now().to_rfc3339(),
-            context: None,
+            context,
         };
 
         // Send to optional external channel
@@ -1151,7 +1389,7 @@ mod tests {
     fn test_harness_config_default() {
         let config = HarnessConfig::default();
         assert_eq!(config.timeout_budget_ms, 30_000);
-        assert_eq!(config.max_steps, 6);
+        assert_eq!(config.max_steps, 100);
         assert!(config.emit_progress);
         assert!(config.emit_worker_report);
     }
@@ -1181,5 +1419,27 @@ mod tests {
         for state in states {
             assert!(unique.insert(std::mem::discriminant(&state)));
         }
+    }
+
+    #[test]
+    fn test_tool_output_relative_path_stable() {
+        let path = tool_output_relative_path("loop_123", 2, 0, "web/search");
+        assert_eq!(
+            path,
+            "agent_harness/tool_outputs/loop_123/step-02-tool-01-web_search.json"
+        );
+    }
+
+    #[test]
+    fn test_adaptive_tool_output_echo_chars_bounds() {
+        assert_eq!(
+            adaptive_tool_output_echo_chars(1, 6),
+            MIN_TOOL_OUTPUT_ECHO_CHARS
+        );
+        assert_eq!(adaptive_tool_output_echo_chars(4, 6), 3_000);
+        assert_eq!(
+            adaptive_tool_output_echo_chars(6, 6),
+            MAX_TOOL_OUTPUT_ECHO_CHARS
+        );
     }
 }

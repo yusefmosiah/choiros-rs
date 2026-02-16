@@ -517,6 +517,12 @@ Guidelines:
 - Use file_write to create your working draft (overwrites existing)
 - Use file_edit to refine specific sections without rewriting everything
 - Use message_writer for run-document updates when run writer mode is active
+- Parallel tool planning protocol:
+  - Prefer multiple independent tool calls in a single step instead of serial one-by-one calls.
+  - When objective has multiple sub-questions, issue parallel web_search calls for each sub-question.
+  - When objective includes multiple explicit URLs, issue parallel fetch_url calls for those URLs.
+  - Keep parallel calls non-overlapping to avoid duplicate evidence.
+  - Only serialize when a later call depends on output from an earlier one.
 - Run writer mode protocol (strict):
   - Treat message_writer as your output channel to the researcher section.
   - Use mode proposal_append for substantive content updates.

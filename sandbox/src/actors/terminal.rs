@@ -917,7 +917,7 @@ impl TerminalActor {
         // Configure the harness with provided parameters
         let config = HarnessConfig {
             timeout_budget_ms: timeout_ms.unwrap_or(30_000).clamp(1_000, 120_000),
-            max_steps: max_steps.unwrap_or(3).clamp(1, 6) as usize,
+            max_steps: max_steps.unwrap_or(100).clamp(1, 100) as usize,
             emit_progress: true,
             emit_worker_report: true,
         };

@@ -39,6 +39,7 @@ data/
 sandbox/conductor/runs/
 sandbox/.writer_revisions/
 sandbox/reports/
+sandbox/agent_harness/tool_outputs/
 
 # AI Agent Config Directories
 .adal/
