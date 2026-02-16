@@ -614,9 +614,14 @@ impl<W: WorkerPort> AgentHarness<W> {
         self.emit_started(&ctx).await?;
 
         // Initialize loop state
+        let current_utc = chrono::Utc::now().to_rfc3339();
         let mut messages = vec![BamlMessage {
             role: "user".to_string(),
-            content: format!("[{}]\n{}", chrono::Utc::now().to_rfc3339(), objective),
+            content: format!(
+                "Current UTC datetime: {current_utc}\n\
+                 Use this timestamp to resolve relative-time references (e.g., today, yesterday, this week), especially for search and verification tasks.\n\n\
+                 Objective:\n{objective}"
+            ),
         }];
         let mut tool_executions: Vec<ToolExecution> = Vec::new();
         let mut step_count = 0;
