@@ -232,6 +232,8 @@ const TRACE_VIEW_STYLES: &str = r#"
     }
 }
 "#;
+const TRACE_PRELOAD_WINDOW: i64 = 5_000;
+const TRACE_PRELOAD_PAGE_LIMIT: i64 = 1_000;
 
 enum TraceWsEvent {
     Connected,
@@ -1496,51 +1498,76 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
 
             spawn(async move {
                 let latest_seq = fetch_latest_log_seq().await.unwrap_or(0);
-                let preload_since = latest_seq.saturating_sub(1_000);
+                let preload_since = latest_seq.saturating_sub(TRACE_PRELOAD_WINDOW);
+                let mut cursor = preload_since;
+                let mut fetched_events = Vec::<LogsEvent>::new();
 
-                match fetch_logs_events(preload_since, 1_000, None).await {
-                    Ok(events) => {
-                        let mut max_seq = latest_seq;
-                        let mut parsed_traces = Vec::<TraceEvent>::new();
-                        let mut parsed_prompts = Vec::<PromptEvent>::new();
-                        let mut parsed_tools = Vec::<ToolTraceEvent>::new();
-                        let mut parsed_writer_enqueues = Vec::<WriterEnqueueEvent>::new();
-
-                        for event in events {
-                            max_seq = max_seq.max(event.seq);
-                            if let Some(trace_event) = parse_trace_event(&event) {
-                                parsed_traces.push(trace_event);
+                loop {
+                    match fetch_logs_events(cursor, TRACE_PRELOAD_PAGE_LIMIT, None).await {
+                        Ok(page) => {
+                            if page.is_empty() {
+                                break;
                             }
-                            if let Some(prompt_event) = parse_prompt_event(&event) {
-                                parsed_prompts.push(prompt_event);
+                            let last_seq = page.last().map(|event| event.seq).unwrap_or(cursor);
+                            fetched_events.extend(page);
+                            if fetched_events.len() >= TRACE_PRELOAD_WINDOW as usize {
+                                break;
                             }
-                            if let Some(tool_event) = parse_tool_trace_event(&event) {
-                                parsed_tools.push(tool_event);
+                            if last_seq <= cursor {
+                                break;
                             }
-                            if let Some(writer_enqueue_event) = parse_writer_enqueue_event(&event) {
-                                parsed_writer_enqueues.push(writer_enqueue_event);
-                            }
+                            cursor = last_seq;
                         }
-
-                        parsed_traces.sort_by_key(|event| event.seq);
-                        parsed_traces.dedup_by(|a, b| a.event_id == b.event_id);
-                        parsed_prompts.sort_by_key(|event| event.seq);
-                        parsed_prompts.dedup_by(|a, b| a.event_id == b.event_id);
-                        parsed_tools.sort_by_key(|event| event.seq);
-                        parsed_tools.dedup_by(|a, b| a.event_id == b.event_id);
-                        parsed_writer_enqueues.sort_by_key(|event| event.seq);
-                        parsed_writer_enqueues.dedup_by(|a, b| a.event_id == b.event_id);
-
-                        trace_events.set(parsed_traces);
-                        prompt_events.set(parsed_prompts);
-                        tool_events.set(parsed_tools);
-                        writer_enqueue_events.set(parsed_writer_enqueues);
-                        since_seq.set(max_seq);
-                    }
-                    Err(fetch_error) => {
-                        error.set(Some(format!("Failed to preload trace data: {fetch_error}")));
+                        Err(fetch_error) => {
+                            error.set(Some(format!("Failed to preload trace data: {fetch_error}")));
+                            preload_ready.set(true);
+                            return;
+                        }
                     }
                 }
+
+                if fetched_events.len() > TRACE_PRELOAD_WINDOW as usize {
+                    let keep = TRACE_PRELOAD_WINDOW as usize;
+                    let trim = fetched_events.len() - keep;
+                    fetched_events.drain(0..trim);
+                }
+
+                let mut max_seq = latest_seq;
+                let mut parsed_traces = Vec::<TraceEvent>::new();
+                let mut parsed_prompts = Vec::<PromptEvent>::new();
+                let mut parsed_tools = Vec::<ToolTraceEvent>::new();
+                let mut parsed_writer_enqueues = Vec::<WriterEnqueueEvent>::new();
+
+                for event in fetched_events {
+                    max_seq = max_seq.max(event.seq);
+                    if let Some(trace_event) = parse_trace_event(&event) {
+                        parsed_traces.push(trace_event);
+                    }
+                    if let Some(prompt_event) = parse_prompt_event(&event) {
+                        parsed_prompts.push(prompt_event);
+                    }
+                    if let Some(tool_event) = parse_tool_trace_event(&event) {
+                        parsed_tools.push(tool_event);
+                    }
+                    if let Some(writer_enqueue_event) = parse_writer_enqueue_event(&event) {
+                        parsed_writer_enqueues.push(writer_enqueue_event);
+                    }
+                }
+
+                parsed_traces.sort_by_key(|event| event.seq);
+                parsed_traces.dedup_by(|a, b| a.event_id == b.event_id);
+                parsed_prompts.sort_by_key(|event| event.seq);
+                parsed_prompts.dedup_by(|a, b| a.event_id == b.event_id);
+                parsed_tools.sort_by_key(|event| event.seq);
+                parsed_tools.dedup_by(|a, b| a.event_id == b.event_id);
+                parsed_writer_enqueues.sort_by_key(|event| event.seq);
+                parsed_writer_enqueues.dedup_by(|a, b| a.event_id == b.event_id);
+
+                trace_events.set(parsed_traces);
+                prompt_events.set(parsed_prompts);
+                tool_events.set(parsed_tools);
+                writer_enqueue_events.set(parsed_writer_enqueues);
+                since_seq.set(max_seq);
 
                 preload_ready.set(true);
             });
