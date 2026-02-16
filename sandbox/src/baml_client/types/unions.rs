@@ -3,4 +3,49 @@
 //
 // Learn more at https://docs.boundaryml.com
 
-// No unions defined
+//! Generated union types.
+
+use super::*;
+use baml::{BamlDecode, BamlEncode};
+
+/// Generated from: (BashToolCall | WebSearchToolCall | FetchUrlToolCall | FileReadToolCall | FileWriteToolCall | FileEditToolCall | MessageWriterToolCall)
+#[derive(Debug, Clone, BamlEncode, BamlDecode)]
+#[baml(union)]
+pub enum Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall
+{
+    #[baml(name = "BashToolCall")]
+    BashToolCall(BashToolCall),
+
+    #[baml(name = "WebSearchToolCall")]
+    WebSearchToolCall(WebSearchToolCall),
+
+    #[baml(name = "FetchUrlToolCall")]
+    FetchUrlToolCall(FetchUrlToolCall),
+
+    #[baml(name = "FileReadToolCall")]
+    FileReadToolCall(FileReadToolCall),
+
+    #[baml(name = "FileWriteToolCall")]
+    FileWriteToolCall(FileWriteToolCall),
+
+    #[baml(name = "FileEditToolCall")]
+    FileEditToolCall(FileEditToolCall),
+
+    #[baml(name = "MessageWriterToolCall")]
+    MessageWriterToolCall(MessageWriterToolCall),
+}
+
+impl AsRef<Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall> for Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall {
+    fn as_ref(&self) -> &Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall {
+        self
+    }
+}
+
+impl Default for Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall {
+    fn default() -> Self {
+
+
+            Self::BashToolCall(Default::default())
+
+    }
+}

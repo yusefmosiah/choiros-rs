@@ -11,13 +11,7 @@ mod classes;
 mod type_aliases;
 mod unions;
 
-pub use classes::{
-    AgentDecision, AgentToolArgs, AgentToolCall, BashToolArgs, ConductorBootstrapInput,
-    ConductorBootstrapOutput, ConductorDecision, ConductorDecisionInput,
-    ConductorObjectiveRefineInput, ConductorObjectiveRefineOutput, ListFilesToolArgs, Message,
-    ReadFileToolArgs, ResearcherPlanInput, ResearcherPlanOutput, Resume, SearchFilesToolArgs,
-    StreamChunk, ToolResult, WebSearchToolArgs, WriteFileToolArgs,
-};
+pub use classes::*;
 pub use type_aliases::*;
 pub use unions::*;
 
@@ -26,11 +20,11 @@ pub use unions::*;
 pub enum StreamTypes {
     AgentDecision(AgentDecision),
 
-    AgentToolArgs(AgentToolArgs),
-
-    AgentToolCall(AgentToolCall),
+    AlternativeAction(AlternativeAction),
 
     BashToolArgs(BashToolArgs),
+
+    BashToolCall(BashToolCall),
 
     ConductorBootstrapInput(ConductorBootstrapInput),
 
@@ -44,11 +38,31 @@ pub enum StreamTypes {
 
     ConductorObjectiveRefineOutput(ConductorObjectiveRefineOutput),
 
-    ListFilesToolArgs(ListFilesToolArgs),
+    DetectedAnomaly(DetectedAnomaly),
+
+    FetchUrlToolArgs(FetchUrlToolArgs),
+
+    FetchUrlToolCall(FetchUrlToolCall),
+
+    FileEditToolArgs(FileEditToolArgs),
+
+    FileEditToolCall(FileEditToolCall),
+
+    FileReadToolArgs(FileReadToolArgs),
+
+    FileReadToolCall(FileReadToolCall),
+
+    FileWriteToolArgs(FileWriteToolArgs),
+
+    FileWriteToolCall(FileWriteToolCall),
+
+    HistoricalResolution(HistoricalResolution),
 
     Message(Message),
 
-    ReadFileToolArgs(ReadFileToolArgs),
+    MessageWriterToolArgs(MessageWriterToolArgs),
+
+    MessageWriterToolCall(MessageWriterToolCall),
 
     ResearcherPlanInput(ResearcherPlanInput),
 
@@ -56,15 +70,35 @@ pub enum StreamTypes {
 
     Resume(Resume),
 
-    SearchFilesToolArgs(SearchFilesToolArgs),
+    ReviewScope(ReviewScope),
+
+    RiskItem(RiskItem),
+
+    RunStateSnapshot(RunStateSnapshot),
 
     StreamChunk(StreamChunk),
 
     ToolResult(ToolResult),
 
+    WatcherEscalation(WatcherEscalation),
+
+    WatcherEvent(WatcherEvent),
+
+    WatcherLogWindowInput(WatcherLogWindowInput),
+
+    WatcherMitigationInput(WatcherMitigationInput),
+
+    WatcherMitigationOutput(WatcherMitigationOutput),
+
+    WatcherReviewOutput(WatcherReviewOutput),
+
     WebSearchToolArgs(WebSearchToolArgs),
 
-    WriteFileToolArgs(WriteFileToolArgs),
+    WebSearchToolCall(WebSearchToolCall),
+
+
+    Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall(Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall),
+
 }
 
 impl baml::KnownTypes for StreamTypes {
@@ -74,13 +108,14 @@ impl baml::KnownTypes for StreamTypes {
 
     fn type_name(&self) -> &'static str {
         match self {
+
             StreamTypes::AgentDecision(_) => "AgentDecision",
 
-            StreamTypes::AgentToolArgs(_) => "AgentToolArgs",
-
-            StreamTypes::AgentToolCall(_) => "AgentToolCall",
+            StreamTypes::AlternativeAction(_) => "AlternativeAction",
 
             StreamTypes::BashToolArgs(_) => "BashToolArgs",
+
+            StreamTypes::BashToolCall(_) => "BashToolCall",
 
             StreamTypes::ConductorBootstrapInput(_) => "ConductorBootstrapInput",
 
@@ -94,11 +129,31 @@ impl baml::KnownTypes for StreamTypes {
 
             StreamTypes::ConductorObjectiveRefineOutput(_) => "ConductorObjectiveRefineOutput",
 
-            StreamTypes::ListFilesToolArgs(_) => "ListFilesToolArgs",
+            StreamTypes::DetectedAnomaly(_) => "DetectedAnomaly",
+
+            StreamTypes::FetchUrlToolArgs(_) => "FetchUrlToolArgs",
+
+            StreamTypes::FetchUrlToolCall(_) => "FetchUrlToolCall",
+
+            StreamTypes::FileEditToolArgs(_) => "FileEditToolArgs",
+
+            StreamTypes::FileEditToolCall(_) => "FileEditToolCall",
+
+            StreamTypes::FileReadToolArgs(_) => "FileReadToolArgs",
+
+            StreamTypes::FileReadToolCall(_) => "FileReadToolCall",
+
+            StreamTypes::FileWriteToolArgs(_) => "FileWriteToolArgs",
+
+            StreamTypes::FileWriteToolCall(_) => "FileWriteToolCall",
+
+            StreamTypes::HistoricalResolution(_) => "HistoricalResolution",
 
             StreamTypes::Message(_) => "Message",
 
-            StreamTypes::ReadFileToolArgs(_) => "ReadFileToolArgs",
+            StreamTypes::MessageWriterToolArgs(_) => "MessageWriterToolArgs",
+
+            StreamTypes::MessageWriterToolCall(_) => "MessageWriterToolCall",
 
             StreamTypes::ResearcherPlanInput(_) => "ResearcherPlanInput",
 
@@ -106,15 +161,36 @@ impl baml::KnownTypes for StreamTypes {
 
             StreamTypes::Resume(_) => "Resume",
 
-            StreamTypes::SearchFilesToolArgs(_) => "SearchFilesToolArgs",
+            StreamTypes::ReviewScope(_) => "ReviewScope",
+
+            StreamTypes::RiskItem(_) => "RiskItem",
+
+            StreamTypes::RunStateSnapshot(_) => "RunStateSnapshot",
 
             StreamTypes::StreamChunk(_) => "StreamChunk",
 
             StreamTypes::ToolResult(_) => "ToolResult",
 
+            StreamTypes::WatcherEscalation(_) => "WatcherEscalation",
+
+            StreamTypes::WatcherEvent(_) => "WatcherEvent",
+
+            StreamTypes::WatcherLogWindowInput(_) => "WatcherLogWindowInput",
+
+            StreamTypes::WatcherMitigationInput(_) => "WatcherMitigationInput",
+
+            StreamTypes::WatcherMitigationOutput(_) => "WatcherMitigationOutput",
+
+            StreamTypes::WatcherReviewOutput(_) => "WatcherReviewOutput",
+
             StreamTypes::WebSearchToolArgs(_) => "WebSearchToolArgs",
 
-            StreamTypes::WriteFileToolArgs(_) => "WriteFileToolArgs",
+            StreamTypes::WebSearchToolCall(_) => "WebSearchToolCall",
+
+
+            StreamTypes::Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall(_) => "Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall",
+
+
         }
     }
 }

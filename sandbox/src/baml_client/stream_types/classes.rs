@@ -15,13 +15,24 @@ use baml::BamlDecode;
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct AgentDecision {
+
+
+
     pub action: Option<types::Action>,
 
-    pub tool_calls: Vec<AgentToolCall>,
+
+
+    pub tool_calls: Vec<Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall>,
+
+
 
     pub summary: Option<String>,
 
+
+
     pub reason: Option<String>,
+
+
 }
 
 impl AsRef<AgentDecision> for AgentDecision {
@@ -32,88 +43,8 @@ impl AsRef<AgentDecision> for AgentDecision {
 
 #[derive(Debug, Clone, Default, BamlDecode)]
 
-pub struct AgentToolArgs {
-    pub bash: Option<BashToolArgs>,
-
-    pub read_file: Option<ReadFileToolArgs>,
-
-    pub write_file: Option<WriteFileToolArgs>,
-
-    pub list_files: Option<ListFilesToolArgs>,
-
-    pub search_files: Option<SearchFilesToolArgs>,
-
-    pub web_search: Option<WebSearchToolArgs>,
-
-    pub command: Option<String>,
-
-    pub cmd: Option<String>,
-
-    pub cwd: Option<String>,
-
-    pub reasoning: Option<String>,
-
-    pub timeout_ms: Option<i64>,
-
-    pub model: Option<String>,
-
-    pub path: Option<String>,
-
-    pub content: Option<String>,
-
-    pub pattern: Option<String>,
-
-    pub file_pattern: Option<String>,
-
-    pub recursive: Option<bool>,
-
-    pub limit: Option<i64>,
-
-    pub offset: Option<i64>,
-
-    pub query: Option<String>,
-
-    pub provider: Option<String>,
-
-    pub max_results: Option<i64>,
-
-    pub time_range: Option<String>,
-
-    pub include_domains: Option<Vec<String>>,
-
-    pub exclude_domains: Option<Vec<String>>,
-
-    pub old_text: Option<String>,
-
-    pub new_text: Option<String>,
-}
-
-impl AsRef<AgentToolArgs> for AgentToolArgs {
-    fn as_ref(&self) -> &AgentToolArgs {
-        self
-    }
-}
-
-#[derive(Debug, Clone, Default, BamlDecode)]
-
-pub struct AgentToolCall {
-    pub tool_name: Option<String>,
-
-    pub tool_args: Option<AgentToolArgs>,
-
-    pub reasoning: Option<String>,
-}
-
-impl AsRef<AgentToolCall> for AgentToolCall {
-    fn as_ref(&self) -> &AgentToolCall {
-        self
-    }
-}
-
-#[derive(Debug, Clone, Default, BamlDecode)]
-
 pub struct AlternativeAction {
-    pub action: Option<types::enums::EscalationAction>,
+    pub action: Option<types::EscalationAction>,
 
     pub pros: Vec<String>,
 
@@ -133,19 +64,29 @@ impl AsRef<AlternativeAction> for AlternativeAction {
 pub struct BashToolArgs {
     pub command: Option<String>,
 
-    pub cmd: Option<String>,
-
     pub cwd: Option<String>,
 
-    pub reasoning: Option<String>,
-
     pub timeout_ms: Option<i64>,
-
-    pub model: Option<String>,
 }
 
 impl AsRef<BashToolArgs> for BashToolArgs {
     fn as_ref(&self) -> &BashToolArgs {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct BashToolCall {
+    pub tool_name: Option<String>,
+
+    pub tool_args: Option<BashToolArgs>,
+
+    pub reasoning: Option<String>,
+}
+
+impl AsRef<BashToolCall> for BashToolCall {
+    fn as_ref(&self) -> &BashToolCall {
         self
     }
 }
@@ -272,6 +213,130 @@ impl AsRef<DetectedAnomaly> for DetectedAnomaly {
 
 #[derive(Debug, Clone, Default, BamlDecode)]
 
+pub struct FetchUrlToolArgs {
+    pub path: Option<String>,
+
+    pub max_chars: Option<i64>,
+}
+
+impl AsRef<FetchUrlToolArgs> for FetchUrlToolArgs {
+    fn as_ref(&self) -> &FetchUrlToolArgs {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct FetchUrlToolCall {
+    pub tool_name: Option<String>,
+
+    pub tool_args: Option<FetchUrlToolArgs>,
+
+    pub reasoning: Option<String>,
+}
+
+impl AsRef<FetchUrlToolCall> for FetchUrlToolCall {
+    fn as_ref(&self) -> &FetchUrlToolCall {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct FileEditToolArgs {
+    pub path: Option<String>,
+
+    pub old_text: Option<String>,
+
+    pub new_text: Option<String>,
+}
+
+impl AsRef<FileEditToolArgs> for FileEditToolArgs {
+    fn as_ref(&self) -> &FileEditToolArgs {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct FileEditToolCall {
+    pub tool_name: Option<String>,
+
+    pub tool_args: Option<FileEditToolArgs>,
+
+    pub reasoning: Option<String>,
+}
+
+impl AsRef<FileEditToolCall> for FileEditToolCall {
+    fn as_ref(&self) -> &FileEditToolCall {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct FileReadToolArgs {
+    pub path: Option<String>,
+
+    pub limit: Option<i64>,
+
+    pub offset: Option<i64>,
+}
+
+impl AsRef<FileReadToolArgs> for FileReadToolArgs {
+    fn as_ref(&self) -> &FileReadToolArgs {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct FileReadToolCall {
+    pub tool_name: Option<String>,
+
+    pub tool_args: Option<FileReadToolArgs>,
+
+    pub reasoning: Option<String>,
+}
+
+impl AsRef<FileReadToolCall> for FileReadToolCall {
+    fn as_ref(&self) -> &FileReadToolCall {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct FileWriteToolArgs {
+    pub path: Option<String>,
+
+    pub content: Option<String>,
+}
+
+impl AsRef<FileWriteToolArgs> for FileWriteToolArgs {
+    fn as_ref(&self) -> &FileWriteToolArgs {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct FileWriteToolCall {
+    pub tool_name: Option<String>,
+
+    pub tool_args: Option<FileWriteToolArgs>,
+
+    pub reasoning: Option<String>,
+}
+
+impl AsRef<FileWriteToolCall> for FileWriteToolCall {
+    fn as_ref(&self) -> &FileWriteToolCall {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct HistoricalResolution {
     pub pattern: Option<String>,
 
@@ -282,20 +347,6 @@ pub struct HistoricalResolution {
 
 impl AsRef<HistoricalResolution> for HistoricalResolution {
     fn as_ref(&self) -> &HistoricalResolution {
-        self
-    }
-}
-
-#[derive(Debug, Clone, Default, BamlDecode)]
-
-pub struct ListFilesToolArgs {
-    pub path: Option<String>,
-
-    pub recursive: Option<bool>,
-}
-
-impl AsRef<ListFilesToolArgs> for ListFilesToolArgs {
-    fn as_ref(&self) -> &ListFilesToolArgs {
         self
     }
 }
@@ -316,16 +367,34 @@ impl AsRef<Message> for Message {
 
 #[derive(Debug, Clone, Default, BamlDecode)]
 
-pub struct ReadFileToolArgs {
+pub struct MessageWriterToolArgs {
     pub path: Option<String>,
 
-    pub limit: Option<i64>,
+    pub content: Option<String>,
 
-    pub offset: Option<i64>,
+    pub mode: Option<String>,
+
+    pub mode_arg: Option<String>,
 }
 
-impl AsRef<ReadFileToolArgs> for ReadFileToolArgs {
-    fn as_ref(&self) -> &ReadFileToolArgs {
+impl AsRef<MessageWriterToolArgs> for MessageWriterToolArgs {
+    fn as_ref(&self) -> &MessageWriterToolArgs {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct MessageWriterToolCall {
+    pub tool_name: Option<String>,
+
+    pub tool_args: Option<MessageWriterToolArgs>,
+
+    pub reasoning: Option<String>,
+}
+
+impl AsRef<MessageWriterToolCall> for MessageWriterToolCall {
+    fn as_ref(&self) -> &MessageWriterToolCall {
         self
     }
 }
@@ -423,7 +492,7 @@ impl AsRef<ReviewScope> for ReviewScope {
 pub struct RiskItem {
     pub risk_id: Option<String>,
 
-    pub category: Option<types::enums::RiskCategory>,
+    pub category: Option<types::RiskCategory>,
 
     pub likelihood: Option<f64>,
 
@@ -456,22 +525,6 @@ pub struct RunStateSnapshot {
 
 impl AsRef<RunStateSnapshot> for RunStateSnapshot {
     fn as_ref(&self) -> &RunStateSnapshot {
-        self
-    }
-}
-
-#[derive(Debug, Clone, Default, BamlDecode)]
-
-pub struct SearchFilesToolArgs {
-    pub pattern: Option<String>,
-
-    pub path: Option<String>,
-
-    pub file_pattern: Option<String>,
-}
-
-impl AsRef<SearchFilesToolArgs> for SearchFilesToolArgs {
-    fn as_ref(&self) -> &SearchFilesToolArgs {
         self
     }
 }
@@ -517,9 +570,9 @@ pub struct WatcherEscalation {
 
     pub task_id: Option<String>,
 
-    pub kind: Option<types::enums::EscalationKind>,
+    pub kind: Option<types::EscalationKind>,
 
-    pub urgency: Option<types::enums::UrgencyLevel>,
+    pub urgency: Option<types::UrgencyLevel>,
 
     pub affected_calls: Vec<String>,
 
@@ -603,9 +656,9 @@ impl AsRef<WatcherMitigationInput> for WatcherMitigationInput {
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct WatcherMitigationOutput {
-    pub escalation_action: Option<types::enums::EscalationAction>,
+    pub escalation_action: Option<types::EscalationAction>,
 
-    pub urgency: Option<types::enums::UrgencyLevel>,
+    pub urgency: Option<types::UrgencyLevel>,
 
     pub recommended_capability: Option<String>,
 
@@ -629,7 +682,7 @@ impl AsRef<WatcherMitigationOutput> for WatcherMitigationOutput {
 #[derive(Debug, Clone, Default, BamlDecode)]
 
 pub struct WatcherReviewOutput {
-    pub review_status: Option<types::enums::ReviewStatus>,
+    pub review_status: Option<types::ReviewStatus>,
 
     pub escalations: Vec<WatcherEscalation>,
 
@@ -664,10 +717,6 @@ pub struct WebSearchToolArgs {
     pub exclude_domains: Option<Vec<String>>,
 
     pub timeout_ms: Option<i64>,
-
-    pub model: Option<String>,
-
-    pub reasoning: Option<String>,
 }
 
 impl AsRef<WebSearchToolArgs> for WebSearchToolArgs {
@@ -678,14 +727,16 @@ impl AsRef<WebSearchToolArgs> for WebSearchToolArgs {
 
 #[derive(Debug, Clone, Default, BamlDecode)]
 
-pub struct WriteFileToolArgs {
-    pub path: Option<String>,
+pub struct WebSearchToolCall {
+    pub tool_name: Option<String>,
 
-    pub content: Option<String>,
+    pub tool_args: Option<WebSearchToolArgs>,
+
+    pub reasoning: Option<String>,
 }
 
-impl AsRef<WriteFileToolArgs> for WriteFileToolArgs {
-    fn as_ref(&self) -> &WriteFileToolArgs {
+impl AsRef<WebSearchToolCall> for WebSearchToolCall {
+    fn as_ref(&self) -> &WebSearchToolCall {
         self
     }
 }

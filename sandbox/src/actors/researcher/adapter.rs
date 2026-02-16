@@ -27,7 +27,10 @@ use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::ModelRegistry;
 use crate::actors::run_writer::{RunWriterMsg, SectionState};
 use crate::actors::writer::{WriterMsg, WriterSource};
-use crate::baml_client::types::AgentToolCall;
+use crate::baml_client::types::{
+    MessageWriterToolCall,
+    Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall as AgentToolCall,
+};
 
 use super::{
     providers, ResearcherFetchUrlRequest, ResearcherProgress, ResearcherState,
@@ -69,6 +72,18 @@ const RUN_DOC_PATTERN: &str = "conductor/runs/";
 
 fn is_run_document_path(path: &str) -> bool {
     path.starts_with(RUN_DOC_PATTERN) && path.ends_with("/draft.md")
+}
+
+fn tool_call_name(tool_call: &AgentToolCall) -> &str {
+    match tool_call {
+        AgentToolCall::BashToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::WebSearchToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::FetchUrlToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::FileReadToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::FileWriteToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::FileEditToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::MessageWriterToolCall(call) => call.tool_name.as_str(),
+    }
 }
 
 /// Adapter that connects ResearcherActor to the unified agent harness
@@ -232,25 +247,16 @@ impl ResearcherAdapter {
             .any(|exec| exec.tool_name == "message_writer" && exec.success)
     }
 
-    fn resolve_fetch_url_arg(tool_call: &AgentToolCall) -> Option<String> {
-        let args = &tool_call.tool_args;
-        args.path
-            .as_ref()
-            .or(args.query.as_ref())
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-    }
-
     async fn execute_message_writer(
         &self,
-        tool_call: &AgentToolCall,
+        tool_call: &MessageWriterToolCall,
     ) -> Result<ToolExecution, HarnessError> {
         let start_time = tokio::time::Instant::now();
         let writer_actor = match &self.writer_actor {
             Some(actor) => actor,
             None => {
                 return Ok(ToolExecution {
-                    tool_name: tool_call.tool_name.clone(),
+                    tool_name: "message_writer".to_string(),
                     success: false,
                     output: String::new(),
                     error: Some("WriterActor not configured for this run".to_string()),
@@ -262,7 +268,7 @@ impl ResearcherAdapter {
             (Some(actor), Some(run_id)) => (actor.clone(), run_id.clone()),
             _ => {
                 return Ok(ToolExecution {
-                    tool_name: tool_call.tool_name.clone(),
+                    tool_name: "message_writer".to_string(),
                     success: false,
                     output: String::new(),
                     error: Some("RunWriterActor not configured for this run".to_string()),
@@ -275,12 +281,12 @@ impl ResearcherAdapter {
         let section_id = Self::resolve_writer_section(args.path.as_deref());
         let content = args.content.clone().unwrap_or_default();
         let mode = args
-            .old_text
+            .mode
             .clone()
             .unwrap_or_else(|| "proposal_append".to_string())
             .trim()
             .to_ascii_lowercase();
-        let mode_arg = args.new_text.clone();
+        let mode_arg = args.mode_arg.clone();
 
         let result = match mode.as_str() {
             "progress" => {
@@ -314,7 +320,7 @@ impl ResearcherAdapter {
             }
             "state" => {
                 let state = Self::parse_section_state(mode_arg.as_deref()).ok_or_else(|| {
-                    "message_writer state mode requires new_text in {pending|running|complete|failed}"
+                    "message_writer state mode requires mode_arg in {pending|running|complete|failed}"
                         .to_string()
                 });
                 match state {
@@ -401,14 +407,14 @@ impl ResearcherAdapter {
         let elapsed = start_time.elapsed().as_millis() as u64;
         match result {
             Ok(output) => Ok(ToolExecution {
-                tool_name: tool_call.tool_name.clone(),
+                tool_name: "message_writer".to_string(),
                 success: true,
                 output: output.to_string(),
                 error: None,
                 execution_time_ms: elapsed,
             }),
             Err(error) => Ok(ToolExecution {
-                tool_name: tool_call.tool_name.clone(),
+                tool_name: "message_writer".to_string(),
                 success: false,
                 output: String::new(),
                 error: Some(error),
@@ -463,12 +469,12 @@ impl WorkerPort for ResearcherAdapter {
    Args:
    - path: string (optional) - section_id: conductor|researcher|terminal|user (default: researcher)
    - content: string (required for append/progress)
-   - old_text: string (optional) - mode: proposal_append|canon_append|progress|state (default: proposal_append)
-   - new_text: string (optional) - mode argument:
+   - mode: string (optional) - proposal_append|canon_append|progress|state (default: proposal_append)
+   - mode_arg: string (optional) - mode argument:
      - progress: phase string
      - state: pending|running|complete|failed
    Required behavior in run writer mode:
-   - Use message_writer with old_text=\"proposal_append\" for substantive updates
+   - Use message_writer with mode=\"proposal_append\" for substantive updates
    - Publish first substantive update by step 2 at latest
    - Publish again whenever you have new findings or changed conclusions
    - Before Complete/Block, publish a final proposal_append summary
@@ -476,13 +482,13 @@ impl WorkerPort for ResearcherAdapter {
    - If evidence conflicts with earlier claims, explicitly mark the old claim as superseded
    Examples:
    - Initial note:
-     tool=message_writer, path=\"researcher\", old_text=\"proposal_append\",
+     tool=message_writer, path=\"researcher\", mode=\"proposal_append\",
      content=\"Plan: verify repo URL, compare architecture, then benchmark/runtime differences.\"
    - Findings update:
-     tool=message_writer, path=\"researcher\", old_text=\"proposal_append\",
+     tool=message_writer, path=\"researcher\", mode=\"proposal_append\",
      content=\"New findings:\\n- ...\\n- ...\\nSources: [name](url)\"
    - Final handoff:
-     tool=message_writer, path=\"researcher\", old_text=\"proposal_append\",
+     tool=message_writer, path=\"researcher\", mode=\"proposal_append\",
      content=\"Final delta summary:\\n- ...\\nUncertainty: ...\\nSources: ...\"
 "#
         .to_string()
@@ -554,46 +560,21 @@ Guidelines:
     ) -> Result<ToolExecution, HarnessError> {
         let start_time = tokio::time::Instant::now();
 
-        match tool_call.tool_name.as_str() {
-            "message_writer" => self.execute_message_writer(tool_call).await,
-
-            "web_search" => {
-                let args = &tool_call.tool_args;
-                let query = args
-                    .web_search
-                    .as_ref()
-                    .and_then(|ws| ws.query.clone())
-                    .or_else(|| args.query.clone())
-                    .ok_or_else(|| {
-                        HarnessError::ToolExecution("Missing query argument".to_string())
-                    })?;
-
-                let provider = args
-                    .web_search
-                    .as_ref()
-                    .and_then(|ws| ws.provider.clone())
-                    .or_else(|| args.provider.clone());
-                let max_results = args
-                    .web_search
-                    .as_ref()
-                    .and_then(|ws| ws.max_results)
-                    .or(args.max_results)
-                    .map(|v| v as u32);
-                let time_range = args
-                    .web_search
-                    .as_ref()
-                    .and_then(|ws| ws.time_range.clone())
-                    .or_else(|| args.time_range.clone());
-                let include_domains = args
-                    .web_search
-                    .as_ref()
-                    .and_then(|ws| ws.include_domains.clone())
-                    .or_else(|| args.include_domains.clone());
-                let exclude_domains = args
-                    .web_search
-                    .as_ref()
-                    .and_then(|ws| ws.exclude_domains.clone())
-                    .or_else(|| args.exclude_domains.clone());
+        match tool_call {
+            AgentToolCall::MessageWriterToolCall(call) => self.execute_message_writer(call).await,
+            AgentToolCall::WebSearchToolCall(call) => {
+                let args = &call.tool_args;
+                let query = args.query.clone();
+                let provider = args.provider.clone();
+                let max_results = args.max_results.and_then(|v| u32::try_from(v).ok());
+                let time_range = args.time_range.clone();
+                let include_domains = args.include_domains.clone();
+                let exclude_domains = args.exclude_domains.clone();
+                let timeout_ms = args
+                    .timeout_ms
+                    .and_then(|v| u64::try_from(v).ok())
+                    .map(|v| v.clamp(1_000, 120_000))
+                    .unwrap_or(30_000);
 
                 let request = ResearcherWebSearchRequest {
                     query: query.clone(),
@@ -604,15 +585,14 @@ Guidelines:
                     time_range,
                     include_domains,
                     exclude_domains,
-                    timeout_ms: Some(30_000),
+                    timeout_ms: Some(timeout_ms),
                     model_override: None,
-                    reasoning: tool_call.reasoning.clone(),
+                    reasoning: call.reasoning.clone(),
                 };
 
                 let provider_str = request.provider.as_deref().unwrap_or("auto");
                 let selection = providers::parse_provider_selection(Some(provider_str));
 
-                // Emit progress
                 if let Some(tx) = &self.progress_tx {
                     let _ = tx.send(ResearcherProgress {
                         phase: "web_search".to_string(),
@@ -639,7 +619,6 @@ Guidelines:
                 let elapsed = start_time.elapsed().as_millis() as u64;
                 let citations = providers::merge_citations(&outputs);
                 let success = !citations.is_empty();
-
                 let output = serde_json::json!({
                     "citations": citations,
                     "provider_calls": calls,
@@ -647,7 +626,7 @@ Guidelines:
                 });
 
                 Ok(ToolExecution {
-                    tool_name: tool_call.tool_name.clone(),
+                    tool_name: call.tool_name.clone(),
                     success,
                     output: output.to_string(),
                     error: if errors.is_empty() {
@@ -658,18 +637,20 @@ Guidelines:
                     execution_time_ms: elapsed,
                 })
             }
-
-            "fetch_url" => {
-                let url = Self::resolve_fetch_url_arg(tool_call).ok_or_else(|| {
-                    HarnessError::ToolExecution(
-                        "Missing URL argument (expected path, optional alias: query)".to_string(),
-                    )
-                })?;
+            AgentToolCall::FetchUrlToolCall(call) => {
+                let args = &call.tool_args;
+                let url = args.path.trim().to_string();
+                if url.is_empty() {
+                    return Err(HarnessError::ToolExecution(
+                        "Missing URL argument (path cannot be empty)".to_string(),
+                    ));
+                }
+                let max_chars = args.max_chars.and_then(|v| usize::try_from(v).ok());
 
                 let request = ResearcherFetchUrlRequest {
                     url: url.clone(),
                     timeout_ms: Some(30_000),
-                    max_chars: Some(8000),
+                    max_chars,
                 };
 
                 if let Some(tx) = &self.progress_tx {
@@ -686,7 +667,6 @@ Guidelines:
                 match providers::fetch_url(&request).await {
                     Ok(result) => {
                         let elapsed = start_time.elapsed().as_millis() as u64;
-
                         let output = serde_json::json!({
                             "url": result.url,
                             "final_url": result.final_url,
@@ -697,7 +677,7 @@ Guidelines:
                         });
 
                         Ok(ToolExecution {
-                            tool_name: tool_call.tool_name.clone(),
+                            tool_name: call.tool_name.clone(),
                             success: result.success,
                             output: output.to_string(),
                             error: None,
@@ -707,7 +687,7 @@ Guidelines:
                     Err(e) => {
                         let elapsed = start_time.elapsed().as_millis() as u64;
                         Ok(ToolExecution {
-                            tool_name: tool_call.tool_name.clone(),
+                            tool_name: call.tool_name.clone(),
                             success: false,
                             output: String::new(),
                             error: Some(e.to_string()),
@@ -716,12 +696,8 @@ Guidelines:
                     }
                 }
             }
-
-            "file_read" => {
-                let args = &tool_call.tool_args;
-                let path = args.path.as_ref().ok_or_else(|| {
-                    HarnessError::ToolExecution("Missing path argument".to_string())
-                })?;
+            AgentToolCall::FileReadToolCall(call) => {
+                let path = call.tool_args.path.as_str();
 
                 if let Some(tx) = &self.progress_tx {
                     let _ = tx.send(ResearcherProgress {
@@ -745,7 +721,7 @@ Guidelines:
                             });
 
                             Ok(ToolExecution {
-                                tool_name: tool_call.tool_name.clone(),
+                                tool_name: call.tool_name.clone(),
                                 success: true,
                                 output: output.to_string(),
                                 error: None,
@@ -755,7 +731,7 @@ Guidelines:
                         Err(e) => {
                             let elapsed = start_time.elapsed().as_millis() as u64;
                             Ok(ToolExecution {
-                                tool_name: tool_call.tool_name.clone(),
+                                tool_name: call.tool_name.clone(),
                                 success: false,
                                 output: String::new(),
                                 error: Some(format!("Failed to read file: {}", e)),
@@ -766,7 +742,7 @@ Guidelines:
                     Err(e) => {
                         let elapsed = start_time.elapsed().as_millis() as u64;
                         Ok(ToolExecution {
-                            tool_name: tool_call.tool_name.clone(),
+                            tool_name: call.tool_name.clone(),
                             success: false,
                             output: String::new(),
                             error: Some(format!("Invalid path: {}", e)),
@@ -775,15 +751,9 @@ Guidelines:
                     }
                 }
             }
-
-            "file_write" => {
-                let args = &tool_call.tool_args;
-                let path = args.path.as_ref().ok_or_else(|| {
-                    HarnessError::ToolExecution("Missing path argument".to_string())
-                })?;
-                let content = args.content.as_ref().ok_or_else(|| {
-                    HarnessError::ToolExecution("Missing content argument".to_string())
-                })?;
+            AgentToolCall::FileWriteToolCall(call) => {
+                let path = call.tool_args.path.as_str();
+                let content = call.tool_args.content.as_str();
 
                 if let Some(tx) = &self.progress_tx {
                     let _ = tx.send(ResearcherProgress {
@@ -805,7 +775,7 @@ Guidelines:
                 if is_run_doc_path && self.has_run_writer() {
                     let elapsed = start_time.elapsed().as_millis() as u64;
                     Ok(ToolExecution {
-                        tool_name: tool_call.tool_name.clone(),
+                        tool_name: call.tool_name.clone(),
                         success: false,
                         output: String::new(),
                         error: Some("Run document writes must use message_writer tool".to_string()),
@@ -814,7 +784,7 @@ Guidelines:
                 } else if is_run_doc_path {
                     let elapsed = start_time.elapsed().as_millis() as u64;
                     Ok(ToolExecution {
-                        tool_name: tool_call.tool_name.clone(),
+                        tool_name: call.tool_name.clone(),
                         success: false,
                         output: String::new(),
                         error: Some(
@@ -841,7 +811,7 @@ Guidelines:
                                     self.emit_document_update(&ctx.loop_id, path, content);
 
                                     Ok(ToolExecution {
-                                        tool_name: tool_call.tool_name.clone(),
+                                        tool_name: call.tool_name.clone(),
                                         success: true,
                                         output: output.to_string(),
                                         error: None,
@@ -851,7 +821,7 @@ Guidelines:
                                 Err(e) => {
                                     let elapsed = start_time.elapsed().as_millis() as u64;
                                     Ok(ToolExecution {
-                                        tool_name: tool_call.tool_name.clone(),
+                                        tool_name: call.tool_name.clone(),
                                         success: false,
                                         output: String::new(),
                                         error: Some(format!("Failed to write file: {}", e)),
@@ -863,7 +833,7 @@ Guidelines:
                         Err(e) => {
                             let elapsed = start_time.elapsed().as_millis() as u64;
                             Ok(ToolExecution {
-                                tool_name: tool_call.tool_name.clone(),
+                                tool_name: call.tool_name.clone(),
                                 success: false,
                                 output: String::new(),
                                 error: Some(format!("Invalid path: {}", e)),
@@ -873,18 +843,10 @@ Guidelines:
                     }
                 }
             }
-
-            "file_edit" => {
-                let args = &tool_call.tool_args;
-                let path = args.path.as_ref().ok_or_else(|| {
-                    HarnessError::ToolExecution("Missing path argument".to_string())
-                })?;
-                let old_text = args.old_text.as_ref().ok_or_else(|| {
-                    HarnessError::ToolExecution("Missing old_text argument".to_string())
-                })?;
-                let new_text = args.new_text.as_ref().ok_or_else(|| {
-                    HarnessError::ToolExecution("Missing new_text argument".to_string())
-                })?;
+            AgentToolCall::FileEditToolCall(call) => {
+                let path = call.tool_args.path.as_str();
+                let old_text = call.tool_args.old_text.as_str();
+                let new_text = call.tool_args.new_text.as_str();
 
                 if let Some(tx) = &self.progress_tx {
                     let _ = tx.send(ResearcherProgress {
@@ -906,7 +868,7 @@ Guidelines:
                 if is_run_doc_path && self.has_run_writer() {
                     let elapsed = start_time.elapsed().as_millis() as u64;
                     Ok(ToolExecution {
-                        tool_name: tool_call.tool_name.clone(),
+                        tool_name: call.tool_name.clone(),
                         success: false,
                         output: String::new(),
                         error: Some("Run document edits must use message_writer tool".to_string()),
@@ -915,7 +877,7 @@ Guidelines:
                 } else if is_run_doc_path {
                     let elapsed = start_time.elapsed().as_millis() as u64;
                     Ok(ToolExecution {
-                        tool_name: tool_call.tool_name.clone(),
+                        tool_name: call.tool_name.clone(),
                         success: false,
                         output: String::new(),
                         error: Some(
@@ -932,7 +894,7 @@ Guidelines:
                                 if new_content == content {
                                     let elapsed = start_time.elapsed().as_millis() as u64;
                                     return Ok(ToolExecution {
-                                        tool_name: tool_call.tool_name.clone(),
+                                        tool_name: call.tool_name.clone(),
                                         success: false,
                                         output: String::new(),
                                         error: Some("old_text not found in file".to_string()),
@@ -952,7 +914,7 @@ Guidelines:
                                         self.emit_document_update(&ctx.loop_id, path, &new_content);
 
                                         Ok(ToolExecution {
-                                            tool_name: tool_call.tool_name.clone(),
+                                            tool_name: call.tool_name.clone(),
                                             success: true,
                                             output: output.to_string(),
                                             error: None,
@@ -962,7 +924,7 @@ Guidelines:
                                     Err(e) => {
                                         let elapsed = start_time.elapsed().as_millis() as u64;
                                         Ok(ToolExecution {
-                                            tool_name: tool_call.tool_name.clone(),
+                                            tool_name: call.tool_name.clone(),
                                             success: false,
                                             output: String::new(),
                                             error: Some(format!("Failed to write file: {}", e)),
@@ -974,7 +936,7 @@ Guidelines:
                             Err(e) => {
                                 let elapsed = start_time.elapsed().as_millis() as u64;
                                 Ok(ToolExecution {
-                                    tool_name: tool_call.tool_name.clone(),
+                                    tool_name: call.tool_name.clone(),
                                     success: false,
                                     output: String::new(),
                                     error: Some(format!("Failed to read file: {}", e)),
@@ -985,7 +947,7 @@ Guidelines:
                         Err(e) => {
                             let elapsed = start_time.elapsed().as_millis() as u64;
                             Ok(ToolExecution {
-                                tool_name: tool_call.tool_name.clone(),
+                                tool_name: call.tool_name.clone(),
                                 success: false,
                                 output: String::new(),
                                 error: Some(format!("Invalid path: {}", e)),
@@ -995,10 +957,9 @@ Guidelines:
                     }
                 }
             }
-
             _ => Err(HarnessError::ToolExecution(format!(
                 "Unknown tool: {}",
-                tool_call.tool_name
+                tool_call_name(tool_call)
             ))),
         }
     }

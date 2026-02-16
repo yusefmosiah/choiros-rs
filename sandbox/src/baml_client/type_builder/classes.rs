@@ -65,276 +65,6 @@ impl AgentDecisionClassBuilder {
     }
 }
 
-/// Wrapper for the `AgentToolArgs` class builder.
-///
-/// Provides type-safe method access to fields defined in the schema.
-/// Access fields via methods: `builder.field_name()`
-
-pub struct AgentToolArgsClassBuilder {
-    inner: baml::ClassBuilder,
-}
-
-impl AgentToolArgsClassBuilder {
-    /// Create wrapper from runtime ClassBuilder.
-    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
-        Self { inner }
-    }
-
-    /// Get the underlying ClassBuilder.
-    pub fn inner(&self) -> &baml::ClassBuilder {
-        &self.inner
-    }
-
-    /// Get the class as a type definition.
-    pub fn r#type(&self) -> baml::TypeDef {
-        self.inner
-            .as_type()
-            .expect("AgentToolArgs is statically defined in .baml and should always have a type")
-    }
-
-    // =========================================================================
-    // Field Accessors (1:1 with schema field names)
-    // =========================================================================
-
-    /// Access the `bash` field builder.
-    pub fn property_bash(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("bash").expect(
-            "AgentToolArgs.bash is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `read_file` field builder.
-    pub fn property_read_file(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("read_file").expect(
-            "AgentToolArgs.read_file is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `write_file` field builder.
-    pub fn property_write_file(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("write_file").expect(
-            "AgentToolArgs.write_file is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `list_files` field builder.
-    pub fn property_list_files(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("list_files").expect(
-            "AgentToolArgs.list_files is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `search_files` field builder.
-    pub fn property_search_files(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("search_files")
-            .expect("AgentToolArgs.search_files is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `web_search` field builder.
-    pub fn property_web_search(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("web_search").expect(
-            "AgentToolArgs.web_search is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `command` field builder.
-    pub fn property_command(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("command").expect(
-            "AgentToolArgs.command is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `cmd` field builder.
-    pub fn property_cmd(&self) -> baml::ClassPropertyBuilder {
-        self.inner
-            .get_property("cmd")
-            .expect("AgentToolArgs.cmd is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `cwd` field builder.
-    pub fn property_cwd(&self) -> baml::ClassPropertyBuilder {
-        self.inner
-            .get_property("cwd")
-            .expect("AgentToolArgs.cwd is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `reasoning` field builder.
-    pub fn property_reasoning(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("reasoning").expect(
-            "AgentToolArgs.reasoning is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `timeout_ms` field builder.
-    pub fn property_timeout_ms(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("timeout_ms").expect(
-            "AgentToolArgs.timeout_ms is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `model` field builder.
-    pub fn property_model(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("model").expect(
-            "AgentToolArgs.model is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `path` field builder.
-    pub fn property_path(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("path").expect(
-            "AgentToolArgs.path is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `content` field builder.
-    pub fn property_content(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("content").expect(
-            "AgentToolArgs.content is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `pattern` field builder.
-    pub fn property_pattern(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("pattern").expect(
-            "AgentToolArgs.pattern is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `file_pattern` field builder.
-    pub fn property_file_pattern(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("file_pattern")
-            .expect("AgentToolArgs.file_pattern is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `recursive` field builder.
-    pub fn property_recursive(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("recursive").expect(
-            "AgentToolArgs.recursive is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `limit` field builder.
-    pub fn property_limit(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("limit").expect(
-            "AgentToolArgs.limit is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `offset` field builder.
-    pub fn property_offset(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("offset").expect(
-            "AgentToolArgs.offset is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `query` field builder.
-    pub fn property_query(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("query").expect(
-            "AgentToolArgs.query is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `provider` field builder.
-    pub fn property_provider(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("provider").expect(
-            "AgentToolArgs.provider is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `max_results` field builder.
-    pub fn property_max_results(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("max_results").expect(
-            "AgentToolArgs.max_results is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `time_range` field builder.
-    pub fn property_time_range(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("time_range").expect(
-            "AgentToolArgs.time_range is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `include_domains` field builder.
-    pub fn property_include_domains(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("include_domains")
-            .expect("AgentToolArgs.include_domains is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `exclude_domains` field builder.
-    pub fn property_exclude_domains(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("exclude_domains")
-            .expect("AgentToolArgs.exclude_domains is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `old_text` field builder.
-    pub fn property_old_text(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("old_text").expect(
-            "AgentToolArgs.old_text is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `new_text` field builder.
-    pub fn property_new_text(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("new_text").expect(
-            "AgentToolArgs.new_text is statically defined in .baml and should always be present",
-        )
-    }
-}
-
-/// Wrapper for the `AgentToolCall` class builder.
-///
-/// Provides type-safe method access to fields defined in the schema.
-/// Access fields via methods: `builder.field_name()`
-
-pub struct AgentToolCallClassBuilder {
-    inner: baml::ClassBuilder,
-}
-
-impl AgentToolCallClassBuilder {
-    /// Create wrapper from runtime ClassBuilder.
-    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
-        Self { inner }
-    }
-
-    /// Get the underlying ClassBuilder.
-    pub fn inner(&self) -> &baml::ClassBuilder {
-        &self.inner
-    }
-
-    /// Get the class as a type definition.
-    pub fn r#type(&self) -> baml::TypeDef {
-        self.inner
-            .as_type()
-            .expect("AgentToolCall is statically defined in .baml and should always have a type")
-    }
-
-    // =========================================================================
-    // Field Accessors (1:1 with schema field names)
-    // =========================================================================
-
-    /// Access the `tool_name` field builder.
-    pub fn property_tool_name(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("tool_name").expect(
-            "AgentToolCall.tool_name is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `tool_args` field builder.
-    pub fn property_tool_args(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("tool_args").expect(
-            "AgentToolCall.tool_args is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `reasoning` field builder.
-    pub fn property_reasoning(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("reasoning").expect(
-            "AgentToolCall.reasoning is statically defined in .baml and should always be present",
-        )
-    }
-}
-
 /// Wrapper for the `AlternativeAction` class builder.
 ///
 /// Provides type-safe method access to fields defined in the schema.
@@ -432,25 +162,11 @@ impl BashToolArgsClassBuilder {
         )
     }
 
-    /// Access the `cmd` field builder.
-    pub fn property_cmd(&self) -> baml::ClassPropertyBuilder {
-        self.inner
-            .get_property("cmd")
-            .expect("BashToolArgs.cmd is statically defined in .baml and should always be present")
-    }
-
     /// Access the `cwd` field builder.
     pub fn property_cwd(&self) -> baml::ClassPropertyBuilder {
         self.inner
             .get_property("cwd")
             .expect("BashToolArgs.cwd is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `reasoning` field builder.
-    pub fn property_reasoning(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("reasoning").expect(
-            "BashToolArgs.reasoning is statically defined in .baml and should always be present",
-        )
     }
 
     /// Access the `timeout_ms` field builder.
@@ -459,11 +175,57 @@ impl BashToolArgsClassBuilder {
             "BashToolArgs.timeout_ms is statically defined in .baml and should always be present",
         )
     }
+}
 
-    /// Access the `model` field builder.
-    pub fn property_model(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("model").expect(
-            "BashToolArgs.model is statically defined in .baml and should always be present",
+/// Wrapper for the `BashToolCall` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct BashToolCallClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl BashToolCallClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner
+            .as_type()
+            .expect("BashToolCall is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `tool_name` field builder.
+    pub fn property_tool_name(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("tool_name").expect(
+            "BashToolCall.tool_name is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `tool_args` field builder.
+    pub fn property_tool_args(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("tool_args").expect(
+            "BashToolCall.tool_args is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `reasoning` field builder.
+    pub fn property_reasoning(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("reasoning").expect(
+            "BashToolCall.reasoning is statically defined in .baml and should always be present",
         )
     }
 }
@@ -844,6 +606,403 @@ impl DetectedAnomalyClassBuilder {
     }
 }
 
+/// Wrapper for the `FetchUrlToolArgs` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct FetchUrlToolArgsClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl FetchUrlToolArgsClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner
+            .as_type()
+            .expect("FetchUrlToolArgs is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `path` field builder.
+    pub fn property_path(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("path").expect(
+            "FetchUrlToolArgs.path is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `max_chars` field builder.
+    pub fn property_max_chars(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("max_chars")
+            .expect("FetchUrlToolArgs.max_chars is statically defined in .baml and should always be present")
+    }
+}
+
+/// Wrapper for the `FetchUrlToolCall` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct FetchUrlToolCallClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl FetchUrlToolCallClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner
+            .as_type()
+            .expect("FetchUrlToolCall is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `tool_name` field builder.
+    pub fn property_tool_name(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("tool_name")
+            .expect("FetchUrlToolCall.tool_name is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `tool_args` field builder.
+    pub fn property_tool_args(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("tool_args")
+            .expect("FetchUrlToolCall.tool_args is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `reasoning` field builder.
+    pub fn property_reasoning(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("reasoning")
+            .expect("FetchUrlToolCall.reasoning is statically defined in .baml and should always be present")
+    }
+}
+
+/// Wrapper for the `FileEditToolArgs` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct FileEditToolArgsClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl FileEditToolArgsClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner
+            .as_type()
+            .expect("FileEditToolArgs is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `path` field builder.
+    pub fn property_path(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("path").expect(
+            "FileEditToolArgs.path is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `old_text` field builder.
+    pub fn property_old_text(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("old_text").expect(
+            "FileEditToolArgs.old_text is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `new_text` field builder.
+    pub fn property_new_text(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("new_text").expect(
+            "FileEditToolArgs.new_text is statically defined in .baml and should always be present",
+        )
+    }
+}
+
+/// Wrapper for the `FileEditToolCall` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct FileEditToolCallClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl FileEditToolCallClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner
+            .as_type()
+            .expect("FileEditToolCall is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `tool_name` field builder.
+    pub fn property_tool_name(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("tool_name")
+            .expect("FileEditToolCall.tool_name is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `tool_args` field builder.
+    pub fn property_tool_args(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("tool_args")
+            .expect("FileEditToolCall.tool_args is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `reasoning` field builder.
+    pub fn property_reasoning(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("reasoning")
+            .expect("FileEditToolCall.reasoning is statically defined in .baml and should always be present")
+    }
+}
+
+/// Wrapper for the `FileReadToolArgs` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct FileReadToolArgsClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl FileReadToolArgsClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner
+            .as_type()
+            .expect("FileReadToolArgs is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `path` field builder.
+    pub fn property_path(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("path").expect(
+            "FileReadToolArgs.path is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `limit` field builder.
+    pub fn property_limit(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("limit").expect(
+            "FileReadToolArgs.limit is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `offset` field builder.
+    pub fn property_offset(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("offset").expect(
+            "FileReadToolArgs.offset is statically defined in .baml and should always be present",
+        )
+    }
+}
+
+/// Wrapper for the `FileReadToolCall` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct FileReadToolCallClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl FileReadToolCallClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner
+            .as_type()
+            .expect("FileReadToolCall is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `tool_name` field builder.
+    pub fn property_tool_name(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("tool_name")
+            .expect("FileReadToolCall.tool_name is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `tool_args` field builder.
+    pub fn property_tool_args(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("tool_args")
+            .expect("FileReadToolCall.tool_args is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `reasoning` field builder.
+    pub fn property_reasoning(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("reasoning")
+            .expect("FileReadToolCall.reasoning is statically defined in .baml and should always be present")
+    }
+}
+
+/// Wrapper for the `FileWriteToolArgs` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct FileWriteToolArgsClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl FileWriteToolArgsClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner.as_type().expect(
+            "FileWriteToolArgs is statically defined in .baml and should always have a type",
+        )
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `path` field builder.
+    pub fn property_path(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("path").expect(
+            "FileWriteToolArgs.path is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `content` field builder.
+    pub fn property_content(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("content").expect(
+            "FileWriteToolArgs.content is statically defined in .baml and should always be present",
+        )
+    }
+}
+
+/// Wrapper for the `FileWriteToolCall` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct FileWriteToolCallClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl FileWriteToolCallClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner.as_type().expect(
+            "FileWriteToolCall is statically defined in .baml and should always have a type",
+        )
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `tool_name` field builder.
+    pub fn property_tool_name(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("tool_name")
+            .expect("FileWriteToolCall.tool_name is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `tool_args` field builder.
+    pub fn property_tool_args(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("tool_args")
+            .expect("FileWriteToolCall.tool_args is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `reasoning` field builder.
+    pub fn property_reasoning(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("reasoning")
+            .expect("FileWriteToolCall.reasoning is statically defined in .baml and should always be present")
+    }
+}
+
 /// Wrapper for the `HistoricalResolution` class builder.
 ///
 /// Provides type-safe method access to fields defined in the schema.
@@ -894,51 +1053,6 @@ impl HistoricalResolutionClassBuilder {
     }
 }
 
-/// Wrapper for the `ListFilesToolArgs` class builder.
-///
-/// Provides type-safe method access to fields defined in the schema.
-/// Access fields via methods: `builder.field_name()`
-
-pub struct ListFilesToolArgsClassBuilder {
-    inner: baml::ClassBuilder,
-}
-
-impl ListFilesToolArgsClassBuilder {
-    /// Create wrapper from runtime ClassBuilder.
-    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
-        Self { inner }
-    }
-
-    /// Get the underlying ClassBuilder.
-    pub fn inner(&self) -> &baml::ClassBuilder {
-        &self.inner
-    }
-
-    /// Get the class as a type definition.
-    pub fn r#type(&self) -> baml::TypeDef {
-        self.inner.as_type().expect(
-            "ListFilesToolArgs is statically defined in .baml and should always have a type",
-        )
-    }
-
-    // =========================================================================
-    // Field Accessors (1:1 with schema field names)
-    // =========================================================================
-
-    /// Access the `path` field builder.
-    pub fn property_path(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("path").expect(
-            "ListFilesToolArgs.path is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `recursive` field builder.
-    pub fn property_recursive(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("recursive")
-            .expect("ListFilesToolArgs.recursive is statically defined in .baml and should always be present")
-    }
-}
-
 /// Wrapper for the `Message` class builder.
 ///
 /// Provides type-safe method access to fields defined in the schema.
@@ -985,16 +1099,16 @@ impl MessageClassBuilder {
     }
 }
 
-/// Wrapper for the `ReadFileToolArgs` class builder.
+/// Wrapper for the `MessageWriterToolArgs` class builder.
 ///
 /// Provides type-safe method access to fields defined in the schema.
 /// Access fields via methods: `builder.field_name()`
 
-pub struct ReadFileToolArgsClassBuilder {
+pub struct MessageWriterToolArgsClassBuilder {
     inner: baml::ClassBuilder,
 }
 
-impl ReadFileToolArgsClassBuilder {
+impl MessageWriterToolArgsClassBuilder {
     /// Create wrapper from runtime ClassBuilder.
     pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
         Self { inner }
@@ -1007,9 +1121,9 @@ impl ReadFileToolArgsClassBuilder {
 
     /// Get the class as a type definition.
     pub fn r#type(&self) -> baml::TypeDef {
-        self.inner
-            .as_type()
-            .expect("ReadFileToolArgs is statically defined in .baml and should always have a type")
+        self.inner.as_type().expect(
+            "MessageWriterToolArgs is statically defined in .baml and should always have a type",
+        )
     }
 
     // =========================================================================
@@ -1018,23 +1132,76 @@ impl ReadFileToolArgsClassBuilder {
 
     /// Access the `path` field builder.
     pub fn property_path(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("path").expect(
-            "ReadFileToolArgs.path is statically defined in .baml and should always be present",
+        self.inner.get_property("path")
+            .expect("MessageWriterToolArgs.path is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `content` field builder.
+    pub fn property_content(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("content")
+            .expect("MessageWriterToolArgs.content is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `mode` field builder.
+    pub fn property_mode(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("mode")
+            .expect("MessageWriterToolArgs.mode is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `mode_arg` field builder.
+    pub fn property_mode_arg(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("mode_arg")
+            .expect("MessageWriterToolArgs.mode_arg is statically defined in .baml and should always be present")
+    }
+}
+
+/// Wrapper for the `MessageWriterToolCall` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct MessageWriterToolCallClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl MessageWriterToolCallClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner.as_type().expect(
+            "MessageWriterToolCall is statically defined in .baml and should always have a type",
         )
     }
 
-    /// Access the `limit` field builder.
-    pub fn property_limit(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("limit").expect(
-            "ReadFileToolArgs.limit is statically defined in .baml and should always be present",
-        )
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `tool_name` field builder.
+    pub fn property_tool_name(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("tool_name")
+            .expect("MessageWriterToolCall.tool_name is statically defined in .baml and should always be present")
     }
 
-    /// Access the `offset` field builder.
-    pub fn property_offset(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("offset").expect(
-            "ReadFileToolArgs.offset is statically defined in .baml and should always be present",
-        )
+    /// Access the `tool_args` field builder.
+    pub fn property_tool_args(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("tool_args")
+            .expect("MessageWriterToolCall.tool_args is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `reasoning` field builder.
+    pub fn property_reasoning(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("reasoning")
+            .expect("MessageWriterToolCall.reasoning is statically defined in .baml and should always be present")
     }
 }
 
@@ -1454,57 +1621,6 @@ impl RunStateSnapshotClassBuilder {
     pub fn property_elapsed_time_ms(&self) -> baml::ClassPropertyBuilder {
         self.inner.get_property("elapsed_time_ms")
             .expect("RunStateSnapshot.elapsed_time_ms is statically defined in .baml and should always be present")
-    }
-}
-
-/// Wrapper for the `SearchFilesToolArgs` class builder.
-///
-/// Provides type-safe method access to fields defined in the schema.
-/// Access fields via methods: `builder.field_name()`
-
-pub struct SearchFilesToolArgsClassBuilder {
-    inner: baml::ClassBuilder,
-}
-
-impl SearchFilesToolArgsClassBuilder {
-    /// Create wrapper from runtime ClassBuilder.
-    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
-        Self { inner }
-    }
-
-    /// Get the underlying ClassBuilder.
-    pub fn inner(&self) -> &baml::ClassBuilder {
-        &self.inner
-    }
-
-    /// Get the class as a type definition.
-    pub fn r#type(&self) -> baml::TypeDef {
-        self.inner.as_type().expect(
-            "SearchFilesToolArgs is statically defined in .baml and should always have a type",
-        )
-    }
-
-    // =========================================================================
-    // Field Accessors (1:1 with schema field names)
-    // =========================================================================
-
-    /// Access the `pattern` field builder.
-    pub fn property_pattern(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("pattern")
-            .expect("SearchFilesToolArgs.pattern is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `path` field builder.
-    pub fn property_path(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("path").expect(
-            "SearchFilesToolArgs.path is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `file_pattern` field builder.
-    pub fn property_file_pattern(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("file_pattern")
-            .expect("SearchFilesToolArgs.file_pattern is statically defined in .baml and should always be present")
     }
 }
 
@@ -2130,31 +2246,18 @@ impl WebSearchToolArgsClassBuilder {
         self.inner.get_property("timeout_ms")
             .expect("WebSearchToolArgs.timeout_ms is statically defined in .baml and should always be present")
     }
-
-    /// Access the `model` field builder.
-    pub fn property_model(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("model").expect(
-            "WebSearchToolArgs.model is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `reasoning` field builder.
-    pub fn property_reasoning(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("reasoning")
-            .expect("WebSearchToolArgs.reasoning is statically defined in .baml and should always be present")
-    }
 }
 
-/// Wrapper for the `WriteFileToolArgs` class builder.
+/// Wrapper for the `WebSearchToolCall` class builder.
 ///
 /// Provides type-safe method access to fields defined in the schema.
 /// Access fields via methods: `builder.field_name()`
 
-pub struct WriteFileToolArgsClassBuilder {
+pub struct WebSearchToolCallClassBuilder {
     inner: baml::ClassBuilder,
 }
 
-impl WriteFileToolArgsClassBuilder {
+impl WebSearchToolCallClassBuilder {
     /// Create wrapper from runtime ClassBuilder.
     pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
         Self { inner }
@@ -2168,7 +2271,7 @@ impl WriteFileToolArgsClassBuilder {
     /// Get the class as a type definition.
     pub fn r#type(&self) -> baml::TypeDef {
         self.inner.as_type().expect(
-            "WriteFileToolArgs is statically defined in .baml and should always have a type",
+            "WebSearchToolCall is statically defined in .baml and should always have a type",
         )
     }
 
@@ -2176,17 +2279,21 @@ impl WriteFileToolArgsClassBuilder {
     // Field Accessors (1:1 with schema field names)
     // =========================================================================
 
-    /// Access the `path` field builder.
-    pub fn property_path(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("path").expect(
-            "WriteFileToolArgs.path is statically defined in .baml and should always be present",
-        )
+    /// Access the `tool_name` field builder.
+    pub fn property_tool_name(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("tool_name")
+            .expect("WebSearchToolCall.tool_name is statically defined in .baml and should always be present")
     }
 
-    /// Access the `content` field builder.
-    pub fn property_content(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("content").expect(
-            "WriteFileToolArgs.content is statically defined in .baml and should always be present",
-        )
+    /// Access the `tool_args` field builder.
+    pub fn property_tool_args(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("tool_args")
+            .expect("WebSearchToolCall.tool_args is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `reasoning` field builder.
+    pub fn property_reasoning(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("reasoning")
+            .expect("WebSearchToolCall.reasoning is statically defined in .baml and should always be present")
     }
 }

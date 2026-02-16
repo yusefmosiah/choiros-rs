@@ -3,4 +3,50 @@
 //
 // Learn more at https://docs.boundaryml.com
 
-// No unions defined
+//! Generated streaming union types.
+
+use super::*;
+use crate::baml_client::types;
+use baml::BamlDecode;
+
+/// Generated from: (Streaming.BashToolCall | Streaming.WebSearchToolCall | Streaming.FetchUrlToolCall | Streaming.FileReadToolCall | Streaming.FileWriteToolCall | Streaming.FileEditToolCall | Streaming.MessageWriterToolCall)
+#[derive(Debug, Clone, BamlDecode)]
+#[baml(union)]
+pub enum Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall
+{
+    #[baml(name = "BashToolCall")]
+    BashToolCall(BashToolCall),
+
+    #[baml(name = "WebSearchToolCall")]
+    WebSearchToolCall(WebSearchToolCall),
+
+    #[baml(name = "FetchUrlToolCall")]
+    FetchUrlToolCall(FetchUrlToolCall),
+
+    #[baml(name = "FileReadToolCall")]
+    FileReadToolCall(FileReadToolCall),
+
+    #[baml(name = "FileWriteToolCall")]
+    FileWriteToolCall(FileWriteToolCall),
+
+    #[baml(name = "FileEditToolCall")]
+    FileEditToolCall(FileEditToolCall),
+
+    #[baml(name = "MessageWriterToolCall")]
+    MessageWriterToolCall(MessageWriterToolCall),
+}
+
+impl AsRef<Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall> for Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall {
+    fn as_ref(&self) -> &Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall {
+        self
+    }
+}
+
+impl Default for Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall {
+    fn default() -> Self {
+
+
+            Self::BashToolCall(Default::default())
+
+    }
+}

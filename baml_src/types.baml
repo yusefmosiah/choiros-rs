@@ -8,95 +8,86 @@ class Message {
 }
 
 class BashToolArgs {
-  command string?
-  cmd string?
-  cwd string?
-  reasoning string?
-  timeout_ms int?
-  model string?
-}
-
-class ReadFileToolArgs {
-  path string?
-  limit int?
-  offset int?
-}
-
-class WriteFileToolArgs {
-  path string?
-  content string?
-}
-
-class ListFilesToolArgs {
-  path string?
-  recursive bool?
-}
-
-class SearchFilesToolArgs {
-  pattern string?
-  path string?
-  file_pattern string?
+  command string
 }
 
 class WebSearchToolArgs {
-  query string?
-  provider string?
-  max_results int?
-  time_range string?
-  include_domains string[]?
-  exclude_domains string[]?
-  timeout_ms int?
-  model string?
-  reasoning string?
+  query string
 }
 
-// Individual tool call from the agent
-class AgentToolArgs {
-  bash BashToolArgs?
-  read_file ReadFileToolArgs?
-  write_file WriteFileToolArgs?
-  list_files ListFilesToolArgs?
-  search_files SearchFilesToolArgs?
-  web_search WebSearchToolArgs?
+class FetchUrlToolArgs {
+  path string
+}
 
-  // Legacy flat fields kept for compatibility with models that don't yet
-  // follow the nested per-tool schema.
-  command string?
-  cmd string?
-  cwd string?
-  reasoning string?
-  timeout_ms int?
-  model string?
+class FileReadToolArgs {
+  path string
+}
+
+class FileWriteToolArgs {
+  path string
+  content string
+}
+
+class FileEditToolArgs {
+  path string
+  old_text string
+  new_text string
+}
+
+class MessageWriterToolArgs {
+  content string
+  mode string
   path string?
-  content string?
-  pattern string?
-  file_pattern string?
-  recursive bool?
-  limit int?
-  offset int?
-  query string?
-  provider string?
-  max_results int?
-  time_range string?
-  include_domains string[]?
-  exclude_domains string[]?
-  // File edit fields
-  old_text string?
-  new_text string?
+  mode_arg string?
 }
 
-class AgentToolCall {
-  tool_name string
-  tool_args AgentToolArgs
+class BashToolCall {
+  tool_name "bash"
+  tool_args BashToolArgs
+  reasoning string?
+}
+
+class WebSearchToolCall {
+  tool_name "web_search"
+  tool_args WebSearchToolArgs
+  reasoning string?
+}
+
+class FetchUrlToolCall {
+  tool_name "fetch_url"
+  tool_args FetchUrlToolArgs
+  reasoning string?
+}
+
+class FileReadToolCall {
+  tool_name "file_read"
+  tool_args FileReadToolArgs
+  reasoning string?
+}
+
+class FileWriteToolCall {
+  tool_name "file_write"
+  tool_args FileWriteToolArgs
+  reasoning string?
+}
+
+class FileEditToolCall {
+  tool_name "file_edit"
+  tool_args FileEditToolArgs
+  reasoning string?
+}
+
+class MessageWriterToolCall {
+  tool_name "message_writer"
+  tool_args MessageWriterToolArgs
   reasoning string?
 }
 
 // Simplified agent decision - what to do next
 class AgentDecision {
   action Action
-  tool_calls AgentToolCall[]  // Empty if Complete/Block
-  summary string?             // Present if Complete (the answer)
-  reason string?              // Present if Block (why stuck)
+  tool_calls (BashToolCall | WebSearchToolCall | FetchUrlToolCall | FileReadToolCall | FileWriteToolCall | FileEditToolCall | MessageWriterToolCall)[]  // Empty if Complete/Block
+  message string
 }
 
 enum Action {

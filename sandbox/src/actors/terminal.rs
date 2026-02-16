@@ -27,7 +27,7 @@ use crate::actors::agent_harness::{
 };
 use crate::actors::event_store::EventStoreMsg;
 use crate::actors::model_config::ModelRegistry;
-use crate::baml_client::types::AgentToolCall;
+use crate::baml_client::types::Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall as AgentToolCall;
 use crate::observability::llm_trace::LlmTraceEmitter;
 
 use shared_types::{
@@ -46,6 +46,18 @@ pub struct TerminalAdapter {
     shell: String,
     event_store: Option<ActorRef<EventStoreMsg>>,
     progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
+}
+
+fn tool_call_name(tool_call: &AgentToolCall) -> &str {
+    match tool_call {
+        AgentToolCall::BashToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::WebSearchToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::FetchUrlToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::FileReadToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::FileWriteToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::FileEditToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::MessageWriterToolCall(call) => call.tool_name.as_str(),
+    }
 }
 
 impl TerminalAdapter {
@@ -228,31 +240,22 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
         ctx: &ExecutionContext,
         tool_call: &AgentToolCall,
     ) -> Result<ToolExecution, crate::actors::agent_harness::HarnessError> {
-        if tool_call.tool_name != "bash" {
+        let AgentToolCall::BashToolCall(bash_call) = tool_call else {
+            let tool_name = tool_call_name(tool_call).to_string();
             return Ok(ToolExecution {
-                tool_name: tool_call.tool_name.clone(),
+                tool_name: tool_name.clone(),
                 success: false,
                 output: String::new(),
-                error: Some(format!("Unknown tool: {}", tool_call.tool_name)),
+                error: Some(format!("Unknown tool: {tool_name}")),
                 execution_time_ms: 0,
             });
-        }
+        };
 
-        // Extract command from tool args
-        let bash_args = tool_call.tool_args.bash.as_ref();
-        let command = bash_args
-            .and_then(|args| args.command.as_deref().or(args.cmd.as_deref()))
-            .or(tool_call.tool_args.command.as_deref())
-            .or(tool_call.tool_args.cmd.as_deref())
-            .ok_or_else(|| {
-                crate::actors::agent_harness::HarnessError::ToolExecution(
-                    "Missing command/cmd".to_string(),
-                )
-            })?;
+        let command = bash_call.tool_args.command.as_str();
 
-        let timeout_ms = bash_args
-            .and_then(|args| args.timeout_ms)
-            .or(tool_call.tool_args.timeout_ms)
+        let timeout_ms = bash_call
+            .tool_args
+            .timeout_ms
             .and_then(|value| u64::try_from(value).ok())
             .unwrap_or(30_000)
             .clamp(1_000, 120_000);
@@ -262,7 +265,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
         self.emit_terminal_progress(
             "terminal_tool_call",
             "terminal agent requested bash tool execution",
-            tool_call.reasoning.clone(),
+            bash_call.reasoning.clone(),
             Some(command.to_string()),
             Some(ctx.model_used.clone()),
             None,
@@ -279,7 +282,7 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
                 self.emit_terminal_progress(
                     "terminal_tool_result",
                     "terminal agent received bash tool result",
-                    tool_call.reasoning.clone(),
+                    bash_call.reasoning.clone(),
                     Some(command.to_string()),
                     Some(ctx.model_used.clone()),
                     Some(Self::truncate_excerpt(&output)),

@@ -35,7 +35,10 @@ use tracing::{debug, error, info};
 
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::{ModelConfigError, ModelRegistry, ModelResolutionContext};
-use crate::baml_client::types::{Action, AgentDecision, AgentToolCall, Message as BamlMessage};
+use crate::baml_client::types::{
+    Action, AgentDecision, Message as BamlMessage,
+    Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall as AgentToolCall,
+};
 use crate::baml_client::{new_collector, ClientRegistry, B};
 use crate::observability::llm_trace::{token_usage_from_collector, LlmCallScope, LlmTraceEmitter};
 
@@ -50,6 +53,73 @@ pub use shared_types::{
 // ============================================================================
 
 // Action and AgentDecision are now imported from crate::baml_client::types
+
+fn tool_call_name(tool_call: &AgentToolCall) -> &str {
+    match tool_call {
+        AgentToolCall::BashToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::WebSearchToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::FetchUrlToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::FileReadToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::FileWriteToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::FileEditToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::MessageWriterToolCall(call) => call.tool_name.as_str(),
+    }
+}
+
+fn tool_call_reasoning(tool_call: &AgentToolCall) -> Option<&str> {
+    match tool_call {
+        AgentToolCall::BashToolCall(call) => call.reasoning.as_deref(),
+        AgentToolCall::WebSearchToolCall(call) => call.reasoning.as_deref(),
+        AgentToolCall::FetchUrlToolCall(call) => call.reasoning.as_deref(),
+        AgentToolCall::FileReadToolCall(call) => call.reasoning.as_deref(),
+        AgentToolCall::FileWriteToolCall(call) => call.reasoning.as_deref(),
+        AgentToolCall::FileEditToolCall(call) => call.reasoning.as_deref(),
+        AgentToolCall::MessageWriterToolCall(call) => call.reasoning.as_deref(),
+    }
+}
+
+fn tool_call_args_json(tool_call: &AgentToolCall) -> serde_json::Value {
+    match tool_call {
+        AgentToolCall::BashToolCall(call) => serde_json::json!({
+            "command": call.tool_args.command,
+            "cwd": call.tool_args.cwd,
+            "timeout_ms": call.tool_args.timeout_ms,
+        }),
+        AgentToolCall::WebSearchToolCall(call) => serde_json::json!({
+            "query": call.tool_args.query,
+            "provider": call.tool_args.provider,
+            "max_results": call.tool_args.max_results,
+            "time_range": call.tool_args.time_range,
+            "include_domains": call.tool_args.include_domains,
+            "exclude_domains": call.tool_args.exclude_domains,
+            "timeout_ms": call.tool_args.timeout_ms,
+        }),
+        AgentToolCall::FetchUrlToolCall(call) => serde_json::json!({
+            "path": call.tool_args.path,
+            "max_chars": call.tool_args.max_chars,
+        }),
+        AgentToolCall::FileReadToolCall(call) => serde_json::json!({
+            "path": call.tool_args.path,
+            "limit": call.tool_args.limit,
+            "offset": call.tool_args.offset,
+        }),
+        AgentToolCall::FileWriteToolCall(call) => serde_json::json!({
+            "path": call.tool_args.path,
+            "content": call.tool_args.content,
+        }),
+        AgentToolCall::FileEditToolCall(call) => serde_json::json!({
+            "path": call.tool_args.path,
+            "old_text": call.tool_args.old_text,
+            "new_text": call.tool_args.new_text,
+        }),
+        AgentToolCall::MessageWriterToolCall(call) => serde_json::json!({
+            "path": call.tool_args.path,
+            "content": call.tool_args.content,
+            "mode": call.tool_args.mode,
+            "mode_arg": call.tool_args.mode_arg,
+        }),
+    }
+}
 
 /// State machine states for the agentic loop (simplified)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -460,8 +530,12 @@ impl<W: WorkerPort> AgentHarness<W> {
                 Action::ToolCall => {
                     // Execute tools from decision.tool_calls
                     for tool_call in &decision.tool_calls {
-                        if self.worker_port.should_defer(&tool_call.tool_name) {
-                            debug!(tool = %tool_call.tool_name, "Tool deferred");
+                        let tool_name = tool_call_name(tool_call).to_string();
+                        let tool_reasoning = tool_call_reasoning(tool_call);
+                        let tool_args_json = tool_call_args_json(tool_call);
+
+                        if self.worker_port.should_defer(&tool_name) {
+                            debug!(tool = %tool_name, "Tool deferred");
                             continue;
                         }
 
@@ -469,7 +543,7 @@ impl<W: WorkerPort> AgentHarness<W> {
                             &ctx,
                             &progress_tx,
                             "executing_tool",
-                            &format!("Executing tool: {}", tool_call.tool_name),
+                            &format!("Executing tool: {}", tool_name),
                             Some(step_count),
                             Some(self.config.max_steps),
                         )
@@ -482,15 +556,12 @@ impl<W: WorkerPort> AgentHarness<W> {
                             session_id: None,
                             thread_id: None,
                         };
-                        let tool_args_json = serde_json::json!({
-                            "debug": format!("{:?}", tool_call.tool_args),
-                        });
                         let tool_ctx = self.trace_emitter.start_tool_call(
                             self.worker_port.get_model_role(),
                             &ctx.worker_id,
-                            &tool_call.tool_name,
+                            &tool_name,
                             &tool_args_json,
-                            tool_call.reasoning.as_deref(),
+                            tool_reasoning,
                             Some(tool_scope),
                         );
 
@@ -509,13 +580,13 @@ impl<W: WorkerPort> AgentHarness<W> {
                                     role: "assistant".to_string(),
                                     content: format!(
                                         "Executed {}:\nOutput: {}\nSuccess: {}",
-                                        tool_call.tool_name, execution.output, execution.success
+                                        tool_name, execution.output, execution.success
                                     ),
                                 });
                                 tool_executions.push(execution);
                             }
                             Err(e) => {
-                                error!(tool = %tool_call.tool_name, error = %e, "Tool execution failed");
+                                error!(tool = %tool_name, error = %e, "Tool execution failed");
                                 self.trace_emitter.complete_tool_call(
                                     &tool_ctx,
                                     false,
@@ -524,7 +595,7 @@ impl<W: WorkerPort> AgentHarness<W> {
                                 );
                                 messages.push(BamlMessage {
                                     role: "assistant".to_string(),
-                                    content: format!("Tool {} failed: {}", tool_call.tool_name, e),
+                                    content: format!("Tool {} failed: {}", tool_name, e),
                                 });
                             }
                         }
@@ -727,9 +798,9 @@ impl<W: WorkerPort> AgentHarness<W> {
                     .iter()
                     .map(|tool_call| {
                         serde_json::json!({
-                            "tool_name": tool_call.tool_name,
-                            "reasoning": tool_call.reasoning,
-                            "tool_args": format!("{:?}", tool_call.tool_args),
+                            "tool_name": tool_call_name(tool_call),
+                            "reasoning": tool_call_reasoning(tool_call),
+                            "tool_args": tool_call_args_json(tool_call),
                         })
                     })
                     .collect();
@@ -1044,7 +1115,7 @@ impl WorkerPort for DefaultAdapter {
     ) -> Result<ToolExecution, HarnessError> {
         // Default implementation - subclasses should override
         Ok(ToolExecution {
-            tool_name: tool_call.tool_name.clone(),
+            tool_name: tool_call_name(tool_call).to_string(),
             success: false,
             output: String::new(),
             error: Some("Tool not implemented in default adapter".to_string()),

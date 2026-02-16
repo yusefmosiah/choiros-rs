@@ -6,18 +6,12 @@
 //! Generated BAML types.
 
 mod classes;
-pub(crate) mod enums;
+mod enums;
 mod type_aliases;
 mod unions;
 
-pub use classes::{
-    AgentDecision, AgentToolArgs, AgentToolCall, BashToolArgs, ConductorBootstrapInput,
-    ConductorBootstrapOutput, ConductorDecision, ConductorDecisionInput,
-    ConductorObjectiveRefineInput, ConductorObjectiveRefineOutput, ListFilesToolArgs, Message,
-    ReadFileToolArgs, ResearcherPlanInput, ResearcherPlanOutput, Resume, SearchFilesToolArgs,
-    StreamChunk, ToolResult, WebSearchToolArgs, WriteFileToolArgs,
-};
-pub use enums::{Action, ConductorAction, ResearchAction, ResearchStatus};
+pub use classes::*;
+pub use enums::*;
 pub use type_aliases::*;
 pub use unions::*;
 
@@ -31,11 +25,11 @@ pub use baml::{Checked, StreamState};
 pub enum Types {
     AgentDecision(AgentDecision),
 
-    AgentToolArgs(AgentToolArgs),
-
-    AgentToolCall(AgentToolCall),
+    AlternativeAction(AlternativeAction),
 
     BashToolArgs(BashToolArgs),
+
+    BashToolCall(BashToolCall),
 
     ConductorBootstrapInput(ConductorBootstrapInput),
 
@@ -49,11 +43,31 @@ pub enum Types {
 
     ConductorObjectiveRefineOutput(ConductorObjectiveRefineOutput),
 
-    ListFilesToolArgs(ListFilesToolArgs),
+    DetectedAnomaly(DetectedAnomaly),
+
+    FetchUrlToolArgs(FetchUrlToolArgs),
+
+    FetchUrlToolCall(FetchUrlToolCall),
+
+    FileEditToolArgs(FileEditToolArgs),
+
+    FileEditToolCall(FileEditToolCall),
+
+    FileReadToolArgs(FileReadToolArgs),
+
+    FileReadToolCall(FileReadToolCall),
+
+    FileWriteToolArgs(FileWriteToolArgs),
+
+    FileWriteToolCall(FileWriteToolCall),
+
+    HistoricalResolution(HistoricalResolution),
 
     Message(Message),
 
-    ReadFileToolArgs(ReadFileToolArgs),
+    MessageWriterToolArgs(MessageWriterToolArgs),
+
+    MessageWriterToolCall(MessageWriterToolCall),
 
     ResearcherPlanInput(ResearcherPlanInput),
 
@@ -61,23 +75,54 @@ pub enum Types {
 
     Resume(Resume),
 
-    SearchFilesToolArgs(SearchFilesToolArgs),
+    ReviewScope(ReviewScope),
+
+    RiskItem(RiskItem),
+
+    RunStateSnapshot(RunStateSnapshot),
 
     StreamChunk(StreamChunk),
 
     ToolResult(ToolResult),
 
+    WatcherEscalation(WatcherEscalation),
+
+    WatcherEvent(WatcherEvent),
+
+    WatcherLogWindowInput(WatcherLogWindowInput),
+
+    WatcherMitigationInput(WatcherMitigationInput),
+
+    WatcherMitigationOutput(WatcherMitigationOutput),
+
+    WatcherReviewOutput(WatcherReviewOutput),
+
     WebSearchToolArgs(WebSearchToolArgs),
 
-    WriteFileToolArgs(WriteFileToolArgs),
+    WebSearchToolCall(WebSearchToolCall),
+
 
     Action(Action),
 
     ConductorAction(ConductorAction),
 
+    EscalationAction(EscalationAction),
+
+    EscalationKind(EscalationKind),
+
     ResearchAction(ResearchAction),
 
     ResearchStatus(ResearchStatus),
+
+    ReviewStatus(ReviewStatus),
+
+    RiskCategory(RiskCategory),
+
+    UrgencyLevel(UrgencyLevel),
+
+
+    Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall(Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall),
+
 }
 
 impl baml::KnownTypes for Types {
@@ -87,13 +132,14 @@ impl baml::KnownTypes for Types {
 
     fn type_name(&self) -> &'static str {
         match self {
+
             Types::AgentDecision(_) => "AgentDecision",
 
-            Types::AgentToolArgs(_) => "AgentToolArgs",
-
-            Types::AgentToolCall(_) => "AgentToolCall",
+            Types::AlternativeAction(_) => "AlternativeAction",
 
             Types::BashToolArgs(_) => "BashToolArgs",
+
+            Types::BashToolCall(_) => "BashToolCall",
 
             Types::ConductorBootstrapInput(_) => "ConductorBootstrapInput",
 
@@ -107,11 +153,31 @@ impl baml::KnownTypes for Types {
 
             Types::ConductorObjectiveRefineOutput(_) => "ConductorObjectiveRefineOutput",
 
-            Types::ListFilesToolArgs(_) => "ListFilesToolArgs",
+            Types::DetectedAnomaly(_) => "DetectedAnomaly",
+
+            Types::FetchUrlToolArgs(_) => "FetchUrlToolArgs",
+
+            Types::FetchUrlToolCall(_) => "FetchUrlToolCall",
+
+            Types::FileEditToolArgs(_) => "FileEditToolArgs",
+
+            Types::FileEditToolCall(_) => "FileEditToolCall",
+
+            Types::FileReadToolArgs(_) => "FileReadToolArgs",
+
+            Types::FileReadToolCall(_) => "FileReadToolCall",
+
+            Types::FileWriteToolArgs(_) => "FileWriteToolArgs",
+
+            Types::FileWriteToolCall(_) => "FileWriteToolCall",
+
+            Types::HistoricalResolution(_) => "HistoricalResolution",
 
             Types::Message(_) => "Message",
 
-            Types::ReadFileToolArgs(_) => "ReadFileToolArgs",
+            Types::MessageWriterToolArgs(_) => "MessageWriterToolArgs",
+
+            Types::MessageWriterToolCall(_) => "MessageWriterToolCall",
 
             Types::ResearcherPlanInput(_) => "ResearcherPlanInput",
 
@@ -119,23 +185,55 @@ impl baml::KnownTypes for Types {
 
             Types::Resume(_) => "Resume",
 
-            Types::SearchFilesToolArgs(_) => "SearchFilesToolArgs",
+            Types::ReviewScope(_) => "ReviewScope",
+
+            Types::RiskItem(_) => "RiskItem",
+
+            Types::RunStateSnapshot(_) => "RunStateSnapshot",
 
             Types::StreamChunk(_) => "StreamChunk",
 
             Types::ToolResult(_) => "ToolResult",
 
+            Types::WatcherEscalation(_) => "WatcherEscalation",
+
+            Types::WatcherEvent(_) => "WatcherEvent",
+
+            Types::WatcherLogWindowInput(_) => "WatcherLogWindowInput",
+
+            Types::WatcherMitigationInput(_) => "WatcherMitigationInput",
+
+            Types::WatcherMitigationOutput(_) => "WatcherMitigationOutput",
+
+            Types::WatcherReviewOutput(_) => "WatcherReviewOutput",
+
             Types::WebSearchToolArgs(_) => "WebSearchToolArgs",
 
-            Types::WriteFileToolArgs(_) => "WriteFileToolArgs",
+            Types::WebSearchToolCall(_) => "WebSearchToolCall",
+
 
             Types::Action(_) => "Action",
 
             Types::ConductorAction(_) => "ConductorAction",
 
+            Types::EscalationAction(_) => "EscalationAction",
+
+            Types::EscalationKind(_) => "EscalationKind",
+
             Types::ResearchAction(_) => "ResearchAction",
 
             Types::ResearchStatus(_) => "ResearchStatus",
+
+            Types::ReviewStatus(_) => "ReviewStatus",
+
+            Types::RiskCategory(_) => "RiskCategory",
+
+            Types::UrgencyLevel(_) => "UrgencyLevel",
+
+
+            Types::Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall(_) => "Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall",
+
+
         }
     }
 }
