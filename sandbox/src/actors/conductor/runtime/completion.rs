@@ -5,10 +5,89 @@ use crate::actors::conductor::{
     events,
     protocol::{CapabilityWorkerOutput, ConductorError},
 };
-use crate::actors::writer::SectionState;
-use crate::actors::writer::WriterMsg;
+use crate::actors::writer::{SectionState, WriterInboundEnvelope, WriterMsg, WriterSource};
 
 impl ConductorActor {
+    fn writer_section_for_capability(capability: &str) -> String {
+        match capability {
+            "researcher" | "terminal" => capability.to_string(),
+            _ => "conductor".to_string(),
+        }
+    }
+
+    fn writer_source_for_capability(capability: &str) -> WriterSource {
+        match capability {
+            "researcher" => WriterSource::Researcher,
+            "terminal" => WriterSource::Terminal,
+            _ => WriterSource::Conductor,
+        }
+    }
+
+    async fn enqueue_capability_inbound(
+        &self,
+        state: &ConductorState,
+        run_id: &str,
+        call_id: &str,
+        capability: &str,
+        kind: &str,
+        content: String,
+    ) {
+        if content.trim().is_empty() {
+            return;
+        }
+        let Some(writer_actor) = state.writer_actor.clone() else {
+            return;
+        };
+
+        let envelope = WriterInboundEnvelope {
+            message_id: format!(
+                "conductor:{}:{}:{}:{}",
+                run_id,
+                call_id,
+                kind,
+                ulid::Ulid::new()
+            ),
+            correlation_id: call_id.to_string(),
+            kind: kind.to_string(),
+            run_id: run_id.to_string(),
+            section_id: Self::writer_section_for_capability(capability),
+            source: Self::writer_source_for_capability(capability),
+            content,
+            base_version_id: None,
+            prompt_diff: None,
+            overlay_id: None,
+            session_id: None,
+            thread_id: None,
+            call_id: Some(call_id.to_string()),
+            origin_actor: Some("conductor".to_string()),
+        };
+
+        match ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+            envelope,
+            reply
+        }) {
+            Ok(Ok(_)) => {}
+            Ok(Err(err)) => {
+                tracing::warn!(
+                    run_id = %run_id,
+                    call_id = %call_id,
+                    capability = %capability,
+                    error = %err,
+                    "Failed to enqueue capability inbound for writer"
+                );
+            }
+            Err(err) => {
+                tracing::warn!(
+                    run_id = %run_id,
+                    call_id = %call_id,
+                    capability = %capability,
+                    error = %err,
+                    "Writer actor call failed while enqueueing capability inbound"
+                );
+            }
+        }
+    }
+
     pub(crate) async fn handle_capability_call_finished(
         &self,
         state: &mut ConductorState,
@@ -20,6 +99,28 @@ impl ConductorActor {
     ) -> Result<(), ActorProcessingErr> {
         match result {
             Ok(CapabilityWorkerOutput::Researcher(output)) => {
+                let mut writer_content = format!(
+                    "Researcher capability completed.\nSummary: {}\nObjective status: {:?}\nCompletion reason: {}",
+                    output.summary.clone(),
+                    output.objective_status.clone(),
+                    output.completion_reason.clone()
+                );
+                if let Some(next_capability) = output.recommended_next_capability.as_ref() {
+                    writer_content
+                        .push_str(&format!("\nRecommended next capability: {next_capability}"));
+                }
+                if let Some(next_objective) = output.recommended_next_objective.as_ref() {
+                    writer_content
+                        .push_str(&format!("\nRecommended next objective: {next_objective}"));
+                }
+                if !output.citations.is_empty() {
+                    writer_content.push_str("\nCitations:");
+                    for citation in output.citations.iter().take(8) {
+                        writer_content
+                            .push_str(&format!("\n- [{}]({})", citation.title, citation.url));
+                    }
+                }
+
                 state
                     .tasks
                     .update_capability_call(
@@ -84,9 +185,32 @@ impl ConductorActor {
                         reply,
                     });
                 }
+                self.enqueue_capability_inbound(
+                    state,
+                    &run_id,
+                    &call_id,
+                    &capability,
+                    "capability_completed",
+                    writer_content,
+                )
+                .await;
             }
             Ok(CapabilityWorkerOutput::Terminal(output)) => {
                 if output.success {
+                    let mut writer_content = format!(
+                        "Terminal capability completed.\nSummary: {}",
+                        output.summary.clone()
+                    );
+                    if let Some(reasoning) = output.reasoning.as_ref() {
+                        writer_content.push_str(&format!("\nReasoning: {reasoning}"));
+                    }
+                    if !output.executed_commands.is_empty() {
+                        writer_content.push_str("\nExecuted commands:");
+                        for command in output.executed_commands.iter().take(10) {
+                            writer_content.push_str(&format!("\n- `{command}`"));
+                        }
+                    }
+
                     state
                         .tasks
                         .update_capability_call(
@@ -149,6 +273,15 @@ impl ConductorActor {
                             reply,
                         });
                     }
+                    self.enqueue_capability_inbound(
+                        state,
+                        &run_id,
+                        &call_id,
+                        &capability,
+                        "capability_completed",
+                        writer_content,
+                    )
+                    .await;
                 } else {
                     let err = output.summary.clone();
                     state
@@ -194,6 +327,15 @@ impl ConductorActor {
                             reply,
                         });
                     }
+                    self.enqueue_capability_inbound(
+                        state,
+                        &run_id,
+                        &call_id,
+                        &capability,
+                        "capability_failed",
+                        format!("Terminal capability failed.\nSummary: {err}"),
+                    )
+                    .await;
                 }
             }
             Err(err) => {
@@ -252,10 +394,7 @@ impl ConductorActor {
                 .await;
 
                 if let Some(writer_actor) = state.writer_actor.clone() {
-                    let section_id = match capability.as_str() {
-                        "researcher" | "terminal" => capability.clone(),
-                        _ => "conductor".to_string(),
-                    };
+                    let section_id = Self::writer_section_for_capability(&capability);
                     let _ = ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
                         run_id: run_id.clone(),
                         section_id,
@@ -263,6 +402,15 @@ impl ConductorActor {
                         reply,
                     });
                 }
+                self.enqueue_capability_inbound(
+                    state,
+                    &run_id,
+                    &call_id,
+                    &capability,
+                    "capability_failed",
+                    format!("Capability failed.\nCapability: {capability}\nError: {err_text}"),
+                )
+                .await;
             }
         }
 

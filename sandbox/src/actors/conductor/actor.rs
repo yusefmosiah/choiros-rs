@@ -91,6 +91,15 @@ impl Actor for ConductorActor {
                 self.handle_start_run(&myself, state, run_id, request)
                     .await?;
             }
+            ConductorMsg::SyncDependencies {
+                researcher_actor,
+                terminal_actor,
+                writer_actor,
+            } => {
+                state.researcher_actor = researcher_actor;
+                state.terminal_actor = terminal_actor;
+                state.writer_actor = writer_actor;
+            }
             ConductorMsg::GetRunState { run_id, reply } => {
                 let _ = reply.send(state.tasks.get_run(&run_id).cloned());
             }

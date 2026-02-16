@@ -5,6 +5,7 @@
 
 use crate::actors::researcher::ResearcherResult;
 use crate::actors::terminal::TerminalAgentResult;
+use crate::actors::terminal::TerminalMsg;
 use crate::actors::writer::WriterQueueAck;
 use crate::actors::writer::{DocumentVersion, Overlay, OverlayStatus, VersionSource};
 use ractor::RpcReplyPort;
@@ -22,6 +23,12 @@ pub enum ConductorMsg {
     StartRun {
         run_id: String,
         request: ConductorExecuteRequest,
+    },
+    /// Refresh run-time actor dependencies for an existing conductor instance.
+    SyncDependencies {
+        researcher_actor: Option<ractor::ActorRef<crate::actors::researcher::ResearcherMsg>>,
+        terminal_actor: Option<ractor::ActorRef<TerminalMsg>>,
+        writer_actor: Option<ractor::ActorRef<crate::actors::writer::WriterMsg>>,
     },
     /// Get the current state of a run.
     GetRunState {

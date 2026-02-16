@@ -144,9 +144,6 @@ impl AppState {
 
     pub async fn ensure_conductor(&self) -> Result<ActorRef<ConductorMsg>, String> {
         let mut guard = self.inner.conductor_actor.lock().await;
-        if let Some(conductor) = guard.as_ref() {
-            return Ok(conductor.clone());
-        }
 
         let disable_workers = std::env::var("CHOIR_DISABLE_CONDUCTOR_WORKERS")
             .ok()
@@ -199,7 +196,7 @@ impl AppState {
             }
         };
 
-        let writer_actor = match self
+        let writer_actor = self
             .get_or_create_writer(
                 "conductor-writer".to_string(),
                 "system".to_string(),
@@ -207,13 +204,7 @@ impl AppState {
                 terminal_actor.clone(),
             )
             .await
-        {
-            Ok(actor) => Some(actor),
-            Err(err) => {
-                worker_errors.push(format!("writer unavailable: {err}"));
-                None
-            }
-        };
+            .map_err(|err| format!("writer unavailable: {err}"))?;
 
         if researcher_actor.is_none() && terminal_actor.is_none() {
             let detail = if worker_errors.is_empty() {
@@ -226,6 +217,17 @@ impl AppState {
             ));
         }
 
+        if let Some(conductor) = guard.as_ref() {
+            let _ = conductor.send_message(ConductorMsg::SyncDependencies {
+                researcher_actor: researcher_actor.clone(),
+                terminal_actor: terminal_actor.clone(),
+                writer_actor: Some(writer_actor.clone()),
+            });
+            return Ok(conductor.clone());
+        }
+
+        let researcher_for_sync = researcher_actor.clone();
+        let terminal_for_sync = terminal_actor.clone();
         let supervisor = self.ensure_supervisor().await?;
         let conductor = ractor::call!(supervisor, |reply| {
             ApplicationSupervisorMsg::GetOrCreateConductor {
@@ -233,12 +235,18 @@ impl AppState {
                 user_id: "system".to_string(),
                 researcher_actor,
                 terminal_actor,
-                writer_actor,
+                writer_actor: Some(writer_actor.clone()),
                 reply,
             }
         })
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
+
+        let _ = conductor.send_message(ConductorMsg::SyncDependencies {
+            researcher_actor: researcher_for_sync,
+            terminal_actor: terminal_for_sync,
+            writer_actor: Some(writer_actor),
+        });
 
         *guard = Some(conductor.clone());
         Ok(conductor)

@@ -107,7 +107,17 @@ impl Actor for ConductorSupervisor {
                 writer_actor,
                 reply,
             } => {
+                let resolved_researcher =
+                    researcher_actor.or_else(|| state.researcher_actor.clone());
+                let resolved_terminal = terminal_actor.or_else(|| state.terminal_actor.clone());
+                let resolved_writer = writer_actor.or_else(|| state.writer_actor.clone());
+
                 if let Some(conductor) = state.conductors.get(&conductor_id) {
+                    let _ = conductor.send_message(ConductorMsg::SyncDependencies {
+                        researcher_actor: resolved_researcher.clone(),
+                        terminal_actor: resolved_terminal.clone(),
+                        writer_actor: resolved_writer.clone(),
+                    });
                     let _ = reply.send(Ok(conductor.clone()));
                     return Ok(());
                 }
@@ -115,6 +125,11 @@ impl Actor for ConductorSupervisor {
                 let actor_name = format!("conductor:{conductor_id}");
                 if let Some(cell) = ractor::registry::where_is(actor_name.clone()) {
                     let actor_ref: ActorRef<ConductorMsg> = cell.into();
+                    let _ = actor_ref.send_message(ConductorMsg::SyncDependencies {
+                        researcher_actor: resolved_researcher.clone(),
+                        terminal_actor: resolved_terminal.clone(),
+                        writer_actor: resolved_writer.clone(),
+                    });
                     state.conductors.insert(conductor_id, actor_ref.clone());
                     let _ = reply.send(Ok(actor_ref));
                     return Ok(());
@@ -122,9 +137,9 @@ impl Actor for ConductorSupervisor {
 
                 let args = ConductorArguments {
                     event_store: state.event_store.clone(),
-                    researcher_actor: researcher_actor.or_else(|| state.researcher_actor.clone()),
-                    terminal_actor: terminal_actor.or_else(|| state.terminal_actor.clone()),
-                    writer_actor: writer_actor.or_else(|| state.writer_actor.clone()),
+                    researcher_actor: resolved_researcher,
+                    terminal_actor: resolved_terminal,
+                    writer_actor: resolved_writer,
                 };
 
                 match Actor::spawn_linked(Some(actor_name), ConductorActor, args, myself.get_cell())
