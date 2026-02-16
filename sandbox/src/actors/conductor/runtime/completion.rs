@@ -24,7 +24,7 @@ impl ConductorActor {
         }
     }
 
-    async fn enqueue_capability_inbound(
+    pub(crate) async fn enqueue_capability_inbound(
         &self,
         state: &ConductorState,
         run_id: &str,

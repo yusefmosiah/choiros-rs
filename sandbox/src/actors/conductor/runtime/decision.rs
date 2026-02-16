@@ -160,6 +160,20 @@ impl ConductorActor {
             });
         }
 
+        let dispatch_note = format!(
+            "{} capability dispatched.\nObjective: {}",
+            capability, item.objective
+        );
+        self.enqueue_capability_inbound(
+            state,
+            &run_id_owned,
+            &call_id_owned,
+            &capability,
+            "capability_dispatched",
+            dispatch_note,
+        )
+        .await;
+
         tokio::spawn(async move {
             let result = match capability.as_str() {
                 "researcher" => match researcher {
