@@ -219,6 +219,56 @@ impl AsRef<EscalationKind> for EscalationKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
+pub enum ImpactLevel {
+    Low,
+
+    Medium,
+
+    High,
+}
+
+impl Default for ImpactLevel {
+    fn default() -> Self {
+        Self::Low
+    }
+}
+
+impl std::fmt::Display for ImpactLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Low => write!(f, "Low"),
+
+            Self::Medium => write!(f, "Medium"),
+
+            Self::High => write!(f, "High"),
+        }
+    }
+}
+
+impl std::str::FromStr for ImpactLevel {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Low" => Ok(Self::Low),
+
+            "Medium" => Ok(Self::Medium),
+
+            "High" => Ok(Self::High),
+
+            _ => Err(()),
+        }
+    }
+}
+
+impl AsRef<ImpactLevel> for ImpactLevel {
+    fn as_ref(&self) -> &ImpactLevel {
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
 pub enum ResearchAction {
     Search,
 

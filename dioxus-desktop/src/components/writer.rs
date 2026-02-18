@@ -12,8 +12,8 @@ use crate::api::{
     writer_open, writer_preview, writer_prompt, writer_save, writer_save_version, writer_version,
     writer_versions, WriterOverlay,
 };
-use crate::desktop::state::ACTIVE_WRITER_RUNS;
-use shared_types::{PatchOp, WriterRunStatusKind};
+use crate::desktop::state::{LiveChangeset, ACTIVE_WRITER_RUNS};
+use shared_types::{ChangesetImpact, PatchOp, WriterRunStatusKind};
 
 /// Save state for the document
 #[derive(Debug, Clone, PartialEq)]
@@ -238,6 +238,7 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
     let mut version_ids = use_signal(Vec::<u64>::new);
     let mut selected_version_id = use_signal(|| None::<u64>);
     let mut selected_version_content = use_signal(String::new);
+    let mut selected_version_source = use_signal(|| String::new()); // VersionSource provenance
     let mut selected_overlays = use_signal(|| Vec::<WriterOverlay>::new());
     let mut typing_locked = use_signal(|| false);
     let mut new_version_available = use_signal(|| false);
@@ -313,6 +314,8 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                                             .set(version_response.version.content.clone());
                                         selected_version_content
                                             .set(version_response.version.content.clone());
+                                        selected_version_source
+                                            .set(version_response.version.source.clone());
                                         selected_overlays.set(version_response.overlays);
                                     }
                                     Err(_) => {
@@ -842,6 +845,7 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                     selected_version_content.set(response.version.content.clone());
                     prompt_base_content.set(response.version.content.clone());
                     selected_version_id.set(Some(target));
+                    selected_version_source.set(response.version.source.clone());
                     selected_overlays.set(response.overlays);
                     typing_locked.set(false);
                     save_state.set(SaveState::Clean);
@@ -868,6 +872,7 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                     selected_version_content.set(response.version.content.clone());
                     prompt_base_content.set(response.version.content.clone());
                     selected_version_id.set(Some(target));
+                    selected_version_source.set(response.version.source.clone());
                     selected_overlays.set(response.overlays);
                     typing_locked.set(false);
                     save_state.set(SaveState::Clean);
@@ -891,6 +896,13 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
         let runs = ACTIVE_WRITER_RUNS.read();
         runs.get(&current_path).and_then(|r| r.message.clone())
     };
+    let current_changesets = {
+        let runs = ACTIVE_WRITER_RUNS.read();
+        runs.get(&current_path)
+            .map(|r| r.recent_changesets.clone())
+            .unwrap_or_default()
+    };
+    let current_version_source = selected_version_source();
     let current_prompt_submitting = prompt_submitting();
     let has_prompt_diff = !build_diff_ops(&selected_version_content(), &current_content).is_empty();
     let current_version_ids = version_ids();
@@ -980,6 +992,26 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                                     .unwrap_or(current_version_ids.len());
                                 let total = current_version_ids.len();
                                 format!("v{} of {}", selected, total)
+                            }
+                        }
+                        // Provenance badge: show VersionSource of the currently displayed version
+                        if !current_version_source.is_empty() {
+                            span {
+                                style: {
+                                    let (bg, color) = match current_version_source.as_str() {
+                                        "writer" => ("rgba(99,102,241,0.15)", "#818cf8"),
+                                        "user_save" => ("rgba(34,197,94,0.15)", "#4ade80"),
+                                        _ => ("rgba(156,163,175,0.15)", "#9ca3af"),
+                                    };
+                                    format!("font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 0.25rem; background: {bg}; color: {color}; white-space: nowrap;")
+                                },
+                                {
+                                    match current_version_source.as_str() {
+                                        "writer" => "AI",
+                                        "user_save" => "User",
+                                        _ => "System",
+                                    }
+                                }
                             }
                         }
                         button {
@@ -1116,6 +1148,37 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                             style: "background: var(--warning-bg); border: none; color: var(--warning-bg); cursor: pointer; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem;",
                             onclick: move |_| handle_overwrite.call(()),
                             "Overwrite"
+                        }
+                    }
+                }
+            }
+
+            // Changeset summary panel (1.4 patch stream live view + Marginalia v1 observation)
+            if !current_changesets.is_empty() {
+                div {
+                    style: "padding: 0.4rem 1rem; background: rgba(99,102,241,0.06); border-bottom: 1px solid var(--border-color); font-size: 0.78rem; color: var(--text-secondary); max-height: 5rem; overflow-y: auto;",
+                    for changeset in &current_changesets {
+                        div {
+                            key: "{changeset.patch_id}",
+                            style: "display: flex; gap: 0.5rem; align-items: baseline; padding: 0.1rem 0;",
+                            span {
+                                style: {
+                                    let (bg, color) = match changeset.impact {
+                                        ChangesetImpact::High => ("rgba(239,68,68,0.15)", "#f87171"),
+                                        ChangesetImpact::Medium => ("rgba(251,191,36,0.15)", "#fbbf24"),
+                                        ChangesetImpact::Low => ("rgba(34,197,94,0.12)", "#4ade80"),
+                                    };
+                                    format!("font-size: 0.65rem; padding: 0.05rem 0.3rem; border-radius: 0.2rem; background: {bg}; color: {color}; flex-shrink: 0;")
+                                },
+                                {
+                                    match changeset.impact {
+                                        ChangesetImpact::High => "HIGH",
+                                        ChangesetImpact::Medium => "MED",
+                                        ChangesetImpact::Low => "LOW",
+                                    }
+                                }
+                            }
+                            span { style: "flex: 1; line-height: 1.4;", "{changeset.summary}" }
                         }
                     }
                 }

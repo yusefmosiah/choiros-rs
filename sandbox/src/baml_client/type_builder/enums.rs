@@ -218,6 +218,59 @@ impl EscalationKindEnumBuilder {
     }
 }
 
+/// Wrapper for the `ImpactLevel` enum builder.
+///
+/// Provides type-safe method access to values defined in the schema.
+/// Access values via methods: `builder.ValueName()`
+
+pub struct ImpactLevelEnumBuilder {
+    inner: baml::EnumBuilder,
+}
+
+impl ImpactLevelEnumBuilder {
+    /// Create wrapper from runtime EnumBuilder.
+    pub(crate) fn new(inner: baml::EnumBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying EnumBuilder.
+    pub fn inner(&self) -> &baml::EnumBuilder {
+        &self.inner
+    }
+
+    /// Get the enum as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner
+            .as_type()
+            .expect("ImpactLevel is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Value Accessors (1:1 with schema value names)
+    // =========================================================================
+
+    /// Access the `Low` value builder.
+    pub fn value_Low(&self) -> baml::EnumValueBuilder {
+        self.inner
+            .get_value("Low")
+            .expect("ImpactLevel.Low is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `Medium` value builder.
+    pub fn value_Medium(&self) -> baml::EnumValueBuilder {
+        self.inner.get_value("Medium").expect(
+            "ImpactLevel.Medium is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `High` value builder.
+    pub fn value_High(&self) -> baml::EnumValueBuilder {
+        self.inner
+            .get_value("High")
+            .expect("ImpactLevel.High is statically defined in .baml and should always be present")
+    }
+}
+
 /// Wrapper for the `ResearchAction` enum builder.
 ///
 /// Provides type-safe method access to values defined in the schema.

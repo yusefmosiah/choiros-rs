@@ -1690,10 +1690,11 @@ impl WriterActor {
             ));
         }
         let run_doc = Self::resolve_run_document_mut(state, &run_id)?;
-        let parent_version_id = run_doc
+        let head = run_doc
             .head_version()
-            .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?
-            .version_id;
+            .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
+        let parent_version_id = head.version_id;
+        let before_content = head.content.clone();
 
         let version_source = match source {
             WriterSource::Writer => VersionSource::Writer,
@@ -1724,7 +1725,124 @@ impl WriterActor {
                 "revision": revision,
             }),
         );
+
+        // Spawn background changeset summarization (non-blocking).
+        Self::spawn_changeset_summarization(
+            state.event_store.clone(),
+            state.model_registry.clone(),
+            run_id,
+            source.as_str().to_string(),
+            before_content,
+            content,
+            version.version_id,
+        );
+
         Ok(revision)
+    }
+
+    /// Spawn a non-blocking background task that calls BAML to summarize a document
+    /// changeset and emits a `writer.run.changeset` event.  Failures are logged but
+    /// never propagate to the caller — this is pure observability enrichment.
+    fn spawn_changeset_summarization(
+        event_store: ActorRef<EventStoreMsg>,
+        model_registry: ModelRegistry,
+        run_id: String,
+        source: String,
+        before_content: String,
+        after_content: String,
+        target_version_id: u64,
+    ) {
+        use crate::actors::model_config::ModelResolutionContext;
+        use crate::baml_client::types::{ChangesetInput, ImpactLevel};
+        use crate::baml_client::{new_collector, B};
+
+        tokio::spawn(async move {
+            let patch_id = ulid::Ulid::new().to_string();
+            let ops_json = serde_json::json!({
+                "before_len": before_content.len(),
+                "after_len": after_content.len(),
+                "target_version_id": target_version_id,
+            })
+            .to_string();
+
+            let resolved = match model_registry
+                .resolve_for_callsite("writer", &ModelResolutionContext::default())
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!(
+                        run_id = %run_id,
+                        error = %e,
+                        "changeset summarization: model resolution failed"
+                    );
+                    return;
+                }
+            };
+            let client_registry = match model_registry
+                .create_runtime_client_registry_for_model(&resolved.config.id)
+            {
+                Ok(cr) => cr,
+                Err(e) => {
+                    tracing::warn!(
+                        run_id = %run_id,
+                        error = %e,
+                        "changeset summarization: client registry creation failed"
+                    );
+                    return;
+                }
+            };
+
+            let input = ChangesetInput {
+                patch_id: patch_id.clone(),
+                loop_id: None,
+                before_content: before_content.chars().take(2000).collect::<String>(),
+                after_content: after_content.chars().take(2000).collect::<String>(),
+                ops_json,
+                source: source.clone(),
+            };
+
+            let collector = new_collector("writer.changeset_summarization");
+            match B
+                .SummarizeChangeset
+                .with_client_registry(&client_registry)
+                .with_collector(&collector)
+                .call(&input)
+                .await
+            {
+                Ok(summary) => {
+                    let impact_str = match summary.impact {
+                        ImpactLevel::Low => "low",
+                        ImpactLevel::Medium => "medium",
+                        ImpactLevel::High => "high",
+                    };
+                    let _ = event_store.cast(EventStoreMsg::AppendAsync {
+                        event: AppendEvent {
+                            event_type: shared_types::EVENT_TOPIC_WRITER_RUN_CHANGESET.to_string(),
+                            payload: serde_json::json!({
+                                "run_id": run_id,
+                                "patch_id": patch_id,
+                                "loop_id": null,
+                                "target_version_id": target_version_id,
+                                "source": source,
+                                "summary": summary.summary,
+                                "impact": impact_str,
+                                "op_taxonomy": summary.op_taxonomy,
+                            }),
+                            actor_id: "writer".to_string(),
+                            user_id: String::new(),
+                        },
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        run_id = %run_id,
+                        patch_id = %patch_id,
+                        error = %e,
+                        "changeset summarization: BAML call failed"
+                    );
+                }
+            }
+        });
     }
 
     async fn report_progress(

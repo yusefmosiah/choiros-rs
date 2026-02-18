@@ -81,6 +81,44 @@ impl AsRef<BashToolCall> for BashToolCall {
 
 #[derive(Debug, Clone, Default, BamlDecode)]
 
+pub struct ChangesetInput {
+    pub patch_id: Option<String>,
+
+    pub loop_id: Option<String>,
+
+    pub before_content: Option<String>,
+
+    pub after_content: Option<String>,
+
+    pub ops_json: Option<String>,
+
+    pub source: Option<String>,
+}
+
+impl AsRef<ChangesetInput> for ChangesetInput {
+    fn as_ref(&self) -> &ChangesetInput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct ChangesetSummaryOutput {
+    pub summary: Option<String>,
+
+    pub impact: Option<types::ImpactLevel>,
+
+    pub op_taxonomy: Vec<String>,
+}
+
+impl AsRef<ChangesetSummaryOutput> for ChangesetSummaryOutput {
+    fn as_ref(&self) -> &ChangesetSummaryOutput {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct ConductorBootstrapInput {
     pub raw_objective: Option<String>,
 

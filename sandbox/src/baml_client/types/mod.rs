@@ -31,6 +31,10 @@ pub enum Types {
 
     BashToolCall(BashToolCall),
 
+    ChangesetInput(ChangesetInput),
+
+    ChangesetSummaryOutput(ChangesetSummaryOutput),
+
     ConductorBootstrapInput(ConductorBootstrapInput),
 
     ConductorBootstrapOutput(ConductorBootstrapOutput),
@@ -112,6 +116,8 @@ pub enum Types {
 
     EscalationKind(EscalationKind),
 
+    ImpactLevel(ImpactLevel),
+
     ResearchAction(ResearchAction),
 
     ResearchStatus(ResearchStatus),
@@ -142,6 +148,10 @@ impl baml::KnownTypes for Types {
             Types::BashToolArgs(_) => "BashToolArgs",
 
             Types::BashToolCall(_) => "BashToolCall",
+
+            Types::ChangesetInput(_) => "ChangesetInput",
+
+            Types::ChangesetSummaryOutput(_) => "ChangesetSummaryOutput",
 
             Types::ConductorBootstrapInput(_) => "ConductorBootstrapInput",
 
@@ -223,6 +233,8 @@ impl baml::KnownTypes for Types {
             Types::EscalationAction(_) => "EscalationAction",
 
             Types::EscalationKind(_) => "EscalationKind",
+
+            Types::ImpactLevel(_) => "ImpactLevel",
 
             Types::ResearchAction(_) => "ResearchAction",
 

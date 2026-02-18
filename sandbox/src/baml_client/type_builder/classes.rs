@@ -202,6 +202,128 @@ impl BashToolCallClassBuilder {
     }
 }
 
+/// Wrapper for the `ChangesetInput` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct ChangesetInputClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl ChangesetInputClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner
+            .as_type()
+            .expect("ChangesetInput is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `patch_id` field builder.
+    pub fn property_patch_id(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("patch_id").expect(
+            "ChangesetInput.patch_id is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `loop_id` field builder.
+    pub fn property_loop_id(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("loop_id").expect(
+            "ChangesetInput.loop_id is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `before_content` field builder.
+    pub fn property_before_content(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("before_content")
+            .expect("ChangesetInput.before_content is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `after_content` field builder.
+    pub fn property_after_content(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("after_content")
+            .expect("ChangesetInput.after_content is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `ops_json` field builder.
+    pub fn property_ops_json(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("ops_json").expect(
+            "ChangesetInput.ops_json is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `source` field builder.
+    pub fn property_source(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("source").expect(
+            "ChangesetInput.source is statically defined in .baml and should always be present",
+        )
+    }
+}
+
+/// Wrapper for the `ChangesetSummaryOutput` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct ChangesetSummaryOutputClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl ChangesetSummaryOutputClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner.as_type().expect(
+            "ChangesetSummaryOutput is statically defined in .baml and should always have a type",
+        )
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `summary` field builder.
+    pub fn property_summary(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("summary")
+            .expect("ChangesetSummaryOutput.summary is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `impact` field builder.
+    pub fn property_impact(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("impact")
+            .expect("ChangesetSummaryOutput.impact is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `op_taxonomy` field builder.
+    pub fn property_op_taxonomy(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("op_taxonomy")
+            .expect("ChangesetSummaryOutput.op_taxonomy is statically defined in .baml and should always be present")
+    }
+}
+
 /// Wrapper for the `ConductorBootstrapInput` class builder.
 ///
 /// Provides type-safe method access to fields defined in the schema.

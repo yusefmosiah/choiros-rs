@@ -1,5 +1,7 @@
 use dioxus::prelude::{Signal, WritableExt};
-use shared_types::{DesktopState, PatchOp, PatchSource, WindowState, WriterRunStatusKind};
+use shared_types::{
+    ChangesetImpact, DesktopState, PatchOp, PatchSource, WindowState, WriterRunStatusKind,
+};
 
 use crate::desktop::ws::WsEvent;
 
@@ -16,6 +18,16 @@ pub struct PendingPatch {
     pub applied: bool,
 }
 
+/// A received changeset summary (from writer.run.changeset events)
+#[derive(Debug, Clone, PartialEq)]
+pub struct LiveChangeset {
+    pub patch_id: String,
+    pub loop_id: Option<String>,
+    pub summary: String,
+    pub impact: ChangesetImpact,
+    pub op_taxonomy: Vec<String>,
+}
+
 /// Active writer run state for live patch tracking
 #[derive(Debug, Clone)]
 pub struct ActiveWriterRun {
@@ -30,6 +42,8 @@ pub struct ActiveWriterRun {
     pub proposal: Option<String>,
     pub pending_patches: Vec<PendingPatch>,
     pub last_applied_revision: u64,
+    /// Recent changeset summaries from writer.run.changeset events (capped at 20)
+    pub recent_changesets: Vec<LiveChangeset>,
 }
 
 impl Default for ActiveWriterRun {
@@ -46,6 +60,7 @@ impl Default for ActiveWriterRun {
             proposal: None,
             pending_patches: Vec::new(),
             last_applied_revision: 0,
+            recent_changesets: Vec::new(),
         }
     }
 }
@@ -88,6 +103,7 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
                     proposal: payload.proposal.clone(),
                     pending_patches: vec![patch],
                     last_applied_revision: 0,
+                    recent_changesets: Vec::new(),
                 };
                 runs.insert(base.document_path.clone(), run);
             }
@@ -105,6 +121,7 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
                 proposal: None,
                 pending_patches: Vec::new(),
                 last_applied_revision: 0,
+                recent_changesets: Vec::new(),
             };
             ACTIVE_WRITER_RUNS
                 .write()
@@ -145,6 +162,7 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
                         proposal: None,
                         pending_patches: Vec::new(),
                         last_applied_revision: 0,
+                        recent_changesets: Vec::new(),
                     },
                 );
             }
@@ -176,6 +194,7 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
                         proposal: None,
                         pending_patches: Vec::new(),
                         last_applied_revision: 0,
+                        recent_changesets: Vec::new(),
                     },
                 );
             }
@@ -206,8 +225,42 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
                         proposal: None,
                         pending_patches: Vec::new(),
                         last_applied_revision: 0,
+                        recent_changesets: Vec::new(),
                     },
                 );
+            }
+        }
+        WsEvent::WriterRunChangeset {
+            base,
+            patch_id,
+            loop_id,
+            summary,
+            impact,
+            op_taxonomy,
+        } => {
+            let entry = LiveChangeset {
+                patch_id: patch_id.clone(),
+                loop_id: loop_id.clone(),
+                summary: summary.clone(),
+                impact: impact.clone(),
+                op_taxonomy: op_taxonomy.clone(),
+            };
+            let mut runs = ACTIVE_WRITER_RUNS.write();
+            if let Some(run) = runs.get_mut(&base.document_path) {
+                run.recent_changesets.push(entry);
+                // Cap to 20 most recent
+                if run.recent_changesets.len() > 20 {
+                    run.recent_changesets.remove(0);
+                }
+            } else {
+                let mut new_run = ActiveWriterRun {
+                    run_id: base.run_id.clone(),
+                    document_path: base.document_path.clone(),
+                    revision: base.revision,
+                    ..Default::default()
+                };
+                new_run.recent_changesets.push(entry);
+                runs.insert(base.document_path.clone(), new_run);
             }
         }
         _ => {}
@@ -340,7 +393,8 @@ pub fn apply_ws_event(
         | WsEvent::WriterRunProgress { .. }
         | WsEvent::WriterRunPatch { .. }
         | WsEvent::WriterRunStatus { .. }
-        | WsEvent::WriterRunFailed { .. } => {
+        | WsEvent::WriterRunFailed { .. }
+        | WsEvent::WriterRunChangeset { .. } => {
             // Writer run events are handled by the writer component
             // They don't modify desktop state directly
         }

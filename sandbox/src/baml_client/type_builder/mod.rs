@@ -86,6 +86,24 @@ impl TypeBuilder {
         )
     }
 
+    /// Access the `ChangesetInput` class builder.
+    pub fn ChangesetInput(&self) -> ChangesetInputClassBuilder {
+        ChangesetInputClassBuilder::new(
+            self.inner
+                .get_class("ChangesetInput")
+                .expect("class ChangesetInput is defined in schema"),
+        )
+    }
+
+    /// Access the `ChangesetSummaryOutput` class builder.
+    pub fn ChangesetSummaryOutput(&self) -> ChangesetSummaryOutputClassBuilder {
+        ChangesetSummaryOutputClassBuilder::new(
+            self.inner
+                .get_class("ChangesetSummaryOutput")
+                .expect("class ChangesetSummaryOutput is defined in schema"),
+        )
+    }
+
     /// Access the `ConductorBootstrapInput` class builder.
     pub fn ConductorBootstrapInput(&self) -> ConductorBootstrapInputClassBuilder {
         ConductorBootstrapInputClassBuilder::new(
@@ -447,6 +465,15 @@ impl TypeBuilder {
             self.inner
                 .get_enum("EscalationKind")
                 .expect("enum EscalationKind is defined in schema"),
+        )
+    }
+
+    /// Access the `ImpactLevel` enum builder.
+    pub fn ImpactLevel(&self) -> ImpactLevelEnumBuilder {
+        ImpactLevelEnumBuilder::new(
+            self.inner
+                .get_enum("ImpactLevel")
+                .expect("enum ImpactLevel is defined in schema"),
         )
     }
 

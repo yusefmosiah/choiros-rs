@@ -122,6 +122,8 @@ baml_function_sync!(QuickResponse(user_message: impl AsRef<str> + BamlEncode, co
 
 baml_function_sync!(ResearcherPlanStep(input: &types::ResearcherPlanInput, ) -> (stream_types::ResearcherPlanOutput, types::ResearcherPlanOutput));
 
+baml_function_sync!(SummarizeChangeset(input: &types::ChangesetInput, ) -> (stream_types::ChangesetSummaryOutput, types::ChangesetSummaryOutput));
+
 baml_function_sync!(WatcherRecommendMitigation(input: &types::WatcherMitigationInput, ) -> (stream_types::WatcherMitigationOutput, types::WatcherMitigationOutput));
 
 baml_function_sync!(WatcherReviewLogWindow(input: &types::WatcherLogWindowInput, ) -> (stream_types::WatcherReviewOutput, types::WatcherReviewOutput));
@@ -148,6 +150,8 @@ pub struct BamlSyncClient {
 
     pub ResearcherPlanStep: ResearcherPlanStep,
 
+    pub SummarizeChangeset: SummarizeChangeset,
+
     pub WatcherRecommendMitigation: WatcherRecommendMitigation,
 
     pub WatcherReviewLogWindow: WatcherReviewLogWindow,
@@ -171,6 +175,8 @@ impl BamlSyncClient {
             QuickResponse: QuickResponse::new(),
 
             ResearcherPlanStep: ResearcherPlanStep::new(),
+
+            SummarizeChangeset: SummarizeChangeset::new(),
 
             WatcherRecommendMitigation: WatcherRecommendMitigation::new(),
 
@@ -208,6 +214,10 @@ impl BamlSyncClient {
             },
 
             ResearcherPlanStep: ResearcherPlanStep {
+                options: options.clone(),
+            },
+
+            SummarizeChangeset: SummarizeChangeset {
                 options: options.clone(),
             },
 

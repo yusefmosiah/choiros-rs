@@ -26,6 +26,10 @@ pub enum StreamTypes {
 
     BashToolCall(BashToolCall),
 
+    ChangesetInput(ChangesetInput),
+
+    ChangesetSummaryOutput(ChangesetSummaryOutput),
+
     ConductorBootstrapInput(ConductorBootstrapInput),
 
     ConductorBootstrapOutput(ConductorBootstrapOutput),
@@ -120,6 +124,10 @@ impl baml::KnownTypes for StreamTypes {
             StreamTypes::BashToolArgs(_) => "BashToolArgs",
 
             StreamTypes::BashToolCall(_) => "BashToolCall",
+
+            StreamTypes::ChangesetInput(_) => "ChangesetInput",
+
+            StreamTypes::ChangesetSummaryOutput(_) => "ChangesetSummaryOutput",
 
             StreamTypes::ConductorBootstrapInput(_) => "ConductorBootstrapInput",
 

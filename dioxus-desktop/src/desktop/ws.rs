@@ -3,8 +3,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use shared_types::{
-    DesktopState, FailureKind, PatchOp, PatchSource, WindowState, WriterRunEventBase,
-    WriterRunPatchPayload, WriterRunStatusKind,
+    ChangesetImpact, DesktopState, FailureKind, PatchOp, PatchSource, WindowState,
+    WriterRunEventBase, WriterRunPatchPayload, WriterRunStatusKind,
 };
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -97,6 +97,15 @@ pub enum WsEvent {
         error_code: String,
         error_message: String,
         failure_kind: Option<FailureKind>,
+    },
+    /// Semantic changeset summary for Marginalia observation UX
+    WriterRunChangeset {
+        base: WriterRunEventBase,
+        patch_id: String,
+        loop_id: Option<String>,
+        summary: String,
+        impact: ChangesetImpact,
+        op_taxonomy: Vec<String>,
     },
     Pong,
     Error(String),
@@ -274,6 +283,7 @@ pub fn parse_ws_message(payload: &str) -> Option<WsEvent> {
         "writer.run.started" => parse_writer_run_started(&json),
         "writer.run.progress" => parse_writer_run_progress(&json),
         "writer.run.patch" => parse_writer_run_patch(&json),
+        "writer.run.changeset" => parse_writer_run_changeset(&json),
         "writer.run.status" => parse_writer_run_status(&json),
         "writer.run.failed" => parse_writer_run_failed(&json),
         "error" => json
@@ -432,6 +442,38 @@ fn parse_writer_run_failed(json: &serde_json::Value) -> Option<WsEvent> {
         error_code,
         error_message,
         failure_kind,
+    })
+}
+
+fn parse_writer_run_changeset(json: &serde_json::Value) -> Option<WsEvent> {
+    let base = parse_writer_run_base(json)?;
+    let patch_id = json.get("patch_id")?.as_str()?.to_string();
+    let loop_id = json
+        .get("loop_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let summary = json.get("summary")?.as_str()?.to_string();
+    let impact = match json.get("impact").and_then(|v| v.as_str()).unwrap_or("low") {
+        "high" => ChangesetImpact::High,
+        "medium" => ChangesetImpact::Medium,
+        _ => ChangesetImpact::Low,
+    };
+    let op_taxonomy = json
+        .get("op_taxonomy")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(WsEvent::WriterRunChangeset {
+        base,
+        patch_id,
+        loop_id,
+        summary,
+        impact,
+        op_taxonomy,
     })
 }
 

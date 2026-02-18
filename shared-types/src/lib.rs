@@ -965,6 +965,32 @@ pub struct WriterRunPatchPayload {
     pub overlay_id: Option<String>,
 }
 
+/// Impact level for writer.run.changeset events (mirrors BAML ImpactLevel)
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum ChangesetImpact {
+    Low,
+    Medium,
+    High,
+}
+
+/// Payload for writer.run.changeset events (semantic summary of a document patch)
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct WriterRunChangesetPayload {
+    /// Correlates to the patch_id from the preceding writer.run.patch event
+    pub patch_id: String,
+    /// Correlates to the writer run loop id when available
+    pub loop_id: Option<String>,
+    /// Human-readable 1–2 sentence summary of what changed
+    pub summary: String,
+    /// Estimated scope of the change
+    pub impact: ChangesetImpact,
+    /// List of change categories present (e.g. "insert", "structural_rewrite")
+    pub op_taxonomy: Vec<String>,
+}
+
 /// Full writer run event with base fields and typed payload
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "event_type", rename_all = "snake_case")]
@@ -990,6 +1016,13 @@ pub enum WriterRunEvent {
         base: WriterRunEventBase,
         #[serde(flatten)]
         payload: WriterRunPatchPayload,
+    },
+    #[serde(rename = "writer.run.changeset")]
+    Changeset {
+        #[serde(flatten)]
+        base: WriterRunEventBase,
+        #[serde(flatten)]
+        payload: WriterRunChangesetPayload,
     },
     #[serde(rename = "writer.run.status")]
     Status {
@@ -1155,6 +1188,7 @@ pub const EVENT_TOPIC_CONDUCTOR_TASK_FAILED: &str = "conductor.task.failed";
 pub const EVENT_TOPIC_WRITER_RUN_STARTED: &str = "writer.run.started";
 pub const EVENT_TOPIC_WRITER_RUN_PROGRESS: &str = "writer.run.progress";
 pub const EVENT_TOPIC_WRITER_RUN_PATCH: &str = "writer.run.patch";
+pub const EVENT_TOPIC_WRITER_RUN_CHANGESET: &str = "writer.run.changeset";
 pub const EVENT_TOPIC_WRITER_RUN_STATUS: &str = "writer.run.status";
 pub const EVENT_TOPIC_WRITER_RUN_FAILED: &str = "writer.run.failed";
 
