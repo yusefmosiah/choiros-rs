@@ -951,6 +951,11 @@ pub struct EnsureRunDocumentRequest {
     /// Optional objective string stored with the run document
     #[serde(default)]
     pub objective: String,
+    /// Desktop ID to associate this run with (defaults to "default-desktop").
+    /// Must match the desktop_id the WS client is subscribed to so that
+    /// writer.run.* events are routed to the browser.
+    #[serde(default)]
+    pub desktop_id: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -986,7 +991,11 @@ pub async fn ensure_run_document(
 
     let result = ractor::call!(writer_actor, |reply| WriterMsg::EnsureRunDocument {
         run_id: run_id.clone(),
-        desktop_id: "test".to_string(),
+        desktop_id: if req.desktop_id.is_empty() {
+            "default-desktop".to_string()
+        } else {
+            req.desktop_id
+        },
         objective: req.objective,
         reply,
     });

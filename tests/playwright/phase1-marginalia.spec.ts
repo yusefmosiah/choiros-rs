@@ -38,7 +38,7 @@ async function createRunDocument(
 
   // Bootstrap the writer run document (no file needed on disk)
   const ensureResp = await page.request.post(`${API}/writer/ensure`, {
-    data: { path: docPath, objective },
+    data: { path: docPath, objective, desktop_id: "default-desktop" },
   });
   if (!ensureResp.ok()) {
     const body = await ensureResp.text().catch(() => "(no body)");

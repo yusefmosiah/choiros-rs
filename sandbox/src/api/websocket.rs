@@ -174,6 +174,18 @@ pub enum WsMessage {
         failure_kind: Option<shared_types::FailureKind>,
     },
 
+    #[serde(rename = "writer.run.changeset")]
+    WriterRunChangeset {
+        desktop_id: String,
+        run_id: String,
+        patch_id: String,
+        target_version_id: u64,
+        source: String,
+        summary: String,
+        impact: String,
+        op_taxonomy: Vec<String>,
+    },
+
     #[serde(rename = "error")]
     Error { message: String },
 }
@@ -354,6 +366,18 @@ struct WriterRunFailedPayload {
     failure_kind: Option<shared_types::FailureKind>,
 }
 
+#[derive(Debug, Deserialize)]
+struct WriterRunChangesetPayload {
+    desktop_id: String,
+    run_id: String,
+    patch_id: String,
+    target_version_id: u64,
+    source: String,
+    summary: String,
+    impact: String,
+    op_taxonomy: Vec<String>,
+}
+
 fn writer_ws_message_from_event(
     event_type: &str,
     payload: &serde_json::Value,
@@ -453,6 +477,24 @@ fn writer_ws_message_from_event(
                     error_code: parsed.error_code,
                     error_message: parsed.error_message,
                     failure_kind: parsed.failure_kind,
+                },
+            ))
+        }
+        "writer.run.changeset" => {
+            let parsed: WriterRunChangesetPayload =
+                serde_json::from_value(payload.clone()).ok()?;
+            let desktop_id = parsed.desktop_id.clone();
+            Some((
+                desktop_id,
+                WsMessage::WriterRunChangeset {
+                    desktop_id: parsed.desktop_id,
+                    run_id: parsed.run_id,
+                    patch_id: parsed.patch_id,
+                    target_version_id: parsed.target_version_id,
+                    source: parsed.source,
+                    summary: parsed.summary,
+                    impact: parsed.impact,
+                    op_taxonomy: parsed.op_taxonomy,
                 },
             ))
         }

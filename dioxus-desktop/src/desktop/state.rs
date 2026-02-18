@@ -246,13 +246,19 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
                 op_taxonomy: op_taxonomy.clone(),
             };
             let mut runs = ACTIVE_WRITER_RUNS.write();
-            if let Some(run) = runs.get_mut(&base.document_path) {
+            // Match by document_path if available, otherwise fall back to run_id scan.
+            let matched = if !base.document_path.is_empty() {
+                runs.get_mut(&base.document_path)
+            } else {
+                runs.values_mut().find(|r| r.run_id == base.run_id)
+            };
+            if let Some(run) = matched {
                 run.recent_changesets.push(entry);
                 // Cap to 20 most recent
                 if run.recent_changesets.len() > 20 {
                     run.recent_changesets.remove(0);
                 }
-            } else {
+            } else if !base.run_id.is_empty() {
                 let mut new_run = ActiveWriterRun {
                     run_id: base.run_id.clone(),
                     document_path: base.document_path.clone(),
@@ -260,7 +266,13 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
                     ..Default::default()
                 };
                 new_run.recent_changesets.push(entry);
-                runs.insert(base.document_path.clone(), new_run);
+                // Key by run_id when document_path is unavailable
+                let key = if base.document_path.is_empty() {
+                    base.run_id.clone()
+                } else {
+                    base.document_path.clone()
+                };
+                runs.insert(key, new_run);
             }
         }
         _ => {}

@@ -89,6 +89,10 @@ impl WriterDocumentRuntime {
         self.state.run_id.as_str()
     }
 
+    pub fn desktop_id(&self) -> &str {
+        self.state.desktop_id.as_str()
+    }
+
     pub fn revision(&self) -> u64 {
         self.state.revision
     }

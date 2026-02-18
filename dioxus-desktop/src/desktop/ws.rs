@@ -446,7 +446,19 @@ fn parse_writer_run_failed(json: &serde_json::Value) -> Option<WsEvent> {
 }
 
 fn parse_writer_run_changeset(json: &serde_json::Value) -> Option<WsEvent> {
-    let base = parse_writer_run_base(json)?;
+    // Changeset events have a flat payload (no full WriterRunEventBase fields).
+    // Build a minimal base from what's available.
+    let desktop_id = json.get("desktop_id")?.as_str()?.to_string();
+    let run_id = json.get("run_id")?.as_str()?.to_string();
+    let base = WriterRunEventBase {
+        desktop_id,
+        session_id: String::new(),
+        thread_id: run_id.clone(),
+        run_id,
+        document_path: String::new(),
+        revision: 0,
+        timestamp: chrono::Utc::now(),
+    };
     let patch_id = json.get("patch_id")?.as_str()?.to_string();
     let loop_id = json
         .get("loop_id")

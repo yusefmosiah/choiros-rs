@@ -1157,6 +1157,7 @@ impl WriterActor {
             .get_version(effective_parent)
             .map(|v| v.content)
             .unwrap_or_default();
+        let desktop_id = run_doc.desktop_id().to_string();
 
         let source_str = match &source {
             VersionSource::Writer => "writer",
@@ -1175,6 +1176,7 @@ impl WriterActor {
             state.event_store.clone(),
             state.model_registry.clone(),
             run_id,
+            desktop_id,
             source_str,
             before_content,
             content,
@@ -1726,6 +1728,7 @@ impl WriterActor {
             .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
         let parent_version_id = head.version_id;
         let before_content = head.content.clone();
+        let desktop_id = run_doc.desktop_id().to_string();
 
         let version_source = match source {
             WriterSource::Writer => VersionSource::Writer,
@@ -1762,6 +1765,7 @@ impl WriterActor {
             state.event_store.clone(),
             state.model_registry.clone(),
             run_id,
+            desktop_id,
             source.as_str().to_string(),
             before_content,
             content,
@@ -1778,6 +1782,7 @@ impl WriterActor {
         event_store: ActorRef<EventStoreMsg>,
         model_registry: ModelRegistry,
         run_id: String,
+        desktop_id: String,
         source: String,
         before_content: String,
         after_content: String,
@@ -1851,6 +1856,7 @@ impl WriterActor {
                             event_type: shared_types::EVENT_TOPIC_WRITER_RUN_CHANGESET.to_string(),
                             payload: serde_json::json!({
                                 "run_id": run_id,
+                                "desktop_id": desktop_id,
                                 "patch_id": patch_id,
                                 "loop_id": null,
                                 "target_version_id": target_version_id,
