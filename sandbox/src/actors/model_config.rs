@@ -5,7 +5,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 pub const REQUIRED_BAML_CLIENT_ALIASES: &[&str] = &["Orchestrator", "FastResponse"];
-pub const DEFAULT_MODEL_POLICY_PATH: &str = "config/model-policy.toml";
+pub const DEFAULT_MODEL_CONFIG_PATH: &str = "sandbox/config/model-catalog.toml";
+pub const DEFAULT_MODEL_CATALOG_PATH: &str = DEFAULT_MODEL_CONFIG_PATH;
+const BUILTIN_MODEL_CATALOG_TOML: &str = include_str!("../../config/model-catalog.example.toml");
 
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
 pub enum ModelConfigError {
@@ -81,36 +83,66 @@ pub struct ModelResolutionContext {
 #[derive(Debug, Clone)]
 pub struct ModelRegistry {
     configs: HashMap<String, ModelConfig>,
+    aliases: HashMap<String, String>,
+    routing: ModelRoutingConfig,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ModelPolicy {
+pub struct ModelCatalog {
     pub default_model: Option<String>,
-    pub chat_default_model: Option<String>,
-    pub terminal_default_model: Option<String>,
-    pub conductor_default_model: Option<String>,
-    pub writer_default_model: Option<String>,
-    pub researcher_default_model: Option<String>,
-    pub summarizer_default_model: Option<String>,
     pub allow_request_override: Option<bool>,
     pub allowed_models: Option<Vec<String>>,
-    pub chat_allowed_models: Option<Vec<String>>,
-    pub terminal_allowed_models: Option<Vec<String>>,
-    pub conductor_allowed_models: Option<Vec<String>>,
-    pub writer_allowed_models: Option<Vec<String>>,
-    pub researcher_allowed_models: Option<Vec<String>>,
-    pub summarizer_allowed_models: Option<Vec<String>>,
+    pub callsite_defaults: Option<HashMap<String, String>>,
+    pub models: HashMap<String, ModelCatalogEntry>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelCatalogEntry {
+    pub name: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub region: Option<String>,
+    pub base_url: Option<String>,
+    pub api_key_env: Option<String>,
+    pub headers: Option<HashMap<String, String>>,
+    pub aliases: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct ModelRoutingConfig {
+    default_model: Option<String>,
+    allow_request_override: bool,
+    allowed_models: Option<Vec<String>>,
+    callsite_defaults: HashMap<String, String>,
 }
 
 impl ModelRegistry {
     pub fn new() -> Self {
+        let (configs, aliases, routing) = load_model_catalog_configs()
+            .or_else(|| {
+                tracing::warn!("Falling back to built-in model catalog");
+                load_model_catalog_configs_from(&built_in_model_catalog())
+            })
+            .unwrap_or_else(|| {
+                tracing::warn!("Built-in model catalog parse failed; registry will be empty");
+                (
+                    HashMap::new(),
+                    HashMap::new(),
+                    ModelRoutingConfig::default(),
+                )
+            });
         Self {
-            configs: default_model_configs(),
+            configs,
+            aliases,
+            routing,
         }
     }
 
     pub fn get(&self, model_id: &str) -> Option<&ModelConfig> {
-        canonical_model_id(model_id).and_then(|id| self.configs.get(id))
+        if let Some(canonical) = self.aliases.get(model_id) {
+            return self.configs.get(canonical);
+        }
+        self.configs.get(model_id)
     }
 
     pub fn available_model_ids(&self) -> Vec<String> {
@@ -161,13 +193,38 @@ impl ModelRegistry {
             }
         }
 
-        self.get("ClaudeBedrockSonnet45")
-            .cloned()
+        if let Some(config_default) = self.routing.default_model.as_ref() {
+            if let Some(resolved) = self.get(config_default).cloned() {
+                return Ok(ResolvedModel {
+                    config: resolved,
+                    source: ModelResolutionSource::Fallback,
+                });
+            }
+        }
+
+        self.available_model_ids()
+            .into_iter()
+            .find_map(|id| self.get(&id).cloned())
             .map(|config| ResolvedModel {
                 config,
                 source: ModelResolutionSource::Fallback,
             })
             .ok_or(ModelConfigError::NoFallbackAvailable)
+    }
+
+    pub fn default_model_for_callsite(&self, callsite: &str) -> Option<String> {
+        self.routing
+            .callsite_defaults
+            .get(callsite)
+            .and_then(|id| self.get(id))
+            .map(|cfg| cfg.id.clone())
+            .or_else(|| {
+                self.routing
+                    .default_model
+                    .as_ref()
+                    .and_then(|id| self.get(id))
+                    .map(|cfg| cfg.id.clone())
+            })
     }
 
     pub fn create_client_registry_for_model(
@@ -221,27 +278,15 @@ impl ModelRegistry {
         Ok(registry)
     }
 
-    pub fn resolve_for_role(
+    pub fn resolve_for_callsite(
         &self,
-        role: &str,
+        callsite: &str,
         context: &ModelResolutionContext,
     ) -> Result<ResolvedModel, ModelConfigError> {
-        let policy = load_model_policy();
-        let allow_request_override = policy.allow_request_override.unwrap_or(true);
-        let scoped_request = if allow_request_override {
+        let scoped_request = if self.routing.allow_request_override {
             context.request_model.clone()
         } else {
             None
-        };
-
-        let role_default = match role {
-            "chat" => policy.chat_default_model.clone(),
-            "terminal" => policy.terminal_default_model.clone(),
-            "conductor" => policy.conductor_default_model.clone(),
-            "writer" => policy.writer_default_model.clone(),
-            "researcher" => policy.researcher_default_model.clone(),
-            "summarizer" => policy.summarizer_default_model.clone(),
-            _ => None,
         };
 
         let mut resolved = self.resolve(&ModelResolutionContext {
@@ -249,52 +294,12 @@ impl ModelRegistry {
             app_preference: context
                 .app_preference
                 .clone()
-                .or(role_default)
-                .or(policy.default_model.clone()),
+                .or_else(|| self.routing.callsite_defaults.get(callsite).cloned())
+                .or_else(|| self.routing.default_model.clone()),
             user_preference: context.user_preference.clone(),
         })?;
 
-        let is_allowed = |model_id: &str| {
-            let in_global = policy
-                .allowed_models
-                .as_ref()
-                .map(|models| models.iter().any(|m| m == model_id))
-                .unwrap_or(true);
-            let in_role = match role {
-                "chat" => policy
-                    .chat_allowed_models
-                    .as_ref()
-                    .map(|models| models.iter().any(|m| m == model_id))
-                    .unwrap_or(true),
-                "terminal" => policy
-                    .terminal_allowed_models
-                    .as_ref()
-                    .map(|models| models.iter().any(|m| m == model_id))
-                    .unwrap_or(true),
-                "conductor" => policy
-                    .conductor_allowed_models
-                    .as_ref()
-                    .map(|models| models.iter().any(|m| m == model_id))
-                    .unwrap_or(true),
-                "writer" => policy
-                    .writer_allowed_models
-                    .as_ref()
-                    .map(|models| models.iter().any(|m| m == model_id))
-                    .unwrap_or(true),
-                "researcher" => policy
-                    .researcher_allowed_models
-                    .as_ref()
-                    .map(|models| models.iter().any(|m| m == model_id))
-                    .unwrap_or(true),
-                "summarizer" => policy
-                    .summarizer_allowed_models
-                    .as_ref()
-                    .map(|models| models.iter().any(|m| m == model_id))
-                    .unwrap_or(true),
-                _ => true,
-            };
-            in_global && in_role
-        };
+        let is_allowed = |model_id: &str| self.is_allowed_model(model_id);
 
         if !is_allowed(&resolved.config.id) {
             if let Some(fallback) = self
@@ -314,6 +319,27 @@ impl ModelRegistry {
 
         Ok(resolved)
     }
+
+    pub fn resolve_for_role(
+        &self,
+        role: &str,
+        context: &ModelResolutionContext,
+    ) -> Result<ResolvedModel, ModelConfigError> {
+        self.resolve_for_callsite(role, context)
+    }
+
+    fn is_allowed_model(&self, model_id: &str) -> bool {
+        let allowlist_matches = |candidate: &str| {
+            self.get(candidate)
+                .map(|cfg| cfg.id == model_id)
+                .unwrap_or(candidate == model_id)
+        };
+        self.routing
+            .allowed_models
+            .as_ref()
+            .map(|models| models.iter().any(|m| allowlist_matches(m)))
+            .unwrap_or(true)
+    }
 }
 
 impl Default for ModelRegistry {
@@ -322,15 +348,21 @@ impl Default for ModelRegistry {
     }
 }
 
-pub fn load_model_policy() -> ModelPolicy {
-    let explicit_path = std::env::var("CHOIR_MODEL_POLICY_PATH")
+pub fn load_model_catalog() -> ModelCatalog {
+    let explicit_path = std::env::var("CHOIR_MODEL_CONFIG_PATH")
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .map(PathBuf::from);
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var("CHOIR_MODEL_CATALOG_PATH")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .map(PathBuf::from)
+        });
 
     let path = explicit_path
-        .or_else(|| find_default_model_policy_path(DEFAULT_MODEL_POLICY_PATH))
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_MODEL_POLICY_PATH));
+        .or_else(|| find_default_config_path(DEFAULT_MODEL_CONFIG_PATH))
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_MODEL_CONFIG_PATH));
 
     let content = match std::fs::read_to_string(&path) {
         Ok(content) => content,
@@ -338,22 +370,29 @@ pub fn load_model_policy() -> ModelPolicy {
             tracing::warn!(
                 path = %path.display(),
                 error = %err,
-                "Failed to load model policy file; using defaults"
+                "Failed to load model catalog file; using built-in defaults"
             );
-            return ModelPolicy::default();
+            return built_in_model_catalog();
         }
     };
     toml::from_str(&content).unwrap_or_else(|err| {
         tracing::warn!(
             path = %path.display(),
             error = %err,
-            "Failed to parse model policy TOML; using defaults"
+            "Failed to parse model catalog TOML; using built-in defaults"
         );
-        ModelPolicy::default()
+        built_in_model_catalog()
     })
 }
 
-fn find_default_model_policy_path(relative_path: &str) -> Option<PathBuf> {
+fn built_in_model_catalog() -> ModelCatalog {
+    toml::from_str(BUILTIN_MODEL_CATALOG_TOML).unwrap_or_else(|err| {
+        tracing::error!(error = %err, "Failed to parse built-in model catalog");
+        ModelCatalog::default()
+    })
+}
+
+fn find_default_config_path(relative_path: &str) -> Option<PathBuf> {
     let mut current = std::env::current_dir().ok()?;
     loop {
         let candidate = current.join(relative_path);
@@ -436,14 +475,150 @@ fn add_provider_client(
     }
 }
 
+fn load_model_catalog_configs() -> Option<(
+    HashMap<String, ModelConfig>,
+    HashMap<String, String>,
+    ModelRoutingConfig,
+)> {
+    let catalog = load_model_catalog();
+    load_model_catalog_configs_from(&catalog)
+}
+
+fn load_model_catalog_configs_from(
+    catalog: &ModelCatalog,
+) -> Option<(
+    HashMap<String, ModelConfig>,
+    HashMap<String, String>,
+    ModelRoutingConfig,
+)> {
+    if catalog.models.is_empty() {
+        return None;
+    }
+
+    let mut configs = HashMap::new();
+    let mut aliases = HashMap::new();
+
+    for (id, entry) in &catalog.models {
+        let Some(config) = model_config_from_catalog_entry(id, entry) else {
+            continue;
+        };
+
+        aliases.insert(config.id.clone(), config.id.clone());
+        if let Some(extra_aliases) = entry.aliases.as_ref() {
+            for alias in extra_aliases {
+                aliases.insert(alias.clone(), config.id.clone());
+            }
+        }
+        configs.insert(config.id.clone(), config);
+    }
+
+    if configs.is_empty() {
+        return None;
+    }
+
+    let routing = ModelRoutingConfig {
+        default_model: catalog.default_model.clone(),
+        allow_request_override: catalog.allow_request_override.unwrap_or(true),
+        allowed_models: catalog.allowed_models.clone(),
+        callsite_defaults: catalog.callsite_defaults.clone().unwrap_or_default(),
+    };
+
+    Some((configs, aliases, routing))
+}
+
+fn model_config_from_catalog_entry(id: &str, entry: &ModelCatalogEntry) -> Option<ModelConfig> {
+    let Some(provider) = entry.provider.as_deref() else {
+        tracing::warn!(model_id = %id, "Skipping catalog model with missing provider");
+        return None;
+    };
+    let Some(model) = entry.model.as_deref() else {
+        tracing::warn!(model_id = %id, "Skipping catalog model with missing model field");
+        return None;
+    };
+
+    let provider = match provider {
+        "aws-bedrock" => {
+            let Some(region) = entry.region.as_deref() else {
+                tracing::warn!(
+                    model_id = %id,
+                    "Skipping aws-bedrock model with missing region"
+                );
+                return None;
+            };
+            ProviderConfig::AwsBedrock {
+                model: model.to_string(),
+                region: region.to_string(),
+            }
+        }
+        "anthropic" | "anthropic-compatible" => {
+            let Some(base_url) = entry.base_url.as_deref() else {
+                tracing::warn!(
+                    model_id = %id,
+                    "Skipping anthropic-compatible model with missing base_url"
+                );
+                return None;
+            };
+            let Some(api_key_env) = entry.api_key_env.as_deref() else {
+                tracing::warn!(
+                    model_id = %id,
+                    "Skipping anthropic-compatible model with missing api_key_env"
+                );
+                return None;
+            };
+            ProviderConfig::AnthropicCompatible {
+                base_url: base_url.to_string(),
+                api_key_env: api_key_env.to_string(),
+                model: model.to_string(),
+                headers: entry.headers.clone().unwrap_or_default(),
+            }
+        }
+        "openai-generic" => {
+            let Some(base_url) = entry.base_url.as_deref() else {
+                tracing::warn!(
+                    model_id = %id,
+                    "Skipping openai-generic model with missing base_url"
+                );
+                return None;
+            };
+            let Some(api_key_env) = entry.api_key_env.as_deref() else {
+                tracing::warn!(
+                    model_id = %id,
+                    "Skipping openai-generic model with missing api_key_env"
+                );
+                return None;
+            };
+            ProviderConfig::OpenAiGeneric {
+                base_url: base_url.to_string(),
+                api_key_env: api_key_env.to_string(),
+                model: model.to_string(),
+                headers: entry.headers.clone().unwrap_or_default(),
+            }
+        }
+        unknown => {
+            tracing::warn!(
+                model_id = %id,
+                provider = %unknown,
+                "Skipping catalog model with unknown provider"
+            );
+            return None;
+        }
+    };
+
+    Some(ModelConfig {
+        id: id.to_string(),
+        name: entry.name.clone().unwrap_or_else(|| id.to_string()),
+        provider,
+    })
+}
+
 /// Determines if a model is high-quality (suitable for Orchestrator role).
 /// High-quality models: Opus, Sonnet variants
 /// Fast/cheap models: Haiku, GLM Flash, GLM Air
 fn is_high_quality_model(model_id: &str) -> bool {
     match model_id {
-        "ClaudeBedrockOpus46" | "ClaudeBedrockSonnet45" => true,
+        "ClaudeBedrockOpus46" | "ClaudeBedrockSonnet46" | "ClaudeBedrockSonnet45" => true,
         "ClaudeBedrock" | "ClaudeBedrockHaiku45" => false,
-        "ZaiGLM47" => false,
+        "ZaiGLM47" | "ZaiGLM5" => false,
         "ZaiGLM47Flash" | "GLM47Flash" => false,
         "ZaiGLM47Air" => false,
         "KimiK25" | "KimiK25Fallback" => true,
@@ -455,136 +630,6 @@ fn is_high_quality_model(model_id: &str) -> bool {
     }
 }
 
-pub fn canonical_model_id(model_id: &str) -> Option<&'static str> {
-    match model_id {
-        "ClaudeBedrock" => Some("ClaudeBedrockSonnet45"),
-        "GLM47" => Some("ZaiGLM47"),
-        "GLM47Flash" => Some("ZaiGLM47Flash"),
-        "KimiK25OpenAI" => Some("KimiK25"),
-        "KimiK25" => Some("KimiK25"),
-        "KimiK25Fallback" => Some("KimiK25Fallback"),
-        "ClaudeBedrockOpus46" => Some("ClaudeBedrockOpus46"),
-        "ClaudeBedrockSonnet45" => Some("ClaudeBedrockSonnet45"),
-        "ClaudeBedrockHaiku45" => Some("ClaudeBedrockHaiku45"),
-        "ZaiGLM47" => Some("ZaiGLM47"),
-        "ZaiGLM47Flash" => Some("ZaiGLM47Flash"),
-        "ZaiGLM47Air" => Some("ZaiGLM47Air"),
-        _ => None,
-    }
-}
-
-fn default_model_configs() -> HashMap<String, ModelConfig> {
-    let mut configs = HashMap::new();
-
-    configs.insert(
-        "ClaudeBedrockOpus46".to_string(),
-        ModelConfig {
-            id: "ClaudeBedrockOpus46".to_string(),
-            name: "Claude Opus 4.6 (Bedrock)".to_string(),
-            provider: ProviderConfig::AwsBedrock {
-                model: "us.anthropic.claude-opus-4-6-v1".to_string(),
-                region: "us-east-1".to_string(),
-            },
-        },
-    );
-    configs.insert(
-        "ClaudeBedrockSonnet45".to_string(),
-        ModelConfig {
-            id: "ClaudeBedrockSonnet45".to_string(),
-            name: "Claude Sonnet 4.5 (Bedrock)".to_string(),
-            provider: ProviderConfig::AwsBedrock {
-                model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0".to_string(),
-                region: "us-east-1".to_string(),
-            },
-        },
-    );
-    configs.insert(
-        "ClaudeBedrockHaiku45".to_string(),
-        ModelConfig {
-            id: "ClaudeBedrockHaiku45".to_string(),
-            name: "Claude Haiku 4.5 (Bedrock)".to_string(),
-            provider: ProviderConfig::AwsBedrock {
-                model: "us.anthropic.claude-haiku-4-5-20251001-v1:0".to_string(),
-                region: "us-east-1".to_string(),
-            },
-        },
-    );
-    configs.insert(
-        "ZaiGLM47".to_string(),
-        ModelConfig {
-            id: "ZaiGLM47".to_string(),
-            name: "GLM 4.7 (Z.ai)".to_string(),
-            provider: ProviderConfig::AnthropicCompatible {
-                base_url: "https://api.z.ai/api/anthropic".to_string(),
-                api_key_env: "ZAI_API_KEY".to_string(),
-                model: "glm-4.7".to_string(),
-                headers: HashMap::new(),
-            },
-        },
-    );
-    configs.insert(
-        "ZaiGLM47Flash".to_string(),
-        ModelConfig {
-            id: "ZaiGLM47Flash".to_string(),
-            name: "GLM 4.7 Flash (Z.ai)".to_string(),
-            provider: ProviderConfig::AnthropicCompatible {
-                base_url: "https://api.z.ai/api/anthropic".to_string(),
-                api_key_env: "ZAI_API_KEY".to_string(),
-                model: "glm-4.7-flash".to_string(),
-                headers: HashMap::new(),
-            },
-        },
-    );
-    configs.insert(
-        "ZaiGLM47Air".to_string(),
-        ModelConfig {
-            id: "ZaiGLM47Air".to_string(),
-            name: "GLM 4.5 Air (Z.ai)".to_string(),
-            provider: ProviderConfig::AnthropicCompatible {
-                base_url: "https://api.z.ai/api/anthropic".to_string(),
-                api_key_env: "ZAI_API_KEY".to_string(),
-                model: "glm-4.5-air".to_string(),
-                headers: HashMap::new(),
-            },
-        },
-    );
-    configs.insert(
-        "KimiK25".to_string(),
-        ModelConfig {
-            id: "KimiK25".to_string(),
-            name: "Kimi K2.5 (coding)".to_string(),
-            provider: ProviderConfig::AnthropicCompatible {
-                base_url: "https://api.kimi.com/coding/".to_string(),
-                api_key_env: "ANTHROPIC_API_KEY".to_string(),
-                model: "kimi-for-coding/k2p5".to_string(),
-                headers: {
-                    let mut headers = HashMap::new();
-                    headers.insert("User-Agent".to_string(), "claude-code/1.0".to_string());
-                    headers
-                },
-            },
-        },
-    );
-    configs.insert(
-        "KimiK25Fallback".to_string(),
-        ModelConfig {
-            id: "KimiK25Fallback".to_string(),
-            name: "Kimi K2.5 Fallback".to_string(),
-            provider: ProviderConfig::AnthropicCompatible {
-                base_url: "https://api.kimi.com/coding/".to_string(),
-                api_key_env: "ANTHROPIC_API_KEY".to_string(),
-                model: "kimi-k2.5".to_string(),
-                headers: {
-                    let mut headers = HashMap::new();
-                    headers.insert("User-Agent".to_string(), "claude-code/1.0".to_string());
-                    headers
-                },
-            },
-        },
-    );
-    configs
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -592,8 +637,29 @@ mod tests {
 
     static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
+    fn set_env(key: &str, value: &str) -> Option<String> {
+        let previous = std::env::var(key).ok();
+        std::env::set_var(key, value);
+        previous
+    }
+
+    fn clear_env(key: &str) -> Option<String> {
+        let previous = std::env::var(key).ok();
+        std::env::remove_var(key);
+        previous
+    }
+
+    fn restore_env(key: &str, previous: Option<String>) {
+        if let Some(value) = previous {
+            std::env::set_var(key, value);
+        } else {
+            std::env::remove_var(key);
+        }
+    }
+
     #[test]
     fn test_model_resolution_priority() {
+        let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
         let registry = ModelRegistry::new();
         let ctx = ModelResolutionContext {
             request_model: Some("ZaiGLM47Flash".to_string()),
@@ -608,6 +674,7 @@ mod tests {
 
     #[test]
     fn test_model_resolution_legacy_aliases() {
+        let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
         let registry = ModelRegistry::new();
         assert_eq!(
             registry.get("ClaudeBedrock").map(|cfg| cfg.id.clone()),
@@ -617,10 +684,97 @@ mod tests {
             registry.get("GLM47").map(|cfg| cfg.id.clone()),
             Some("ZaiGLM47".to_string())
         );
+        assert_eq!(
+            registry
+                .get("anthropic.claude-sonnet-4-6")
+                .map(|cfg| cfg.id.clone()),
+            Some("ClaudeBedrockSonnet46".to_string())
+        );
+        assert_eq!(
+            registry
+                .get("global.anthropic.claude-sonnet-4-6")
+                .map(|cfg| cfg.id.clone()),
+            Some("ClaudeBedrockSonnet46".to_string())
+        );
+    }
+
+    #[test]
+    fn test_model_registry_loads_runtime_config_model() {
+        let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let catalog_path = temp_dir.path().join("model-catalog.toml");
+        std::fs::write(
+            &catalog_path,
+            r#"
+default_model = "ZaiGLM5"
+
+[models.ZaiGLM5]
+name = "GLM 5 (Z.ai)"
+provider = "anthropic"
+base_url = "https://api.z.ai/api/anthropic"
+api_key_env = "PATH"
+model = "glm-5"
+aliases = ["GLM5", "ZaiGLM5"]
+"#,
+        )
+        .expect("write catalog");
+
+        let previous_config = set_env("CHOIR_MODEL_CONFIG_PATH", &catalog_path.to_string_lossy());
+
+        let registry = ModelRegistry::new();
+        assert_eq!(
+            registry.get("GLM5").map(|cfg| cfg.id.clone()),
+            Some("ZaiGLM5".to_string())
+        );
+        assert_eq!(
+            registry.get("ZaiGLM5").map(|cfg| cfg.id.clone()),
+            Some("ZaiGLM5".to_string())
+        );
+
+        restore_env("CHOIR_MODEL_CONFIG_PATH", previous_config);
+    }
+
+    #[test]
+    fn test_resolve_for_callsite_uses_runtime_config_added_model() {
+        let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let catalog_path = temp_dir.path().join("model-config.toml");
+
+        std::fs::write(
+            &catalog_path,
+            r#"
+default_model = "ZaiGLM5"
+allow_request_override = true
+allowed_models = ["ZaiGLM5"]
+
+[callsite_defaults]
+chat = "GLM5"
+
+[models.ZaiGLM5]
+name = "GLM 5 (Z.ai)"
+provider = "anthropic"
+base_url = "https://api.z.ai/api/anthropic"
+api_key_env = "PATH"
+model = "glm-5"
+aliases = ["GLM5", "ZaiGLM5"]
+"#,
+        )
+        .expect("write config");
+
+        let previous_config = set_env("CHOIR_MODEL_CONFIG_PATH", &catalog_path.to_string_lossy());
+
+        let registry = ModelRegistry::new();
+        let resolved = registry
+            .resolve_for_callsite("chat", &ModelResolutionContext::default())
+            .expect("resolve_for_callsite");
+        assert_eq!(resolved.config.id, "ZaiGLM5");
+
+        restore_env("CHOIR_MODEL_CONFIG_PATH", previous_config);
     }
 
     #[test]
     fn test_invalid_model_returns_error() {
+        let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
         let registry = ModelRegistry::new();
         let ctx = ModelResolutionContext {
             request_model: Some("NotARealModel".to_string()),
@@ -673,11 +827,7 @@ mod tests {
             .expect("resolve should use env default");
         assert_eq!(resolved.config.id, "ZaiGLM47");
         assert_eq!(resolved.source, ModelResolutionSource::EnvDefault);
-        if let Some(value) = previous {
-            std::env::set_var("CHOIR_DEFAULT_MODEL", value);
-        } else {
-            std::env::remove_var("CHOIR_DEFAULT_MODEL");
-        }
+        restore_env("CHOIR_DEFAULT_MODEL", previous);
     }
 
     #[test]
@@ -694,15 +844,12 @@ mod tests {
             .expect("resolve should use app preference");
         assert_eq!(resolved.config.id, "ClaudeBedrockSonnet45");
         assert_eq!(resolved.source, ModelResolutionSource::App);
-        if let Some(value) = previous {
-            std::env::set_var("CHOIR_DEFAULT_MODEL", value);
-        } else {
-            std::env::remove_var("CHOIR_DEFAULT_MODEL");
-        }
+        restore_env("CHOIR_DEFAULT_MODEL", previous);
     }
 
     #[test]
     fn test_create_client_registry_for_legacy_alias() {
+        let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
         let registry = ModelRegistry::new();
         let result = registry.create_client_registry_for_model("ClaudeBedrock", &["ClaudeBedrock"]);
         assert!(result.is_ok());
@@ -718,28 +865,42 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_for_role_respects_override_denial() {
+    fn test_resolve_for_callsite_respects_override_denial() {
         let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
         let temp_dir = tempfile::tempdir().expect("tempdir");
-        let policy_path = temp_dir.path().join("model-policy.toml");
+        let config_path = temp_dir.path().join("model-config.toml");
         std::fs::write(
-            &policy_path,
+            &config_path,
             r#"
-chat_default_model = "ClaudeBedrockSonnet45"
 allow_request_override = false
+default_model = "ClaudeBedrockSonnet45"
+
+[callsite_defaults]
+chat = "ClaudeBedrockSonnet45"
+
+[models.ClaudeBedrockSonnet45]
+name = "Claude Sonnet 4.5 (Bedrock)"
+provider = "aws-bedrock"
+model = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+region = "us-east-1"
+aliases = ["ClaudeBedrockSonnet45"]
+
+[models.ZaiGLM47]
+name = "GLM 4.7 (Z.ai)"
+provider = "anthropic"
+base_url = "https://api.z.ai/api/anthropic"
+api_key_env = "PATH"
+model = "glm-4.7"
+aliases = ["ZaiGLM47"]
 "#,
         )
-        .expect("write policy");
+        .expect("write config");
 
-        let previous_policy = std::env::var("CHOIR_MODEL_POLICY_PATH").ok();
-        std::env::set_var(
-            "CHOIR_MODEL_POLICY_PATH",
-            policy_path.to_string_lossy().to_string(),
-        );
+        let previous_config = set_env("CHOIR_MODEL_CONFIG_PATH", &config_path.to_string_lossy());
 
         let registry = ModelRegistry::new();
         let resolved = registry
-            .resolve_for_role(
+            .resolve_for_callsite(
                 "chat",
                 &ModelResolutionContext {
                     request_model: Some("ZaiGLM47".to_string()),
@@ -747,41 +908,49 @@ allow_request_override = false
                     user_preference: None,
                 },
             )
-            .expect("resolve_for_role");
+            .expect("resolve_for_callsite");
 
         assert_eq!(resolved.config.id, "ClaudeBedrockSonnet45");
-
-        if let Some(value) = previous_policy {
-            std::env::set_var("CHOIR_MODEL_POLICY_PATH", value);
-        } else {
-            std::env::remove_var("CHOIR_MODEL_POLICY_PATH");
-        }
+        restore_env("CHOIR_MODEL_CONFIG_PATH", previous_config);
     }
 
     #[test]
-    fn test_resolve_for_role_respects_allowed_model_lists() {
+    fn test_resolve_for_callsite_respects_global_allowlist() {
         let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
         let temp_dir = tempfile::tempdir().expect("tempdir");
-        let policy_path = temp_dir.path().join("model-policy.toml");
+        let config_path = temp_dir.path().join("model-config.toml");
         std::fs::write(
-            &policy_path,
+            &config_path,
             r#"
-allowed_models = ["ClaudeBedrockSonnet45", "KimiK25"]
-terminal_allowed_models = ["KimiK25"]
-terminal_default_model = "KimiK25"
+allowed_models = ["KimiK25"]
+default_model = "KimiK25"
+
+[callsite_defaults]
+terminal = "KimiK25"
+
+[models.KimiK25]
+name = "Kimi K2.5 (coding)"
+provider = "anthropic"
+base_url = "https://api.kimi.com/coding/"
+api_key_env = "PATH"
+model = "kimi-for-coding/k2p5"
+aliases = ["KimiK25"]
+
+[models.ClaudeBedrockSonnet45]
+name = "Claude Sonnet 4.5 (Bedrock)"
+provider = "aws-bedrock"
+model = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+region = "us-east-1"
+aliases = ["ClaudeBedrockSonnet45"]
 "#,
         )
-        .expect("write policy");
+        .expect("write config");
 
-        let previous_policy = std::env::var("CHOIR_MODEL_POLICY_PATH").ok();
-        std::env::set_var(
-            "CHOIR_MODEL_POLICY_PATH",
-            policy_path.to_string_lossy().to_string(),
-        );
+        let previous_config = set_env("CHOIR_MODEL_CONFIG_PATH", &config_path.to_string_lossy());
 
         let registry = ModelRegistry::new();
         let resolved = registry
-            .resolve_for_role(
+            .resolve_for_callsite(
                 "terminal",
                 &ModelResolutionContext {
                     request_model: Some("ClaudeBedrockSonnet45".to_string()),
@@ -789,109 +958,130 @@ terminal_default_model = "KimiK25"
                     user_preference: None,
                 },
             )
-            .expect("resolve_for_role");
+            .expect("resolve_for_callsite");
 
         assert_eq!(resolved.config.id, "KimiK25");
-
-        if let Some(value) = previous_policy {
-            std::env::set_var("CHOIR_MODEL_POLICY_PATH", value);
-        } else {
-            std::env::remove_var("CHOIR_MODEL_POLICY_PATH");
-        }
+        restore_env("CHOIR_MODEL_CONFIG_PATH", previous_config);
     }
 
     #[test]
-    fn test_resolve_for_role_uses_conductor_writer_researcher_and_summarizer_defaults() {
+    fn test_resolve_for_callsite_accepts_canonicalized_allowlist_entries() {
         let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
         let temp_dir = tempfile::tempdir().expect("tempdir");
-        let policy_path = temp_dir.path().join("model-policy.toml");
+        let config_path = temp_dir.path().join("model-config.toml");
         std::fs::write(
-            &policy_path,
+            &config_path,
             r#"
-default_model = "ClaudeBedrockSonnet45"
-conductor_default_model = "ClaudeBedrockOpus46"
-writer_default_model = "KimiK25"
-researcher_default_model = "ZaiGLM47"
-summarizer_default_model = "ZaiGLM47Flash"
-conductor_allowed_models = ["ClaudeBedrockOpus46"]
-writer_allowed_models = ["KimiK25"]
-researcher_allowed_models = ["ZaiGLM47"]
-summarizer_allowed_models = ["ZaiGLM47Flash"]
+allowed_models = ["us.anthropic.claude-sonnet-4-6"]
+default_model = "anthropic.claude-sonnet-4-6"
+
+[callsite_defaults]
+terminal = "global.anthropic.claude-sonnet-4-6"
+
+[models.ClaudeBedrockSonnet46]
+name = "Claude Sonnet 4.6 (Bedrock)"
+provider = "aws-bedrock"
+model = "us.anthropic.claude-sonnet-4-6"
+region = "us-east-1"
+aliases = ["anthropic.claude-sonnet-4-6", "us.anthropic.claude-sonnet-4-6", "global.anthropic.claude-sonnet-4-6"]
 "#,
         )
-        .expect("write policy");
+        .expect("write config");
 
-        let previous_policy = std::env::var("CHOIR_MODEL_POLICY_PATH").ok();
-        std::env::set_var(
-            "CHOIR_MODEL_POLICY_PATH",
-            policy_path.to_string_lossy().to_string(),
-        );
+        let previous_config = set_env("CHOIR_MODEL_CONFIG_PATH", &config_path.to_string_lossy());
 
         let registry = ModelRegistry::new();
-        let conductor = registry
-            .resolve_for_role("conductor", &ModelResolutionContext::default())
-            .expect("resolve conductor");
-        assert_eq!(conductor.config.id, "ClaudeBedrockOpus46");
+        let resolved = registry
+            .resolve_for_callsite("terminal", &ModelResolutionContext::default())
+            .expect("resolve_for_callsite");
 
-        let researcher = registry
-            .resolve_for_role("researcher", &ModelResolutionContext::default())
-            .expect("resolve researcher");
-        assert_eq!(researcher.config.id, "ZaiGLM47");
-
-        let writer = registry
-            .resolve_for_role("writer", &ModelResolutionContext::default())
-            .expect("resolve writer");
-        assert_eq!(writer.config.id, "KimiK25");
-
-        let summarizer = registry
-            .resolve_for_role("summarizer", &ModelResolutionContext::default())
-            .expect("resolve summarizer");
-        assert_eq!(summarizer.config.id, "ZaiGLM47Flash");
-
-        if let Some(value) = previous_policy {
-            std::env::set_var("CHOIR_MODEL_POLICY_PATH", value);
-        } else {
-            std::env::remove_var("CHOIR_MODEL_POLICY_PATH");
-        }
+        assert_eq!(resolved.config.id, "ClaudeBedrockSonnet46");
+        restore_env("CHOIR_MODEL_CONFIG_PATH", previous_config);
     }
 
     #[test]
-    fn test_load_model_policy_discovers_config_in_ancestor_dir() {
+    fn test_default_model_for_callsite_returns_canonical_model_id() {
         let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
-        let previous_policy = std::env::var("CHOIR_MODEL_POLICY_PATH").ok();
-        std::env::remove_var("CHOIR_MODEL_POLICY_PATH");
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let config_path = temp_dir.path().join("model-config.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+default_model = "ClaudeBedrockSonnet45"
+
+[callsite_defaults]
+researcher = "GLM5"
+
+[models.ClaudeBedrockSonnet45]
+name = "Claude Sonnet 4.5 (Bedrock)"
+provider = "aws-bedrock"
+model = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+region = "us-east-1"
+aliases = ["ClaudeBedrockSonnet45"]
+
+[models.ZaiGLM5]
+name = "GLM 5 (Z.ai)"
+provider = "anthropic"
+base_url = "https://api.z.ai/api/anthropic"
+api_key_env = "PATH"
+model = "glm-5"
+aliases = ["GLM5", "ZaiGLM5"]
+"#,
+        )
+        .expect("write config");
+
+        let previous_config = set_env("CHOIR_MODEL_CONFIG_PATH", &config_path.to_string_lossy());
+        let registry = ModelRegistry::new();
+        assert_eq!(
+            registry.default_model_for_callsite("researcher"),
+            Some("ZaiGLM5".to_string())
+        );
+        assert_eq!(
+            registry.default_model_for_callsite("missing"),
+            Some("ClaudeBedrockSonnet45".to_string())
+        );
+        restore_env("CHOIR_MODEL_CONFIG_PATH", previous_config);
+    }
+
+    #[test]
+    fn test_load_model_catalog_discovers_config_in_ancestor_dir() {
+        let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let previous_config = clear_env("CHOIR_MODEL_CONFIG_PATH");
+        let previous_catalog = clear_env("CHOIR_MODEL_CATALOG_PATH");
 
         let original_cwd = std::env::current_dir().expect("cwd");
         let temp_dir = tempfile::tempdir().expect("tempdir");
         let repo_root = temp_dir.path().join("repo");
         let nested = repo_root.join("sandbox");
-        let config_dir = repo_root.join("config");
+        let config_dir = repo_root.join("sandbox").join("config");
         std::fs::create_dir_all(&nested).expect("create nested dir");
         std::fs::create_dir_all(&config_dir).expect("create config dir");
 
-        let policy_path = config_dir.join("model-policy.toml");
+        let config_path = config_dir.join("model-catalog.toml");
         std::fs::write(
-            &policy_path,
+            &config_path,
             r#"
-summarizer_default_model = "ZaiGLM47Flash"
-summarizer_allowed_models = ["ZaiGLM47Flash"]
+default_model = "ZaiGLM47Flash"
+
+[models.ZaiGLM47Flash]
+name = "GLM 4.7 Flash (Z.ai)"
+provider = "anthropic"
+base_url = "https://api.z.ai/api/anthropic"
+api_key_env = "PATH"
+model = "glm-4.7-flash"
+aliases = ["ZaiGLM47Flash"]
 "#,
         )
-        .expect("write policy");
+        .expect("write config");
 
         std::env::set_current_dir(&nested).expect("set nested cwd");
-        let policy = load_model_policy();
+        let catalog = load_model_catalog();
         std::env::set_current_dir(&original_cwd).expect("restore cwd");
 
-        assert_eq!(
-            policy.summarizer_default_model.as_deref(),
-            Some("ZaiGLM47Flash")
-        );
+        assert_eq!(catalog.default_model.as_deref(), Some("ZaiGLM47Flash"));
+        assert!(catalog.models.contains_key("ZaiGLM47Flash"));
 
-        if let Some(value) = previous_policy {
-            std::env::set_var("CHOIR_MODEL_POLICY_PATH", value);
-        } else {
-            std::env::remove_var("CHOIR_MODEL_POLICY_PATH");
-        }
+        restore_env("CHOIR_MODEL_CONFIG_PATH", previous_config);
+        restore_env("CHOIR_MODEL_CATALOG_PATH", previous_catalog);
     }
 }

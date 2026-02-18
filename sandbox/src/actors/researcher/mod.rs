@@ -21,7 +21,7 @@ use tokio::sync::mpsc;
 
 use crate::actors::agent_harness::{AgentHarness, AgentResult, HarnessConfig, ObjectiveStatus};
 use crate::actors::event_store::EventStoreMsg;
-use crate::actors::model_config::{load_model_policy, ModelRegistry};
+use crate::actors::model_config::ModelRegistry;
 use crate::observability::llm_trace::LlmTraceEmitter;
 
 pub use adapter::ResearcherAdapter;
@@ -224,6 +224,7 @@ impl Actor for ResearcherActor {
         _myself: ractor::ActorRef<Self::Msg>,
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
+        let model_registry = ModelRegistry::new();
         Ok(ResearcherState {
             researcher_id: args.researcher_id,
             user_id: args.user_id,
@@ -231,9 +232,10 @@ impl Actor for ResearcherActor {
             current_model: std::env::var("CHOIR_RESEARCHER_MODEL")
                 .ok()
                 .filter(|value| !value.trim().is_empty())
-                .or_else(|| load_model_policy().researcher_default_model)
-                .unwrap_or_else(|| "ZaiGLM47".to_string()),
-            model_registry: ModelRegistry::new(),
+                .or_else(|| model_registry.default_model_for_callsite("researcher"))
+                .or_else(|| model_registry.available_model_ids().into_iter().next())
+                .unwrap_or_else(|| "unknown".to_string()),
+            model_registry,
         })
     }
 

@@ -1,0 +1,110 @@
+default_model = "ClaudeBedrockSonnet45"
+allow_request_override = true
+allowed_models = [
+  "ClaudeBedrockOpus46",
+  "ClaudeBedrockSonnet46",
+  "ClaudeBedrockSonnet45",
+  "ClaudeBedrockHaiku45",
+  "ZaiGLM5",
+  "ZaiGLM47",
+  "ZaiGLM47Flash",
+  "KimiK25"
+]
+
+[callsite_defaults]
+terminal = "ClaudeBedrockSonnet46"
+conductor = "KimiK25"
+writer = "KimiK25"
+researcher = "ZaiGLM47"
+summarizer = "ZaiGLM47Flash"
+watcher = "ZaiGLM47Flash"
+
+[models.ClaudeBedrockOpus46]
+name = "Claude Opus 4.6 (Bedrock)"
+provider = "aws-bedrock"
+model = "us.anthropic.claude-opus-4-6-v1"
+region = "us-east-1"
+aliases = ["anthropic.claude-opus-4-6-v1", "ClaudeBedrockOpus46"]
+
+[models.ClaudeBedrockSonnet46]
+name = "Claude Sonnet 4.6 (Bedrock)"
+provider = "aws-bedrock"
+model = "us.anthropic.claude-sonnet-4-6-v1:0"
+region = "us-east-1"
+aliases = [
+  "anthropic.claude-sonnet-4-6",
+  "anthropic.claude-sonnet-4-6-v1:0",
+  "us.anthropic.claude-sonnet-4-6",
+  "us.anthropic.claude-sonnet-4-6-v1:0",
+  "global.anthropic.claude-sonnet-4-6",
+  "global.anthropic.claude-sonnet-4-6-v1:0",
+  "ClaudeBedrockSonnet46"
+]
+
+[models.ClaudeBedrockSonnet45]
+name = "Claude Sonnet 4.5 (Bedrock)"
+provider = "aws-bedrock"
+model = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+region = "us-east-1"
+aliases = ["ClaudeBedrockSonnet45"]
+
+[models.ClaudeBedrockHaiku45]
+name = "Claude Haiku 4.5 (Bedrock)"
+provider = "aws-bedrock"
+model = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+region = "us-east-1"
+aliases = ["ClaudeBedrockHaiku45"]
+
+[models.ZaiGLM47]
+name = "GLM 4.7 (Z.ai)"
+provider = "anthropic"
+base_url = "https://api.z.ai/api/anthropic"
+api_key_env = "ZAI_API_KEY"
+model = "glm-4.7"
+aliases = ["GLM47", "ZaiGLM47"]
+
+[models.ZaiGLM5]
+name = "GLM 5 (Z.ai)"
+provider = "anthropic"
+base_url = "https://api.z.ai/api/anthropic"
+api_key_env = "ZAI_API_KEY"
+model = "glm-5"
+aliases = ["GLM5", "ZaiGLM5"]
+
+[models.ZaiGLM47Flash]
+name = "GLM 4.7 Flash (Z.ai)"
+provider = "anthropic"
+base_url = "https://api.z.ai/api/anthropic"
+api_key_env = "ZAI_API_KEY"
+model = "glm-4.7-flash"
+aliases = ["GLM47Flash", "ZaiGLM47Flash"]
+
+[models.ZaiGLM47Air]
+name = "GLM 4.5 Air (Z.ai)"
+provider = "anthropic"
+base_url = "https://api.z.ai/api/anthropic"
+api_key_env = "ZAI_API_KEY"
+model = "glm-4.5-air"
+aliases = ["ZaiGLM47Air"]
+
+[models.KimiK25]
+name = "Kimi K2.5 (coding)"
+provider = "anthropic"
+base_url = "https://api.kimi.com/coding/"
+api_key_env = "KIMI_API_KEY"
+model = "kimi-for-coding/k2p5"
+aliases = ["KimiK25", "KimiK25OpenAI"]
+
+[models.KimiK25.headers]
+User-Agent = "claude-code/1.0"
+
+# [models.KimiK25Fallback]
+# name = "Kimi K2.5 Fallback"
+# provider = "anthropic"
+# base_url = "https://api.kimi.com/coding/"
+# api_key_env = "ANTHROPIC_API_KEY"
+# model = "kimi-k2.5"
+# aliases = ["KimiK25Fallback"]
+
+# [models.KimiK25Fallback.headers]
+# User-Agent = "claude-code/1.0"

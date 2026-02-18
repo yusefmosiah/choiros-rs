@@ -47,7 +47,16 @@ Immediate app pattern: human UX first, then headless API, then app-agent harness
 
 ## Read Order (High-Level to Deep Dive)
 
-0. `/Users/wiz/choiros-rs/docs/architecture/2026-02-16-memory-agent-architecture.md`
+0. `/Users/wiz/choiros-rs/docs/architecture/2026-02-17-codesign-runbook.md`
+   - **START HERE for current execution direction.** Comprehensive co-design runbook:
+     eight execution phases (refactor → Marginalia → types → citations → RLM → local
+     RuVector → NixOS → global RuVector → Marginalia v2), all Gate 0 questions resolved,
+     `.qwy` format spec, citation infrastructure, actor topology target state, and
+     identified codebase seams with file/line references.
+
+0. `/Users/wiz/choiros-rs/docs/architecture/2026-02-17-rlm-actor-network-concept.md`
+   - Recursive Language Models in actor networks: RLM as default execution mode, model-composed context, self-prompting, and the microVM security boundary.
+1. `/Users/wiz/choiros-rs/docs/architecture/2026-02-16-memory-agent-architecture.md`
    - MemoryAgent: episodic memory (per-user HNSW + SONA learning) + global knowledge store for published IP. Filesystem is truth, memory is resonance.
 1. `/Users/wiz/choiros-rs/docs/architecture/2026-02-14-living-document-human-interface-pillar.md`
    - Human interface pillar: living-document UX is the primary human interaction model and feeds conductor orchestration.
@@ -121,9 +130,15 @@ Immediate app pattern: human UX first, then headless API, then app-agent harness
 - Filesystem (grep/find/read) is the primary deterministic retrieval path for agents; vector memory is the associative/episodic layer on top.
 - MemoryAgent uses the RVF stack (`rvf-runtime` + `rvf-index` + `rvf-types`) for vector persistence with progressive HNSW, plus `ruvector-sona` for learning, plus `ort` for MiniLM embeddings. `ruvector-core` (redb-backed, older approach) and `ruvllm` (local LLM inference) are excluded.
 - Local memory is private per-user. Global knowledge store receives only explicitly published content.
+- RLM (Recursive Language Model) is the default execution mode; linear tool-looping is a degenerate case of `NextAction::ToolCalls`.
+- Model composes its own context each turn via `ContextSnapshot` — retrieved from MemoryAgent, selected documents, and working memory.
+- Self-prompting replaces role-based prompting: the model queries memory to construct effective prompts, rather than relying on static system prompts.
+- RLM security boundary is the microVM, not an internal sandbox — recursive calls become actor messages that may cross security domains.
+- ChoirOS defines capability contracts at three levels: System (RLM harness semantics), Harness (Conductor/Terminal/Researcher specialization), and Task (objective-specific context). These are API documentation, not role assignments.
 
 ## One-Line Summary Per Core Doc
 
+- `2026-02-17-rlm-actor-network-concept.md`: "RLM as default execution mode — model composes its own context and controls topology (linear/parallel/recursive), capability contracts replace role-based prompting, self-prompting from episodic memory, microVM is the security boundary, three-level contract hierarchy (System/Harness/Task)."
 - `2026-02-16-memory-agent-architecture.md`: "Episodic memory layer — filesystem is deterministic truth, vector memory is associative resonance across sessions, RVF file format with progressive HNSW for storage, SONA makes retrieval improve over time, global store lets users benefit from each other's published learnings."
 - `2026-02-14-living-document-human-interface-pillar.md`: "Human interaction runs through living documents first; conductor remains orchestration authority behind the interface."
 - `2026-02-14-conductor-non-blocking-subagent-pillar.md`: "Conductor treats workers/apps as logical subagents via actor messaging with no polling, no blocking, and bounded agent-tree wake context."

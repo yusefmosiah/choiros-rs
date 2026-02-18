@@ -1,5 +1,5 @@
 use sandbox::actors::model_config::{ModelRegistry, ProviderConfig};
-use sandbox::baml_client::types::{Action, Message as BamlMessage};
+use sandbox::baml_client::types::Message as BamlMessage;
 use sandbox::baml_client::B;
 use sandbox::runtime_env::ensure_tls_cert_env;
 use std::sync::Arc;
@@ -8,7 +8,7 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tokio::time::sleep;
 
-const DEFAULT_LIVE_MODEL_TARGETS: &[&str] = &["ZaiGLM47", "ZaiGLM47Flash", "KimiK25"];
+const DEFAULT_LIVE_MODEL_TARGETS: &[&str] = &["ZaiGLM5", "ZaiGLM47Flash", "KimiK25"];
 
 fn env_present(key: &str) -> bool {
     std::env::var(key)
@@ -310,17 +310,17 @@ async fn live_decide_matrix() {
 
                     match tokio::time::timeout(Duration::from_secs(30), decide_call).await {
                         Ok(Ok(decision)) => {
-                            if matches!(decision.action, Action::Block) {
-                                return Err("returned blocked action".to_string());
-                            }
-                            if matches!(decision.action, Action::ToolCall)
-                                && decision.tool_calls.is_empty()
-                            {
-                                return Err(
-                                    "ToolCall action returned with no tool_calls".to_string()
-                                );
-                            }
-                            Ok((format!("{:?}", decision.action), decision.tool_calls.len()))
+                            let decision_kind = if decision.tool_calls.is_empty() {
+                                if decision.message.trim().is_empty() {
+                                    return Err(
+                                        "completion decision returned empty message".to_string()
+                                    );
+                                }
+                                "complete"
+                            } else {
+                                "tool_call"
+                            };
+                            Ok((decision_kind.to_string(), decision.tool_calls.len()))
                         }
                         Ok(Err(e)) => Err(format!("decide call error: {e}")),
                         Err(_) => Err("decide call timed out".to_string()),

@@ -578,7 +578,7 @@ impl<W: WorkerPort> AgentHarness<W> {
         // Resolve model
         let resolved_model = self
             .model_registry
-            .resolve_for_role(
+            .resolve_for_callsite(
                 self.worker_port.get_model_role(),
                 &ModelResolutionContext {
                     request_model: model_override,

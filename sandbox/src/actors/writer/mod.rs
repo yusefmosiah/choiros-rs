@@ -19,7 +19,7 @@ use crate::actors::agent_harness::{AgentHarness, HarnessConfig, ObjectiveStatus,
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::ModelRegistry;
 use crate::actors::researcher::{ResearcherMsg, ResearcherProgress, ResearcherResult};
-use crate::actors::terminal::{TerminalAgentProgress, TerminalAgentResult, TerminalMsg};
+use crate::actors::terminal::{TerminalAgentProgress, TerminalAgentResult, TerminalError, TerminalMsg};
 use crate::observability::llm_trace::LlmTraceEmitter;
 use adapter::{WriterDelegationAdapter, WriterSynthesisAdapter};
 pub use document_runtime::{
@@ -1303,6 +1303,19 @@ impl WriterActor {
                 let terminal_actor = state.terminal_actor.as_ref().ok_or_else(|| {
                     WriterError::ActorUnavailable("terminal actor unavailable".to_string())
                 })?;
+                match ractor::call!(terminal_actor, |reply| TerminalMsg::Start { reply }) {
+                    Ok(Ok(())) | Ok(Err(TerminalError::AlreadyRunning)) => {}
+                    Ok(Err(e)) => {
+                        return Err(WriterError::WorkerFailed(format!(
+                            "Failed to start terminal: {e}"
+                        )));
+                    }
+                    Err(e) => {
+                        return Err(WriterError::WorkerFailed(format!(
+                            "Failed to call terminal start: {e}"
+                        )));
+                    }
+                }
                 let (tx, _rx) = mpsc::unbounded_channel::<TerminalAgentProgress>();
                 let result = ractor::call!(terminal_actor, |reply| TerminalMsg::RunAgenticTask {
                     objective: objective.clone(),

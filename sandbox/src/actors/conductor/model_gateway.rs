@@ -43,13 +43,13 @@ impl BamlConductorModelGateway {
         }
     }
 
-    fn resolve_for_role(
+    fn resolve_for_callsite(
         &self,
-        role: &str,
+        callsite: &str,
     ) -> Result<(ClientRegistry, ResolvedModel), ConductorError> {
         let resolved = self
             .registry
-            .resolve_for_role(role, &ModelResolutionContext::default())
+            .resolve_for_callsite(callsite, &ModelResolutionContext::default())
             .map_err(|e| {
                 ConductorError::ModelGatewayError(format!("Model resolution failed: {e}"))
             })?;
@@ -81,7 +81,7 @@ impl ConductorModelGateway for BamlConductorModelGateway {
         raw_objective: &str,
         available_capabilities: &[String],
     ) -> Result<ConductorBootstrapOutput, ConductorError> {
-        let (client_registry, resolved) = self.resolve_for_role("conductor")?;
+        let (client_registry, resolved) = self.resolve_for_callsite("conductor")?;
         let model_used = resolved.config.id.as_str();
         let provider = Some(Self::provider_string(&resolved.config.provider));
 
@@ -221,13 +221,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_resolve_for_role_returns_model_info() {
+    async fn test_resolve_for_callsite_returns_model_info() {
         let (event_store, _handle) =
             Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
                 .await
                 .unwrap();
         let model_gateway = BamlConductorModelGateway::new(event_store);
-        let result = model_gateway.resolve_for_role("conductor");
+        let result = model_gateway.resolve_for_callsite("conductor");
         assert!(result.is_ok());
 
         let (_registry, resolved) = result.unwrap();
