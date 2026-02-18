@@ -1147,10 +1147,41 @@ impl WriterActor {
     ) -> Result<DocumentVersion, WriterError> {
         Self::ensure_run_document_loaded(state, &run_id).await?;
         let run_doc = Self::resolve_run_document_mut(state, &run_id)?;
-        run_doc
-            .create_version(&run_id, parent_version_id, content, source)
+
+        // Capture before-content from the effective parent so changeset summarization
+        // can diff the two versions.
+        let effective_parent = parent_version_id.unwrap_or_else(|| {
+            run_doc.head_version().map(|v| v.version_id).unwrap_or(0)
+        });
+        let before_content = run_doc
+            .get_version(effective_parent)
+            .map(|v| v.content)
+            .unwrap_or_default();
+
+        let source_str = match &source {
+            VersionSource::Writer => "writer",
+            VersionSource::UserSave => "user_save",
+            VersionSource::System => "system",
+        }
+        .to_string();
+
+        let version = run_doc
+            .create_version(&run_id, parent_version_id, content.clone(), source)
             .await
-            .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))
+            .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
+
+        // Fire-and-forget changeset summarization (never blocks the caller).
+        Self::spawn_changeset_summarization(
+            state.event_store.clone(),
+            state.model_registry.clone(),
+            run_id,
+            source_str,
+            before_content,
+            content,
+            version.version_id,
+        );
+
+        Ok(version)
     }
 
     async fn submit_user_prompt(
