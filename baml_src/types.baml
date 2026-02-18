@@ -112,3 +112,34 @@ class StreamChunk {
   chunk_type string // "thinking", "tool_call", "tool_result", "response", "error"
   content string
 }
+
+// ---------------------------------------------------------------------------
+// Phase 2.2 — Citation Types
+// ---------------------------------------------------------------------------
+
+/// Why a resource was cited by a researcher or writer.
+enum CitationKind {
+  /// Researcher retrieved the resource and pulled it into context.
+  RetrievedContext
+  /// Appears as a link or inline reference in document text.
+  InlineReference
+  /// This run extends or revises the cited artifact.
+  BuildsOn
+  /// Explicitly disputes a prior artifact.
+  Contradicts
+  /// Restates a prior objective or directive.
+  Reissues
+}
+
+/// A single citation proposed by the researcher or confirmed/rejected by the writer.
+class Citation {
+  /// Artifact path, version_id, input_id, URL, or block_id.
+  cited_id string
+  cite_kind CitationKind
+  /// Model confidence in this citation [0.0, 1.0].
+  confidence float
+  /// Specific text span that triggered this citation, if extractable.
+  excerpt string?
+  /// Why this citation was relevant.
+  rationale string
+}

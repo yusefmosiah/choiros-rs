@@ -66,14 +66,14 @@ export type ConductorDecision = { decision_id: string, decision_type: DecisionTy
 export type ConductorError = { code: string, message: string, failure_kind: FailureKind | null, };
 
 /**
- * Request to execute a Conductor task
+ * Request to execute a Conductor run.
  */
-export type ConductorExecuteRequest = { objective: string, desktop_id: string, output_mode: ConductorOutputMode, worker_plan: Array<ConductorWorkerStep> | null, hints: unknown, correlation_id: string | null, };
+export type ConductorExecuteRequest = { objective: string, desktop_id: string, output_mode: ConductorOutputMode, hints: unknown, };
 
 /**
  * Response from Conductor task execution
  */
-export type ConductorExecuteResponse = { task_id: string, status: ConductorTaskStatus, report_path: string | null, writer_window_props: unknown, toast: ConductorToastPayload | null, correlation_id: string, error: ConductorError | null, };
+export type ConductorExecuteResponse = { run_id: string, status: ConductorRunStatus, document_path: string | null, writer_window_props: WriterWindowProps | null, toast: ConductorToastPayload | null, error: ConductorError | null, };
 
 /**
  * Output mode for Conductor task execution
@@ -83,7 +83,7 @@ export type ConductorOutputMode = "auto" | "markdown_report_to_writer" | "toast_
 /**
  * Full runtime state for a conductor run
  */
-export type ConductorRunState = { run_id: string, task_id: string, objective: string, status: ConductorRunStatus, created_at: string, updated_at: string, completed_at: string | null, 
+export type ConductorRunState = { run_id: string, objective: string, status: ConductorRunStatus, created_at: string, updated_at: string, completed_at: string | null, 
 /**
  * Ordered pending work items
  */
@@ -101,17 +101,17 @@ artifacts: Array<ConductorArtifact>,
  */
 decision_log: Array<ConductorDecision>, 
 /**
+ * Path to the living document (draft.md)
+ */
+document_path: string, 
+/**
  * Output mode for final delivery
  */
 output_mode: ConductorOutputMode, 
 /**
  * Desktop ID for UI coordination
  */
-desktop_id: string, 
-/**
- * Correlation ID for tracing
- */
-correlation_id: string, };
+desktop_id: string, };
 
 /**
  * Status of a conductor run
@@ -119,14 +119,9 @@ correlation_id: string, };
 export type ConductorRunStatus = "initializing" | "running" | "waiting_for_calls" | "completing" | "completed" | "failed" | "blocked";
 
 /**
- * State tracking for a Conductor task
+ * State tracking for a Conductor run via API
  */
-export type ConductorTaskState = { task_id: string, status: ConductorTaskStatus, objective: string, desktop_id: string, output_mode: ConductorOutputMode, correlation_id: string, created_at: string, updated_at: string, completed_at: string | null, report_path: string | null, toast: ConductorToastPayload | null, error: ConductorError | null, };
-
-/**
- * Status of a Conductor task
- */
-export type ConductorTaskStatus = "queued" | "running" | "waiting_worker" | "completed" | "failed";
+export type ConductorRunStatusResponse = { run_id: string, status: ConductorRunStatus, objective: string, desktop_id: string, output_mode: ConductorOutputMode, created_at: string, updated_at: string, completed_at: string | null, document_path: string, report_path: string | null, toast: ConductorToastPayload | null, error: ConductorError | null, };
 
 /**
  * Typed prompt-bar toast payload for Conductor completion.
@@ -137,16 +132,6 @@ export type ConductorToastPayload = { title: string, message: string, tone: Cond
  * Visual tone for prompt-bar toast output.
  */
 export type ConductorToastTone = "info" | "success" | "warning" | "error";
-
-/**
- * One typed worker step in a Conductor execution plan.
- */
-export type ConductorWorkerStep = { worker_type: ConductorWorkerType, objective: string | null, terminal_command: string | null, timeout_ms: bigint | null, max_results: number | null, max_steps: number | null, };
-
-/**
- * Worker types the Conductor can orchestrate.
- */
-export type ConductorWorkerType = "researcher" | "terminal";
 
 /**
  * Types of decisions the conductor can make
@@ -198,13 +183,18 @@ user_id: string, };
 export type EventImportance = "low" | "normal" | "high";
 
 /**
- * Event metadata for wake/display lane separation
+ * Event lane metadata for conductor/runtime processing.
+ */
+export type EventLane = "control" | "telemetry";
+
+/**
+ * Event metadata for control/telemetry lane separation
  */
 export type EventMetadata = { 
 /**
- * Wake policy for this event
+ * Control/telemetry lane for this event
  */
-wake_policy: WakePolicy, 
+lane: EventLane, 
 /**
  * Importance level
  */
@@ -213,10 +203,6 @@ importance: EventImportance,
  * Run ID for grouping related work
  */
 run_id: string | null, 
-/**
- * Task ID within the run
- */
-task_id: string | null, 
 /**
  * Capability call ID
  */
@@ -258,11 +244,6 @@ export type ViewerKind = "text" | "image";
 export type ViewerResource = { uri: string, mime: string, };
 
 export type ViewerRevision = { rev: bigint, updated_at: string, };
-
-/**
- * Wake policy for events - determines if event should trigger conductor wake
- */
-export type WakePolicy = "wake" | "display_only";
 
 /**
  * Individual window state

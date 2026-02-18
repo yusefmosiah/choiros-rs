@@ -50,7 +50,11 @@ async fn test_execute_task_message_missing_workers() {
     assert!(result.is_ok());
     match result.unwrap().unwrap_err() {
         ConductorError::ActorUnavailable(msg) => {
-            assert!(msg.contains("No worker actors available"));
+            assert!(
+                msg.contains("writer actor unavailable")
+                    || msg.contains("No app-agent capabilities available"),
+                "unexpected message: {msg}"
+            );
         }
         other => panic!("Expected ActorUnavailable, got {:?}", other),
     }

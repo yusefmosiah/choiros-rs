@@ -1010,9 +1010,7 @@ pub async fn ensure_run_document(
         )
             .into_response(),
         Ok(Err(err)) => map_writer_actor_error(err),
-        Err(err) => {
-            writer_error(WriterErrorCode::WriteError, err.to_string()).into_response()
-        }
+        Err(err) => writer_error(WriterErrorCode::WriteError, err.to_string()).into_response(),
     }
 }
 

@@ -122,6 +122,28 @@ impl Actor for ConductorActor {
                     .await;
                 let _ = reply.send(result);
             }
+
+            // Phase 2.4 — SubharnessActor completion messages.
+            // Full routing wired in Phase 4; stubs here keep the match exhaustive.
+            ConductorMsg::SubharnessComplete {
+                correlation_id,
+                result: _,
+            } => {
+                tracing::debug!(
+                    correlation_id = %correlation_id,
+                    "ConductorActor received SubharnessComplete (Phase 4 handler pending)"
+                );
+            }
+            ConductorMsg::SubharnessFailed {
+                correlation_id,
+                reason,
+            } => {
+                tracing::warn!(
+                    correlation_id = %correlation_id,
+                    reason = %reason,
+                    "ConductorActor received SubharnessFailed (Phase 4 handler pending)"
+                );
+            }
         }
         Ok(())
     }

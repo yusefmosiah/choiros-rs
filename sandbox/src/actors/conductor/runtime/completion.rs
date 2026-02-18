@@ -348,7 +348,7 @@ impl ConductorActor {
                 )
                 .await;
             }
-            Ok(CapabilityWorkerOutput::Subharness) => {
+            Ok(CapabilityWorkerOutput::Subharness(_)) => {
                 let err = "Subharness capability output is not implemented yet".to_string();
                 state
                     .tasks

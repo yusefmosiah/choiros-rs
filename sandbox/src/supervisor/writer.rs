@@ -41,6 +41,29 @@ pub enum WriterSupervisorMsg {
         writer_id: String,
     },
     Supervision(SupervisionEvent),
+
+    // -----------------------------------------------------------------------
+    // Phase 2.6 — WriterSupervisor typed run-registry messages
+    //
+    // These replace GetOrCreateWriter / GetWriter / RemoveWriter in the
+    // target architecture (Phase 3+) where WriterActor is spawned per
+    // run_id and resolved by run_id, not writer_id.
+    // -----------------------------------------------------------------------
+    /// Resolve the ActorRef<WriterMsg> for a given run_id.
+    /// Returns `None` if no WriterActor is registered for that run.
+    Resolve {
+        run_id: String,
+        reply: RpcReplyPort<Option<ActorRef<WriterMsg>>>,
+    },
+    /// Register a newly spawned WriterActor under its run_id.
+    Register {
+        run_id: String,
+        actor_ref: ActorRef<WriterMsg>,
+    },
+    /// Deregister a WriterActor when its run completes or the window closes.
+    Deregister {
+        run_id: String,
+    },
 }
 
 #[ractor::async_trait]
@@ -141,6 +164,18 @@ impl Actor for WriterSupervisor {
             }
             WriterSupervisorMsg::Supervision(event) => {
                 self.handle_supervisor_evt(myself, event, state).await?;
+            }
+
+            // Phase 2.6 — run-registry variants (handlers are stubs; full
+            // implementation wired in Phase 3+ when WriterActor is fully ephemeral).
+            WriterSupervisorMsg::Resolve { run_id, reply } => {
+                let _ = reply.send(state.writers.get(&run_id).cloned());
+            }
+            WriterSupervisorMsg::Register { run_id, actor_ref } => {
+                state.writers.insert(run_id, actor_ref);
+            }
+            WriterSupervisorMsg::Deregister { run_id } => {
+                state.writers.remove(&run_id);
             }
         }
         Ok(())

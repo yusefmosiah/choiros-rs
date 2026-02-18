@@ -245,6 +245,20 @@ pub struct WriterOrchestrationResult {
     pub pending_delegations: usize,
 }
 
+/// Context bundle for [`WriterActor::spawn_changeset_summarization`].
+/// Collects the arguments into a single struct to stay within clippy's
+/// `too_many_arguments` limit (7).
+struct ChangesetSummarizationCtx {
+    event_store: ActorRef<EventStoreMsg>,
+    model_registry: ModelRegistry,
+    run_id: String,
+    desktop_id: String,
+    source: String,
+    before_content: String,
+    after_content: String,
+    target_version_id: u64,
+}
+
 #[derive(Debug, thiserror::Error, Clone)]
 pub enum WriterError {
     #[error("validation error: {0}")]
@@ -1150,9 +1164,8 @@ impl WriterActor {
 
         // Capture before-content from the effective parent so changeset summarization
         // can diff the two versions.
-        let effective_parent = parent_version_id.unwrap_or_else(|| {
-            run_doc.head_version().map(|v| v.version_id).unwrap_or(0)
-        });
+        let effective_parent = parent_version_id
+            .unwrap_or_else(|| run_doc.head_version().map(|v| v.version_id).unwrap_or(0));
         let before_content = run_doc
             .get_version(effective_parent)
             .map(|v| v.content)
@@ -1172,16 +1185,16 @@ impl WriterActor {
             .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
 
         // Fire-and-forget changeset summarization (never blocks the caller).
-        Self::spawn_changeset_summarization(
-            state.event_store.clone(),
-            state.model_registry.clone(),
+        Self::spawn_changeset_summarization(ChangesetSummarizationCtx {
+            event_store: state.event_store.clone(),
+            model_registry: state.model_registry.clone(),
             run_id,
             desktop_id,
-            source_str,
+            source: source_str,
             before_content,
-            content,
-            version.version_id,
-        );
+            after_content: content,
+            target_version_id: version.version_id,
+        });
 
         Ok(version)
     }
@@ -1761,16 +1774,16 @@ impl WriterActor {
         );
 
         // Spawn background changeset summarization (non-blocking).
-        Self::spawn_changeset_summarization(
-            state.event_store.clone(),
-            state.model_registry.clone(),
+        Self::spawn_changeset_summarization(ChangesetSummarizationCtx {
+            event_store: state.event_store.clone(),
+            model_registry: state.model_registry.clone(),
             run_id,
             desktop_id,
-            source.as_str().to_string(),
+            source: source.as_str().to_string(),
             before_content,
-            content,
-            version.version_id,
-        );
+            after_content: content,
+            target_version_id: version.version_id,
+        });
 
         Ok(revision)
     }
@@ -1778,19 +1791,21 @@ impl WriterActor {
     /// Spawn a non-blocking background task that calls BAML to summarize a document
     /// changeset and emits a `writer.run.changeset` event.  Failures are logged but
     /// never propagate to the caller — this is pure observability enrichment.
-    fn spawn_changeset_summarization(
-        event_store: ActorRef<EventStoreMsg>,
-        model_registry: ModelRegistry,
-        run_id: String,
-        desktop_id: String,
-        source: String,
-        before_content: String,
-        after_content: String,
-        target_version_id: u64,
-    ) {
+    fn spawn_changeset_summarization(ctx: ChangesetSummarizationCtx) {
         use crate::actors::model_config::ModelResolutionContext;
         use crate::baml_client::types::{ChangesetInput, ImpactLevel};
         use crate::baml_client::{new_collector, B};
+
+        let ChangesetSummarizationCtx {
+            event_store,
+            model_registry,
+            run_id,
+            desktop_id,
+            source,
+            before_content,
+            after_content,
+            target_version_id,
+        } = ctx;
 
         tokio::spawn(async move {
             let patch_id = ulid::Ulid::new().to_string();

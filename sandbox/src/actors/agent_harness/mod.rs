@@ -296,6 +296,55 @@ impl Default for HarnessConfig {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Phase 2.5 — HarnessProfile
+// ---------------------------------------------------------------------------
+
+/// Execution profile for an `AgentHarness` run.
+///
+/// The profile controls step budget and context management policy.
+/// Selection happens at spawn time via `HarnessConfig::from_profile`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HarnessProfile {
+    /// Brief conductor turns: low step budget, memory-managed context,
+    /// fast decisions. No direct tool execution.
+    Conductor,
+    /// Full worker turns: high step budget, full context, returns
+    /// `result + findings + citations`.
+    Worker,
+    /// Scoped subharness turns: medium step budget, objective-scoped context,
+    /// returns typed completion to conductor.
+    Subharness,
+}
+
+impl HarnessProfile {
+    /// Default `HarnessConfig` for this profile.
+    pub fn default_config(self) -> HarnessConfig {
+        match self {
+            HarnessProfile::Conductor => HarnessConfig {
+                timeout_budget_ms: 10_000,
+                max_steps: 10,
+                emit_progress: false,
+                emit_worker_report: false,
+            },
+            HarnessProfile::Worker => HarnessConfig {
+                timeout_budget_ms: 120_000,
+                max_steps: 200,
+                emit_progress: true,
+                emit_worker_report: true,
+            },
+            HarnessProfile::Subharness => HarnessConfig {
+                timeout_budget_ms: 60_000,
+                max_steps: 50,
+                emit_progress: true,
+                emit_worker_report: false,
+            },
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+
 /// Context passed to the adapter during execution
 #[derive(Debug, Clone)]
 pub struct ExecutionContext {

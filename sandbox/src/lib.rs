@@ -6,6 +6,7 @@
 pub mod actors;
 pub mod api;
 pub mod app_state;
+#[allow(clippy::all)]
 pub mod baml_client;
 pub mod markdown;
 pub mod observability;

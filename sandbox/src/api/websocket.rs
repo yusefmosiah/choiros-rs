@@ -481,8 +481,7 @@ fn writer_ws_message_from_event(
             ))
         }
         "writer.run.changeset" => {
-            let parsed: WriterRunChangesetPayload =
-                serde_json::from_value(payload.clone()).ok()?;
+            let parsed: WriterRunChangesetPayload = serde_json::from_value(payload.clone()).ok()?;
             let desktop_id = parsed.desktop_id.clone();
             Some((
                 desktop_id,

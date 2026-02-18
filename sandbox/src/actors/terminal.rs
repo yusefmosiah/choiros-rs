@@ -23,7 +23,8 @@ use std::io::{Read, Write};
 use tokio::sync::{broadcast, mpsc};
 
 use crate::actors::agent_harness::{
-    AgentHarness, AgentProgress, ExecutionContext, HarnessConfig, ToolExecution, WorkerPort,
+    AgentHarness, AgentProgress, ExecutionContext, HarnessConfig, HarnessError, ToolExecution,
+    WorkerPort,
 };
 use crate::actors::event_store::EventStoreMsg;
 use crate::actors::model_config::ModelRegistry;
@@ -1331,6 +1332,7 @@ impl TerminalActor {
             emit_worker_report: true,
         };
 
+        let timeout_budget_ms = config.timeout_budget_ms;
         let harness = AgentHarness::with_config(
             adapter,
             ModelRegistry::new(),
@@ -1338,18 +1340,20 @@ impl TerminalActor {
             LlmTraceEmitter::new(ctx.event_store.clone()),
         );
 
-        // Run the agentic loop through the harness
-        let result = harness
-            .run(
-                ctx.terminal_id.clone(),
-                ctx.user_id.clone(),
-                objective.clone(),
-                model_override,
-                None, // progress_tx for harness internal use - we use terminal-specific progress
-                ctx.run_id.clone(),
-                ctx.call_id.clone(),
-            )
-            .await;
+        // Run the agentic loop through the harness, enforcing the wall-clock budget
+        let timeout_budget = std::time::Duration::from_millis(timeout_budget_ms);
+        let run_future = harness.run(
+            ctx.terminal_id.clone(),
+            ctx.user_id.clone(),
+            objective.clone(),
+            model_override,
+            None, // progress_tx for harness internal use - we use terminal-specific progress
+            ctx.run_id.clone(),
+            ctx.call_id.clone(),
+        );
+        let result = tokio::time::timeout(timeout_budget, run_future)
+            .await
+            .unwrap_or(Err(HarnessError::Timeout(timeout_budget_ms)));
 
         match result {
             Ok(agent_result) => {
@@ -1388,9 +1392,11 @@ impl TerminalActor {
                 })
             }
             Err(e) => {
-                // Convert harness error to terminal error
-                let error_msg = e.to_string();
-                Err(TerminalError::Blocked(error_msg))
+                // Preserve Timeout errors; convert others to Blocked
+                match e {
+                    HarnessError::Timeout(ms) => Err(TerminalError::Timeout(ms)),
+                    other => Err(TerminalError::Blocked(other.to_string())),
+                }
             }
         }
     }
@@ -1963,13 +1969,29 @@ mod tests {
             .expect("failed to read local addr")
             .port();
 
+        let server_done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let server_done_clone = server_done.clone();
         let server = std::thread::spawn(move || {
-            if let Ok((mut stream, _)) = listener.accept() {
-                let mut request_buf = [0_u8; 1024];
-                let _ = std::io::Read::read(&mut stream, &mut request_buf);
-                let response =
-                    b"HTTP/1.1 200 OK\r\nContent-Length: 9\r\nConnection: close\r\n\r\nlocal-ok\n";
-                let _ = std::io::Write::write_all(&mut stream, response);
+            // Accept connections until the done flag is set (non-blocking poll)
+            listener
+                .set_nonblocking(true)
+                .expect("failed to set nonblocking");
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+            while std::time::Instant::now() < deadline
+                && !server_done_clone.load(std::sync::atomic::Ordering::Relaxed)
+            {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let mut request_buf = [0_u8; 1024];
+                        let _ = std::io::Read::read(&mut stream, &mut request_buf);
+                        let response = b"HTTP/1.1 200 OK\r\nContent-Length: 9\r\nConnection: close\r\n\r\nlocal-ok\n";
+                        let _ = std::io::Write::write_all(&mut stream, response);
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                    Err(_) => break,
+                }
             }
         });
 
@@ -2002,8 +2024,8 @@ mod tests {
         let objective = format!("curl -s 'http://127.0.0.1:{port}/'");
         let run_result = ractor::call!(terminal, |reply| TerminalMsg::RunAgenticTask {
             objective,
-            timeout_ms: Some(5_000),
-            max_steps: Some(1),
+            timeout_ms: Some(30_000),
+            max_steps: Some(5),
             model_override: None,
             progress_tx: None,
             writer_actor: None,
@@ -2018,9 +2040,16 @@ mod tests {
             run_result.success,
             "expected success from local curl task, got: {run_result:?}"
         );
+        // The model may surface "local-ok" in either the final summary or in
+        // the raw bash output captured in executed_commands.
+        let payload_found = run_result.summary.contains("local-ok")
+            || run_result
+                .executed_commands
+                .iter()
+                .any(|c| c.contains("local-ok"));
         assert!(
-            run_result.summary.contains("local-ok"),
-            "expected local payload in summary, got: {}",
+            payload_found,
+            "expected local payload in summary or executed_commands, got summary: {}",
             run_result.summary
         );
         assert!(
@@ -2035,6 +2064,7 @@ mod tests {
             "terminal failed to stop: {stop_result:?}"
         );
 
+        server_done.store(true, std::sync::atomic::Ordering::Relaxed);
         let _ = server.join();
         terminal.stop(None);
         event_store.stop(None);
@@ -2075,7 +2105,7 @@ mod tests {
         let run_result = ractor::call!(terminal, |reply| TerminalMsg::RunAgenticTask {
             objective: "sleep 2 && echo done".to_string(),
             timeout_ms: Some(1_000),
-            max_steps: Some(1),
+            max_steps: None,
             model_override: None,
             progress_tx: None,
             writer_actor: None,

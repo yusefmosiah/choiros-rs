@@ -1203,6 +1203,413 @@ pub const INTERFACE_KIND_UACTOR_ACTOR: &str = "uactor_actor";
 pub const INTERFACE_KIND_APPACTOR_TOOLACTOR: &str = "appactor_toolactor";
 
 // ============================================================================
+// Phase 2 — Type Definitions
+// ============================================================================
+
+// ============================================================================
+// Phase 2.1 — .qwy Core Types
+// ============================================================================
+
+/// Stable identifier for a block in a `.qwy` document.
+/// Newtype over a ULID string — never reassigned, never reused.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct BlockId(pub String);
+
+impl BlockId {
+    pub fn new() -> Self {
+        Self(ulid::Ulid::new().to_string())
+    }
+}
+
+impl Default for BlockId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Block type variants for a `.qwy` document node.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum BlockType {
+    Paragraph,
+    Heading,
+    Code,
+    Embed,
+    CitationAnchor,
+}
+
+/// SHA-256 content hash — embedding cache key for selective re-embedding.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct ChunkHash(pub [u8; 32]);
+
+impl ChunkHash {
+    /// Compute a SHA-256 hash of the given text.
+    pub fn from_text(text: &str) -> Self {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        // NOTE: replace with sha2::Sha256 when sha2 is available in workspace.
+        // For now, use a deterministic placeholder to keep shared-types zero-dependency.
+        let mut h = DefaultHasher::new();
+        text.hash(&mut h);
+        let v = h.finish();
+        let mut out = [0u8; 32];
+        out[..8].copy_from_slice(&v.to_le_bytes());
+        Self(out)
+    }
+}
+
+/// W3C PROV-O style provenance envelope attached to every `.qwy` block.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct ProvenanceEnvelope {
+    /// Activity that produced this block (loop_id or run_id).
+    pub was_generated_by: Option<String>,
+    /// Agent that produced this block (actor id or role string).
+    pub was_attributed_to: Option<String>,
+    /// Previous block_id this block revises, if any.
+    pub was_revision_of: Option<BlockId>,
+    /// Source reference (URL, document_id, etc.) if sourced externally.
+    pub had_primary_source: Option<String>,
+    /// ChoirOS conductor run ID that triggered this block's creation.
+    pub conductor_run_id: Option<String>,
+    /// Loop ID within the conductor run.
+    pub loop_id: Option<String>,
+}
+
+/// An inline annotation on a block (citation anchor, highlight, comment).
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct BlockAnnotation {
+    /// Annotation category: "citation_anchor" | "highlight" | "comment"
+    pub annotation_type: String,
+    /// Byte offset start within block content
+    pub start: u64,
+    /// Byte offset end within block content
+    pub end: u64,
+    #[ts(type = "unknown")]
+    pub attrs: serde_json::Value,
+}
+
+/// A single node in the `.qwy` block tree.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct BlockNode {
+    /// Stable ULID — never reassigned.
+    pub block_id: BlockId,
+    pub block_type: BlockType,
+    /// Parent block, or `None` for root-level blocks.
+    pub parent_id: Option<BlockId>,
+    /// Ordered child block IDs.
+    pub children: Vec<BlockId>,
+    /// Plain text content (atjson style — no embedded markup).
+    pub content: String,
+    /// SHA-256 of rendered content — embedding cache key.
+    #[ts(type = "string | null")]
+    pub chunk_hash: Option<String>,
+    pub provenance: ProvenanceEnvelope,
+    pub annotations: Vec<BlockAnnotation>,
+}
+
+/// A single operation in the `.qwy` append-only patch log.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "action", rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum QwyPatchOp {
+    /// Insert a new block into the tree.
+    Insert {
+        path: Vec<BlockId>,
+        value: BlockNode,
+    },
+    /// Remove a block from the tree.
+    Remove { path: Vec<BlockId> },
+    /// Replace block content in place.
+    Replace {
+        path: Vec<BlockId>,
+        value: BlockNode,
+    },
+    /// Reorder children of a parent block.
+    Reorder {
+        path: Vec<BlockId>,
+        new_order: Vec<BlockId>,
+    },
+}
+
+/// A timestamped entry in the `.qwy` patch log.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct QwyPatchEntry {
+    pub patch_id: String,
+    /// Transaction grouping ID — atomic across multiple ops.
+    pub tx_id: String,
+    pub timestamp: DateTime<Utc>,
+    /// Actor role or id ("writer" | "user" | "researcher" | "terminal")
+    pub author: String,
+    pub run_id: Option<String>,
+    pub loop_id: Option<String>,
+    pub ops: Vec<QwyPatchOp>,
+}
+
+/// Version index entry within a `.qwy` document.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct QwyVersionIndexEntry {
+    /// SHA-256 of the full document state at this version.
+    pub snapshot_hash: String,
+    /// The transaction that produced this version.
+    pub tx_id: String,
+    pub timestamp: DateTime<Utc>,
+    pub author: String,
+}
+
+/// Header block for a `.qwy` document.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct QwyDocumentHeader {
+    /// Stable document ULID — never changes after creation.
+    pub document_id: String,
+    /// Schema version — additive only, never remove or reorder fields.
+    pub schema_version: u32,
+    pub created_at: DateTime<Utc>,
+    /// Agent or user who created the document.
+    pub created_by: String,
+    /// Conductor run that kicked off this document, if any.
+    pub conductor_run_id: Option<String>,
+}
+
+/// A complete `.qwy` document in memory.
+///
+/// Canonical format is CBOR; this struct is the typed Rust projection.
+/// JSON is a derived human-readable encoding. Markdown is a render artifact.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct QwyDocument {
+    pub header: QwyDocumentHeader,
+    /// Ordered root-level block IDs (all blocks stored flat by block_id).
+    pub root_block_ids: Vec<BlockId>,
+    /// All blocks keyed by block_id.
+    #[ts(type = "Record<string, BlockNode>")]
+    pub blocks: std::collections::HashMap<String, BlockNode>,
+    /// Append-only patch log.
+    pub patch_log: Vec<QwyPatchEntry>,
+    /// Citation registry keyed by citation_id.
+    #[ts(type = "Record<string, CitationRecord>")]
+    pub citation_registry: std::collections::HashMap<String, CitationRecord>,
+    /// Version history.
+    pub version_index: Vec<QwyVersionIndexEntry>,
+}
+
+// ============================================================================
+// Phase 2.2 — Citation Types
+// ============================================================================
+
+/// Why a resource was cited. Maps to the BAML `CitationKind` enum.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum CitationKind {
+    /// Researcher retrieved and pulled it into context.
+    RetrievedContext,
+    /// Appears as a link or reference in the document text.
+    InlineReference,
+    /// This run extends or revises the cited artifact.
+    BuildsOn,
+    /// Explicitly disputes a prior artifact.
+    Contradicts,
+    /// Restates a prior objective or directive.
+    Reissues,
+}
+
+/// Lifecycle state of a citation record.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum CitationStatus {
+    /// Proposed by researcher or writer — not yet confirmed.
+    Proposed,
+    /// Confirmed by writer or user — counts toward quality signal.
+    Confirmed,
+    /// Rejected — not counted; kept for training signal.
+    Rejected,
+    /// Superseded by a later citation to the same resource.
+    Superseded,
+}
+
+/// A single citation record — persisted to event store and `.qwy` registry.
+///
+/// Citation lifecycle:
+/// 1. Researcher proposes → `status: Proposed`, `confirmed_by: None`
+/// 2. Writer confirms → `status: Confirmed`, `confirmed_by: "writer"`, `confirmed_at: <ts>`
+/// 3. Writer rejects → `status: Rejected`
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct CitationRecord {
+    pub citation_id: String,
+    /// Artifact path, version_id, input_id, URL, or block_id.
+    pub cited_id: String,
+    /// "version_snapshot" | "user_input" | "external_content" | "qwy_block" | "external_url"
+    pub cited_kind: String,
+    pub citing_run_id: String,
+    pub citing_loop_id: String,
+    /// "researcher" | "writer" | "terminal" | "user"
+    pub citing_actor: String,
+    pub cite_kind: CitationKind,
+    /// Model confidence in this citation [0.0, 1.0].
+    pub confidence: f64,
+    /// Specific text span that triggered this citation, if extractable.
+    pub excerpt: Option<String>,
+    /// Why this citation was relevant.
+    pub rationale: String,
+    pub status: CitationStatus,
+    /// Who proposed: "researcher" | "writer" | "user"
+    pub proposed_by: String,
+    /// Who confirmed: "writer" | "user" | None
+    pub confirmed_by: Option<String>,
+    pub confirmed_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+// ============================================================================
+// Phase 2.3 — Embedding Collection Record Types
+// ============================================================================
+
+/// Record type for the `user_inputs` embedding collection.
+///
+/// One record per `EventType::UserInput` on any surface.
+/// All surfaces share one collection — cross-app correlations are the point.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct UserInputRecord {
+    pub input_id: String,
+    /// Plain text of the user directive.
+    pub content: String,
+    /// Surface that received the input: "conductor" | "writer" | "prompt_bar"
+    pub surface: String,
+    pub desktop_id: String,
+    pub session_id: String,
+    pub thread_id: String,
+    pub run_id: Option<String>,
+    pub document_path: Option<String>,
+    pub base_version_id: Option<u64>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Record type for the `version_snapshots` embedding collection.
+///
+/// One record per `VersionSource::Writer` harness loop completion.
+/// Intermediate loop versions are NOT embedded — only final loop outputs.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct VersionSnapshotRecord {
+    pub version_id: String,
+    pub document_path: String,
+    /// Full document text at this version.
+    pub content: String,
+    /// The objective the writer was given for this loop.
+    pub objective: String,
+    pub loop_id: String,
+    pub run_id: String,
+    /// SHA-256 of content — deduplication and selective re-embedding key.
+    pub chunk_hash: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Record type for the `run_trajectories` embedding collection.
+///
+/// One record per completed `AgentResult` from any harness.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct RunTrajectoryRecord {
+    pub loop_id: String,
+    pub run_id: String,
+    /// "researcher" | "writer" | "terminal" | "conductor" | "subharness"
+    pub worker_type: String,
+    pub objective: String,
+    /// Human-readable summary of what happened in this run.
+    pub summary: String,
+    pub steps_taken: u32,
+    pub success: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Record type for the `doc_trajectories` embedding collection.
+///
+/// One record per document path, updated each time a new `VersionSnapshotRecord`
+/// is added for that path. Captures the strategic arc of a document over time.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct DocTrajectoryRecord {
+    pub document_path: String,
+    pub version_count: u32,
+    pub run_count: u32,
+    pub last_loop_id: String,
+    /// Rolled-up narrative summary across all runs on this document.
+    pub cumulative_summary: String,
+    pub last_updated_at: DateTime<Utc>,
+}
+
+/// Local private record for externally fetched content.
+///
+/// Never published directly — stripped of private fields before entering
+/// `GlobalExternalContentRecord`.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct ExternalContentRecord {
+    pub content_id: String,
+    pub url: String,
+    /// SHA-256 of the fetched content text — deduplication key.
+    pub content_hash: String,
+    pub fetched_at: DateTime<Utc>,
+    /// Loop ID of the research loop that fetched this.
+    pub fetched_by: String,
+    pub run_id: Option<String>,
+    pub title: Option<String>,
+    /// Embeddable cleaned text extracted from the page.
+    pub content_text: String,
+    /// "full" | "sections" | "paragraphs"
+    pub chunk_strategy: String,
+    /// Local filesystem path to the raw snapshot, if stored.
+    pub snapshot_ref: Option<String>,
+    pub domain: Option<String>,
+    /// CSL-JSON bibliographic metadata if extractable.
+    #[ts(type = "unknown")]
+    pub csl_metadata: Option<serde_json::Value>,
+}
+
+/// Public record in the global hypervisor external content store.
+///
+/// Private fields (`fetched_by`, `run_id`, `snapshot_ref`) are stripped at
+/// the publish boundary. `content_id` is the `content_hash` for natural
+/// deduplication.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct GlobalExternalContentRecord {
+    /// Natural dedup key — content_hash from the local record.
+    pub content_id: String,
+    pub url: String,
+    pub title: Option<String>,
+    pub content_text: String,
+    pub chunk_strategy: String,
+    #[ts(type = "unknown")]
+    pub csl_metadata: Option<serde_json::Value>,
+    pub first_cited_at: DateTime<Utc>,
+    /// Confirmed citation count — used as retrieval quality weight.
+    pub citation_count: u32,
+    pub domain: Option<String>,
+    /// Always "external_content" — enables unified collection filtering.
+    pub record_kind: String,
+}
+
+// ============================================================================
+// Constants — Phase 2 event topics
+// ============================================================================
+
+pub const EVENT_TOPIC_CITATION_PROPOSED: &str = "citation.proposed";
+pub const EVENT_TOPIC_CITATION_CONFIRMED: &str = "citation.confirmed";
+pub const EVENT_TOPIC_CITATION_REJECTED: &str = "citation.rejected";
+
+// ============================================================================
 // Tests
 // ============================================================================
 

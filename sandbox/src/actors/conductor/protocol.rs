@@ -6,8 +6,8 @@
 use crate::actors::researcher::ResearcherResult;
 use crate::actors::terminal::TerminalAgentResult;
 use crate::actors::writer::{WriterOrchestrationResult, WriterQueueAck};
-use ractor::RpcReplyPort;
-use shared_types::{ConductorExecuteRequest, ConductorRunState, EventMetadata};
+use ractor::{ActorRef, RpcReplyPort};
+use shared_types::{CitationRecord, ConductorExecuteRequest, ConductorRunState, EventMetadata};
 
 /// Messages handled by ConductorActor
 #[derive(Debug)]
@@ -50,6 +50,21 @@ pub enum ConductorMsg {
         base_version_id: u64,
         reply: RpcReplyPort<Result<WriterQueueAck, ConductorError>>,
     },
+
+    // -----------------------------------------------------------------------
+    // Phase 2.4 — SubharnessActor completion messages
+    // -----------------------------------------------------------------------
+    /// A SubharnessActor completed its objective successfully.
+    SubharnessComplete {
+        /// Opaque correlation handle supplied at spawn time.
+        correlation_id: String,
+        result: SubharnessResult,
+    },
+    /// A SubharnessActor failed (panicked or returned an error).
+    SubharnessFailed {
+        correlation_id: String,
+        reason: String,
+    },
 }
 
 /// Output from a worker task
@@ -68,8 +83,50 @@ pub enum CapabilityWorkerOutput {
     Terminal(TerminalAgentResult),
     Writer(WriterOrchestrationResult),
     ImmediateResponse(String),
-    Subharness,
+    Subharness(SubharnessResult),
 }
+
+// ---------------------------------------------------------------------------
+// Phase 2.4 — SubharnessActor types
+// ---------------------------------------------------------------------------
+
+/// Messages handled by SubharnessActor.
+///
+/// SubharnessActor is a one-shot actor: it receives a single `Execute`
+/// message, runs to completion, sends a typed reply to conductor, then stops.
+#[derive(Debug)]
+pub enum SubharnessMsg {
+    /// Execute a scoped objective.
+    Execute {
+        /// Plain-language objective for this subharness run.
+        objective: String,
+        /// Serialised context bundle (retrieved artifacts, prior state, etc.)
+        context: serde_json::Value,
+        /// Opaque correlation handle returned unchanged in the completion message.
+        correlation_id: String,
+        /// Conductor's mailbox — subharness sends completion here.
+        reply_to: ActorRef<ConductorMsg>,
+    },
+}
+
+/// Completion payload returned by a SubharnessActor.
+#[derive(Debug, Clone)]
+pub struct SubharnessResult {
+    /// Final output text (markdown, JSON, or plain prose).
+    pub output: String,
+    /// Citations produced during the subharness run.
+    pub citations: Vec<CitationRecord>,
+    /// Whether the subharness considered the objective fully satisfied.
+    pub objective_satisfied: bool,
+    /// Optional human-readable reason (especially useful on partial completion).
+    pub completion_reason: Option<String>,
+    /// Number of harness steps taken.
+    pub steps_taken: u32,
+}
+
+// ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
 
 /// Errors that can occur in ConductorActor
 #[derive(Debug, thiserror::Error, Clone)]
