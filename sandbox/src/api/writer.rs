@@ -940,6 +940,73 @@ pub async fn save_version(
         .into_response()
 }
 
+// ---------------------------------------------------------------------------
+// Ensure run document — bootstrap a fresh run document without a file on disk
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct EnsureRunDocumentRequest {
+    /// Run document path: conductor/runs/{run_id}/draft.md
+    pub path: String,
+    /// Optional objective string stored with the run document
+    #[serde(default)]
+    pub objective: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EnsureRunDocumentResponse {
+    pub run_id: String,
+    pub ensured: bool,
+}
+
+/// Bootstrap a writer run document in the actor without requiring a file on disk.
+///
+/// This is the correct entry point for test harnesses and programmatic callers that
+/// want to create a run document via `save_version` without going through the full
+/// conductor pipeline (which writes a physical file).
+pub async fn ensure_run_document(
+    State(state): State<ApiState>,
+    Json(req): Json<EnsureRunDocumentRequest>,
+) -> impl IntoResponse {
+    let run_id = match extract_run_id_from_document_path(req.path.trim()) {
+        Some(run_id) => run_id,
+        None => {
+            return writer_error(
+                WriterErrorCode::InvalidRevision,
+                "ensure requires a run document path: conductor/runs/{run_id}/draft.md",
+            )
+            .into_response();
+        }
+    };
+
+    let writer_actor = match ensure_conductor_writer_actor(&state, &run_id).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
+
+    let result = ractor::call!(writer_actor, |reply| WriterMsg::EnsureRunDocument {
+        run_id: run_id.clone(),
+        desktop_id: "test".to_string(),
+        objective: req.objective,
+        reply,
+    });
+
+    match result {
+        Ok(Ok(())) => (
+            StatusCode::OK,
+            Json(EnsureRunDocumentResponse {
+                run_id,
+                ensured: true,
+            }),
+        )
+            .into_response(),
+        Ok(Err(err)) => map_writer_actor_error(err),
+        Err(err) => {
+            writer_error(WriterErrorCode::WriteError, err.to_string()).into_response()
+        }
+    }
+}
+
 /// Convert markdown to HTML
 fn markdown_to_html(content: &str) -> String {
     let mut options = Options::empty();
