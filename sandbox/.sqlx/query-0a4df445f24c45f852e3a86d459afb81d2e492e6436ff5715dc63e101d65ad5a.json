@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT seq as \"seq!\", event_id, timestamp, event_type, payload, actor_id, user_id\n            FROM events\n            WHERE actor_id = ?1\n              AND seq > ?2\n              AND (\n                  (session_id = ?3 AND thread_id = ?4)\n                  OR (\n                      session_id IS NULL\n                      AND thread_id IS NULL\n                      AND json_extract(payload, '$.scope.session_id') = ?3\n                      AND json_extract(payload, '$.scope.thread_id') = ?4\n                  )\n              )\n            ORDER BY seq ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "seq!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "event_id",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "timestamp",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "event_type",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "payload",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "actor_id",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "user_id",
+        "ordinal": 6,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0a4df445f24c45f852e3a86d459afb81d2e492e6436ff5715dc63e101d65ad5a"
+}

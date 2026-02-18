@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO events (event_id, event_type, payload, actor_id, user_id, session_id, thread_id)\n            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)\n            RETURNING\n                seq as \"seq!\",\n                event_id,\n                timestamp,\n                event_type,\n                payload,\n                actor_id,\n                user_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "seq!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "event_id",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "timestamp",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "event_type",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "payload",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "actor_id",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "user_id",
+        "ordinal": 6,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f3e6834caedc883f834a7e530065c76229c692ff23fa4bcb0400f31989ac59bc"
+}

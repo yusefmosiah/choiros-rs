@@ -1,12 +1,12 @@
 //! EventStoreActor - Append-only event log using ractor
 //!
-//! This actor provides persistent storage for events using SQLite (libsql).
+//! This actor provides persistent storage for events using SQLite (sqlx).
 //! It supports both file-based and in-memory databases.
 //!
 //! # Architecture
 //!
-//! - Uses ractor for actor model (converted from Actix)
-//! - Uses libsql for SQLite database access
+//! - Uses ractor for actor model
+//! - Uses sqlx for SQLite database access with compile-time checked migrations
 //! - Supports append-only event log pattern
 //! - Events are immutable and ordered by sequence number
 //!
@@ -35,8 +35,8 @@
 //! ```
 
 use async_trait::async_trait;
-use libsql::Connection;
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
+use sqlx::SqlitePool;
 
 /// Actor that manages the append-only event log
 #[derive(Debug, Default)]
@@ -53,7 +53,7 @@ pub enum EventStoreArguments {
 
 /// State for EventStoreActor
 pub struct EventStoreState {
-    conn: Connection,
+    pool: SqlitePool,
 }
 
 // ============================================================================
@@ -105,97 +105,22 @@ pub enum EventStoreMsg {
 }
 
 impl EventStoreActor {
-    async fn new_with_path(database_path: &str) -> Result<Connection, libsql::Error> {
-        // Ensure parent directory exists for file-based databases
-        if database_path != ":memory:" {
-            if let Some(parent) = std::path::Path::new(database_path).parent() {
-                std::fs::create_dir_all(parent).ok();
-            }
-        }
+    async fn open_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
+        use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+        use std::str::FromStr;
 
-        let db = libsql::Builder::new_local(database_path).build().await?;
-        let conn = db.connect()?;
+        let opts = SqliteConnectOptions::from_str(database_url)?
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal);
 
-        // Run migrations manually (libsql doesn't have built-in migration runner)
-        Self::run_migrations(&conn).await?;
+        let pool = SqlitePool::connect_with(opts).await?;
 
-        Ok(conn)
-    }
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .map_err(|e| sqlx::Error::Configuration(format!("migration failed: {e}").into()))?;
 
-    async fn run_migrations(conn: &Connection) -> Result<(), libsql::Error> {
-        // Create events table
-        conn.execute(
-            r#"
-            CREATE TABLE IF NOT EXISTS events (
-                seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_id TEXT UNIQUE NOT NULL,
-                timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-                event_type TEXT NOT NULL,
-                payload TEXT NOT NULL,
-                actor_id TEXT NOT NULL,
-                user_id TEXT NOT NULL DEFAULT 'system'
-            )
-            "#,
-            (),
-        )
-        .await?;
-
-        // Create indexes
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_events_actor_id ON events(actor_id)",
-            (),
-        )
-        .await?;
-
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_events_event_type ON events(event_type)",
-            (),
-        )
-        .await?;
-
-        // Add scope columns for safe session/thread isolation.
-        let mut table_info = conn.query("PRAGMA table_info(events)", ()).await?;
-        let mut has_session_id = false;
-        let mut has_thread_id = false;
-        while let Some(row) = table_info.next().await? {
-            let col_name: String = row.get(1)?;
-            if col_name == "session_id" {
-                has_session_id = true;
-            }
-            if col_name == "thread_id" {
-                has_thread_id = true;
-            }
-        }
-
-        if !has_session_id {
-            conn.execute("ALTER TABLE events ADD COLUMN session_id TEXT", ())
-                .await?;
-        }
-        if !has_thread_id {
-            conn.execute("ALTER TABLE events ADD COLUMN thread_id TEXT", ())
-                .await?;
-        }
-
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_events_session_thread ON events(session_id, thread_id)",
-            (),
-        )
-        .await?;
-
-        // Backfill any existing scoped payload rows into explicit columns.
-        conn.execute(
-            r#"
-            UPDATE events
-            SET
-                session_id = COALESCE(session_id, json_extract(payload, '$.scope.session_id')),
-                thread_id = COALESCE(thread_id, json_extract(payload, '$.scope.thread_id'))
-            WHERE session_id IS NULL OR thread_id IS NULL
-            "#,
-            (),
-        )
-        .await?;
-
-        Ok(())
+        Ok(pool)
     }
 }
 
@@ -215,22 +140,28 @@ impl Actor for EventStoreActor {
             "EventStoreActor starting"
         );
 
-        let conn = match args {
+        let pool = match args {
             EventStoreArguments::File(path) => {
                 tracing::info!(database_path = %path, "Opening file-based database");
-                Self::new_with_path(&path).await.map_err(|e| {
-                    ActorProcessingErr::from(format!("Failed to open database: {e}"))
-                })?
+                // Ensure parent directory exists
+                if let Some(parent) = std::path::Path::new(&path).parent() {
+                    std::fs::create_dir_all(parent).ok();
+                }
+                Self::open_pool(&format!("sqlite:{path}"))
+                    .await
+                    .map_err(|e| {
+                        ActorProcessingErr::from(format!("Failed to open database: {e}"))
+                    })?
             }
             EventStoreArguments::InMemory => {
                 tracing::info!("Opening in-memory database");
-                Self::new_with_path(":memory:").await.map_err(|e| {
+                Self::open_pool("sqlite::memory:").await.map_err(|e| {
                     ActorProcessingErr::from(format!("Failed to open in-memory database: {e}"))
                 })?
             }
         };
 
-        Ok(EventStoreState { conn })
+        Ok(EventStoreState { pool })
     }
 
     async fn post_start(
@@ -378,8 +309,8 @@ pub enum EventStoreError {
     InvalidTimestamp(String),
 }
 
-impl From<libsql::Error> for EventStoreError {
-    fn from(e: libsql::Error) -> Self {
+impl From<sqlx::Error> for EventStoreError {
+    fn from(e: sqlx::Error) -> Self {
         EventStoreError::Database(e.to_string())
     }
 }
@@ -388,6 +319,36 @@ impl From<serde_json::Error> for EventStoreError {
     fn from(e: serde_json::Error) -> Self {
         EventStoreError::Serialization(e.to_string())
     }
+}
+
+// ============================================================================
+// Row mapping helper
+// ============================================================================
+
+struct EventRow {
+    seq: i64,
+    event_id: String,
+    timestamp: String,
+    event_type: String,
+    payload: String,
+    actor_id: String,
+    user_id: String,
+}
+
+fn parse_event_row(row: EventRow) -> Result<shared_types::Event, EventStoreError> {
+    // SQLite stores timestamps as TEXT in the format "YYYY-MM-DD HH:MM:SS".
+    let naive_dt = chrono::NaiveDateTime::parse_from_str(&row.timestamp, "%Y-%m-%d %H:%M:%S")
+        .map_err(|e| EventStoreError::InvalidTimestamp(e.to_string()))?;
+
+    Ok(shared_types::Event {
+        seq: row.seq,
+        event_id: row.event_id,
+        timestamp: chrono::DateTime::from_naive_utc_and_offset(naive_dt, chrono::Utc),
+        event_type: row.event_type,
+        payload: serde_json::from_str(&row.payload)?,
+        actor_id: shared_types::ActorId(row.actor_id),
+        user_id: row.user_id,
+    })
 }
 
 // ============================================================================
@@ -400,77 +361,47 @@ impl EventStoreActor {
         msg: AppendEvent,
         state: &mut EventStoreState,
     ) -> Result<shared_types::Event, EventStoreError> {
-        let conn = &state.conn;
         let event_id = ulid::Ulid::new().to_string();
         let payload_json = serde_json::to_string(&msg.payload)?;
-        let scope_session_id = msg
+        let scope_session_id: Option<String> = msg
             .payload
             .get("scope")
             .and_then(|s| s.get("session_id"))
             .and_then(|v| v.as_str())
             .map(ToString::to_string);
-        let scope_thread_id = msg
+        let scope_thread_id: Option<String> = msg
             .payload
             .get("scope")
             .and_then(|s| s.get("thread_id"))
             .and_then(|v| v.as_str())
             .map(ToString::to_string);
 
-        // Insert the event (libsql doesn't support RETURNING clause)
-        // Clone values for params macro (it takes ownership)
-        let actor_id_clone = msg.actor_id.clone();
-        let user_id_clone = msg.user_id.clone();
-        let event_id_for_query = event_id.clone();
-        conn.execute(
+        let row = sqlx::query_as!(
+            EventRow,
             r#"
             INSERT INTO events (event_id, event_type, payload, actor_id, user_id, session_id, thread_id)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-            "#,
-            libsql::params![
+            RETURNING
+                seq as "seq!",
                 event_id,
-                msg.event_type,
-                payload_json,
-                actor_id_clone,
-                user_id_clone,
-                scope_session_id,
-                scope_thread_id
-            ],
+                timestamp,
+                event_type,
+                payload,
+                actor_id,
+                user_id
+            "#,
+            event_id,
+            msg.event_type,
+            payload_json,
+            msg.actor_id,
+            msg.user_id,
+            scope_session_id,
+            scope_thread_id,
         )
+        .fetch_one(&state.pool)
         .await?;
 
-        // Retrieve the inserted row
-        let mut rows = conn
-            .query(
-                r#"
-                SELECT seq, event_id, timestamp, event_type, payload, actor_id, user_id
-                FROM events
-                WHERE event_id = ?1
-                "#,
-                [event_id_for_query.as_str()],
-            )
-            .await?;
-
-        let row = rows
-            .next()
-            .await?
-            .ok_or(EventStoreError::EventNotFound(0))?;
-
-        // Parse SQLite datetime format: "2026-01-31 02:24:30"
-        let timestamp_str: String = row.get(2)?;
-        let naive_dt = chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
-            .map_err(|e| EventStoreError::InvalidTimestamp(e.to_string()))?;
-
-        let event = shared_types::Event {
-            seq: row.get(0)?,
-            event_id: row.get(1)?,
-            timestamp: chrono::DateTime::from_naive_utc_and_offset(naive_dt, chrono::Utc),
-            event_type: row.get(3)?,
-            payload: serde_json::from_str(&row.get::<String>(4)?)?,
-            actor_id: shared_types::ActorId(row.get(5)?),
-            user_id: row.get(6)?,
-        };
-
-        Ok(event)
+        parse_event_row(row)
     }
 
     async fn handle_get_events_for_actor(
@@ -479,41 +410,21 @@ impl EventStoreActor {
         since_seq: i64,
         state: &mut EventStoreState,
     ) -> Result<Vec<shared_types::Event>, EventStoreError> {
-        let conn = &state.conn;
+        let rows = sqlx::query_as!(
+            EventRow,
+            r#"
+            SELECT seq as "seq!", event_id, timestamp, event_type, payload, actor_id, user_id
+            FROM events
+            WHERE actor_id = ?1 AND seq > ?2
+            ORDER BY seq ASC
+            "#,
+            actor_id,
+            since_seq,
+        )
+        .fetch_all(&state.pool)
+        .await?;
 
-        let mut rows = conn
-            .query(
-                r#"
-                SELECT seq, event_id, timestamp, event_type, payload, actor_id, user_id
-                FROM events
-                WHERE actor_id = ?1 AND seq > ?2
-                ORDER BY seq ASC
-                "#,
-                libsql::params![actor_id, since_seq],
-            )
-            .await?;
-
-        let mut events = Vec::new();
-        while let Some(row) = rows.next().await? {
-            // Parse SQLite datetime format: "2026-01-31 02:24:30"
-            let timestamp_str: String = row.get(2)?;
-            let naive_dt =
-                chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
-                    .map_err(|e| EventStoreError::InvalidTimestamp(e.to_string()))?;
-
-            let event = shared_types::Event {
-                seq: row.get(0)?,
-                event_id: row.get(1)?,
-                timestamp: chrono::DateTime::from_naive_utc_and_offset(naive_dt, chrono::Utc),
-                event_type: row.get(3)?,
-                payload: serde_json::from_str(&row.get::<String>(4)?)?,
-                actor_id: shared_types::ActorId(row.get(5)?),
-                user_id: row.get(6)?,
-            };
-            events.push(event);
-        }
-
-        Ok(events)
+        rows.into_iter().map(parse_event_row).collect()
     }
 
     async fn handle_get_events_for_actor_with_scope(
@@ -524,50 +435,33 @@ impl EventStoreActor {
         since_seq: i64,
         state: &mut EventStoreState,
     ) -> Result<Vec<shared_types::Event>, EventStoreError> {
-        let conn = &state.conn;
-
-        let mut rows = conn
-            .query(
-                r#"
-                SELECT seq, event_id, timestamp, event_type, payload, actor_id, user_id
-                FROM events
-                WHERE actor_id = ?1
-                  AND seq > ?2
-                  AND (
-                      (session_id = ?3 AND thread_id = ?4)
-                      OR (
-                          session_id IS NULL
-                          AND thread_id IS NULL
-                          AND json_extract(payload, '$.scope.session_id') = ?3
-                          AND json_extract(payload, '$.scope.thread_id') = ?4
-                      )
+        let rows = sqlx::query_as!(
+            EventRow,
+            r#"
+            SELECT seq as "seq!", event_id, timestamp, event_type, payload, actor_id, user_id
+            FROM events
+            WHERE actor_id = ?1
+              AND seq > ?2
+              AND (
+                  (session_id = ?3 AND thread_id = ?4)
+                  OR (
+                      session_id IS NULL
+                      AND thread_id IS NULL
+                      AND json_extract(payload, '$.scope.session_id') = ?3
+                      AND json_extract(payload, '$.scope.thread_id') = ?4
                   )
-                ORDER BY seq ASC
-                "#,
-                libsql::params![actor_id, since_seq, session_id, thread_id],
-            )
-            .await?;
+              )
+            ORDER BY seq ASC
+            "#,
+            actor_id,
+            since_seq,
+            session_id,
+            thread_id,
+        )
+        .fetch_all(&state.pool)
+        .await?;
 
-        let mut events = Vec::new();
-        while let Some(row) = rows.next().await? {
-            let timestamp_str: String = row.get(2)?;
-            let naive_dt =
-                chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
-                    .map_err(|e| EventStoreError::InvalidTimestamp(e.to_string()))?;
-
-            let event = shared_types::Event {
-                seq: row.get(0)?,
-                event_id: row.get(1)?,
-                timestamp: chrono::DateTime::from_naive_utc_and_offset(naive_dt, chrono::Utc),
-                event_type: row.get(3)?,
-                payload: serde_json::from_str(&row.get::<String>(4)?)?,
-                actor_id: shared_types::ActorId(row.get(5)?),
-                user_id: row.get(6)?,
-            };
-            events.push(event);
-        }
-
-        Ok(events)
+        rows.into_iter().map(parse_event_row).collect()
     }
 
     async fn handle_get_recent_events(
@@ -579,44 +473,32 @@ impl EventStoreActor {
         user_id: Option<String>,
         state: &mut EventStoreState,
     ) -> Result<Vec<shared_types::Event>, EventStoreError> {
-        let conn = &state.conn;
         let safe_limit = limit.clamp(1, 1000);
+        // Build LIKE pattern outside the query.
+        let type_pattern: Option<String> = event_type_prefix.map(|p| format!("{p}%"));
 
-        let mut rows = conn
-            .query(
-                r#"
-                SELECT seq, event_id, timestamp, event_type, payload, actor_id, user_id
-                FROM events
-                WHERE seq > ?1
-                  AND (?2 IS NULL OR event_type LIKE (?2 || '%'))
-                  AND (?3 IS NULL OR actor_id = ?3)
-                  AND (?4 IS NULL OR user_id = ?4)
-                ORDER BY seq ASC
-                LIMIT ?5
-                "#,
-                libsql::params![since_seq, event_type_prefix, actor_id, user_id, safe_limit],
-            )
-            .await?;
+        let rows = sqlx::query_as!(
+            EventRow,
+            r#"
+            SELECT seq as "seq!", event_id, timestamp, event_type, payload, actor_id, user_id
+            FROM events
+            WHERE seq > ?1
+              AND (?2 IS NULL OR event_type LIKE ?2)
+              AND (?3 IS NULL OR actor_id = ?3)
+              AND (?4 IS NULL OR user_id = ?4)
+            ORDER BY seq ASC
+            LIMIT ?5
+            "#,
+            since_seq,
+            type_pattern,
+            actor_id,
+            user_id,
+            safe_limit,
+        )
+        .fetch_all(&state.pool)
+        .await?;
 
-        let mut events = Vec::new();
-        while let Some(row) = rows.next().await? {
-            let timestamp_str: String = row.get(2)?;
-            let naive_dt =
-                chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
-                    .map_err(|e| EventStoreError::InvalidTimestamp(e.to_string()))?;
-
-            events.push(shared_types::Event {
-                seq: row.get(0)?,
-                event_id: row.get(1)?,
-                timestamp: chrono::DateTime::from_naive_utc_and_offset(naive_dt, chrono::Utc),
-                event_type: row.get(3)?,
-                payload: serde_json::from_str(&row.get::<String>(4)?)?,
-                actor_id: shared_types::ActorId(row.get(5)?),
-                user_id: row.get(6)?,
-            });
-        }
-
-        Ok(events)
+        rows.into_iter().map(parse_event_row).collect()
     }
 
     async fn handle_get_event_by_seq(
@@ -624,52 +506,29 @@ impl EventStoreActor {
         seq: i64,
         state: &mut EventStoreState,
     ) -> Result<Option<shared_types::Event>, EventStoreError> {
-        let conn = &state.conn;
+        let maybe_row = sqlx::query_as!(
+            EventRow,
+            r#"
+            SELECT seq as "seq!", event_id, timestamp, event_type, payload, actor_id, user_id
+            FROM events
+            WHERE seq = ?1
+            "#,
+            seq,
+        )
+        .fetch_optional(&state.pool)
+        .await?;
 
-        let mut rows = conn
-            .query(
-                r#"
-                SELECT seq, event_id, timestamp, event_type, payload, actor_id, user_id
-                FROM events
-                WHERE seq = ?1
-                "#,
-                [seq],
-            )
-            .await?;
-
-        match rows.next().await? {
-            Some(row) => {
-                // Parse SQLite datetime format: "2026-01-31 02:24:30"
-                let timestamp_str: String = row.get(2)?;
-                let naive_dt =
-                    chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
-                        .map_err(|e| EventStoreError::InvalidTimestamp(e.to_string()))?;
-
-                let event = shared_types::Event {
-                    seq: row.get(0)?,
-                    event_id: row.get(1)?,
-                    timestamp: chrono::DateTime::from_naive_utc_and_offset(naive_dt, chrono::Utc),
-                    event_type: row.get(3)?,
-                    payload: serde_json::from_str(&row.get::<String>(4)?)?,
-                    actor_id: shared_types::ActorId(row.get(5)?),
-                    user_id: row.get(6)?,
-                };
-                Ok(Some(event))
-            }
-            None => Ok(None),
-        }
+        maybe_row.map(parse_event_row).transpose()
     }
 
     async fn handle_get_latest_seq(
         &self,
         state: &mut EventStoreState,
     ) -> Result<Option<i64>, EventStoreError> {
-        let conn = &state.conn;
-        let mut rows = conn.query("SELECT MAX(seq) FROM events", ()).await?;
-        match rows.next().await? {
-            Some(row) => row.get::<Option<i64>>(0).map_err(EventStoreError::from),
-            None => Ok(None),
-        }
+        let row = sqlx::query!("SELECT MAX(seq) as max_seq FROM events")
+            .fetch_one(&state.pool)
+            .await?;
+        Ok(row.max_seq)
     }
 }
 

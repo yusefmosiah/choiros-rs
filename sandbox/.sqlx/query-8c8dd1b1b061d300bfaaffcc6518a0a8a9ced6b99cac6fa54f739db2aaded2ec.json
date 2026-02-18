@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT MAX(seq) as max_seq FROM events",
+  "describe": {
+    "columns": [
+      {
+        "name": "max_seq",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "8c8dd1b1b061d300bfaaffcc6518a0a8a9ced6b99cac6fa54f739db2aaded2ec"
+}

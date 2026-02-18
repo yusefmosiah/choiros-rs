@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT seq as \"seq!\", event_id, timestamp, event_type, payload, actor_id, user_id\n            FROM events\n            WHERE seq > ?1\n              AND (?2 IS NULL OR event_type LIKE ?2)\n              AND (?3 IS NULL OR actor_id = ?3)\n              AND (?4 IS NULL OR user_id = ?4)\n            ORDER BY seq ASC\n            LIMIT ?5\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "seq!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "event_id",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "timestamp",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "event_type",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "payload",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "actor_id",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "user_id",
+        "ordinal": 6,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3775f2097ee543349400778059d363e6b419afc484bdd10cd46c0f84d2c204bb"
+}

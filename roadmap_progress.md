@@ -1,5 +1,37 @@
 # Roadmap Progress
 
+Date: 2026-02-18
+
+## Phase 0 — CLOSED (2026-02-18)
+
+All nine codebase seams from `docs/architecture/2026-02-17-codesign-runbook.md`
+are closed. Seams 0.1–0.8 were closed in the prior branch (bb111fa). Seam 0.9
+(libsql → sqlx) was completed in this session.
+
+### What landed
+- `sandbox/Cargo.toml`: `libsql` removed, `sqlx` (workspace) added
+- `sandbox/migrations/20260131000000_events_scope_columns.sql`: scope columns
+  tracked as a proper migration (previously a `PRAGMA table_info` workaround)
+- `sandbox/src/actors/event_store.rs`: full migration to `sqlx::SqlitePool` +
+  `sqlx::migrate!()` + `INSERT ... RETURNING`
+- `sandbox/.sqlx/`: offline query cache for `SQLX_OFFLINE=true` CI
+- `sandbox/tests/phase0_gate_test.rs`: three gate tests:
+  - concurrent WriterActor run isolation (N independent actor instances, no
+    shared dedup or document state)
+  - writer delegation tool-contract regression (structural source check for
+    `["message_writer", "finished"]` and `["finished"]` allow-lists)
+  - writer inbox causal event ordering (apply_text precedes inbox.enqueued,
+    as designed)
+
+All gate tests pass. `cargo fmt --check` clean.
+
+### Now: Phase 1
+
+See `docs/architecture/2026-02-17-codesign-runbook.md` Phase 1 for the spec.
+See `docs/handoffs/2026-02-18-phase0-closure.md` for full handoff notes.
+
+---
+
 Date: 2026-02-14
 Source roadmap:
 - `docs/architecture/roadmap-dependency-tree.md`
