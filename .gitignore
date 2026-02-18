@@ -44,6 +44,9 @@ tests/playwright/test-results/
 tests/playwright/tests/artifacts/
 tests/playwright/artifacts/
 
+# FastEmbed model cache
+**/.fastembed_cache/
+
 # Generated conductor runtime artifacts
 sandbox/conductor/runs/
 sandbox/.writer_revisions/

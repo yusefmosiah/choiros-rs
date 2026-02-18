@@ -2,6 +2,34 @@
 
 Date: 2026-02-18
 
+## Current Program State (2026-02-18, post-review checkpoint)
+
+Scope: nine commits plus local uncommitted changes since the previous review.
+
+### Phase 4 — PARTIAL
+
+| Item | Status |
+|---|---|
+| 4.1 SubharnessActor — full actor + typed completion | Done |
+| 4.2 NextAction expansion — `SpawnSubharness` + conductor wiring | Done |
+| 4.3 Conductor RLM harness turn (`HarnessProfile::Conductor`) | Not done |
+| 4.4 Run state durability (`restore_run_states`) | Done |
+| 4.5 ContextSnapshot + MemoryActor `GetContextSnapshot` | Done |
+
+Gate status: not yet met because 4.3 is open.
+
+### Phase 5 — CLOSED
+
+MemoryActor + sqlite-vec + fastembed integration is complete, and the Phase 5 gate
+test suite is passing (11/11).
+
+### Immediate Next Step
+
+Wire conductor wake to execute a bounded `AgentHarness` turn with
+`HarnessProfile::Conductor` while preserving non-blocking conductor behavior.
+
+---
+
 ## Phase 3 — CLOSED (2026-02-18)
 
 Citation lifecycle fully wired: researcher proposes, writer confirms, user inputs
@@ -45,8 +73,7 @@ recorded, external content published, `.qwy` citation registry emitted.
 See `docs/architecture/2026-02-17-codesign-runbook.md` Phase 4 for the spec.
 See `docs/handoffs/2026-02-18-phase3-closure.md` for full handoff notes.
 
-Phase 4 goal: RLM harness — SubharnessActor implementation, NextAction expansion,
-Conductor RLM harness turn, run state durability, ContextSnapshot type.
+Phase 4 goal: close remaining item 4.3 (`HarnessProfile::Conductor` on conductor wake).
 
 ---
 

@@ -1203,6 +1203,34 @@ impl Actor for TerminalActor {
                     }
                     _ => Err(TerminalError::NotRunning),
                 };
+                // Emit tool.result to EventStore so ActorRlmPort::resolve_source(ToolOutput, corr_id)
+                // can find the result on the next harness turn. The call_id field carries the corr_id
+                // assigned by dispatch_bash_async in ActorRlmPort.
+                if let Some(corr_id) = &call_id {
+                    let (success, output, error) = match &result {
+                        Ok(r) => (r.success, r.summary.clone(), None::<String>),
+                        Err(e) => (false, String::new(), Some(e.to_string())),
+                    };
+                    let payload = serde_json::json!({
+                        "corr_id": corr_id,
+                        "run_id": run_id,
+                        "actor_id": state.terminal_id,
+                        "success": success,
+                        "output": output,
+                        "error": error,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+                    let _ = state.event_store.send_message(
+                        crate::actors::event_store::EventStoreMsg::AppendAsync {
+                            event: crate::actors::event_store::AppendEvent {
+                                event_type: "tool.result".to_string(),
+                                payload,
+                                actor_id: state.terminal_id.clone(),
+                                user_id: state.user_id.clone(),
+                            },
+                        },
+                    );
+                }
                 Self::emit_writer_completion(writer_actor, run_id, call_id, result);
             }
             TerminalMsg::RunBashTool {

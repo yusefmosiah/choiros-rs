@@ -1,6 +1,6 @@
 # ChoirOS Narrative Index (Read This First)
 
-Date: 2026-02-16
+Date: 2026-02-18
 Purpose: Human-readable map of the architecture docs, in plain language.
 
 ## 60-Second Story
@@ -19,13 +19,16 @@ Immediate app pattern: human UX first, then headless API, then app-agent harness
 
 ## Latest Checkpoint (2026-02-18)
 
-- Writer delegation contract is now enforced by runtime tool allow-lists.
-  - Writer delegation: `message_writer`, `finished`
-  - Writer synthesis: `finished`
-- Unsupported writer delegation tool calls are treated as contract violations (no fallback orchestration path).
-- Delegation lifecycle was corrected so inflight worker state clears on completion signal, not immediately on dispatch.
-- Playwright evidence was captured for prompt -> conductor -> writer -> researcher with live document updates.
-- Playwright artifact outputs are gitignored to keep the repo clean during repeated E2E runs.
+- Phase 4 is partial: items 4.1, 4.2, 4.4, and 4.5 are complete.
+- Phase 4 item 4.3 is still open: conductor wake still runs the BAML
+  `ConductorBootstrap` path instead of an RLM harness turn with
+  `HarnessProfile::Conductor`.
+- Phase 4 gate is therefore not yet met (`HarnessProfile::Conductor` step-budget
+  enforcement is the remaining blocker).
+- Phase 5 is complete: MemoryActor + sqlite-vec + fastembed are integrated and
+  the gate suite is passing.
+- Immediate execution target: wire conductor wake to a bounded RLM harness turn
+  without violating non-blocking conductor constraints.
 
 ## What We Are Building Right Now
 
