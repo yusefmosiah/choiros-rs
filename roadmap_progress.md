@@ -2,6 +2,54 @@
 
 Date: 2026-02-18
 
+## Phase 3 — CLOSED (2026-02-18)
+
+Citation lifecycle fully wired: researcher proposes, writer confirms, user inputs
+recorded, external content published, `.qwy` citation registry emitted.
+
+### What landed (commit 58a965c)
+
+- **3.1 Researcher citation emit** — `emit_citation_proposed_events` in
+  `ResearcherActor::run_with_harness`; harvests `web_search` tool outputs; emits
+  `citation.proposed` per URL with `CitationRecord` payload and `citing_run_id`.
+- **3.2 Writer confirmation** — `emit_citation_confirmation_events` in
+  `WriterActor::handle_delegation_worker_completed`; emits `citation.confirmed` /
+  `citation.rejected` with `confirmed_by: "writer"` and `confirmed_at`.
+- **3.3 UserInput records** — `UserInputRecord` emitted at `/conductor/execute` (3.3a)
+  and `/writer/prompt` (3.3b); both carry `input_id`, `surface`, `content`, `run_id`.
+- **3.4 External content publish** — `emit_global_external_content_upsert` in
+  `WriterActor`; fires `global_external_content.upsert` for confirmed external URL
+  citations with `content_hash`, `cited_kind`, `citing_run_id`.
+- **3.5 Citation registry** — `qwy.citation_registry` emitted in
+  `set_section_content_internal` when `is_writer_source`; payload carries `run_id`,
+  `version_id`, and array of `{citation_id, cited_kind, cited_id}` entries.
+- **Phase 3 Playwright gate** — `tests/playwright/phase3-citations.spec.ts` (5 tests,
+  all passing): 3.3a, 3.3b, 3.1+3.2+3.4, 3.5, smoke.
+- **169/169 unit tests pass.**
+
+### Also closed in prior sessions (Phases 1 and 2)
+
+- **Phase 1** — Marginalia v1: changeset summarization pipeline, `ChangesetSummarizationCtx`
+  struct, version navigation, provenance badges, WS delivery fix. 5/5 gate tests passing.
+  `#[allow(clippy::all)]` on `mod baml_client` (87 pre-existing clippy errors suppressed).
+- **Phase 2** — All type definitions: `.qwy` core types (`BlockId`, `QwyDocument`, etc.),
+  `CitationKind`/`CitationStatus`/`CitationRecord`, embedding collection records
+  (`UserInputRecord`, `VersionSnapshotRecord`, `RunTrajectoryRecord`, etc.),
+  `SubharnessMsg`/`SubharnessResult`, `HarnessProfile`, `WriterSupervisorMsg`
+  Resolve/Register/Deregister. Also fixed all 3 pre-existing test failures
+  (`test_execute_task_message_missing_workers`, `test_run_agentic_task_times_out_long_command`,
+  `test_run_agentic_task_executes_curl_against_local_server`).
+
+### Now: Phase 4
+
+See `docs/architecture/2026-02-17-codesign-runbook.md` Phase 4 for the spec.
+See `docs/handoffs/2026-02-18-phase3-closure.md` for full handoff notes.
+
+Phase 4 goal: RLM harness — SubharnessActor implementation, NextAction expansion,
+Conductor RLM harness turn, run state durability, ContextSnapshot type.
+
+---
+
 ## Phase 0 — CLOSED (2026-02-18)
 
 All nine codebase seams from `docs/architecture/2026-02-17-codesign-runbook.md`
