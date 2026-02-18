@@ -681,8 +681,37 @@ impl<P: RlmPort> RlmHarness<P> {
         let mut pending_replies: Vec<shared_types::PendingReply> = Vec::new();
         let mut pending_corr_ids: Vec<String> = Vec::new();
         let mut turn_summaries: Vec<shared_types::TurnSummary> = Vec::new();
+        // Recurse/FanOut depth tracking — counts subharness dispatches fired.
+        // Once this reaches max_recurse_depth no further recursive dispatches
+        // are allowed; the action is converted to a Block result instead.
+        let mut recurse_dispatches: usize = 0;
+
+        // Deadline from the configured budget. Checked at the top of each turn.
+        let run_deadline = tokio::time::Instant::now()
+            + std::time::Duration::from_millis(self.config.timeout_budget_ms);
 
         for turn in 1..=self.config.max_turns {
+            // Enforce wall-clock budget before starting each new turn.
+            if tokio::time::Instant::now() >= run_deadline {
+                tracing::warn!(
+                    run_id = %self.port.run_id(),
+                    turn,
+                    budget_ms = self.config.timeout_budget_ms,
+                    "RLM harness timeout budget exceeded"
+                );
+                return Ok(RlmRunResult {
+                    final_working_memory: working_memory.unwrap_or_default(),
+                    completion_reason: format!(
+                        "timeout: exceeded {}ms budget after {} turns",
+                        self.config.timeout_budget_ms, turn - 1
+                    ),
+                    turns_taken: turn - 1,
+                    tool_executions: all_tool_executions,
+                    turn_log,
+                    dag_traces: all_dag_traces,
+                });
+            }
+
             let turn_start = Instant::now();
             // Each new turn clears prior-turn pending state — if we reached
             // this turn, all prior pending replies were resolved.
@@ -865,35 +894,52 @@ impl<P: RlmPort> RlmHarness<P> {
 
                 NextActionKind::FanOut => {
                     let branches = action.branches.as_deref().unwrap_or(&[]);
-                    let now = Utc::now();
-                    let timeout = now + Duration::seconds(120);
-                    let mut dispatched: Vec<String> = Vec::new();
-                    for (i, b) in branches.iter().enumerate() {
-                        let corr_id = format!("fanout-{turn}-{i}");
-                        info!("FanOut branch {i}: dispatching subharness corr:{corr_id}");
-                        // Build context JSON from optional context_seed string
-                        let ctx = b.context_seed.as_deref()
-                            .map(|s| serde_json::json!({ "seed": s }))
-                            .unwrap_or(serde_json::Value::Null);
-                        // Fire-and-forget: port sends SubharnessMsg::Execute and returns immediately
-                        self.port
-                            .spawn_subharness(&b.objective, ctx, &corr_id)
-                            .await;
-                        pending_corr_ids.push(corr_id.clone());
-                        pending_replies.push(shared_types::PendingReply {
-                            corr_id: corr_id.clone(),
-                            actor_kind: "subharness".to_string(),
-                            objective_summary: truncate_str(&b.objective, 120).to_string(),
-                            sent_at: now,
-                            timeout_at: Some(timeout),
-                        });
-                        dispatched.push(format!("corr:{corr_id} objective:{}", b.objective));
+                    // Enforce max_recurse_depth — each FanOut counts as one
+                    // recursive dispatch level.
+                    if recurse_dispatches >= self.config.max_recurse_depth {
+                        tracing::warn!(
+                            run_id = %self.port.run_id(),
+                            turn,
+                            depth = recurse_dispatches,
+                            max = self.config.max_recurse_depth,
+                            "RLM FanOut blocked: max_recurse_depth reached"
+                        );
+                        action_results = Some(format!(
+                            "[BLOCKED] max_recurse_depth ({}) reached; FanOut not dispatched",
+                            self.config.max_recurse_depth
+                        ));
+                    } else {
+                        recurse_dispatches += 1;
+                        let now = Utc::now();
+                        let timeout = now + Duration::seconds(120);
+                        let mut dispatched: Vec<String> = Vec::new();
+                        for (i, b) in branches.iter().enumerate() {
+                            let corr_id = format!("fanout-{turn}-{i}");
+                            info!("FanOut branch {i}: dispatching subharness corr:{corr_id}");
+                            // Build context JSON from optional context_seed string
+                            let ctx = b.context_seed.as_deref()
+                                .map(|s| serde_json::json!({ "seed": s }))
+                                .unwrap_or(serde_json::Value::Null);
+                            // Fire-and-forget: port sends SubharnessMsg::Execute and returns immediately
+                            self.port
+                                .spawn_subharness(&b.objective, ctx, &corr_id)
+                                .await;
+                            pending_corr_ids.push(corr_id.clone());
+                            pending_replies.push(shared_types::PendingReply {
+                                corr_id: corr_id.clone(),
+                                actor_kind: "subharness".to_string(),
+                                objective_summary: truncate_str(&b.objective, 120).to_string(),
+                                sent_at: now,
+                                timeout_at: Some(timeout),
+                            });
+                            dispatched.push(format!("corr:{corr_id} objective:{}", b.objective));
+                        }
+                        action_results = Some(format!(
+                            "FanOut dispatched {} branches:\n{}",
+                            dispatched.len(),
+                            dispatched.join("\n")
+                        ));
                     }
-                    action_results = Some(format!(
-                        "FanOut dispatched {} branches:\n{}",
-                        dispatched.len(),
-                        dispatched.join("\n")
-                    ));
                 }
 
                 NextActionKind::Recurse => {
@@ -901,28 +947,45 @@ impl<P: RlmPort> RlmHarness<P> {
                     let recurse_obj = spec
                         .map(|s| s.objective.clone())
                         .unwrap_or_else(|| "(no objective)".to_string());
-                    let recurse_ctx = spec
-                        .and_then(|s| s.context_seed.as_deref())
-                        .map(|s| serde_json::json!({ "seed": s }))
-                        .unwrap_or(serde_json::Value::Null);
-                    let corr_id = format!("recurse-{turn}");
-                    let now = Utc::now();
-                    info!("Recurse dispatching subharness corr:{corr_id}");
-                    // Fire-and-forget: same non-blocking pattern as FanOut
-                    self.port
-                        .spawn_subharness(&recurse_obj, recurse_ctx, &corr_id)
-                        .await;
-                    pending_corr_ids.push(corr_id.clone());
-                    pending_replies.push(shared_types::PendingReply {
-                        corr_id: corr_id.clone(),
-                        actor_kind: "subharness".to_string(),
-                        objective_summary: truncate_str(&recurse_obj, 120).to_string(),
-                        sent_at: now,
-                        timeout_at: Some(now + Duration::seconds(120)),
-                    });
-                    action_results = Some(format!(
-                        "Recurse dispatched subharness: corr:{corr_id} objective:{recurse_obj}"
-                    ));
+                    // Enforce max_recurse_depth.
+                    if recurse_dispatches >= self.config.max_recurse_depth {
+                        tracing::warn!(
+                            run_id = %self.port.run_id(),
+                            turn,
+                            depth = recurse_dispatches,
+                            max = self.config.max_recurse_depth,
+                            "RLM Recurse blocked: max_recurse_depth reached"
+                        );
+                        action_results = Some(format!(
+                            "[BLOCKED] max_recurse_depth ({}) reached; Recurse not dispatched for: {}",
+                            self.config.max_recurse_depth,
+                            truncate_str(&recurse_obj, 120)
+                        ));
+                    } else {
+                        recurse_dispatches += 1;
+                        let recurse_ctx = spec
+                            .and_then(|s| s.context_seed.as_deref())
+                            .map(|s| serde_json::json!({ "seed": s }))
+                            .unwrap_or(serde_json::Value::Null);
+                        let corr_id = format!("recurse-{turn}");
+                        let now = Utc::now();
+                        info!("Recurse dispatching subharness corr:{corr_id}");
+                        // Fire-and-forget: same non-blocking pattern as FanOut
+                        self.port
+                            .spawn_subharness(&recurse_obj, recurse_ctx, &corr_id)
+                            .await;
+                        pending_corr_ids.push(corr_id.clone());
+                        pending_replies.push(shared_types::PendingReply {
+                            corr_id: corr_id.clone(),
+                            actor_kind: "subharness".to_string(),
+                            objective_summary: truncate_str(&recurse_obj, 120).to_string(),
+                            sent_at: now,
+                            timeout_at: Some(now + Duration::seconds(120)),
+                        });
+                        action_results = Some(format!(
+                            "Recurse dispatched subharness: corr:{corr_id} objective:{recurse_obj}"
+                        ));
+                    }
                 }
             }
 

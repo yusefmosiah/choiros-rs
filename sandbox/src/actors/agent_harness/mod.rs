@@ -209,6 +209,25 @@ fn is_retryable_decision_error_message(message: &str) -> bool {
         || lower.contains("missing required fields")
 }
 
+/// Resolve the base directory for tool-output artifacts.
+///
+/// Preference order:
+/// 1. `CHOIROS_DATA_DIR` env var (set by the runtime/container)
+/// 2. `CARGO_MANIFEST_DIR` (fallback for local dev builds)
+///
+/// Using `CARGO_MANIFEST_DIR` via `env!()` is a compile-time macro that bakes
+/// in the source-tree path. That is fine for local dev but breaks in CI /
+/// containers / installed binaries where the source tree is absent.
+fn artifact_base_dir() -> PathBuf {
+    if let Ok(data_dir) = std::env::var("CHOIROS_DATA_DIR") {
+        if !data_dir.is_empty() {
+            return PathBuf::from(data_dir);
+        }
+    }
+    // Compile-time fallback — acceptable for local dev, not for production.
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
 async fn persist_tool_execution_artifact(
     loop_id: &str,
     step_number: usize,
@@ -217,7 +236,7 @@ async fn persist_tool_execution_artifact(
     execution: &ToolExecution,
 ) -> Result<String, std::io::Error> {
     let relative_path = tool_output_relative_path(loop_id, step_number, tool_index, tool_name);
-    let absolute_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(&relative_path);
+    let absolute_path = artifact_base_dir().join(&relative_path);
     if let Some(parent) = absolute_path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
@@ -736,8 +755,36 @@ impl<W: WorkerPort> AgentHarness<W> {
         // prompt churn that defeats upstream prompt caching.
         let system_context = self.worker_port.get_system_context(&ctx);
 
+        // Deadline from the configured budget. Checked at the top of each step.
+        let loop_deadline = tokio::time::Instant::now()
+            + std::time::Duration::from_millis(self.config.timeout_budget_ms);
+
         // Main loop: Decide -> Execute -> (loop or return)
         while step_count < self.config.max_steps && loop_state == AgentLoopState::Running {
+            // Enforce wall-clock budget before starting each new step.
+            if tokio::time::Instant::now() >= loop_deadline {
+                tracing::warn!(
+                    loop_id = %loop_id,
+                    step = step_count,
+                    budget_ms = self.config.timeout_budget_ms,
+                    "Harness timeout budget exceeded; stopping loop"
+                );
+                objective_status = ObjectiveStatus::Incomplete;
+                completion_reason = format!(
+                    "Timeout: exceeded {}ms budget",
+                    self.config.timeout_budget_ms
+                );
+                if final_summary.is_empty() {
+                    final_summary = format!(
+                        "Timeout after {}ms. Completed {} steps.",
+                        self.config.timeout_budget_ms,
+                        step_count
+                    );
+                }
+                loop_state = AgentLoopState::Blocked;
+                break;
+            }
+
             step_count += 1;
             ctx.step_number = step_count;
 

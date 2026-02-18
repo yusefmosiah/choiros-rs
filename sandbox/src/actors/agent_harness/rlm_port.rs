@@ -41,9 +41,11 @@ use uuid::Uuid;
 use crate::actors::agent_harness::rlm::{LlmCallResult, RlmPort, RlmToolExecution};
 use crate::actors::conductor::protocol::{ConductorMsg, SubharnessMsg};
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
+use crate::actors::model_config::ModelRegistry;
 use crate::actors::subharness::{SubharnessActor, SubharnessArguments};
 use crate::actors::terminal::TerminalMsg;
 use crate::baml_client::types::ContextSourceKind;
+use crate::baml_client::{new_collector, B};
 use shared_types::HarnessCheckpoint;
 
 /// Production `RlmPort` backed by live actor references.
@@ -345,16 +347,54 @@ ContextSourceKind::ToolOutput with that corr_id on the next turn to read the res
 
     async fn call_llm(
         &self,
-        _prompt: &str,
-        _system_prompt: Option<&str>,
-        _model_hint: Option<&str>,
+        prompt: &str,
+        system_prompt: Option<&str>,
+        model_hint: Option<&str>,
     ) -> LlmCallResult {
-        // DAG StepOp::LlmCall — stub until Phase 5 wires BAML with model_hint routing.
-        LlmCallResult {
-            output: "(ActorRlmPort: DAG LLM call not yet wired)".to_string(),
-            success: false,
-            error: Some("use top-level RlmHarness loop for LLM calls".to_string()),
-            elapsed_ms: 0,
+        let start = Instant::now();
+        // Resolve model: use model_hint if provided, else fall back to self.model_id.
+        let model_id = model_hint.unwrap_or(&self.model_id);
+        let registry = ModelRegistry::new();
+        let client_registry = match registry.create_runtime_client_registry_for_model(model_id) {
+            Ok(cr) => cr,
+            Err(e) => {
+                return LlmCallResult {
+                    output: String::new(),
+                    success: false,
+                    error: Some(format!("model registry error for '{model_id}': {e}")),
+                    elapsed_ms: start.elapsed().as_millis() as u64,
+                };
+            }
+        };
+        let collector = new_collector("DagLlmCall");
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            B.DagLlmCall
+                .with_client_registry(&client_registry)
+                .with_collector(&collector)
+                .call(prompt, system_prompt),
+        )
+        .await;
+        let elapsed_ms = start.elapsed().as_millis() as u64;
+        match result {
+            Ok(Ok(output)) => LlmCallResult {
+                output,
+                success: true,
+                error: None,
+                elapsed_ms,
+            },
+            Ok(Err(e)) => LlmCallResult {
+                output: String::new(),
+                success: false,
+                error: Some(format!("DagLlmCall error: {e}")),
+                elapsed_ms,
+            },
+            Err(_) => LlmCallResult {
+                output: String::new(),
+                success: false,
+                error: Some("DagLlmCall timed out".to_string()),
+                elapsed_ms,
+            },
         }
     }
 

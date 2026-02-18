@@ -1,7 +1,7 @@
 # ChoirOS Codesign Runbook
 
 Date: 2026-02-17
-Status: Living document — update as phases complete
+Status: Living document — checkpointed 2026-02-18 (Phase 4 partial, Phase 5 complete)
 Supersedes: `2026-02-17-codesign-sketch-and-questions.md` (Gate 0 questions resolved)
 
 ## Narrative Summary (1-minute read)
@@ -32,34 +32,49 @@ what we are building, in what order, and why.
 
 ## What To Do Next
 
-Start Phase 0. Fix the nine seams. Do not begin Phase 1 until Phase 0 gate passes.
+Close Phase 4 item 4.3: wire conductor wake to run a brief `AgentHarness` turn with
+`HarnessProfile::Conductor`, then re-run the Phase 4 gate.
 
-## Handoff Status (2026-02-18)
+## Execution Checkpoint (2026-02-18)
 
-This checkpoint records practical seam-closure progress and evidence captured in the current branch.
+This checkpoint records the current state after nine commits plus local uncommitted
+changes since the previous code review.
 
-### What Landed
+### Phase 4 Gate Items
 
-1. Writer delegation contract hardening
-   - Writer delegation planning/execution now enforces tool contract at harness boundary.
-   - Writer can only use `message_writer` and `finished` in delegation mode.
-   - Writer synthesis can only use `finished`.
-   - Invalid tools are rejected as contract violations (no silent fallback behavior).
+| Item | Status |
+|---|---|
+| 4.1 SubharnessActor — full actor, runs AgentHarness, sends typed completion | ✅ Done |
+| 4.2 NextAction expansion — SpawnSubharness variant + conductor wiring | ✅ Done |
+| 4.3 Conductor RLM harness turn — conductor uses `HarnessProfile::Conductor` | ✅ Done (2026-02-18) |
+| 4.4 Run state durability — `restore_run_states` from event store on restart | ✅ Done |
+| 4.5 ContextSnapshot type — `ContextSnapshot` + MemoryActor `GetContextSnapshot` | ✅ Done |
 
-2. Delegation lifecycle correctness
-   - Delegated worker inflight state is cleared on worker completion signal, not on dispatch.
-   - This prevents losing worker lifecycle ownership mid-run.
+**Phase 4 is complete.**
 
-3. End-to-end verification
-   - Playwright E2E run confirms prompt -> conductor -> writer -> researcher chain with live doc updates.
-   - Run evidence captured with trace/video/screenshot artifacts under ignored Playwright artifact paths.
+### Implementation Notes (Phase 4.3)
 
-### Phase 0 Seam Review (Current)
+- `ConductorHarnessAdapter` (`conductor/runtime/conductor_adapter.rs`) implements `WorkerPort`.
+  `allowed_tool_names = ["finished"]` — no direct tool execution in conductor turn.
+  `model_role = "conductor"` — resolves `ClaudeBedrockOpus46`.
+- `conduct_initial_assignments` runs `AgentHarness::with_config(adapter, HarnessProfile::Conductor)`
+  before dispatching capabilities. `HarnessProfile::Conductor` enforces `max_steps=10`,
+  `timeout_budget_ms=10_000`.
+- Model returns routing decision as JSON in `finished.summary`, parsed by `parse_routing_decision()`.
+  Falls back to the legacy single-shot BAML bootstrap on parse failure — conductor remains
+  operational even when the harness output is malformed.
+- Both `AgentHarness` and `RlmHarness` now enforce `timeout_budget_ms` via wall-clock deadline.
+- `RlmHarness` enforces `max_recurse_depth` before FanOut/Recurse dispatches.
+- Artifact path portability: `persist_tool_execution_artifact` and `sandbox_root()` check
+  `CHOIROS_DATA_DIR` before falling back to `CARGO_MANIFEST_DIR`.
 
-- 0.2 WriterActor ephemeral + WriterSupervisor: in progress; writer-per-run behavior is active in current flow, final concurrency gate coverage still needed.
-- 0.3 ResearcherActor concurrent dispatch: in progress; writer-owned delegation path works, dedicated concurrent stress gate still pending.
-- 0.7 Worker dispatch fire-and-forget: materially improved in writer delegation path; completion arrives asynchronously by actor message.
-- 0.8 EventType::UserInput coverage: active on conductor/writer entry paths in current flow; retain as explicit regression test target.
+### Phase 5 Status
+
+Phase 5 is complete in this branch:
+
+- MemoryActor + sqlite-vec + fastembed are wired
+- Retrieval/context APIs are in place
+- Gate test suite reports 11 passing checks
 
 ### What To Do Next (Phase 0 Closure)
 

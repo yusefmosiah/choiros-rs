@@ -1,12 +1,16 @@
 use ractor::{ActorProcessingErr, ActorRef};
 use shared_types::ConductorExecuteRequest;
 
+use crate::actors::agent_harness::{AgentHarness, HarnessProfile, ObjectiveStatus};
 use crate::actors::conductor::actor::{ConductorActor, ConductorState};
 use crate::actors::conductor::{
     events,
     protocol::{ConductorError, ConductorMsg},
+    runtime::conductor_adapter::{parse_routing_decision, ConductorHarnessAdapter},
 };
+use crate::actors::model_config::ModelRegistry;
 use crate::actors::writer::{WriterMsg, WriterSource};
+use crate::observability::llm_trace::LlmTraceEmitter;
 
 impl ConductorActor {
     fn run_document_path(run_id: &str) -> String {
@@ -244,7 +248,7 @@ impl ConductorActor {
         // Phase 5.4 — retrieve context snapshot from MemoryActor.
         // Prepend top context items to the objective so the model has retrieval-grounded context.
         // 500ms timeout — if memory is slow or unavailable, continue without it.
-        let enriched_objective = if let Some(memory) = &state.memory_actor {
+        let memory_context = if let Some(memory) = &state.memory_actor {
             let snapshot_result = tokio::time::timeout(
                 std::time::Duration::from_millis(500),
                 async {
@@ -272,43 +276,112 @@ impl ConductorActor {
                             )
                         })
                         .collect();
-                    format!(
-                        "Retrieved context (relevance-ranked):\n{}\n\nObjective: {}",
-                        ctx_lines.join("\n"),
-                        request.objective
-                    )
+                    Some(ctx_lines.join("\n"))
                 }
-                _ => request.objective.clone(),
+                _ => None,
             }
         } else {
-            request.objective.clone()
+            None
         };
 
-        let conduct_output = state
-            .model_gateway
-            .conduct_assignments(Some(run_id), &enriched_objective, &available_capabilities)
-            .await?;
-        let mut selected_capabilities = Vec::new();
-        for capability in conduct_output.dispatch_capabilities {
-            let normalized = capability.trim().to_ascii_lowercase();
-            if normalized.is_empty()
-                || !available_capabilities
-                    .iter()
-                    .any(|c| c.eq_ignore_ascii_case(&normalized))
-                || selected_capabilities
-                    .iter()
-                    .any(|c: &String| c.eq_ignore_ascii_case(&normalized))
-            {
-                continue;
+        // Phase 4.3 — Run the conductor harness turn.
+        //
+        // The conductor runs a brief AgentHarness (HarnessProfile::Conductor,
+        // max_steps=10, 10s budget) with a ConductorHarnessAdapter.  The model
+        // calls `finished(summary=<json>)` encoding its routing decision.  The
+        // summary is parsed as a ConductorRoutingDecision.
+        //
+        // On parse failure we fall back to the legacy single-shot BAML path so
+        // the conductor remains operational even when the harness output is
+        // malformed.
+        let routing_decision =
+            self.run_conductor_harness_turn(
+                state,
+                run_id,
+                &request.objective,
+                &available_capabilities,
+                memory_context.clone(),
+            )
+            .await;
+
+        let (selected_capabilities, block_reason) = match routing_decision {
+            Some(decision) => {
+                tracing::info!(
+                    run_id = %run_id,
+                    capabilities = ?decision.dispatch_capabilities,
+                    confidence = decision.confidence,
+                    "Conductor harness routing decision"
+                );
+                let mut selected = Vec::new();
+                for cap in &decision.dispatch_capabilities {
+                    let normalized = cap.trim().to_ascii_lowercase();
+                    if normalized.is_empty()
+                        || !available_capabilities
+                            .iter()
+                            .any(|c| c.eq_ignore_ascii_case(&normalized))
+                        || selected.iter().any(|c: &String| c.eq_ignore_ascii_case(&normalized))
+                    {
+                        continue;
+                    }
+                    selected.push(normalized);
+                }
+                let block = if selected.is_empty() {
+                    decision.block_reason.filter(|s| !s.trim().is_empty())
+                        .or(Some(decision.rationale.clone()))
+                } else {
+                    None
+                };
+                (selected, block)
             }
-            selected_capabilities.push(normalized);
-        }
+            None => {
+                // Fallback: single-shot BAML path (legacy).
+                tracing::warn!(
+                    run_id = %run_id,
+                    "Conductor harness did not produce a parseable routing decision; \
+                     falling back to legacy BAML bootstrap"
+                );
+                let enriched_objective = match &memory_context {
+                    Some(ctx) => format!(
+                        "Retrieved context (relevance-ranked):\n{ctx}\n\nObjective: {}",
+                        request.objective
+                    ),
+                    None => request.objective.clone(),
+                };
+                let conduct_output = state
+                    .model_gateway
+                    .conduct_assignments(
+                        Some(run_id),
+                        &enriched_objective,
+                        &available_capabilities,
+                    )
+                    .await?;
+                let mut selected = Vec::new();
+                for cap in conduct_output.dispatch_capabilities {
+                    let normalized = cap.trim().to_ascii_lowercase();
+                    if normalized.is_empty()
+                        || !available_capabilities
+                            .iter()
+                            .any(|c| c.eq_ignore_ascii_case(&normalized))
+                        || selected.iter().any(|c: &String| c.eq_ignore_ascii_case(&normalized))
+                    {
+                        continue;
+                    }
+                    selected.push(normalized);
+                }
+                let block = if selected.is_empty() {
+                    conduct_output
+                        .block_reason
+                        .filter(|s| !s.trim().is_empty())
+                        .or(Some(conduct_output.rationale))
+                } else {
+                    None
+                };
+                (selected, block)
+            }
+        };
 
         if selected_capabilities.is_empty() {
-            let reason = conduct_output
-                .block_reason
-                .filter(|s| !s.trim().is_empty())
-                .unwrap_or(conduct_output.rationale);
+            let reason = block_reason.unwrap_or_else(|| "No capabilities selected".to_string());
             return Err(ConductorError::InvalidRequest(format!(
                 "Conductor conduct step blocked run: {reason}"
             )));
@@ -331,6 +404,73 @@ impl ConductorActor {
         }
 
         Ok(items)
+    }
+
+    /// Run a brief conductor harness turn (Phase 4.3) to produce a routing decision.
+    ///
+    /// Returns `Some(ConductorRoutingDecision)` on success, `None` on any
+    /// harness or parse failure (caller falls back to the legacy BAML path).
+    async fn run_conductor_harness_turn(
+        &self,
+        state: &ConductorState,
+        run_id: &str,
+        objective: &str,
+        available_capabilities: &[String],
+        memory_context: Option<String>,
+    ) -> Option<crate::actors::conductor::runtime::conductor_adapter::ConductorRoutingDecision> {
+        let model_registry = ModelRegistry::new();
+        let trace_emitter = LlmTraceEmitter::new(state.event_store.clone());
+        let config = HarnessProfile::Conductor.default_config();
+
+        let adapter = ConductorHarnessAdapter::new(
+            objective.to_string(),
+            available_capabilities.to_vec(),
+            memory_context,
+        );
+
+        let harness = AgentHarness::with_config(adapter, model_registry, config, trace_emitter);
+
+        match harness
+            .run(
+                format!("conductor:{run_id}"),
+                "system".to_string(),
+                objective.to_string(),
+                None,
+                None,
+                Some(run_id.to_string()),
+                None,
+            )
+            .await
+        {
+            Ok(result) if result.objective_status == ObjectiveStatus::Complete => {
+                let decision = parse_routing_decision(&result.summary);
+                if decision.is_none() {
+                    tracing::warn!(
+                        run_id = %run_id,
+                        summary = %result.summary,
+                        "Conductor harness summary could not be parsed as routing decision"
+                    );
+                }
+                decision
+            }
+            Ok(result) => {
+                tracing::warn!(
+                    run_id = %run_id,
+                    status = ?result.objective_status,
+                    steps = result.steps_taken,
+                    "Conductor harness completed without ObjectiveStatus::Complete"
+                );
+                None
+            }
+            Err(err) => {
+                tracing::warn!(
+                    run_id = %run_id,
+                    error = %err,
+                    "Conductor harness turn failed"
+                );
+                None
+            }
+        }
     }
 }
 

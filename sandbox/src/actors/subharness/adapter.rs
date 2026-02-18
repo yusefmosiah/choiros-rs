@@ -28,8 +28,16 @@ use crate::actors::researcher::{
     ResearcherFetchUrlRequest, ResearcherWebSearchRequest,
 };
 
-/// Sandbox root for file operations
+/// Sandbox root for file operations.
+///
+/// Uses `CHOIROS_DATA_DIR` when set (container/CI/prod), falls back to the
+/// compile-time `CARGO_MANIFEST_DIR` for local dev.
 fn sandbox_root() -> PathBuf {
+    if let Ok(data_dir) = std::env::var("CHOIROS_DATA_DIR") {
+        if !data_dir.is_empty() {
+            return PathBuf::from(data_dir);
+        }
+    }
     Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
 }
 

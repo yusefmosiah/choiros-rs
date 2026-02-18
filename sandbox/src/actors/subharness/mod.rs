@@ -174,7 +174,7 @@ async fn emit_subharness_execute(
     context: &serde_json::Value,
 ) {
     let payload = serde_json::json!({
-        "correlation_id": correlation_id,
+        "corr_id": correlation_id,
         "objective": objective,
         "context_keys": context.as_object().map(|m| m.keys().collect::<Vec<_>>()).unwrap_or_default(),
         "timestamp": Utc::now().to_rfc3339(),
@@ -196,7 +196,7 @@ async fn emit_subharness_result(
     result: &SubharnessResult,
 ) {
     let payload = serde_json::json!({
-        "correlation_id": correlation_id,
+        "corr_id": correlation_id,
         "objective": objective,
         "objective_satisfied": result.objective_satisfied,
         "steps_taken": result.steps_taken,
