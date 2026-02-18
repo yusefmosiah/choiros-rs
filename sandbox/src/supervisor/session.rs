@@ -64,16 +64,11 @@ pub enum SessionSupervisorMsg {
     GetOrCreateWriter {
         writer_id: String,
         user_id: String,
-        researcher_actor: Option<ActorRef<ResearcherMsg>>,
-        terminal_actor: Option<ActorRef<TerminalMsg>>,
         reply: RpcReplyPort<Result<ActorRef<WriterMsg>, String>>,
     },
     GetOrCreateConductor {
         conductor_id: String,
         user_id: String,
-        researcher_actor: Option<ActorRef<ResearcherMsg>>,
-        terminal_actor: Option<ActorRef<TerminalMsg>>,
-        writer_actor: Option<ActorRef<WriterMsg>>,
         reply: RpcReplyPort<Result<ActorRef<ConductorMsg>, String>>,
     },
 }
@@ -90,20 +85,6 @@ impl Actor for SessionSupervisor {
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         info!(supervisor = %myself.get_id(), "SessionSupervisor starting");
-
-        let (conductor_supervisor, _) = Actor::spawn_linked(
-            None,
-            ConductorSupervisor,
-            ConductorSupervisorArgs {
-                event_store: args.event_store.clone(),
-                researcher_actor: None,
-                terminal_actor: None,
-                writer_actor: None,
-            },
-            myself.get_cell(),
-        )
-        .await
-        .map_err(ActorProcessingErr::from)?;
 
         let (desktop_supervisor, _) = Actor::spawn_linked(
             None,
@@ -143,8 +124,20 @@ impl Actor for SessionSupervisor {
             WriterSupervisor,
             WriterSupervisorArgs {
                 event_store: args.event_store.clone(),
-                researcher_actor: None,
-                terminal_actor: None,
+                researcher_supervisor: Some(researcher_supervisor.clone()),
+                terminal_supervisor: Some(terminal_supervisor.clone()),
+            },
+            myself.get_cell(),
+        )
+        .await
+        .map_err(ActorProcessingErr::from)?;
+
+        let (conductor_supervisor, _) = Actor::spawn_linked(
+            None,
+            ConductorSupervisor,
+            ConductorSupervisorArgs {
+                event_store: args.event_store.clone(),
+                writer_supervisor: Some(writer_supervisor.clone()),
             },
             myself.get_cell(),
         )
@@ -264,8 +257,6 @@ impl Actor for SessionSupervisor {
             SessionSupervisorMsg::GetOrCreateWriter {
                 writer_id,
                 user_id,
-                researcher_actor,
-                terminal_actor,
                 reply,
             } => {
                 if let Some(writer_supervisor) = &state.writer_supervisor {
@@ -273,8 +264,6 @@ impl Actor for SessionSupervisor {
                         WriterSupervisorMsg::GetOrCreateWriter {
                             writer_id: writer_id.clone(),
                             user_id: user_id.clone(),
-                            researcher_actor: researcher_actor.clone(),
-                            terminal_actor: terminal_actor.clone(),
                             reply: ws_reply,
                         }
                     }) {
@@ -293,9 +282,6 @@ impl Actor for SessionSupervisor {
             SessionSupervisorMsg::GetOrCreateConductor {
                 conductor_id,
                 user_id,
-                researcher_actor,
-                terminal_actor,
-                writer_actor,
                 reply,
             } => {
                 if let Some(conductor_supervisor) = &state.conductor_supervisor {
@@ -303,9 +289,6 @@ impl Actor for SessionSupervisor {
                         ConductorSupervisorMsg::GetOrCreateConductor {
                             conductor_id: conductor_id.clone(),
                             user_id: user_id.clone(),
-                            researcher_actor: researcher_actor.clone(),
-                            terminal_actor: terminal_actor.clone(),
-                            writer_actor: writer_actor.clone(),
                             reply: cs_reply,
                         }
                     }) {

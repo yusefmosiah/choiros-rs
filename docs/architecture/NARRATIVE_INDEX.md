@@ -17,6 +17,16 @@ Conductor treats workers/apps as logical subagents, but turns are non-blocking a
 Current reset priority: simplify runtime authority, enforce headless verification, and make live run observability trustworthy.
 Immediate app pattern: human UX first, then headless API, then app-agent harness. Tracing follows this sequence next.
 
+## Latest Checkpoint (2026-02-18)
+
+- Writer delegation contract is now enforced by runtime tool allow-lists.
+  - Writer delegation: `message_writer`, `finished`
+  - Writer synthesis: `finished`
+- Unsupported writer delegation tool calls are treated as contract violations (no fallback orchestration path).
+- Delegation lifecycle was corrected so inflight worker state clears on completion signal, not immediately on dispatch.
+- Playwright evidence was captured for prompt -> conductor -> writer -> researcher with live document updates.
+- Playwright artifact outputs are gitignored to keep the repo clean during repeated E2E runs.
+
 ## What We Are Building Right Now
 
 1. Directives as the primary operator surface (app/window, not always-on).
@@ -50,9 +60,10 @@ Immediate app pattern: human UX first, then headless API, then app-agent harness
 0. `/Users/wiz/choiros-rs/docs/architecture/2026-02-17-codesign-runbook.md`
    - **START HERE for current execution direction.** Comprehensive co-design runbook:
      eight execution phases (refactor → Marginalia → types → citations → RLM → local
-     RuVector → NixOS → global RuVector → Marginalia v2), all Gate 0 questions resolved,
-     `.qwy` format spec, citation infrastructure, actor topology target state, and
-     identified codebase seams with file/line references.
+     vector memory (sqlite-vec) → NixOS → global vector → Marginalia v2), all Gate 0
+     questions resolved, `.qwy` format spec, citation infrastructure, actor topology
+     target state, nine identified codebase seams with file/line references (seam 9:
+     libsql → sqlx migration, urgent, unblocks Phase 6 Nix cross-compilation).
 
 0. `/Users/wiz/choiros-rs/docs/architecture/2026-02-17-rlm-actor-network-concept.md`
    - Recursive Language Models in actor networks: RLM as default execution mode, model-composed context, self-prompting, and the microVM security boundary.
@@ -128,7 +139,7 @@ Immediate app pattern: human UX first, then headless API, then app-agent harness
 - Run narrative + semantic events are first-class UX and conductor wake context.
 - Backend is canonical for app/window UI state; browser localStorage is non-authoritative.
 - Filesystem (grep/find/read) is the primary deterministic retrieval path for agents; vector memory is the associative/episodic layer on top.
-- MemoryAgent uses the RVF stack (`rvf-runtime` + `rvf-index` + `rvf-types`) for vector persistence with progressive HNSW, plus `ruvector-sona` for learning, plus `ort` for MiniLM embeddings. `ruvector-core` (redb-backed, older approach) and `ruvllm` (local LLM inference) are excluded.
+- MemoryActor uses **sqlite-vec** for vector persistence (in-process, four collections, HNSW-style ANN, chunk_hash dedup). RuVector (`rvf-runtime`/`rvf-index`) is deferred pending production maturity; SONA learning deferred to Phase 5+. MemoryActor is the abstraction boundary — backend is swappable without changing the RLM-facing API.
 - Local memory is private per-user. Global knowledge store receives only explicitly published content.
 - RLM (Recursive Language Model) is the default execution mode; linear tool-looping is a degenerate case of `NextAction::ToolCalls`.
 - Model composes its own context each turn via `ContextSnapshot` — retrieved from MemoryAgent, selected documents, and working memory.
@@ -139,7 +150,7 @@ Immediate app pattern: human UX first, then headless API, then app-agent harness
 ## One-Line Summary Per Core Doc
 
 - `2026-02-17-rlm-actor-network-concept.md`: "RLM as default execution mode — model composes its own context and controls topology (linear/parallel/recursive), capability contracts replace role-based prompting, self-prompting from episodic memory, microVM is the security boundary, three-level contract hierarchy (System/Harness/Task)."
-- `2026-02-16-memory-agent-architecture.md`: "Episodic memory layer — filesystem is deterministic truth, vector memory is associative resonance across sessions, RVF file format with progressive HNSW for storage, SONA makes retrieval improve over time, global store lets users benefit from each other's published learnings."
+- `2026-02-16-memory-agent-architecture.md`: "Episodic memory layer — filesystem is deterministic truth, vector memory is associative resonance across sessions, sqlite-vec for in-process ANN storage (Phase 5), SONA learning deferred, global store lets users benefit from each other's published learnings."
 - `2026-02-14-living-document-human-interface-pillar.md`: "Human interaction runs through living documents first; conductor remains orchestration authority behind the interface."
 - `2026-02-14-conductor-non-blocking-subagent-pillar.md`: "Conductor treats workers/apps as logical subagents via actor messaging with no polling, no blocking, and bounded agent-tree wake context."
 - `2026-02-14-agent-tree-snapshot-contract.md`: "Typed wake context contract for conductor: bounded agent-tree digest with deterministic truncation and freshness markers."

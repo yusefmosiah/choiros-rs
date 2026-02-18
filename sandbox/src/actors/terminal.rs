@@ -27,7 +27,14 @@ use crate::actors::agent_harness::{
 };
 use crate::actors::event_store::EventStoreMsg;
 use crate::actors::model_config::ModelRegistry;
-use crate::baml_client::types::Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall as AgentToolCall;
+use crate::actors::writer::{
+    SectionState, WriterDelegateCapability, WriterDelegateResult, WriterError,
+    WriterInboundEnvelope, WriterMsg, WriterSource,
+};
+use crate::baml_client::types::{
+    MessageWriterToolCall,
+    Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall as AgentToolCall,
+};
 use crate::observability::llm_trace::LlmTraceEmitter;
 
 use shared_types::{
@@ -46,6 +53,8 @@ pub struct TerminalAdapter {
     shell: String,
     event_store: Option<ActorRef<EventStoreMsg>>,
     progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
+    writer_actor: Option<ActorRef<WriterMsg>>,
+    run_id: Option<String>,
 }
 
 fn tool_call_name(tool_call: &AgentToolCall) -> &str {
@@ -57,6 +66,7 @@ fn tool_call_name(tool_call: &AgentToolCall) -> &str {
         AgentToolCall::FileWriteToolCall(call) => call.tool_name.as_str(),
         AgentToolCall::FileEditToolCall(call) => call.tool_name.as_str(),
         AgentToolCall::MessageWriterToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::FinishedToolCall(call) => call.tool_name.as_str(),
     }
 }
 
@@ -67,6 +77,8 @@ impl TerminalAdapter {
         shell: String,
         event_store: Option<ActorRef<EventStoreMsg>>,
         progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
+        writer_actor: Option<ActorRef<WriterMsg>>,
+        run_id: Option<String>,
     ) -> Self {
         Self {
             terminal_id,
@@ -74,6 +86,248 @@ impl TerminalAdapter {
             shell,
             event_store,
             progress_tx,
+            writer_actor,
+            run_id,
+        }
+    }
+
+    fn has_writer_document_context(&self) -> bool {
+        self.writer_actor.is_some() && self.run_id.is_some()
+    }
+
+    fn writer_context(&self) -> Option<(ActorRef<WriterMsg>, String)> {
+        Some((self.writer_actor.clone()?, self.run_id.clone()?))
+    }
+
+    fn resolve_writer_section(section_hint: Option<&str>) -> String {
+        match section_hint
+            .map(|s| s.trim().to_ascii_lowercase())
+            .filter(|s| !s.is_empty())
+            .as_deref()
+        {
+            Some("conductor") => "conductor".to_string(),
+            Some("researcher") => "researcher".to_string(),
+            Some("user") => "user".to_string(),
+            _ => "terminal".to_string(),
+        }
+    }
+
+    fn parse_section_state(raw: Option<&str>) -> Option<SectionState> {
+        match raw.map(|s| s.trim().to_ascii_lowercase())?.as_str() {
+            "pending" => Some(SectionState::Pending),
+            "running" => Some(SectionState::Running),
+            "complete" | "completed" => Some(SectionState::Complete),
+            "failed" => Some(SectionState::Failed),
+            _ => None,
+        }
+    }
+
+    fn has_successful_message_writer_call(tool_executions: &[ToolExecution]) -> bool {
+        tool_executions
+            .iter()
+            .any(|exec| exec.tool_name == "message_writer" && exec.success)
+    }
+
+    async fn execute_message_writer(
+        &self,
+        tool_call: &MessageWriterToolCall,
+    ) -> Result<ToolExecution, crate::actors::agent_harness::HarnessError> {
+        let start_time = tokio::time::Instant::now();
+        let (writer_actor, run_id) = match self.writer_context() {
+            Some(ctx) => ctx,
+            None => {
+                return Ok(ToolExecution {
+                    tool_name: "message_writer".to_string(),
+                    success: false,
+                    output: String::new(),
+                    error: Some("WriterActor/run context not configured for this run".to_string()),
+                    execution_time_ms: start_time.elapsed().as_millis() as u64,
+                });
+            }
+        };
+
+        let args = &tool_call.tool_args;
+        let section_id = Self::resolve_writer_section(args.path.as_deref());
+        let content = args.content.clone();
+        let mode = args.mode.trim().to_ascii_lowercase();
+        let mode_arg = args.mode_arg.clone();
+
+        let result = match mode.as_str() {
+            "progress" => {
+                if content.trim().is_empty() {
+                    Err("message_writer progress mode requires content".to_string())
+                } else {
+                    let phase = mode_arg
+                        .clone()
+                        .unwrap_or_else(|| "update".to_string())
+                        .trim()
+                        .to_string();
+                    ractor::call!(writer_actor, |reply| WriterMsg::ReportProgress {
+                        run_id: run_id.clone(),
+                        section_id: section_id.clone(),
+                        source: WriterSource::Terminal,
+                        phase,
+                        message: content.clone(),
+                        reply,
+                    })
+                    .map_err(|e| format!("WriterActor call failed: {e}"))
+                    .and_then(|inner| inner.map_err(|e| e.to_string()))
+                    .map(|revision| {
+                        serde_json::json!({
+                            "mode": "progress",
+                            "section_id": section_id,
+                            "revision": revision,
+                        })
+                    })
+                }
+            }
+            "state" => {
+                let state = Self::parse_section_state(mode_arg.as_deref()).ok_or_else(|| {
+                    "message_writer state mode requires mode_arg in {pending|running|complete|failed}"
+                        .to_string()
+                });
+                match state {
+                    Ok(state) => ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
+                        run_id: run_id.clone(),
+                        section_id: section_id.clone(),
+                        state,
+                        reply,
+                    })
+                    .map_err(|e| format!("WriterActor call failed: {e}"))
+                    .and_then(|inner| inner.map_err(|e| e.to_string()))
+                    .map(|_| {
+                        serde_json::json!({
+                            "mode": "state",
+                            "section_id": section_id,
+                        })
+                    }),
+                    Err(error) => Err(error),
+                }
+            }
+            "canon_append" => {
+                if content.trim().is_empty() {
+                    Err("message_writer canon_append mode requires content".to_string())
+                } else {
+                    ractor::call!(writer_actor, |reply| WriterMsg::ApplyText {
+                        run_id: run_id.clone(),
+                        section_id: section_id.clone(),
+                        source: WriterSource::Terminal,
+                        content: content.clone(),
+                        proposal: false,
+                        reply,
+                    })
+                    .map_err(|e| format!("WriterActor call failed: {e}"))
+                    .and_then(|inner| inner.map_err(|e| e.to_string()))
+                    .map(|revision| {
+                        serde_json::json!({
+                            "mode": "canon_append",
+                            "section_id": section_id,
+                            "revision": revision,
+                        })
+                    })
+                }
+            }
+            "proposal_append" => {
+                if content.trim().is_empty() {
+                    Err("message_writer proposal_append mode requires content".to_string())
+                } else {
+                    let message_id = format!("{run_id}:terminal:tool:{}", ulid::Ulid::new());
+                    let envelope = WriterInboundEnvelope {
+                        message_id,
+                        correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
+                        kind: "terminal_tool_update".to_string(),
+                        run_id: run_id.clone(),
+                        section_id: section_id.clone(),
+                        source: WriterSource::Terminal,
+                        content: content.clone(),
+                        base_version_id: None,
+                        prompt_diff: None,
+                        overlay_id: None,
+                        session_id: None,
+                        thread_id: None,
+                        call_id: None,
+                        origin_actor: Some(self.terminal_id.clone()),
+                    };
+                    ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+                        envelope,
+                        reply,
+                    })
+                    .map_err(|e| format!("WriterActor call failed: {e}"))
+                    .and_then(|inner| inner.map_err(|e| e.to_string()))
+                    .map(|ack| {
+                        serde_json::json!({
+                            "mode": "proposal_append",
+                            "section_id": section_id,
+                            "message_id": ack.message_id,
+                            "revision": ack.revision,
+                            "queue_len": ack.queue_len,
+                            "duplicate": ack.duplicate,
+                        })
+                    })
+                }
+            }
+            "completion" => {
+                if content.trim().is_empty() {
+                    Err("message_writer completion mode requires content".to_string())
+                } else {
+                    let message_id =
+                        format!("{run_id}:terminal:tool:completion:{}", ulid::Ulid::new());
+                    let envelope = WriterInboundEnvelope {
+                        message_id,
+                        correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
+                        kind: "terminal_tool_completion".to_string(),
+                        run_id: run_id.clone(),
+                        section_id: section_id.clone(),
+                        source: WriterSource::Terminal,
+                        content: content.clone(),
+                        base_version_id: None,
+                        prompt_diff: None,
+                        overlay_id: None,
+                        session_id: None,
+                        thread_id: None,
+                        call_id: None,
+                        origin_actor: Some(self.terminal_id.clone()),
+                    };
+                    ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+                        envelope,
+                        reply,
+                    })
+                    .map_err(|e| format!("WriterActor call failed: {e}"))
+                    .and_then(|inner| inner.map_err(|e| e.to_string()))
+                    .map(|ack| {
+                        serde_json::json!({
+                            "mode": "completion",
+                            "section_id": section_id,
+                            "message_id": ack.message_id,
+                            "revision": ack.revision,
+                            "queue_len": ack.queue_len,
+                            "duplicate": ack.duplicate,
+                        })
+                    })
+                }
+            }
+            _ => Err(format!(
+                "Unknown message_writer mode '{}'. Supported: proposal_append, canon_append, progress, state, completion",
+                mode
+            )),
+        };
+
+        let elapsed = start_time.elapsed().as_millis() as u64;
+        match result {
+            Ok(output) => Ok(ToolExecution {
+                tool_name: "message_writer".to_string(),
+                success: true,
+                output: output.to_string(),
+                error: None,
+                execution_time_ms: elapsed,
+            }),
+            Err(error) => Ok(ToolExecution {
+                tool_name: "message_writer".to_string(),
+                success: false,
+                output: String::new(),
+                error: Some(error),
+                execution_time_ms: elapsed,
+            }),
         }
     }
 
@@ -212,12 +466,34 @@ impl WorkerPort for TerminalAdapter {
     }
 
     fn get_tool_description(&self) -> String {
-        r#"Tool: bash
+        r#"Tools:
+
+Tool: bash
 Description: Execute shell commands in the current terminal.
-Parameters Schema: {"type":"object","properties":{"command":{"type":"string","description":"The shell command to execute"},"timeout_ms":{"type":"integer","description":"Timeout in milliseconds"}},"required":["command"]}"#.to_string()
+Parameters Schema: {"type":"object","properties":{"command":{"type":"string","description":"The shell command to execute"},"timeout_ms":{"type":"integer","description":"Timeout in milliseconds"}},"required":["command"]}
+
+Tool: message_writer
+Description: Send typed actor messages to writer run document.
+Args:
+- mode: proposal_append|canon_append|progress|state|completion
+- content: required for proposal_append|canon_append|progress|completion
+- path: optional section_id override (default terminal)
+- mode_arg: required for state (pending|running|complete|failed), optional for progress phase
+
+Writer mode contract:
+- If objective resolves in one step: send one message_writer mode=completion with final content.
+- If objective is multi-step: send proposal_append deltas, then one completion message.
+- After completion message is sent, call `finished` and return final response in message."#
+            .to_string()
     }
 
     fn get_system_context(&self, _ctx: &ExecutionContext) -> String {
+        let writer_mode_hint = if self.has_writer_document_context() {
+            "- Run writer mode is active: use message_writer for incremental updates and final completion.\n\
+             - Before final empty-tool response, send message_writer mode=completion."
+        } else {
+            ""
+        };
         format!(
             "You are ChoirOS Terminal Agent. Use bash tool calls to complete terminal objectives.\n\
              Capability boundary:\n\
@@ -228,10 +504,12 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
              - For research-oriented objectives, prefer read/inspect commands and writing findings to docs markdown.\n\
              - Only edit source code when the objective explicitly asks for implementation/refactor/bug-fix changes.\n\
              - If objective is local diagnostics/build/test/file operations, proceed with minimal safe commands.\n\
+             {}\n\
              Terminal ID: {}\n\
              Working Directory: {}\n\
              Shell: {}\n\
              Prefer minimal safe command sequences.",
+            writer_mode_hint,
             self.terminal_id,
             self.working_dir,
             self.shell
@@ -243,75 +521,94 @@ Parameters Schema: {"type":"object","properties":{"command":{"type":"string","de
         ctx: &ExecutionContext,
         tool_call: &AgentToolCall,
     ) -> Result<ToolExecution, crate::actors::agent_harness::HarnessError> {
-        let AgentToolCall::BashToolCall(bash_call) = tool_call else {
-            let tool_name = tool_call_name(tool_call).to_string();
-            return Ok(ToolExecution {
-                tool_name: tool_name.clone(),
-                success: false,
-                output: String::new(),
-                error: Some(format!("Unknown tool: {tool_name}")),
-                execution_time_ms: 0,
-            });
-        };
-
-        let command = bash_call.tool_args.command.as_str();
-
-        let timeout_ms = 30_000;
-
-        let start_time = std::time::Instant::now();
-
-        self.emit_terminal_progress(
-            "terminal_tool_call",
-            "terminal agent requested bash tool execution",
-            bash_call.reasoning.clone(),
-            Some(command.to_string()),
-            Some(ctx.model_used.clone()),
-            None,
-            None,
-            Some(ctx.step_number),
-            Some(ctx.max_steps),
-        );
-
-        match self.execute_bash(command, timeout_ms).await {
-            Ok((output, exit_code)) => {
-                let _execution_time_ms = start_time.elapsed().as_millis() as u64;
-                let success = exit_code == 0;
+        match tool_call {
+            AgentToolCall::BashToolCall(bash_call) => {
+                let command = bash_call.tool_args.command.as_str();
+                let timeout_ms = 30_000;
+                let start_time = std::time::Instant::now();
 
                 self.emit_terminal_progress(
-                    "terminal_tool_result",
-                    "terminal agent received bash tool result",
+                    "terminal_tool_call",
+                    "terminal agent requested bash tool execution",
                     bash_call.reasoning.clone(),
                     Some(command.to_string()),
                     Some(ctx.model_used.clone()),
-                    Some(Self::truncate_excerpt(&output)),
-                    Some(exit_code),
+                    None,
+                    None,
                     Some(ctx.step_number),
                     Some(ctx.max_steps),
                 );
 
+                match self.execute_bash(command, timeout_ms).await {
+                    Ok((output, exit_code)) => {
+                        let _execution_time_ms = start_time.elapsed().as_millis() as u64;
+                        let success = exit_code == 0;
+
+                        self.emit_terminal_progress(
+                            "terminal_tool_result",
+                            "terminal agent received bash tool result",
+                            bash_call.reasoning.clone(),
+                            Some(command.to_string()),
+                            Some(ctx.model_used.clone()),
+                            Some(Self::truncate_excerpt(&output)),
+                            Some(exit_code),
+                            Some(ctx.step_number),
+                            Some(ctx.max_steps),
+                        );
+
+                        Ok(ToolExecution {
+                            tool_name: "bash".to_string(),
+                            success,
+                            output,
+                            error: if success {
+                                None
+                            } else {
+                                Some(format!("Exit status {exit_code}"))
+                            },
+                            execution_time_ms: 0,
+                        })
+                    }
+                    Err(e) => {
+                        let _execution_time_ms = start_time.elapsed().as_millis() as u64;
+                        Err(crate::actors::agent_harness::HarnessError::ToolExecution(
+                            e.to_string(),
+                        ))
+                    }
+                }
+            }
+            AgentToolCall::MessageWriterToolCall(call) => self.execute_message_writer(call).await,
+            _ => {
+                let tool_name = tool_call_name(tool_call).to_string();
                 Ok(ToolExecution {
-                    tool_name: "bash".to_string(),
-                    success,
-                    output,
-                    error: if success {
-                        None
-                    } else {
-                        Some(format!("Exit status {exit_code}"))
-                    },
+                    tool_name: tool_name.clone(),
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Unknown tool: {tool_name}")),
                     execution_time_ms: 0,
                 })
-            }
-            Err(e) => {
-                let _execution_time_ms = start_time.elapsed().as_millis() as u64;
-                Err(crate::actors::agent_harness::HarnessError::ToolExecution(
-                    e.to_string(),
-                ))
             }
         }
     }
 
     fn should_defer(&self, _tool_name: &str) -> bool {
         false
+    }
+
+    fn validate_terminal_decision(
+        &self,
+        _ctx: &ExecutionContext,
+        _decision: &crate::baml_client::types::AgentDecision,
+        tool_executions: &[ToolExecution],
+    ) -> Result<(), String> {
+        if !self.has_writer_document_context() {
+            return Ok(());
+        }
+        if !Self::has_successful_message_writer_call(tool_executions) {
+            return Err(
+                "Run writer mode requires at least one successful message_writer call before final completion.".to_string(),
+            );
+        }
+        Ok(())
     }
 
     async fn emit_worker_report(
@@ -497,9 +794,20 @@ pub enum TerminalMsg {
         max_steps: Option<u8>,
         model_override: Option<String>,
         progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
+        writer_actor: Option<ActorRef<WriterMsg>>,
         run_id: Option<String>,
         call_id: Option<String>,
         reply: RpcReplyPort<Result<TerminalAgentResult, TerminalError>>,
+    },
+    RunAgenticTaskDetached {
+        objective: String,
+        timeout_ms: Option<u64>,
+        max_steps: Option<u8>,
+        model_override: Option<String>,
+        progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
+        writer_actor: Option<ActorRef<WriterMsg>>,
+        run_id: Option<String>,
+        call_id: Option<String>,
     },
     /// Execute one typed bash command for appactor->toolactor delegation.
     RunBashTool {
@@ -577,6 +885,7 @@ struct TerminalExecutionContext {
     working_dir: String,
     shell: String,
     event_store: ActorRef<EventStoreMsg>,
+    writer_actor: Option<ActorRef<WriterMsg>>,
     run_id: Option<String>,
     call_id: Option<String>,
 }
@@ -615,6 +924,18 @@ pub enum TerminalError {
 impl From<std::io::Error> for TerminalError {
     fn from(e: std::io::Error) -> Self {
         TerminalError::Io(e.to_string())
+    }
+}
+
+/// Ensure a terminal actor has an active PTY process.
+///
+/// Spawning the actor is supervisor-owned; this helper only normalizes
+/// "start if needed" semantics at callsites.
+pub async fn ensure_terminal_started(terminal: &ActorRef<TerminalMsg>) -> Result<(), String> {
+    match ractor::call!(terminal, |reply| TerminalMsg::Start { reply }) {
+        Ok(Ok(())) | Ok(Err(TerminalError::AlreadyRunning)) => Ok(()),
+        Ok(Err(e)) => Err(format!("Failed to start terminal: {e}")),
+        Err(e) => Err(format!("Failed to call terminal start: {e}")),
     }
 }
 
@@ -794,6 +1115,7 @@ impl Actor for TerminalActor {
                 max_steps,
                 model_override,
                 progress_tx,
+                writer_actor,
                 run_id,
                 call_id,
                 reply,
@@ -804,14 +1126,17 @@ impl Actor for TerminalActor {
                     state.output_tx.clone(),
                 ) {
                     (true, Some(input_tx), Some(output_tx)) => {
+                        let run_id_for_exec = run_id.clone();
+                        let call_id_for_exec = call_id.clone();
                         let exec = TerminalExecutionContext {
                             terminal_id: state.terminal_id.clone(),
                             user_id: state.user_id.clone(),
                             working_dir: state.working_dir.clone(),
                             shell: state.shell.clone(),
                             event_store: state.event_store.clone(),
-                            run_id,
-                            call_id,
+                            writer_actor: writer_actor.clone(),
+                            run_id: run_id_for_exec,
+                            call_id: call_id_for_exec,
                         };
                         drop(input_tx);
                         drop(output_tx);
@@ -827,7 +1152,57 @@ impl Actor for TerminalActor {
                     }
                     _ => Err(TerminalError::NotRunning),
                 };
+                Self::emit_writer_completion(
+                    writer_actor,
+                    run_id.clone(),
+                    call_id.clone(),
+                    result.clone(),
+                );
                 let _ = reply.send(result);
+            }
+            TerminalMsg::RunAgenticTaskDetached {
+                objective,
+                timeout_ms,
+                max_steps,
+                model_override,
+                progress_tx,
+                writer_actor,
+                run_id,
+                call_id,
+            } => {
+                let result = match (
+                    state.is_running,
+                    state.input_tx.clone(),
+                    state.output_tx.clone(),
+                ) {
+                    (true, Some(input_tx), Some(output_tx)) => {
+                        let run_id_for_exec = run_id.clone();
+                        let call_id_for_exec = call_id.clone();
+                        let exec = TerminalExecutionContext {
+                            terminal_id: state.terminal_id.clone(),
+                            user_id: state.user_id.clone(),
+                            working_dir: state.working_dir.clone(),
+                            shell: state.shell.clone(),
+                            event_store: state.event_store.clone(),
+                            writer_actor: writer_actor.clone(),
+                            run_id: run_id_for_exec,
+                            call_id: call_id_for_exec,
+                        };
+                        drop(input_tx);
+                        drop(output_tx);
+                        self.run_agentic_task(
+                            exec,
+                            objective,
+                            timeout_ms,
+                            max_steps,
+                            model_override,
+                            progress_tx,
+                        )
+                        .await
+                    }
+                    _ => Err(TerminalError::NotRunning),
+                };
+                Self::emit_writer_completion(writer_actor, run_id, call_id, result);
             }
             TerminalMsg::RunBashTool {
                 request,
@@ -846,6 +1221,7 @@ impl Actor for TerminalActor {
                             working_dir: state.working_dir.clone(),
                             shell: state.shell.clone(),
                             event_store: state.event_store.clone(),
+                            writer_actor: None,
                             run_id: request.run_id.clone(),
                             call_id: request.call_id.clone(),
                         };
@@ -899,6 +1275,34 @@ impl Actor for TerminalActor {
 }
 
 impl TerminalActor {
+    fn emit_writer_completion(
+        writer_actor: Option<ActorRef<WriterMsg>>,
+        run_id: Option<String>,
+        call_id: Option<String>,
+        result: Result<TerminalAgentResult, TerminalError>,
+    ) {
+        if let (Some(writer_actor), Some(run_id)) = (writer_actor, run_id) {
+            let dispatch_id = call_id
+                .clone()
+                .and_then(|id| id.rsplit(':').next().map(ToString::to_string))
+                .unwrap_or_else(|| ulid::Ulid::new().to_string());
+            let completion = result
+                .map(|terminal| WriterDelegateResult {
+                    capability: WriterDelegateCapability::Terminal,
+                    success: terminal.success,
+                    summary: terminal.summary,
+                })
+                .map_err(|error| WriterError::WorkerFailed(error.to_string()));
+            let _ = writer_actor.send_message(WriterMsg::DelegationWorkerCompleted {
+                capability: WriterDelegateCapability::Terminal,
+                run_id: Some(run_id),
+                call_id,
+                dispatch_id,
+                result: completion,
+            });
+        }
+    }
+
     async fn run_agentic_task(
         &self,
         ctx: TerminalExecutionContext,
@@ -915,6 +1319,8 @@ impl TerminalActor {
             ctx.shell.clone(),
             Some(ctx.event_store.clone()),
             progress_tx.clone(),
+            ctx.writer_actor.clone(),
+            ctx.run_id.clone(),
         );
 
         // Configure the harness with provided parameters
@@ -1021,6 +1427,8 @@ impl TerminalActor {
             ctx.shell.clone(),
             Some(ctx.event_store.clone()),
             progress_tx.clone(),
+            None,
+            ctx.run_id.clone(),
         );
         let trace_emitter = LlmTraceEmitter::new(ctx.event_store.clone());
         let tool_ctx = trace_emitter.start_tool_call(
@@ -1598,6 +2006,7 @@ mod tests {
             max_steps: Some(1),
             model_override: None,
             progress_tx: None,
+            writer_actor: None,
             run_id: None,
             call_id: None,
             reply,
@@ -1669,6 +2078,7 @@ mod tests {
             max_steps: Some(1),
             model_override: None,
             progress_tx: None,
+            writer_actor: None,
             run_id: None,
             call_id: None,
             reply,

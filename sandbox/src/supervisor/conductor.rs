@@ -6,9 +6,7 @@ use tracing::{error, info};
 
 use crate::actors::conductor::{ConductorActor, ConductorArguments, ConductorMsg};
 use crate::actors::event_store::EventStoreMsg;
-use crate::actors::researcher::ResearcherMsg;
-use crate::actors::terminal::TerminalMsg;
-use crate::actors::writer::WriterMsg;
+use crate::supervisor::writer::WriterSupervisorMsg;
 
 #[derive(Debug, Default)]
 pub struct ConductorSupervisor;
@@ -16,17 +14,13 @@ pub struct ConductorSupervisor;
 pub struct ConductorSupervisorState {
     pub conductors: HashMap<String, ActorRef<ConductorMsg>>,
     pub event_store: ActorRef<EventStoreMsg>,
-    pub researcher_actor: Option<ActorRef<ResearcherMsg>>,
-    pub terminal_actor: Option<ActorRef<TerminalMsg>>,
-    pub writer_actor: Option<ActorRef<WriterMsg>>,
+    pub writer_supervisor: Option<ActorRef<WriterSupervisorMsg>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ConductorSupervisorArgs {
     pub event_store: ActorRef<EventStoreMsg>,
-    pub researcher_actor: Option<ActorRef<ResearcherMsg>>,
-    pub terminal_actor: Option<ActorRef<TerminalMsg>>,
-    pub writer_actor: Option<ActorRef<WriterMsg>>,
+    pub writer_supervisor: Option<ActorRef<WriterSupervisorMsg>>,
 }
 
 #[derive(Debug)]
@@ -34,9 +28,6 @@ pub enum ConductorSupervisorMsg {
     GetOrCreateConductor {
         conductor_id: String,
         user_id: String,
-        researcher_actor: Option<ActorRef<ResearcherMsg>>,
-        terminal_actor: Option<ActorRef<TerminalMsg>>,
-        writer_actor: Option<ActorRef<WriterMsg>>,
         reply: RpcReplyPort<Result<ActorRef<ConductorMsg>, String>>,
     },
     GetConductor {
@@ -64,9 +55,7 @@ impl Actor for ConductorSupervisor {
         Ok(ConductorSupervisorState {
             conductors: HashMap::new(),
             event_store: args.event_store,
-            researcher_actor: args.researcher_actor,
-            terminal_actor: args.terminal_actor,
-            writer_actor: args.writer_actor,
+            writer_supervisor: args.writer_supervisor,
         })
     }
 
@@ -102,44 +91,29 @@ impl Actor for ConductorSupervisor {
             ConductorSupervisorMsg::GetOrCreateConductor {
                 conductor_id,
                 user_id,
-                researcher_actor,
-                terminal_actor,
-                writer_actor,
                 reply,
             } => {
-                let resolved_researcher =
-                    researcher_actor.or_else(|| state.researcher_actor.clone());
-                let resolved_terminal = terminal_actor.or_else(|| state.terminal_actor.clone());
-                let resolved_writer = writer_actor.or_else(|| state.writer_actor.clone());
-
-                if let Some(conductor) = state.conductors.get(&conductor_id) {
-                    let _ = conductor.send_message(ConductorMsg::SyncDependencies {
-                        researcher_actor: resolved_researcher.clone(),
-                        terminal_actor: resolved_terminal.clone(),
-                        writer_actor: resolved_writer.clone(),
-                    });
-                    let _ = reply.send(Ok(conductor.clone()));
-                    return Ok(());
+                if let Some(conductor) = state.conductors.get(&conductor_id).cloned() {
+                    if conductor.get_status() == ractor::ActorStatus::Running {
+                        let _ = reply.send(Ok(conductor));
+                        return Ok(());
+                    }
+                    state.conductors.remove(&conductor_id);
                 }
 
                 let actor_name = format!("conductor:{conductor_id}");
                 if let Some(cell) = ractor::registry::where_is(actor_name.clone()) {
                     let actor_ref: ActorRef<ConductorMsg> = cell.into();
-                    let _ = actor_ref.send_message(ConductorMsg::SyncDependencies {
-                        researcher_actor: resolved_researcher.clone(),
-                        terminal_actor: resolved_terminal.clone(),
-                        writer_actor: resolved_writer.clone(),
-                    });
-                    state.conductors.insert(conductor_id, actor_ref.clone());
-                    let _ = reply.send(Ok(actor_ref));
-                    return Ok(());
+                    if actor_ref.get_status() == ractor::ActorStatus::Running {
+                        state.conductors.insert(conductor_id, actor_ref.clone());
+                        let _ = reply.send(Ok(actor_ref));
+                        return Ok(());
+                    }
                 }
 
                 let args = ConductorArguments {
                     event_store: state.event_store.clone(),
-                    researcher_actor: resolved_researcher,
-                    terminal_actor: resolved_terminal,
-                    writer_actor: resolved_writer,
+                    writer_supervisor: state.writer_supervisor.clone(),
                 };
 
                 match Actor::spawn_linked(Some(actor_name), ConductorActor, args, myself.get_cell())

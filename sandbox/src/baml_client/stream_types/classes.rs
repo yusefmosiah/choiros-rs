@@ -18,7 +18,7 @@ pub struct AgentDecision {
 
 
 
-    pub tool_calls: Vec<Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall>,
+    pub tool_calls: Vec<Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall>,
 
 
 
@@ -313,6 +313,34 @@ pub struct FileWriteToolCall {
 
 impl AsRef<FileWriteToolCall> for FileWriteToolCall {
     fn as_ref(&self) -> &FileWriteToolCall {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct FinishedToolArgs {
+    pub summary: Option<String>,
+}
+
+impl AsRef<FinishedToolArgs> for FinishedToolArgs {
+    fn as_ref(&self) -> &FinishedToolArgs {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct FinishedToolCall {
+    pub tool_name: Option<String>,
+
+    pub tool_args: Option<FinishedToolArgs>,
+
+    pub reasoning: Option<String>,
+}
+
+impl AsRef<FinishedToolCall> for FinishedToolCall {
+    fn as_ref(&self) -> &FinishedToolCall {
         self
     }
 }

@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use tracing::{error, info};
 
 use crate::actors::event_store::EventStoreMsg;
-use crate::actors::researcher::ResearcherMsg;
-use crate::actors::terminal::TerminalMsg;
 use crate::actors::writer::{WriterActor, WriterArguments, WriterMsg};
+use crate::supervisor::researcher::ResearcherSupervisorMsg;
+use crate::supervisor::terminal::TerminalSupervisorMsg;
 
 #[derive(Debug, Default)]
 pub struct WriterSupervisor;
@@ -15,15 +15,15 @@ pub struct WriterSupervisor;
 pub struct WriterSupervisorState {
     pub writers: HashMap<String, ActorRef<WriterMsg>>,
     pub event_store: ActorRef<EventStoreMsg>,
-    pub researcher_actor: Option<ActorRef<ResearcherMsg>>,
-    pub terminal_actor: Option<ActorRef<TerminalMsg>>,
+    pub researcher_supervisor: Option<ActorRef<ResearcherSupervisorMsg>>,
+    pub terminal_supervisor: Option<ActorRef<TerminalSupervisorMsg>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct WriterSupervisorArgs {
     pub event_store: ActorRef<EventStoreMsg>,
-    pub researcher_actor: Option<ActorRef<ResearcherMsg>>,
-    pub terminal_actor: Option<ActorRef<TerminalMsg>>,
+    pub researcher_supervisor: Option<ActorRef<ResearcherSupervisorMsg>>,
+    pub terminal_supervisor: Option<ActorRef<TerminalSupervisorMsg>>,
 }
 
 #[derive(Debug)]
@@ -31,8 +31,6 @@ pub enum WriterSupervisorMsg {
     GetOrCreateWriter {
         writer_id: String,
         user_id: String,
-        researcher_actor: Option<ActorRef<ResearcherMsg>>,
-        terminal_actor: Option<ActorRef<TerminalMsg>>,
         reply: RpcReplyPort<Result<ActorRef<WriterMsg>, String>>,
     },
     GetWriter {
@@ -60,8 +58,8 @@ impl Actor for WriterSupervisor {
         Ok(WriterSupervisorState {
             writers: HashMap::new(),
             event_store: args.event_store,
-            researcher_actor: args.researcher_actor,
-            terminal_actor: args.terminal_actor,
+            researcher_supervisor: args.researcher_supervisor,
+            terminal_supervisor: args.terminal_supervisor,
         })
     }
 
@@ -97,8 +95,6 @@ impl Actor for WriterSupervisor {
             WriterSupervisorMsg::GetOrCreateWriter {
                 writer_id,
                 user_id,
-                researcher_actor,
-                terminal_actor,
                 reply,
             } => {
                 if let Some(writer) = state.writers.get(&writer_id) {
@@ -118,8 +114,8 @@ impl Actor for WriterSupervisor {
                     writer_id: writer_id.clone(),
                     user_id,
                     event_store: state.event_store.clone(),
-                    researcher_actor: researcher_actor.or_else(|| state.researcher_actor.clone()),
-                    terminal_actor: terminal_actor.or_else(|| state.terminal_actor.clone()),
+                    researcher_supervisor: state.researcher_supervisor.clone(),
+                    terminal_supervisor: state.terminal_supervisor.clone(),
                 };
 
                 match Actor::spawn_linked(Some(actor_name), WriterActor, args, myself.get_cell())
@@ -139,7 +135,9 @@ impl Actor for WriterSupervisor {
                 let _ = reply.send(state.writers.get(&writer_id).cloned());
             }
             WriterSupervisorMsg::RemoveWriter { writer_id } => {
-                state.writers.remove(&writer_id);
+                if let Some(actor_ref) = state.writers.remove(&writer_id) {
+                    actor_ref.stop(None);
+                }
             }
             WriterSupervisorMsg::Supervision(event) => {
                 self.handle_supervisor_evt(myself, event, state).await?;

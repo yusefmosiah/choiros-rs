@@ -12,8 +12,10 @@ use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 use tokio::fs;
 
-use crate::actors::conductor::ConductorMsg;
-use crate::actors::writer::{DocumentVersion, Overlay, OverlayStatus, VersionSource};
+use crate::actors::event_store::{AppendEvent, EventStoreMsg};
+use crate::actors::writer::{
+    DocumentVersion, Overlay, OverlayStatus, VersionSource, WriterError, WriterMsg,
+};
 use crate::api::ApiState;
 
 /// Sandbox root path - all file operations are constrained to this directory
@@ -649,6 +651,39 @@ fn extract_run_id_from_document_path(path: &str) -> Option<String> {
     }
 }
 
+fn map_writer_actor_error(error: WriterError) -> axum::response::Response {
+    match error {
+        WriterError::Validation(message) => {
+            if message.contains("not found") {
+                writer_error(WriterErrorCode::NotFound, message).into_response()
+            } else {
+                writer_error(WriterErrorCode::InvalidRevision, message).into_response()
+            }
+        }
+        WriterError::ActorUnavailable(message) => {
+            writer_error(WriterErrorCode::WriteError, message).into_response()
+        }
+        other => writer_error(WriterErrorCode::WriteError, other.to_string()).into_response(),
+    }
+}
+
+async fn ensure_conductor_writer_actor(
+    state: &ApiState,
+    run_id: &str,
+) -> Result<ractor::ActorRef<WriterMsg>, axum::response::Response> {
+    state
+        .app_state
+        .ensure_run_writer(run_id)
+        .await
+        .map_err(|err| {
+            writer_error(
+                WriterErrorCode::WriteError,
+                format!("Writer unavailable: {err}"),
+            )
+            .into_response()
+        })
+}
+
 /// Submit a human prompt into the writer actor queue for the run document.
 pub async fn prompt_document(
     State(state): State<ApiState>,
@@ -673,36 +708,37 @@ pub async fn prompt_document(
         }
     };
 
-    let conductor = match state.app_state.ensure_conductor().await {
+    let _ = state
+        .app_state
+        .event_store()
+        .cast(EventStoreMsg::AppendAsync {
+            event: AppendEvent {
+                event_type: "user_input".to_string(),
+                payload: serde_json::json!({
+                    "surface": "writer.prompt_document",
+                    "run_id": &run_id,
+                    "path": &req.path,
+                    "base_version_id": req.base_version_id,
+                    "prompt_diff_len": req.prompt_diff.len(),
+                }),
+                actor_id: "api.writer".to_string(),
+                user_id: "system".to_string(),
+            },
+        });
+
+    let writer_actor = match ensure_conductor_writer_actor(&state, &run_id).await {
         Ok(actor) => actor,
-        Err(err) => {
-            return writer_error(
-                WriterErrorCode::WriteError,
-                format!("Conductor unavailable: {err}"),
-            )
-            .into_response();
-        }
+        Err(response) => return response,
     };
 
-    let ack = match ractor::call!(conductor, |reply| ConductorMsg::SubmitUserPrompt {
+    let ack = match ractor::call!(writer_actor, |reply| WriterMsg::SubmitUserPrompt {
         run_id: run_id.clone(),
         prompt_diff: req.prompt_diff.clone(),
         base_version_id: req.base_version_id,
         reply,
     }) {
         Ok(Ok(ack)) => ack,
-        Ok(Err(err)) => match err {
-            crate::actors::conductor::ConductorError::InvalidRequest(message) => {
-                return writer_error(WriterErrorCode::InvalidRevision, message).into_response();
-            }
-            crate::actors::conductor::ConductorError::NotFound(message) => {
-                return writer_error(WriterErrorCode::NotFound, message).into_response();
-            }
-            other => {
-                return writer_error(WriterErrorCode::WriteError, other.to_string())
-                    .into_response();
-            }
-        },
+        Ok(Err(err)) => return map_writer_actor_error(err),
         Err(err) => {
             return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
         }
@@ -737,27 +773,19 @@ pub async fn list_versions(
         }
     };
 
-    let conductor = match state.app_state.ensure_conductor().await {
+    let writer_actor = match ensure_conductor_writer_actor(&state, &run_id).await {
         Ok(actor) => actor,
-        Err(err) => {
-            return writer_error(
-                WriterErrorCode::WriteError,
-                format!("Conductor unavailable: {err}"),
-            )
-            .into_response();
-        }
+        Err(response) => return response,
     };
 
-    let mut versions = match ractor::call!(conductor, |reply| {
-        ConductorMsg::ListWriterDocumentVersions {
+    let mut versions = match ractor::call!(writer_actor, |reply| {
+        WriterMsg::ListWriterDocumentVersions {
             run_id: run_id.clone(),
             reply,
         }
     }) {
         Ok(Ok(versions)) => versions,
-        Ok(Err(err)) => {
-            return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
-        }
+        Ok(Err(err)) => return map_writer_actor_error(err),
         Err(err) => {
             return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
         }
@@ -796,38 +824,27 @@ pub async fn get_version(
         }
     };
 
-    let conductor = match state.app_state.ensure_conductor().await {
+    let writer_actor = match ensure_conductor_writer_actor(&state, &run_id).await {
         Ok(actor) => actor,
-        Err(err) => {
-            return writer_error(
-                WriterErrorCode::WriteError,
-                format!("Conductor unavailable: {err}"),
-            )
-            .into_response();
-        }
+        Err(response) => return response,
     };
 
-    let version = match ractor::call!(conductor.clone(), |reply| {
-        ConductorMsg::GetWriterDocumentVersion {
+    let version = match ractor::call!(writer_actor.clone(), |reply| {
+        WriterMsg::GetWriterDocumentVersion {
             run_id: run_id.clone(),
             version_id: query.version_id,
             reply,
         }
     }) {
         Ok(Ok(version)) => version,
-        Ok(Err(err)) => match err {
-            crate::actors::conductor::ConductorError::NotFound(message) => {
-                return writer_error(WriterErrorCode::NotFound, message).into_response();
-            }
-            _ => return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response(),
-        },
+        Ok(Err(err)) => return map_writer_actor_error(err),
         Err(err) => {
             return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
         }
     };
 
-    let overlays = match ractor::call!(conductor, |reply| {
-        ConductorMsg::ListWriterDocumentOverlays {
+    let overlays = match ractor::call!(writer_actor, |reply| {
+        WriterMsg::ListWriterDocumentOverlays {
             run_id: run_id.clone(),
             base_version_id: Some(query.version_id),
             status: Some(OverlayStatus::Pending),
@@ -835,9 +852,7 @@ pub async fn get_version(
         }
     }) {
         Ok(Ok(overlays)) => overlays,
-        Ok(Err(err)) => {
-            return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
-        }
+        Ok(Err(err)) => return map_writer_actor_error(err),
         Err(err) => {
             return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
         }
@@ -875,30 +890,22 @@ pub async fn save_version(
         }
     };
 
-    let conductor = match state.app_state.ensure_conductor().await {
+    let writer_actor = match ensure_conductor_writer_actor(&state, &run_id).await {
         Ok(actor) => actor,
-        Err(err) => {
-            return writer_error(
-                WriterErrorCode::WriteError,
-                format!("Conductor unavailable: {err}"),
-            )
-            .into_response();
-        }
+        Err(response) => return response,
     };
 
     let parent_version_id = if let Some(parent) = req.parent_version_id {
         Some(parent)
     } else {
-        let versions = match ractor::call!(conductor.clone(), |reply| {
-            ConductorMsg::ListWriterDocumentVersions {
+        let versions = match ractor::call!(writer_actor.clone(), |reply| {
+            WriterMsg::ListWriterDocumentVersions {
                 run_id: run_id.clone(),
                 reply,
             }
         }) {
             Ok(Ok(versions)) => versions,
-            Ok(Err(err)) => {
-                return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
-            }
+            Ok(Err(err)) => return map_writer_actor_error(err),
             Err(err) => {
                 return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
             }
@@ -906,8 +913,8 @@ pub async fn save_version(
         versions.iter().map(|v| v.version_id).max()
     };
 
-    let version = match ractor::call!(conductor, |reply| {
-        ConductorMsg::CreateWriterDocumentVersion {
+    let version = match ractor::call!(writer_actor, |reply| {
+        WriterMsg::CreateWriterDocumentVersion {
             run_id: run_id.clone(),
             parent_version_id,
             content: req.content.clone(),
@@ -916,9 +923,7 @@ pub async fn save_version(
         }
     }) {
         Ok(Ok(version)) => version,
-        Ok(Err(err)) => {
-            return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
-        }
+        Ok(Err(err)) => return map_writer_actor_error(err),
         Err(err) => {
             return writer_error(WriterErrorCode::WriteError, err.to_string()).into_response();
         }

@@ -5,9 +5,7 @@
 
 use crate::actors::researcher::ResearcherResult;
 use crate::actors::terminal::TerminalAgentResult;
-use crate::actors::terminal::TerminalMsg;
-use crate::actors::writer::WriterQueueAck;
-use crate::actors::writer::{DocumentVersion, Overlay, OverlayStatus, VersionSource};
+use crate::actors::writer::{WriterOrchestrationResult, WriterQueueAck};
 use ractor::RpcReplyPort;
 use shared_types::{ConductorExecuteRequest, ConductorRunState, EventMetadata};
 
@@ -23,12 +21,6 @@ pub enum ConductorMsg {
     StartRun {
         run_id: String,
         request: ConductorExecuteRequest,
-    },
-    /// Refresh run-time actor dependencies for an existing conductor instance.
-    SyncDependencies {
-        researcher_actor: Option<ractor::ActorRef<crate::actors::researcher::ResearcherMsg>>,
-        terminal_actor: Option<ractor::ActorRef<TerminalMsg>>,
-        writer_actor: Option<ractor::ActorRef<crate::actors::writer::WriterMsg>>,
     },
     /// Get the current state of a run.
     GetRunState {
@@ -58,32 +50,6 @@ pub enum ConductorMsg {
         base_version_id: u64,
         reply: RpcReplyPort<Result<WriterQueueAck, ConductorError>>,
     },
-    /// List run document versions from writer document runtime.
-    ListWriterDocumentVersions {
-        run_id: String,
-        reply: RpcReplyPort<Result<Vec<DocumentVersion>, ConductorError>>,
-    },
-    /// Fetch a specific run document version from writer document runtime.
-    GetWriterDocumentVersion {
-        run_id: String,
-        version_id: u64,
-        reply: RpcReplyPort<Result<DocumentVersion, ConductorError>>,
-    },
-    /// List overlays for a run document.
-    ListWriterDocumentOverlays {
-        run_id: String,
-        base_version_id: Option<u64>,
-        status: Option<OverlayStatus>,
-        reply: RpcReplyPort<Result<Vec<Overlay>, ConductorError>>,
-    },
-    /// Create a canonical version for a run document.
-    CreateWriterDocumentVersion {
-        run_id: String,
-        parent_version_id: Option<u64>,
-        content: String,
-        source: VersionSource,
-        reply: RpcReplyPort<Result<DocumentVersion, ConductorError>>,
-    },
 }
 
 /// Output from a worker task
@@ -100,6 +66,9 @@ pub struct WorkerOutput {
 pub enum CapabilityWorkerOutput {
     Researcher(ResearcherResult),
     Terminal(TerminalAgentResult),
+    Writer(WriterOrchestrationResult),
+    ImmediateResponse(String),
+    Subharness,
 }
 
 /// Errors that can occur in ConductorActor

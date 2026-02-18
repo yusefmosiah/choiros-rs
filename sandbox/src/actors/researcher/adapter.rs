@@ -29,7 +29,7 @@ use crate::actors::writer::SectionState;
 use crate::actors::writer::{WriterInboundEnvelope, WriterMsg, WriterSource};
 use crate::baml_client::types::{
     MessageWriterToolCall,
-    Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall as AgentToolCall,
+    Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall as AgentToolCall,
 };
 
 use super::{
@@ -83,6 +83,7 @@ fn tool_call_name(tool_call: &AgentToolCall) -> &str {
         AgentToolCall::FileWriteToolCall(call) => call.tool_name.as_str(),
         AgentToolCall::FileEditToolCall(call) => call.tool_name.as_str(),
         AgentToolCall::MessageWriterToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::FinishedToolCall(call) => call.tool_name.as_str(),
     }
 }
 
@@ -211,6 +212,12 @@ impl ResearcherAdapter {
         Some((self.writer_actor.clone()?, self.run_id.clone()?))
     }
 
+    fn has_successful_message_writer_call(tool_executions: &[ToolExecution]) -> bool {
+        tool_executions
+            .iter()
+            .any(|exec| exec.tool_name == "message_writer" && exec.success)
+    }
+
     async fn writer_set_state(&self, state: SectionState) {
         let Some((writer_actor, run_id)) = self.writer_context() else {
             return;
@@ -221,18 +228,6 @@ impl ResearcherAdapter {
             state,
             reply,
         });
-    }
-
-    fn terminal_decision_has_required_writer_message(
-        writer_mode_active: bool,
-        tool_executions: &[ToolExecution],
-    ) -> bool {
-        if !writer_mode_active {
-            return true;
-        }
-        tool_executions
-            .iter()
-            .any(|exec| exec.tool_name == "message_writer" && exec.success)
     }
 
     async fn execute_message_writer(
@@ -385,8 +380,48 @@ impl ResearcherAdapter {
                     })
                 }
             }
+            "completion" => {
+                if content.trim().is_empty() {
+                    Err("message_writer completion mode requires content".to_string())
+                } else {
+                    let message_id =
+                        format!("{run_id}:researcher:tool:completion:{}", ulid::Ulid::new());
+                    let envelope = WriterInboundEnvelope {
+                        message_id,
+                        correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
+                        kind: "researcher_tool_completion".to_string(),
+                        run_id: run_id.clone(),
+                        section_id: section_id.clone(),
+                        source: WriterSource::Researcher,
+                        content: content.clone(),
+                        base_version_id: None,
+                        prompt_diff: None,
+                        overlay_id: None,
+                        session_id: None,
+                        thread_id: None,
+                        call_id: None,
+                        origin_actor: Some(self.state.researcher_id.clone()),
+                    };
+                    ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+                        envelope,
+                        reply,
+                    })
+                    .map_err(|e| format!("WriterActor call failed: {e}"))
+                    .and_then(|inner| inner.map_err(|e| e.to_string()))
+                    .map(|ack| {
+                        serde_json::json!({
+                            "mode": "completion",
+                            "section_id": section_id,
+                            "message_id": ack.message_id,
+                            "revision": ack.revision,
+                            "queue_len": ack.queue_len,
+                            "duplicate": ack.duplicate,
+                        })
+                    })
+                }
+            }
             _ => Err(format!(
-                "Unknown message_writer mode '{}'. Supported: proposal_append, canon_append, progress, state",
+                "Unknown message_writer mode '{}'. Supported: proposal_append, canon_append, progress, state, completion",
                 mode
             )),
         };
@@ -453,16 +488,18 @@ impl WorkerPort for ResearcherAdapter {
 6. message_writer - Send a typed actor message to the run document
    Args:
    - path: string (optional) - section_id: conductor|researcher|terminal|user (default: researcher)
-   - content: string (required for append/progress)
-   - mode: string (required) - proposal_append|canon_append|progress|state
+   - content: string (required for append/progress/completion)
+   - mode: string (required) - proposal_append|canon_append|progress|state|completion
    - mode_arg: string (optional) - mode argument:
      - progress: phase string
      - state: pending|running|complete|failed
    Required behavior in writer document mode:
-   - Use message_writer with mode=\"proposal_append\" for substantive updates
-   - Publish first substantive update by step 2 at latest
-   - Publish again whenever you have new findings or changed conclusions
-   - Before final response (no tool calls), publish a final proposal_append summary
+   - Use message_writer with mode=\"proposal_append\" for substantive incremental updates when needed
+   - If research is multi-step, publish updates whenever findings materially change
+   - For one-step answers, send exactly one mode=\"completion\" with the final content
+   - For multi-step answers, send proposal_append updates and finish with one completion message
+   - When the objective is already answered with sufficient evidence, stop researching and call `finished`
+   - Do not continue tool calling for extra redundancy once the objective is satisfied
    - Keep each update concise and incremental (delta from prior update), not a full report
    - If evidence conflicts with earlier claims, explicitly mark the old claim as superseded
    Examples:
@@ -473,7 +510,7 @@ impl WorkerPort for ResearcherAdapter {
      tool=message_writer, path=\"researcher\", mode=\"proposal_append\",
      content=\"New findings:\\n- ...\\n- ...\\nSources: [name](url)\"
    - Final handoff:
-     tool=message_writer, path=\"researcher\", mode=\"proposal_append\",
+     tool=message_writer, path=\"researcher\", mode=\"completion\",
      content=\"Final delta summary:\\n- ...\\nUncertainty: ...\\nSources: ...\"
 "#
         .to_string()
@@ -517,11 +554,12 @@ Guidelines:
   - Only serialize when a later call depends on output from an earlier one.
 - Run writer mode protocol (strict):
   - Treat message_writer as your output channel to the researcher section.
-  - Use mode proposal_append for substantive content updates.
-  - Emit first substantive proposal_append by step 2 (latest).
-  - Emit another proposal_append whenever findings materially change.
-  - Emit a final proposal_append immediately before returning a final response.
-  - Never stop tool calling with zero successful message_writer calls.
+  - Use mode proposal_append for substantive content updates when iterative work is needed.
+  - If objective is solved in one step, emit exactly one message_writer mode=completion with final content.
+  - If objective requires multiple steps, emit proposal_append when findings materially change, then emit completion once.
+  - Stop condition (required): once objective is answered, stop tool-calling.
+  - Do not keep searching after the stop condition unless you have an explicit unresolved contradiction.
+  - For point-in-time factual asks (weather, quotes, simple current status), one fresh successful source is sufficient to stop.
 - Content quality protocol:
   - Do not output long, rigid report templates from researcher.
   - Send concise evidence deltas (what changed since last update).
@@ -536,8 +574,10 @@ Guidelines:
 - Recommended loop shape in writer document mode:
   1) fetch_url for any explicit URLs in the objective/user message
   2) web_search to fill context gaps and discover corroborating sources
-  3) message_writer proposal_append with concise findings + citations
-  4) repeat until objective is satisfied, then final proposal_append and a final response with no tool calls
+  3) optional message_writer proposal_append for incremental findings (if iterative work is needed)
+  4) message_writer completion with final content
+  5) when objective is satisfied, call `finished` and provide final response in message
+  6) only repeat if objective remains unsatisfied or evidence is conflicting
 {}
 "#,
             ctx.objective, run_doc_hint
@@ -984,12 +1024,12 @@ Guidelines:
         _decision: &crate::baml_client::types::AgentDecision,
         tool_executions: &[ToolExecution],
     ) -> Result<(), String> {
-        let writer_mode_active = self.writer_actor.is_some() && self.has_writer_document_context();
-        if !Self::terminal_decision_has_required_writer_message(writer_mode_active, tool_executions)
-        {
+        if !self.has_writer_document_context() {
+            return Ok(());
+        }
+        if !Self::has_successful_message_writer_call(tool_executions) {
             return Err(
-                "Run writer mode requires at least one successful message_writer tool call before completion"
-                    .to_string(),
+                "Run writer mode requires at least one successful message_writer call before final completion.".to_string(),
             );
         }
         Ok(())
@@ -1127,20 +1167,16 @@ mod tests {
     }
 
     #[test]
-    fn terminal_decision_requires_message_writer_when_writer_mode_active() {
-        assert!(!ResearcherAdapter::terminal_decision_has_required_writer_message(true, &[]));
-        assert!(ResearcherAdapter::terminal_decision_has_required_writer_message(false, &[]));
-        assert!(
-            ResearcherAdapter::terminal_decision_has_required_writer_message(
-                true,
-                &[ToolExecution {
-                    tool_name: "message_writer".to_string(),
-                    success: true,
-                    output: "{}".to_string(),
-                    error: None,
-                    execution_time_ms: 1,
-                }]
-            )
-        );
+    fn writer_mode_contract_requires_message_writer_before_completion() {
+        let tool_executions = [ToolExecution {
+            tool_name: "web_search".to_string(),
+            success: true,
+            output: "{}".to_string(),
+            error: None,
+            execution_time_ms: 1,
+        }];
+        assert!(!ResearcherAdapter::has_successful_message_writer_call(
+            &tool_executions
+        ));
     }
 }

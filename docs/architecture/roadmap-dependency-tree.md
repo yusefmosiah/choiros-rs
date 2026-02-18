@@ -79,6 +79,28 @@ Watcher/Wake are de-scoped from normal run progression authority.
 - Harden worker live-update event model runtime enforcement
 - Shared harness unification (living-document/terminal/researcher loop abstraction)
 
+## Progress Review (2026-02-18)
+
+Handoff checkpoint from seam-closure work:
+
+- Writer delegation tool contract is now enforced at runtime:
+  - Writer delegation allows `message_writer` and `finished` only.
+  - Writer synthesis allows `finished` only.
+  - Disallowed tool decisions are rejected and retried once with explicit tool-contract correction.
+- Worker lifecycle bug fixed: delegated worker inflight entries are now removed on completion, not immediately after dispatch.
+- End-to-end evidence captured with Playwright for prompt -> conductor -> writer -> researcher path.
+- Playwright artifacts are now fully gitignored (`tests/artifacts/playwright/`, `playwright-report/`, `test-results/` and local test runner output paths).
+
+Current gate status:
+- Phase 0 remains open.
+- Core direction is validated (non-blocking message-based delegation and writer-owned worker dispatch).
+- Remaining work is focused on final seam closure and stronger multi-run concurrency verification.
+
+Immediate next checks:
+1. Add assertions for writer window/run isolation with concurrent runs.
+2. Add websocket/event-order tests for delegated worker completion messages to writer.
+3. Add negative tests for disallowed writer delegation tools to prevent regression.
+
 ## RLM + StateIndex Alignment (Added)
 
 Goal:
@@ -111,6 +133,12 @@ Active milestones:
 1. **Milestone A**: Conductor backend MVP for report generation
 2. **Milestone B**: Prompt bar routing to Conductor
 3. **Milestone C**: Writer auto-open in markdown preview mode
+
+Blocking prerequisite (Phase 0, seam 9):
+- **libsql → sqlx migration** must complete before Phase 6 (Nix/cross-compilation).
+  Tracked in `docs/architecture/2026-02-17-codesign-runbook.md` as seam 0.9.
+  Unlocks: crane builds, `nix build .#sandbox`, SQLX_OFFLINE CI mode, `RETURNING` clause,
+  proper `sqlx migrate run` (replaces manual `PRAGMA table_info` workaround).
 
 Everything else is parked unless it unblocks this lane.
 

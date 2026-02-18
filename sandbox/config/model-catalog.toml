@@ -29,7 +29,7 @@ aliases = ["anthropic.claude-opus-4-6-v1", "ClaudeBedrockOpus46"]
 [models.ClaudeBedrockSonnet46]
 name = "Claude Sonnet 4.6 (Bedrock)"
 provider = "aws-bedrock"
-model = "us.anthropic.claude-sonnet-4-6-v1:0"
+model = "us.anthropic.claude-sonnet-4-6"
 region = "us-east-1"
 aliases = [
   "anthropic.claude-sonnet-4-6",

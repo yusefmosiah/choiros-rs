@@ -9,11 +9,13 @@ use axum::Json;
 use serde::Serialize;
 
 use crate::actors::conductor::{ConductorError as ActorConductorError, ConductorMsg};
+use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::api::websocket::{broadcast_event, WsMessage};
 use crate::api::ApiState;
 use shared_types::{
     ConductorError, ConductorExecuteRequest, ConductorExecuteResponse, ConductorRunState,
-    ConductorRunStatus, ConductorRunStatusResponse, EventImportance, WriterWindowProps,
+    ConductorRunStatus, ConductorRunStatusResponse, ConductorToastPayload, ConductorToastTone,
+    EventImportance, WriterWindowProps,
 };
 
 /// Conductor error codes for machine-readable error responses
@@ -119,6 +121,10 @@ fn writer_window_props_for_report(report_path: &str, run_id: Option<&str>) -> Wr
     }
 }
 
+fn should_retry_conductor_rpc(err: &str) -> bool {
+    err.contains("Messaging failed to enqueue")
+}
+
 fn writer_window_props_for_run_document(document_path: &str, run_id: &str) -> WriterWindowProps {
     WriterWindowProps {
         x: 100,
@@ -149,13 +155,70 @@ fn run_error_for_status(status: ConductorRunStatus) -> Option<ConductorError> {
     }
 }
 
+fn immediate_response_from_run(run: &ConductorRunState) -> Option<String> {
+    run.artifacts.iter().rev().find_map(|artifact| {
+        let metadata = artifact.metadata.as_ref()?;
+        let capability = metadata.get("capability")?.as_str()?;
+        if capability != "immediate_response" {
+            return None;
+        }
+        metadata
+            .get("message")
+            .and_then(|value| value.as_str())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    })
+}
+
+fn report_summary_message(report_path: &str) -> Option<String> {
+    let full_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(report_path);
+    let content = std::fs::read_to_string(full_path).ok()?;
+    let line = content.lines().find(|line| {
+        let trimmed = line.trim();
+        !trimmed.is_empty() && !trimmed.starts_with('#') && !trimmed.starts_with("```")
+    })?;
+    let message = line.trim().chars().take(240).collect::<String>();
+    (!message.is_empty()).then_some(message)
+}
+
+fn toast_from_run(
+    run: &ConductorRunState,
+    report_path: Option<&str>,
+) -> Option<ConductorToastPayload> {
+    if run.status != ConductorRunStatus::Completed {
+        return None;
+    }
+    if let Some(message) = immediate_response_from_run(run) {
+        return Some(ConductorToastPayload {
+            title: "Conductor".to_string(),
+            message,
+            tone: ConductorToastTone::Info,
+            report_path: None,
+        });
+    }
+    if run.output_mode != shared_types::ConductorOutputMode::ToastWithReportLink {
+        return None;
+    }
+    let report_path = report_path?;
+    Some(ConductorToastPayload {
+        title: "Conductor Answer".to_string(),
+        message: report_summary_message(report_path)
+            .unwrap_or_else(|| "Conductor completed.".to_string()),
+        tone: ConductorToastTone::Success,
+        report_path: Some(report_path.to_string()),
+    })
+}
+
 fn run_state_to_execute_response(run: ConductorRunState) -> ConductorExecuteResponse {
     let run_id = run.run_id.clone();
-    let report_path = if run.status == ConductorRunStatus::Completed {
+    let report_path = if run.status == ConductorRunStatus::Completed
+        && immediate_response_from_run(&run).is_none()
+    {
         Some(format!("reports/{run_id}.md"))
     } else {
         None
     };
+    let toast = toast_from_run(&run, report_path.as_deref());
     let error = run_error_for_status(run.status);
     let (document_path, writer_window_props) = match run.status {
         ConductorRunStatus::Initializing
@@ -185,17 +248,20 @@ fn run_state_to_execute_response(run: ConductorRunState) -> ConductorExecuteResp
         status: run.status,
         document_path,
         writer_window_props,
-        toast: None,
+        toast,
         error,
     }
 }
 
 fn run_state_to_status_response(run: ConductorRunState) -> ConductorRunStatusResponse {
-    let report_path = if run.status == ConductorRunStatus::Completed {
+    let report_path = if run.status == ConductorRunStatus::Completed
+        && immediate_response_from_run(&run).is_none()
+    {
         Some(format!("reports/{}.md", run.run_id))
     } else {
         None
     };
+    let toast = toast_from_run(&run, report_path.as_deref());
 
     ConductorRunStatusResponse {
         run_id: run.run_id,
@@ -208,7 +274,7 @@ fn run_state_to_status_response(run: ConductorRunState) -> ConductorRunStatusRes
         completed_at: run.completed_at,
         document_path: run.document_path,
         report_path,
-        toast: None,
+        toast,
         error: run_error_for_status(run.status),
     }
 }
@@ -252,6 +318,31 @@ fn map_actor_error(err: ActorConductorError) -> (StatusCode, ConductorError) {
                 Some(shared_types::FailureKind::Unknown),
             ),
         ),
+    }
+}
+
+async fn maybe_wait_for_terminal_run_state(
+    conductor: ractor::ActorRef<ConductorMsg>,
+    run_id: &str,
+    max_wait_ms: u64,
+) -> Option<ConductorRunState> {
+    let started = std::time::Instant::now();
+    loop {
+        if started.elapsed().as_millis() as u64 >= max_wait_ms {
+            return None;
+        }
+        let run = ractor::call!(conductor, |reply| ConductorMsg::GetRunState {
+            run_id: run_id.to_string(),
+            reply,
+        })
+        .ok()
+        .flatten()?;
+        match run.status {
+            ConductorRunStatus::Completed
+            | ConductorRunStatus::Failed
+            | ConductorRunStatus::Blocked => return Some(run),
+            _ => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
+        }
     }
 }
 
@@ -346,6 +437,22 @@ pub async fn execute_task(
         return (StatusCode::BAD_REQUEST, body).into_response();
     }
 
+    let _ = state
+        .app_state
+        .event_store()
+        .cast(EventStoreMsg::AppendAsync {
+            event: AppendEvent {
+                event_type: "user_input".to_string(),
+                payload: serde_json::json!({
+                    "surface": "conductor.execute",
+                    "objective": &request.objective,
+                    "desktop_id": &request.desktop_id,
+                }),
+                actor_id: "api.conductor".to_string(),
+                user_id: "system".to_string(),
+            },
+        });
+
     let conductor = match state.app_state.ensure_conductor().await {
         Ok(actor) => actor,
         Err(e) => {
@@ -383,14 +490,45 @@ pub async fn execute_task(
 
     let desktop_id = request.desktop_id.clone();
     let ws_sessions = state.ws_sessions.clone();
-    let result: Result<Result<ConductorRunState, ActorConductorError>, _> =
+    let mut result: Result<Result<ConductorRunState, ActorConductorError>, _> =
         ractor::call!(conductor, |reply| ConductorMsg::ExecuteTask {
-            request,
+            request: request.clone(),
             reply,
         });
 
+    if let Err(err) = &result {
+        let err_text = err.to_string();
+        if should_retry_conductor_rpc(&err_text) {
+            if let Ok(refreshed) = state.app_state.ensure_conductor().await {
+                result = ractor::call!(refreshed, |reply| ConductorMsg::ExecuteTask {
+                    request,
+                    reply,
+                });
+            }
+        }
+    }
+
     match result {
         Ok(Ok(run_state)) => {
+            let run_state = match run_state.status {
+                ConductorRunStatus::Initializing
+                | ConductorRunStatus::Running
+                | ConductorRunStatus::WaitingForCalls
+                | ConductorRunStatus::Completing => {
+                    if let Some(terminal_run) = maybe_wait_for_terminal_run_state(
+                        conductor.clone(),
+                        &run_state.run_id,
+                        1500,
+                    )
+                    .await
+                    {
+                        terminal_run
+                    } else {
+                        run_state
+                    }
+                }
+                _ => run_state,
+            };
             let run_status = run_state.status;
             let (event_type, phase, importance) = run_lifecycle_telemetry_descriptor(run_status);
             broadcast_telemetry_event(
@@ -473,11 +611,23 @@ pub async fn get_run_status(
         }
     };
 
-    let result: Result<Option<ConductorRunState>, _> =
+    let mut result: Result<Option<ConductorRunState>, _> =
         ractor::call!(conductor, |reply| ConductorMsg::GetRunState {
             run_id: run_id.clone(),
             reply,
         });
+
+    if let Err(err) = &result {
+        let err_text = err.to_string();
+        if should_retry_conductor_rpc(&err_text) {
+            if let Ok(refreshed) = state.app_state.ensure_conductor().await {
+                result = ractor::call!(refreshed, |reply| ConductorMsg::GetRunState {
+                    run_id: run_id.clone(),
+                    reply,
+                });
+            }
+        }
+    }
 
     match result {
         Ok(Some(run_state)) => {

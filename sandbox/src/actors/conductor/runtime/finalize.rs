@@ -8,11 +8,20 @@ use crate::actors::conductor::{
         resolve_output_mode,
     },
     protocol::ConductorError,
+    registry,
 };
 use crate::actors::writer::SectionState;
 use crate::actors::writer::WriterMsg;
+use crate::supervisor::writer::WriterSupervisorMsg;
 
 impl ConductorActor {
+    fn stop_run_writer_actor(&self, state: &ConductorState, run_id: &str) {
+        if let Some(writer_supervisor) = state.writer_supervisor.as_ref() {
+            let writer_id = registry::run_writer_id(run_id);
+            let _ = writer_supervisor.cast(WriterSupervisorMsg::RemoveWriter { writer_id });
+        }
+    }
+
     pub(crate) async fn finalize_run_as_completed(
         &self,
         state: &mut ConductorState,
@@ -59,7 +68,7 @@ impl ConductorActor {
                 .await;
         }
 
-        if let Some(writer_actor) = state.writer_actor.clone() {
+        if let Some(writer_actor) = registry::lookup_writer_actor_for_run(run_id) {
             let _ = ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
                 run_id: run_id.to_string(),
                 section_id: "conductor".to_string(),
@@ -67,6 +76,7 @@ impl ConductorActor {
                 reply,
             });
         }
+        self.stop_run_writer_actor(state, run_id);
 
         Ok(())
     }
@@ -97,7 +107,7 @@ impl ConductorActor {
             shared_error.failure_kind,
         )
         .await;
-        if let Some(writer_actor) = state.writer_actor.clone() {
+        if let Some(writer_actor) = registry::lookup_writer_actor_for_run(run_id) {
             let _ = ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
                 run_id: run_id.to_string(),
                 section_id: "conductor".to_string(),
@@ -105,6 +115,7 @@ impl ConductorActor {
                 reply,
             });
         }
+        self.stop_run_writer_actor(state, run_id);
         Ok(())
     }
 

@@ -1,16 +1,13 @@
-use ractor::{ActorProcessingErr, ActorRef};
-use tokio::sync::mpsc;
+use ractor::{Actor, ActorProcessingErr, ActorRef};
 
 use crate::actors::conductor::actor::{ConductorActor, ConductorState};
 use crate::actors::conductor::{
     events,
     protocol::{ConductorError, ConductorMsg},
-    workers::{call_researcher, call_terminal},
+    runtime::capability_call::{CapabilityCallActor, CapabilityCallArguments},
 };
-use crate::actors::researcher::ResearcherProgress;
-use crate::actors::terminal::TerminalAgentProgress;
 use crate::actors::writer::SectionState;
-use crate::actors::writer::{WriterMsg, WriterSource};
+use crate::actors::writer::WriterMsg;
 
 impl ConductorActor {
     pub(crate) async fn dispatch_seed_agenda(
@@ -143,13 +140,26 @@ impl ConductorActor {
         let agenda_item_id = item.item_id.clone();
         let capability = item.capability.to_ascii_lowercase();
         let objective = item.objective.clone();
-        let researcher = state.researcher_actor.clone();
-        let terminal = state.terminal_actor.clone();
-        let writer = state.writer_actor.clone();
+        let writer = match self
+            .resolve_writer_actor_for_run(state, &run_id_owned)
+            .await
+        {
+            Ok(actor) => Some(actor),
+            Err(error) => {
+                let _ = myself.send_message(ConductorMsg::CapabilityCallFinished {
+                    run_id: run_id_owned,
+                    call_id: call_id_owned,
+                    agenda_item_id,
+                    capability,
+                    result: Err(error),
+                });
+                return Ok(());
+            }
+        };
 
         if let Some(writer_actor) = writer.clone() {
             let section_id = match capability.as_str() {
-                "researcher" | "terminal" => capability.clone(),
+                "researcher" | "terminal" | "writer" => capability.clone(),
                 _ => "conductor".to_string(),
             };
             let _ = ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
@@ -160,124 +170,41 @@ impl ConductorActor {
             });
         }
 
-        let dispatch_note = format!(
-            "{} capability dispatched.\nObjective: {}",
-            capability, item.objective
-        );
-        self.enqueue_capability_inbound(
-            state,
-            &run_id_owned,
-            &call_id_owned,
-            &capability,
-            "capability_dispatched",
-            dispatch_note,
+        let args = CapabilityCallArguments {
+            conductor_ref,
+            model_gateway: state.model_gateway.clone(),
+            writer_actor: writer,
+            run_id: run_id_owned.clone(),
+            call_id: call_id_owned.clone(),
+            agenda_item_id: agenda_item_id.clone(),
+            capability: capability.clone(),
+            objective,
+        };
+
+        match Actor::spawn_linked(
+            Some(format!(
+                "conductor-capability-call:{}:{}",
+                run_id_owned, call_id_owned
+            )),
+            CapabilityCallActor,
+            args,
+            myself.get_cell(),
         )
-        .await;
-
-        tokio::spawn(async move {
-            let result = match capability.as_str() {
-                "researcher" => match researcher {
-                    Some(researcher_ref) => {
-                        let progress_tx = if writer.is_some() {
-                            let (tx, mut rx) = mpsc::unbounded_channel::<ResearcherProgress>();
-                            let writer_for_progress = writer.clone();
-                            let run_id_for_progress = run_id_owned.clone();
-                            tokio::spawn(async move {
-                                while let Some(progress) = rx.recv().await {
-                                    if let Some(writer_actor) = writer_for_progress.clone() {
-                                        let _ = ractor::call!(writer_actor, |reply| {
-                                            WriterMsg::ReportProgress {
-                                                run_id: run_id_for_progress.clone(),
-                                                section_id: "researcher".to_string(),
-                                                source: WriterSource::Researcher,
-                                                phase: progress.phase.clone(),
-                                                message: progress.message.clone(),
-                                                reply,
-                                            }
-                                        });
-                                    }
-                                }
-                            });
-                            Some(tx)
-                        } else {
-                            None
-                        };
-
-                        call_researcher(
-                            &researcher_ref,
-                            objective,
-                            Some(60_000),
-                            Some(8),
-                            Some(100),
-                            progress_tx,
-                            writer.clone(),
-                            Some(run_id_owned.clone()),
-                            Some(call_id_owned.clone()),
-                        )
-                        .await
-                        .map(crate::actors::conductor::protocol::CapabilityWorkerOutput::Researcher)
-                    }
-                    None => Err(ConductorError::WorkerFailed(
-                        "Researcher capability requested but actor is unavailable".to_string(),
-                    )),
-                },
-                "terminal" => match terminal {
-                    Some(terminal_ref) => {
-                        let progress_tx = if writer.is_some() {
-                            let (tx, mut rx) = mpsc::unbounded_channel::<TerminalAgentProgress>();
-                            let writer_for_progress = writer.clone();
-                            let run_id_for_progress = run_id_owned.clone();
-                            tokio::spawn(async move {
-                                while let Some(progress) = rx.recv().await {
-                                    if let Some(writer_actor) = writer_for_progress.clone() {
-                                        let _ = ractor::call!(writer_actor, |reply| {
-                                            WriterMsg::ReportProgress {
-                                                run_id: run_id_for_progress.clone(),
-                                                section_id: "terminal".to_string(),
-                                                source: WriterSource::Terminal,
-                                                phase: progress.phase.clone(),
-                                                message: progress.message.clone(),
-                                                reply,
-                                            }
-                                        });
-                                    }
-                                }
-                            });
-                            Some(tx)
-                        } else {
-                            None
-                        };
-
-                        call_terminal(
-                            &terminal_ref,
-                            objective,
-                            None,
-                            Some(60_000),
-                            Some(100),
-                            progress_tx,
-                            Some(run_id_owned.clone()),
-                            Some(call_id_owned.clone()),
-                        )
-                        .await
-                        .map(crate::actors::conductor::protocol::CapabilityWorkerOutput::Terminal)
-                    }
-                    None => Err(ConductorError::WorkerFailed(
-                        "Terminal capability requested but actor is unavailable".to_string(),
-                    )),
-                },
-                unknown => Err(ConductorError::WorkerFailed(format!(
-                    "Unsupported capability '{unknown}'"
-                ))),
-            };
-
-            let _ = conductor_ref.send_message(ConductorMsg::CapabilityCallFinished {
-                run_id: run_id_owned,
-                call_id: call_id_owned,
-                agenda_item_id,
-                capability,
-                result,
-            });
-        });
+        .await
+        {
+            Ok((_worker_ref, _handle)) => {}
+            Err(error) => {
+                let _ = myself.send_message(ConductorMsg::CapabilityCallFinished {
+                    run_id: run_id_owned,
+                    call_id: call_id_owned,
+                    agenda_item_id,
+                    capability,
+                    result: Err(ConductorError::WorkerFailed(format!(
+                        "Failed to spawn capability call actor: {error}"
+                    ))),
+                });
+            }
+        }
 
         tracing::info!(run_id = %run_id, call_id = %call_id, capability = %item.capability, "Spawned capability call");
 

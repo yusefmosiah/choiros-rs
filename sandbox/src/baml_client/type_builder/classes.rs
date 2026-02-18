@@ -955,6 +955,95 @@ impl FileWriteToolCallClassBuilder {
     }
 }
 
+/// Wrapper for the `FinishedToolArgs` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct FinishedToolArgsClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl FinishedToolArgsClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner
+            .as_type()
+            .expect("FinishedToolArgs is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `summary` field builder.
+    pub fn property_summary(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("summary").expect(
+            "FinishedToolArgs.summary is statically defined in .baml and should always be present",
+        )
+    }
+}
+
+/// Wrapper for the `FinishedToolCall` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct FinishedToolCallClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl FinishedToolCallClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner
+            .as_type()
+            .expect("FinishedToolCall is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `tool_name` field builder.
+    pub fn property_tool_name(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("tool_name")
+            .expect("FinishedToolCall.tool_name is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `tool_args` field builder.
+    pub fn property_tool_args(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("tool_args")
+            .expect("FinishedToolCall.tool_args is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `reasoning` field builder.
+    pub fn property_reasoning(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("reasoning")
+            .expect("FinishedToolCall.reasoning is statically defined in .baml and should always be present")
+    }
+}
+
 /// Wrapper for the `HistoricalResolution` class builder.
 ///
 /// Provides type-safe method access to fields defined in the schema.

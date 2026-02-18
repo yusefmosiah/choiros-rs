@@ -40,18 +40,28 @@
   (roles, leases, status, last signal timestamps, and correlation handles).
 - Phrase matching is allowed only for input normalization or UI text shaping, never as
   orchestration authority.
+- ANTIPATTERN: deterministic fallbacks that hide routing/prompt/contract errors.
+- Fail fast instead: if wiring is wrong, let the run fail loudly, capture telemetry, and fix
+  the real defect. Do not add "backup paths" to mask broken orchestration.
 
 ## Current High-Priority Development Targets
 
-1. Typed worker event schema for actor-call rendering (`spawned/progress/complete/failed`).
-2. Terminal loop event enrichment (`tool_call`, `tool_result`, durations, retry/error metadata).
-3. Direct worker/app-to-conductor request-message contract (typed envelopes,
+1. **libsql → sqlx migration (URGENT — Phase 0 seam #9, unblocks Phase 6 Nix)**
+   - Replace `libsql` with `sqlx` in `sandbox/Cargo.toml`
+   - Replace manual `run_migrations()` + `PRAGMA table_info` in `actors/event_store.rs`
+     with `sqlx::migrate!()` macro
+   - Add proper migration files for `session_id` and `thread_id` columns
+   - Enable `RETURNING` clause in `handle_append` (currently commented out)
+   - Enable sqlx compile-time query checking (`SQLX_OFFLINE` mode for CI)
+2. Typed worker event schema for actor-call rendering (`spawned/progress/complete/failed`).
+3. Terminal loop event enrichment (`tool_call`, `tool_result`, durations, retry/error metadata).
+4. Direct worker/app-to-conductor request-message contract (typed envelopes,
    minimal request kinds, and correlation metadata).
-4. Ordered websocket integration tests for scoped multi-instance streams.
-5. Writer app-agent harness completion and contract hardening.
-6. Tracing app rollout sequence: human UX first, then headless API, then app-agent harness.
-7. Conductor wake-context hardening with bounded system agent-tree snapshots.
-8. Harness simplification: one while-loop runtime model and `adapter -> worker_port`
+5. Ordered websocket integration tests for scoped multi-instance streams.
+6. Writer app-agent harness completion and contract hardening.
+7. Tracing app rollout sequence: human UX first, then headless API, then app-agent harness.
+8. Conductor wake-context hardening with bounded system agent-tree snapshots.
+9. Harness simplification: one while-loop runtime model and `adapter -> worker_port`
    execution-boundary narrowing.
 
 ## Naming Reconciliation (Authoritative)
@@ -225,7 +235,30 @@ choiros-rs/
 - Usage: `python skills/session-handoff/scripts/create_handoff.py task-name`
 - Creates: `docs/handoffs/YYYY-MM-DD-task-name.md`
 
-## E2E Testing with agent-browser
+## E2E Testing (Raw Playwright + agent-browser)
+
+Primary rule:
+- Raw Playwright is the canonical E2E harness for ChoirOS.
+- `agent-browser` is for fast exploratory debugging and repro steps, not canonical regression
+  coverage.
+
+Why:
+- Raw Playwright gives deterministic specs, assertions, retries, CI-friendly exit codes,
+  and first-class trace/video artifacts per test.
+- `agent-browser` is excellent for quick interactive diagnosis, but it is an abstraction layer
+  over Playwright CLI flows.
+
+Raw Playwright workflow (canonical):
+```bash
+# from repo root
+cd tests/playwright
+npx playwright test --config=playwright.config.ts
+```
+
+Expected artifacts (gitignored):
+- `tests/artifacts/playwright/test-results/**/trace.zip`
+- `tests/artifacts/playwright/test-results/**/video.webm`
+- `tests/artifacts/playwright/html-report/index.html`
 
 **agent-browser** - CLI-based browser automation (installed globally)
 - Purpose: Screenshot testing, web automation, E2E validation
@@ -294,7 +327,7 @@ cargo test -p sandbox --features supervision_refactor --test supervision_test --
 
 - **Async**: tokio, futures
 - **Web**: axum, tower, tower-http, dioxus (frontend)
-- **Database**: sqlx (SQLite), libsql
+- **Database**: sqlx (SQLite) — libsql is being removed (see priority #1 above)
 - **Serialization**: serde, serde_json
 - **IDs**: uuid, ulid
 - **Errors**: thiserror, anyhow

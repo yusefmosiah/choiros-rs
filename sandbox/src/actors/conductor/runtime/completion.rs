@@ -5,175 +5,8 @@ use crate::actors::conductor::{
     events,
     protocol::{CapabilityWorkerOutput, ConductorError},
 };
-use crate::actors::writer::{SectionState, WriterInboundEnvelope, WriterMsg, WriterSource};
-use shared_types::EventImportance;
 
 impl ConductorActor {
-    fn writer_section_for_capability(capability: &str) -> String {
-        match capability {
-            "researcher" | "terminal" => capability.to_string(),
-            _ => "conductor".to_string(),
-        }
-    }
-
-    fn writer_source_for_capability(capability: &str) -> WriterSource {
-        match capability {
-            "researcher" => WriterSource::Researcher,
-            "terminal" => WriterSource::Terminal,
-            _ => WriterSource::Conductor,
-        }
-    }
-
-    pub(crate) async fn enqueue_capability_inbound(
-        &self,
-        state: &ConductorState,
-        run_id: &str,
-        call_id: &str,
-        capability: &str,
-        kind: &str,
-        content: String,
-    ) {
-        if content.trim().is_empty() {
-            return;
-        }
-
-        let section_id = Self::writer_section_for_capability(capability);
-        let source = Self::writer_source_for_capability(capability);
-        let message_id = format!(
-            "conductor:{}:{}:{}:{}",
-            run_id,
-            call_id,
-            kind,
-            ulid::Ulid::new()
-        );
-        let source_label = match source {
-            WriterSource::Writer => "writer",
-            WriterSource::Researcher => "researcher",
-            WriterSource::Terminal => "terminal",
-            WriterSource::User => "user",
-            WriterSource::Conductor => "conductor",
-        }
-        .to_string();
-
-        let Some(writer_actor) = state.writer_actor.clone() else {
-            events::emit_telemetry_event(
-                &state.event_store,
-                "conductor.writer.enqueue.failed",
-                run_id,
-                capability,
-                "writer_enqueue",
-                EventImportance::High,
-                serde_json::json!({
-                    "call_id": call_id,
-                    "kind": kind,
-                    "message_id": message_id,
-                    "target_section_id": section_id,
-                    "source": source_label,
-                    "error": "writer actor unavailable",
-                }),
-            )
-            .await;
-            return;
-        };
-
-        let envelope = WriterInboundEnvelope {
-            message_id: message_id.clone(),
-            correlation_id: call_id.to_string(),
-            kind: kind.to_string(),
-            run_id: run_id.to_string(),
-            section_id: section_id.clone(),
-            source,
-            content,
-            base_version_id: None,
-            prompt_diff: None,
-            overlay_id: None,
-            session_id: None,
-            thread_id: None,
-            call_id: Some(call_id.to_string()),
-            origin_actor: Some("conductor".to_string()),
-        };
-
-        match ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
-            envelope,
-            reply
-        }) {
-            Ok(Ok(ack)) => {
-                events::emit_telemetry_event(
-                    &state.event_store,
-                    "conductor.writer.enqueue",
-                    run_id,
-                    capability,
-                    "writer_enqueue",
-                    EventImportance::Normal,
-                    serde_json::json!({
-                        "call_id": call_id,
-                        "kind": kind,
-                        "message_id": ack.message_id,
-                        "accepted": ack.accepted,
-                        "duplicate": ack.duplicate,
-                        "queue_len": ack.queue_len,
-                        "revision": ack.revision,
-                        "target_section_id": section_id,
-                        "source": source_label,
-                    }),
-                )
-                .await;
-            }
-            Ok(Err(err)) => {
-                tracing::warn!(
-                    run_id = %run_id,
-                    call_id = %call_id,
-                    capability = %capability,
-                    error = %err,
-                    "Failed to enqueue capability inbound for writer"
-                );
-                events::emit_telemetry_event(
-                    &state.event_store,
-                    "conductor.writer.enqueue.failed",
-                    run_id,
-                    capability,
-                    "writer_enqueue",
-                    EventImportance::High,
-                    serde_json::json!({
-                        "call_id": call_id,
-                        "kind": kind,
-                        "message_id": message_id,
-                        "target_section_id": section_id,
-                        "source": source_label,
-                        "error": err.to_string(),
-                    }),
-                )
-                .await;
-            }
-            Err(err) => {
-                tracing::warn!(
-                    run_id = %run_id,
-                    call_id = %call_id,
-                    capability = %capability,
-                    error = %err,
-                    "Writer actor call failed while enqueueing capability inbound"
-                );
-                events::emit_telemetry_event(
-                    &state.event_store,
-                    "conductor.writer.enqueue.failed",
-                    run_id,
-                    capability,
-                    "writer_enqueue",
-                    EventImportance::High,
-                    serde_json::json!({
-                        "call_id": call_id,
-                        "kind": kind,
-                        "message_id": message_id,
-                        "target_section_id": section_id,
-                        "source": source_label,
-                        "error": err.to_string(),
-                    }),
-                )
-                .await;
-            }
-        }
-    }
-
     pub(crate) async fn handle_capability_call_finished(
         &self,
         state: &mut ConductorState,
@@ -263,23 +96,7 @@ impl ConductorActor {
                     "research capability completed",
                 )
                 .await;
-                if let Some(writer_actor) = state.writer_actor.clone() {
-                    let _ = ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
-                        run_id: run_id.clone(),
-                        section_id: "researcher".to_string(),
-                        state: SectionState::Complete,
-                        reply,
-                    });
-                }
-                self.enqueue_capability_inbound(
-                    state,
-                    &run_id,
-                    &call_id,
-                    &capability,
-                    "capability_completed",
-                    writer_content,
-                )
-                .await;
+                let _ = writer_content;
             }
             Ok(CapabilityWorkerOutput::Terminal(output)) => {
                 if output.success {
@@ -351,23 +168,7 @@ impl ConductorActor {
                         "terminal capability completed",
                     )
                     .await;
-                    if let Some(writer_actor) = state.writer_actor.clone() {
-                        let _ = ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
-                            run_id: run_id.clone(),
-                            section_id: "terminal".to_string(),
-                            state: SectionState::Complete,
-                            reply,
-                        });
-                    }
-                    self.enqueue_capability_inbound(
-                        state,
-                        &run_id,
-                        &call_id,
-                        &capability,
-                        "capability_completed",
-                        writer_content,
-                    )
-                    .await;
+                    let _ = writer_content;
                 } else {
                     let err = output.summary.clone();
                     state
@@ -405,24 +206,178 @@ impl ConductorActor {
                         &err,
                     )
                     .await;
-                    if let Some(writer_actor) = state.writer_actor.clone() {
-                        let _ = ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
-                            run_id: run_id.clone(),
-                            section_id: "terminal".to_string(),
-                            state: SectionState::Failed,
-                            reply,
-                        });
-                    }
-                    self.enqueue_capability_inbound(
-                        state,
+                }
+            }
+            Ok(CapabilityWorkerOutput::Writer(output)) => {
+                if output.success {
+                    state
+                        .tasks
+                        .update_capability_call(
+                            &run_id,
+                            &call_id,
+                            shared_types::CapabilityCallStatus::Completed,
+                            None,
+                        )
+                        .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+                    state
+                        .tasks
+                        .update_agenda_item(
+                            &run_id,
+                            &agenda_item_id,
+                            shared_types::AgendaItemStatus::Completed,
+                        )
+                        .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+
+                    let artifact = shared_types::ConductorArtifact {
+                        artifact_id: ulid::Ulid::new().to_string(),
+                        kind: shared_types::ArtifactKind::JsonData,
+                        reference: format!("call://{}", call_id),
+                        mime_type: Some("application/json".to_string()),
+                        created_at: chrono::Utc::now(),
+                        source_call_id: call_id.clone(),
+                        metadata: Some(serde_json::json!({
+                            "capability": "writer",
+                            "summary": output.summary,
+                            "delegated_capabilities": output.delegated_capabilities,
+                        })),
+                    };
+                    state
+                        .tasks
+                        .add_artifact(&run_id, artifact)
+                        .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+
+                    events::emit_capability_completed(
+                        &state.event_store,
                         &run_id,
                         &call_id,
                         &capability,
-                        "capability_failed",
-                        format!("Terminal capability failed.\nSummary: {err}"),
+                        "writer orchestration completed",
                     )
                     .await;
+                    events::emit_worker_result(
+                        &state.event_store,
+                        &run_id,
+                        "writer",
+                        true,
+                        "writer orchestration completed",
+                    )
+                    .await;
+                } else {
+                    let err = output.summary.clone();
+                    state
+                        .tasks
+                        .update_capability_call(
+                            &run_id,
+                            &call_id,
+                            shared_types::CapabilityCallStatus::Failed,
+                            Some(err.clone()),
+                        )
+                        .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+                    state
+                        .tasks
+                        .update_agenda_item(
+                            &run_id,
+                            &agenda_item_id,
+                            shared_types::AgendaItemStatus::Failed,
+                        )
+                        .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+
+                    events::emit_capability_failed(
+                        &state.event_store,
+                        &run_id,
+                        &call_id,
+                        &capability,
+                        &err,
+                        Some(shared_types::FailureKind::Provider),
+                    )
+                    .await;
+                    events::emit_worker_result(&state.event_store, &run_id, "writer", false, &err)
+                        .await;
                 }
+            }
+            Ok(CapabilityWorkerOutput::ImmediateResponse(message)) => {
+                state
+                    .tasks
+                    .update_capability_call(
+                        &run_id,
+                        &call_id,
+                        shared_types::CapabilityCallStatus::Completed,
+                        None,
+                    )
+                    .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+                state
+                    .tasks
+                    .update_agenda_item(
+                        &run_id,
+                        &agenda_item_id,
+                        shared_types::AgendaItemStatus::Completed,
+                    )
+                    .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+
+                let artifact = shared_types::ConductorArtifact {
+                    artifact_id: ulid::Ulid::new().to_string(),
+                    kind: shared_types::ArtifactKind::JsonData,
+                    reference: format!("call://{}", call_id),
+                    mime_type: Some("application/json".to_string()),
+                    created_at: chrono::Utc::now(),
+                    source_call_id: call_id.clone(),
+                    metadata: Some(serde_json::json!({
+                        "capability": "immediate_response",
+                        "message": message,
+                    })),
+                };
+                state
+                    .tasks
+                    .add_artifact(&run_id, artifact)
+                    .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+
+                events::emit_capability_completed(
+                    &state.event_store,
+                    &run_id,
+                    &call_id,
+                    &capability,
+                    "immediate response completed",
+                )
+                .await;
+                events::emit_worker_result(
+                    &state.event_store,
+                    &run_id,
+                    "immediate_response",
+                    true,
+                    "immediate response completed",
+                )
+                .await;
+            }
+            Ok(CapabilityWorkerOutput::Subharness) => {
+                let err = "Subharness capability output is not implemented yet".to_string();
+                state
+                    .tasks
+                    .update_capability_call(
+                        &run_id,
+                        &call_id,
+                        shared_types::CapabilityCallStatus::Failed,
+                        Some(err.clone()),
+                    )
+                    .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+                state
+                    .tasks
+                    .update_agenda_item(
+                        &run_id,
+                        &agenda_item_id,
+                        shared_types::AgendaItemStatus::Failed,
+                    )
+                    .map_err(|e| ActorProcessingErr::from(e.to_string()))?;
+                events::emit_capability_failed(
+                    &state.event_store,
+                    &run_id,
+                    &call_id,
+                    &capability,
+                    &err,
+                    Some(shared_types::FailureKind::Unknown),
+                )
+                .await;
+                events::emit_worker_result(&state.event_store, &run_id, &capability, false, &err)
+                    .await;
             }
             Err(err) => {
                 let (call_status, agenda_status, failure_kind, blocked_reason) = match &err {
@@ -476,25 +431,6 @@ impl ConductorActor {
                     &capability,
                     false,
                     &err_text,
-                )
-                .await;
-
-                if let Some(writer_actor) = state.writer_actor.clone() {
-                    let section_id = Self::writer_section_for_capability(&capability);
-                    let _ = ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
-                        run_id: run_id.clone(),
-                        section_id,
-                        state: SectionState::Failed,
-                        reply,
-                    });
-                }
-                self.enqueue_capability_inbound(
-                    state,
-                    &run_id,
-                    &call_id,
-                    &capability,
-                    "capability_failed",
-                    format!("Capability failed.\nCapability: {capability}\nError: {err_text}"),
                 )
                 .await;
             }

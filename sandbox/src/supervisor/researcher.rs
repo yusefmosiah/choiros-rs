@@ -133,7 +133,9 @@ impl Actor for ResearcherSupervisor {
                 let _ = reply.send(state.researchers.get(&researcher_id).cloned());
             }
             ResearcherSupervisorMsg::RemoveResearcher { researcher_id } => {
-                state.researchers.remove(&researcher_id);
+                if let Some(actor_ref) = state.researchers.remove(&researcher_id) {
+                    actor_ref.stop(None);
+                }
             }
             ResearcherSupervisorMsg::Supervision(event) => {
                 self.handle_supervisor_evt(myself, event, state).await?;

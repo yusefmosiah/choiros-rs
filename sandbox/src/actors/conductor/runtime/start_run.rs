@@ -20,9 +20,7 @@ impl ConductorActor {
         desktop_id: &str,
         objective: &str,
     ) -> Result<(), ConductorError> {
-        let writer_actor = state.writer_actor.as_ref().ok_or_else(|| {
-            ConductorError::ActorUnavailable("writer actor unavailable".to_string())
-        })?;
+        let writer_actor = self.resolve_writer_actor_for_run(state, run_id).await?;
         ractor::call!(writer_actor, |reply| WriterMsg::EnsureRunDocument {
             run_id: run_id.to_string(),
             desktop_id: desktop_id.to_string(),
@@ -35,11 +33,11 @@ impl ConductorActor {
 
     fn capability_contract_prefix(capability: &str) -> &'static str {
         match capability {
-            "researcher" => {
-                "Capability Contract (researcher): external research only. Use research tools, citations, and source synthesis. Do not perform local shell orchestration. When sending updates for Writer, provide concise diff intent only: short additions, removals, or explicit rewrite instructions."
+            "immediate_response" => {
+                "Capability Contract (immediate_response): respond directly and briefly to the user objective. Use plain text, no markdown tables, and no worker delegation."
             }
-            "terminal" => {
-                "Capability Contract (terminal): local execution and local codebase research. Use shell/file/system inspection and execution, including code/docs architecture analysis in this repository. Do not perform general web research. For research-oriented objectives, prefer docs/findings outputs and avoid source-code edits unless implementation is explicitly requested. When sending updates for Writer, provide concise diff intent only: short additions, removals, or explicit rewrite instructions."
+            "writer" => {
+                "Capability Contract (writer): app-agent orchestration and synthesis authority. You may delegate to internal workers (researcher/terminal) as needed, but Conductor does not route workers directly. Produce revision-ready synthesis context for Writer document updates."
             }
             _ => "Capability Contract: execute only within your assigned capability scope.",
         }
@@ -70,12 +68,6 @@ impl ConductorActor {
 
         let now = chrono::Utc::now();
 
-        if state.terminal_actor.is_none() && state.researcher_actor.is_none() {
-            return Err(ConductorError::ActorUnavailable(
-                "No worker actors available for Conductor default model gateway".to_string(),
-            ));
-        }
-
         events::emit_prompt_received(
             &state.event_store,
             &run_id,
@@ -98,14 +90,12 @@ impl ConductorActor {
 
         let bootstrap_note = format!(
             "This draft will become a coherent comparison based on incoming evidence.\n\
-             The run has started and the researcher is gathering source-backed findings.\n\n\
+             The run has started and writer orchestration is gathering evidence and updates.\n\n\
              Objective: {}\n\
              Run ID: `{}`",
             request.objective, run_id
         );
-        let writer_actor = state.writer_actor.as_ref().ok_or_else(|| {
-            ConductorError::ActorUnavailable("writer actor unavailable".to_string())
-        })?;
+        let writer_actor = self.resolve_writer_actor_for_run(state, &run_id).await?;
         match ractor::call!(writer_actor, |reply| WriterMsg::ApplyText {
             run_id: run_id.clone(),
             section_id: "conductor".to_string(),
@@ -241,15 +231,13 @@ impl ConductorActor {
         let mut items = Vec::new();
 
         let mut available_capabilities = Vec::new();
-        if state.researcher_actor.is_some() {
-            available_capabilities.push("researcher".to_string());
-        }
-        if state.terminal_actor.is_some() {
-            available_capabilities.push("terminal".to_string());
+        if state.writer_supervisor.is_some() {
+            available_capabilities.push("immediate_response".to_string());
+            available_capabilities.push("writer".to_string());
         }
         if available_capabilities.is_empty() {
             return Err(ConductorError::ActorUnavailable(
-                "No worker actors available for Conductor default model gateway".to_string(),
+                "No app-agent capabilities available for Conductor model gateway".to_string(),
             ));
         }
 
@@ -309,28 +297,39 @@ mod tests {
     use super::ConductorActor;
 
     #[test]
-    fn test_objective_with_capability_contract_researcher() {
+    fn test_objective_with_capability_contract_immediate_response() {
         let actor = ConductorActor;
         let objective =
-            actor.objective_with_capability_contract("researcher", "Find latest release".into());
-        assert!(objective.contains("Capability Contract (researcher)"));
-        assert!(objective.contains("external research only"));
+            actor.objective_with_capability_contract("immediate_response", "ping".into());
+        assert!(objective.contains("Capability Contract (immediate_response)"));
+        assert!(objective.contains("respond directly and briefly"));
+        assert!(objective.contains("Objective:\nping"));
+    }
+
+    #[test]
+    fn test_objective_with_capability_contract_writer() {
+        let actor = ConductorActor;
+        let objective =
+            actor.objective_with_capability_contract("writer", "Find latest release".into());
+        assert!(objective.contains("Capability Contract (writer)"));
+        assert!(objective.contains("Conductor does not route workers directly"));
         assert!(objective.contains("Objective:\nFind latest release"));
     }
 
     #[test]
-    fn test_objective_with_capability_contract_terminal() {
+    fn test_objective_with_capability_contract_default() {
         let actor = ConductorActor;
-        let objective = actor.objective_with_capability_contract("terminal", "Run tests".into());
-        assert!(objective.contains("Capability Contract (terminal)"));
-        assert!(objective.contains("local execution and local codebase research"));
+        let objective = actor.objective_with_capability_contract("unknown", "Run tests".into());
+        assert!(objective
+            .contains("Capability Contract: execute only within your assigned capability scope."));
         assert!(objective.contains("Objective:\nRun tests"));
     }
 
     #[test]
     fn test_objective_with_capability_contract_case_insensitive() {
         let actor = ConductorActor;
-        let objective = actor.objective_with_capability_contract("ReSeArChEr", "Summarize".into());
-        assert!(objective.contains("Capability Contract (researcher)"));
+        let objective =
+            actor.objective_with_capability_contract("ImMeDiAtE_ReSpOnSe", "Summarize".into());
+        assert!(objective.contains("Capability Contract (immediate_response)"));
     }
 }

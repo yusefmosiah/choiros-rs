@@ -2,10 +2,10 @@ use ractor::{Actor, ActorRef};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use crate::actors::conductor::registry::run_writer_id;
 use crate::actors::conductor::ConductorMsg;
 use crate::actors::desktop::{DesktopActorMsg, DesktopArguments};
 use crate::actors::event_store::EventStoreMsg;
-use crate::actors::researcher::ResearcherMsg;
 use crate::actors::terminal::TerminalMsg;
 use crate::actors::writer::WriterMsg;
 use crate::supervisor::{ApplicationSupervisor, ApplicationSupervisorMsg};
@@ -70,6 +70,22 @@ impl AppState {
         .map_err(|e| e.to_string())
     }
 
+    pub async fn get_or_create_writer(
+        &self,
+        writer_id: String,
+        user_id: String,
+    ) -> Result<ActorRef<WriterMsg>, String> {
+        let supervisor = self.ensure_supervisor().await?;
+        ractor::call!(supervisor, |reply| {
+            ApplicationSupervisorMsg::GetOrCreateWriter {
+                writer_id,
+                user_id,
+                reply,
+            }
+        })
+        .map_err(|e| e.to_string())?
+    }
+
     pub async fn get_or_create_terminal(
         &self,
         terminal_id: String,
@@ -90,42 +106,6 @@ impl AppState {
         .map_err(|e| e.to_string())
     }
 
-    pub async fn get_or_create_researcher(
-        &self,
-        researcher_id: String,
-        user_id: String,
-    ) -> Result<ActorRef<ResearcherMsg>, String> {
-        let supervisor = self.ensure_supervisor().await?;
-        ractor::call!(supervisor, |reply| {
-            ApplicationSupervisorMsg::GetOrCreateResearcher {
-                researcher_id,
-                user_id,
-                reply,
-            }
-        })
-        .map_err(|e| e.to_string())?
-    }
-
-    pub async fn get_or_create_writer(
-        &self,
-        writer_id: String,
-        user_id: String,
-        researcher_actor: Option<ActorRef<ResearcherMsg>>,
-        terminal_actor: Option<ActorRef<TerminalMsg>>,
-    ) -> Result<ActorRef<WriterMsg>, String> {
-        let supervisor = self.ensure_supervisor().await?;
-        ractor::call!(supervisor, |reply| {
-            ApplicationSupervisorMsg::GetOrCreateWriter {
-                writer_id,
-                user_id,
-                researcher_actor,
-                terminal_actor,
-                reply,
-            }
-        })
-        .map_err(|e| e.to_string())?
-    }
-
     pub async fn get_or_create_terminal_with_args(
         &self,
         args: crate::actors::terminal::TerminalArguments,
@@ -142,111 +122,45 @@ impl AppState {
         }
     }
 
+    pub async fn ensure_run_writer(&self, run_id: &str) -> Result<ActorRef<WriterMsg>, String> {
+        self.get_or_create_writer(run_writer_id(run_id), "system".to_string())
+            .await
+    }
+
     pub async fn ensure_conductor(&self) -> Result<ActorRef<ConductorMsg>, String> {
         let mut guard = self.inner.conductor_actor.lock().await;
 
-        let disable_workers = std::env::var("CHOIR_DISABLE_CONDUCTOR_WORKERS")
-            .ok()
-            .map(|value| {
-                let normalized = value.trim().to_ascii_lowercase();
-                normalized == "1" || normalized == "true" || normalized == "yes"
-            })
-            .unwrap_or(false);
-
-        let mut worker_errors: Vec<String> = Vec::new();
-
-        let researcher_actor = if disable_workers {
-            worker_errors.push(
-                "researcher unavailable: disabled by CHOIR_DISABLE_CONDUCTOR_WORKERS".to_string(),
-            );
-            None
-        } else {
-            match self
-                .get_or_create_researcher("conductor-researcher".to_string(), "system".to_string())
-                .await
-            {
-                Ok(actor) => Some(actor),
-                Err(err) => {
-                    worker_errors.push(format!("researcher unavailable: {err}"));
-                    None
-                }
-            }
-        };
-
-        let terminal_actor = if disable_workers {
-            worker_errors.push(
-                "terminal unavailable: disabled by CHOIR_DISABLE_CONDUCTOR_WORKERS".to_string(),
-            );
-            None
-        } else {
-            match self
-                .get_or_create_terminal(
-                    "conductor-terminal".to_string(),
-                    "system".to_string(),
-                    "/bin/zsh".to_string(),
-                    env!("CARGO_MANIFEST_DIR").to_string(),
-                )
-                .await
-            {
-                Ok(actor) => Some(actor),
-                Err(err) => {
-                    worker_errors.push(format!("terminal unavailable: {err}"));
-                    None
-                }
-            }
-        };
-
-        let writer_actor = self
-            .get_or_create_writer(
-                "conductor-writer".to_string(),
-                "system".to_string(),
-                researcher_actor.clone(),
-                terminal_actor.clone(),
-            )
-            .await
-            .map_err(|err| format!("writer unavailable: {err}"))?;
-
-        if researcher_actor.is_none() && terminal_actor.is_none() {
-            let detail = if worker_errors.is_empty() {
-                "unknown worker creation failure".to_string()
-            } else {
-                worker_errors.join("; ")
-            };
-            return Err(format!(
-                "No worker actors available for Conductor default model gateway ({detail})"
-            ));
-        }
-
         if let Some(conductor) = guard.as_ref() {
-            let _ = conductor.send_message(ConductorMsg::SyncDependencies {
-                researcher_actor: researcher_actor.clone(),
-                terminal_actor: terminal_actor.clone(),
-                writer_actor: Some(writer_actor.clone()),
-            });
-            return Ok(conductor.clone());
+            if conductor.get_status() == ractor::ActorStatus::Running {
+                return Ok(conductor.clone());
+            }
+            tracing::warn!(
+                actor_id = %conductor.get_id(),
+                status = ?conductor.get_status(),
+                "Cached conductor actor is not running; refreshing reference"
+            );
+            *guard = None;
         }
 
-        let researcher_for_sync = researcher_actor.clone();
-        let terminal_for_sync = terminal_actor.clone();
+        let actor_name = "conductor:conductor-default".to_string();
+        if let Some(cell) = ractor::registry::where_is(actor_name) {
+            let actor_ref: ActorRef<ConductorMsg> = cell.into();
+            if actor_ref.get_status() == ractor::ActorStatus::Running {
+                *guard = Some(actor_ref.clone());
+                return Ok(actor_ref);
+            }
+        }
+
         let supervisor = self.ensure_supervisor().await?;
         let conductor = ractor::call!(supervisor, |reply| {
             ApplicationSupervisorMsg::GetOrCreateConductor {
                 conductor_id: "conductor-default".to_string(),
                 user_id: "system".to_string(),
-                researcher_actor,
-                terminal_actor,
-                writer_actor: Some(writer_actor.clone()),
                 reply,
             }
         })
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
-
-        let _ = conductor.send_message(ConductorMsg::SyncDependencies {
-            researcher_actor: researcher_for_sync,
-            terminal_actor: terminal_for_sync,
-            writer_actor: Some(writer_actor),
-        });
 
         *guard = Some(conductor.clone());
         Ok(conductor)

@@ -203,17 +203,12 @@ pub enum ApplicationSupervisorMsg {
     GetOrCreateWriter {
         writer_id: String,
         user_id: String,
-        researcher_actor: Option<ractor::ActorRef<crate::actors::researcher::ResearcherMsg>>,
-        terminal_actor: Option<ractor::ActorRef<crate::actors::terminal::TerminalMsg>>,
         reply: RpcReplyPort<Result<ractor::ActorRef<crate::actors::writer::WriterMsg>, String>>,
     },
     /// Get or create a conductor actor
     GetOrCreateConductor {
         conductor_id: String,
         user_id: String,
-        researcher_actor: Option<ractor::ActorRef<crate::actors::researcher::ResearcherMsg>>,
-        terminal_actor: Option<ractor::ActorRef<crate::actors::terminal::TerminalMsg>>,
-        writer_actor: Option<ractor::ActorRef<crate::actors::writer::WriterMsg>>,
         reply:
             RpcReplyPort<Result<ractor::ActorRef<crate::actors::conductor::ConductorMsg>, String>>,
     },
@@ -748,8 +743,6 @@ impl Actor for ApplicationSupervisor {
             ApplicationSupervisorMsg::GetOrCreateWriter {
                 writer_id,
                 user_id,
-                researcher_actor,
-                terminal_actor,
                 reply,
             } => {
                 let correlation_id = ulid::Ulid::new().to_string();
@@ -771,8 +764,6 @@ impl Actor for ApplicationSupervisor {
                         SessionSupervisorMsg::GetOrCreateWriter {
                             writer_id: writer_id.clone(),
                             user_id: user_id.clone(),
-                            researcher_actor: researcher_actor.clone(),
-                            terminal_actor: terminal_actor.clone(),
                             reply: ss_reply,
                         }
                     }) {
@@ -843,9 +834,6 @@ impl Actor for ApplicationSupervisor {
             ApplicationSupervisorMsg::GetOrCreateConductor {
                 conductor_id,
                 user_id,
-                researcher_actor,
-                terminal_actor,
-                writer_actor,
                 reply,
             } => {
                 let correlation_id = ulid::Ulid::new().to_string();
@@ -867,9 +855,6 @@ impl Actor for ApplicationSupervisor {
                         SessionSupervisorMsg::GetOrCreateConductor {
                             conductor_id: conductor_id.clone(),
                             user_id: user_id.clone(),
-                            researcher_actor: researcher_actor.clone(),
-                            terminal_actor: terminal_actor.clone(),
-                            writer_actor: writer_actor.clone(),
                             reply: ss_reply,
                         }
                     }) {

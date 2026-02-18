@@ -11,11 +11,13 @@ use crate::actors::agent_harness::{
     AgentProgress, ExecutionContext, HarnessError, ToolExecution, WorkerPort, WorkerTurnReport,
 };
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
-use crate::actors::writer::{WriterDelegateCapability, WriterMsg};
+use crate::actors::writer::{dispatch_delegate_capability, WriterDelegateCapability, WriterMsg};
 use crate::baml_client::types::{
     MessageWriterToolCall,
-    Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall as AgentToolCall,
+    Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall as AgentToolCall,
 };
+use crate::supervisor::researcher::ResearcherSupervisorMsg;
+use crate::supervisor::terminal::TerminalSupervisorMsg;
 
 fn tool_call_name(tool_call: &AgentToolCall) -> &str {
     match tool_call {
@@ -26,6 +28,7 @@ fn tool_call_name(tool_call: &AgentToolCall) -> &str {
         AgentToolCall::FileWriteToolCall(call) => call.tool_name.as_str(),
         AgentToolCall::FileEditToolCall(call) => call.tool_name.as_str(),
         AgentToolCall::MessageWriterToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::FinishedToolCall(call) => call.tool_name.as_str(),
     }
 }
 
@@ -34,8 +37,8 @@ pub(crate) struct WriterDelegationAdapter {
     user_id: String,
     event_store: ActorRef<EventStoreMsg>,
     writer_actor: ActorRef<WriterMsg>,
-    researcher_available: bool,
-    terminal_available: bool,
+    researcher_supervisor: Option<ActorRef<ResearcherSupervisorMsg>>,
+    terminal_supervisor: Option<ActorRef<TerminalSupervisorMsg>>,
 }
 
 impl WriterDelegationAdapter {
@@ -44,16 +47,16 @@ impl WriterDelegationAdapter {
         user_id: String,
         event_store: ActorRef<EventStoreMsg>,
         writer_actor: ActorRef<WriterMsg>,
-        researcher_available: bool,
-        terminal_available: bool,
+        researcher_supervisor: Option<ActorRef<ResearcherSupervisorMsg>>,
+        terminal_supervisor: Option<ActorRef<TerminalSupervisorMsg>>,
     ) -> Self {
         Self {
             writer_id,
             user_id,
             event_store,
             writer_actor,
-            researcher_available,
-            terminal_available,
+            researcher_supervisor,
+            terminal_supervisor,
         }
     }
 
@@ -87,14 +90,9 @@ impl WriterDelegationAdapter {
         let objective = call.tool_args.content.trim().to_string();
         let requested_steps = Self::parse_max_steps(call.tool_args.mode_arg.as_deref());
 
-        let (capability, availability) = match mode.as_str() {
-            "delegate_researcher" | "researcher" => (
-                WriterDelegateCapability::Researcher,
-                self.researcher_available,
-            ),
-            "delegate_terminal" | "terminal" => {
-                (WriterDelegateCapability::Terminal, self.terminal_available)
-            }
+        let capability = match mode.as_str() {
+            "delegate_researcher" | "researcher" => WriterDelegateCapability::Researcher,
+            "delegate_terminal" | "terminal" => WriterDelegateCapability::Terminal,
             _ => {
                 return Ok(ToolExecution {
                     tool_name: "message_writer".to_string(),
@@ -107,6 +105,10 @@ impl WriterDelegationAdapter {
                     execution_time_ms: start.elapsed().as_millis() as u64,
                 });
             }
+        };
+        let availability = match capability {
+            WriterDelegateCapability::Researcher => self.researcher_supervisor.is_some(),
+            WriterDelegateCapability::Terminal => self.terminal_supervisor.is_some(),
         };
 
         if objective.is_empty() {
@@ -146,16 +148,19 @@ impl WriterDelegationAdapter {
             }),
         );
 
-        let delegate_result = ractor::call!(self.writer_actor, |reply| WriterMsg::DelegateTask {
+        let delegate_result = dispatch_delegate_capability(
+            &self.writer_id,
+            &self.user_id,
+            &self.writer_actor,
+            self.researcher_supervisor.clone(),
+            self.terminal_supervisor.clone(),
             capability,
-            objective: objective.clone(),
-            timeout_ms: Some(180_000),
-            max_steps: requested_steps,
-            run_id: ctx.run_id.clone(),
-            call_id: ctx.call_id.clone(),
-            reply,
-        })
-        .map_err(|e| HarnessError::Adapter(format!("Writer DelegateTask RPC failed: {e}")))?
+            objective.clone(),
+            Some(180_000),
+            requested_steps,
+            ctx.run_id.clone(),
+            ctx.call_id.clone(),
+        )
         .map_err(|e| HarnessError::Adapter(format!("Writer DelegateTask failed: {e}")))?;
 
         let capability_name = match delegate_result.capability {
@@ -212,8 +217,12 @@ Optional args:
 Important:
 - Use one or multiple delegation calls when useful.
 - Combine delegate_terminal + delegate_researcher when the objective needs both local codebase evidence and external/web evidence.
-- If delegation is unnecessary, return no tool calls and complete in message."#
+- If delegation is unnecessary, call `finished` and complete in message."#
             .to_string()
+    }
+
+    fn allowed_tool_names(&self) -> Option<&'static [&'static str]> {
+        Some(&["message_writer", "finished"])
     }
 
     fn get_system_context(&self, ctx: &ExecutionContext) -> String {
@@ -223,7 +232,7 @@ Important:
              - Use delegate_researcher for fact-finding, links, verification, or web research.\n\
              - Use delegate_terminal for repository inspection, architecture analysis, docs/codebase research, shell commands, or local execution.\n\
              - When objective spans both local codebase understanding and external evidence, call both delegate_terminal and delegate_researcher.\n\
-             - If the prompt is editorial only, return no tool calls.\n\
+             - If the prompt is editorial only, call `finished` with no delegation tool calls.\n\
              - Keep delegated objectives concise and actionable.\n\
              - Do not rewrite the document here; only decide delegation.\n\
              \n\
@@ -335,15 +344,20 @@ impl WorkerPort for WriterSynthesisAdapter {
     }
 
     fn get_tool_description(&self) -> String {
-        "No tools are available in this synthesis step. Return final markdown in message with an empty tool_calls array."
+        "No work tools are available in this synthesis step. Produce final markdown in message, then call `finished`."
             .to_string()
+    }
+
+    fn allowed_tool_names(&self) -> Option<&'static [&'static str]> {
+        Some(&["finished"])
     }
 
     fn get_system_context(&self, ctx: &ExecutionContext) -> String {
         format!(
             "You are WriterActor synthesis mode.\n\
              Produce the revised markdown directly in message.\n\
-             Do not call tools.\n\
+             Do not call work tools.\n\
+             Completion requires a `finished` tool call in the final decision.\n\
              \n\
              Run ID: {:?}\n\
              Call ID: {:?}\n\

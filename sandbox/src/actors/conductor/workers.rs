@@ -6,7 +6,8 @@ use tokio::sync::mpsc;
 use crate::actors::conductor::protocol::ConductorError;
 use crate::actors::researcher::{ResearcherMsg, ResearcherProgress, ResearcherResult};
 use crate::actors::terminal::{
-    TerminalAgentProgress, TerminalAgentResult, TerminalBashToolRequest, TerminalError, TerminalMsg,
+    ensure_terminal_started, TerminalAgentProgress, TerminalAgentResult, TerminalBashToolRequest,
+    TerminalError, TerminalMsg,
 };
 use crate::actors::writer::WriterMsg;
 
@@ -53,19 +54,9 @@ pub async fn call_terminal(
 ) -> Result<TerminalAgentResult, ConductorError> {
     use ractor::call;
 
-    match call!(terminal, |reply| TerminalMsg::Start { reply }) {
-        Ok(Ok(())) | Ok(Err(TerminalError::AlreadyRunning)) => {}
-        Ok(Err(e)) => {
-            return Err(ConductorError::WorkerFailed(format!(
-                "Failed to start terminal: {e}"
-            )));
-        }
-        Err(e) => {
-            return Err(ConductorError::WorkerFailed(format!(
-                "Failed to call terminal start: {e}"
-            )));
-        }
-    }
+    ensure_terminal_started(terminal)
+        .await
+        .map_err(ConductorError::WorkerFailed)?;
 
     if let Some(cmd) = terminal_command {
         call!(terminal, |reply| TerminalMsg::RunBashTool {
@@ -94,6 +85,7 @@ pub async fn call_terminal(
             max_steps,
             model_override: None,
             progress_tx,
+            writer_actor: None,
             run_id,
             call_id,
             reply,

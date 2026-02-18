@@ -41,6 +41,10 @@ class MessageWriterToolArgs {
   mode_arg string?
 }
 
+class FinishedToolArgs {
+  summary string?
+}
+
 class BashToolCall {
   tool_name "bash"
   tool_args BashToolArgs
@@ -83,9 +87,15 @@ class MessageWriterToolCall {
   reasoning string?
 }
 
+class FinishedToolCall {
+  tool_name "finished"
+  tool_args FinishedToolArgs
+  reasoning string?
+}
+
 // Simplified agent decision - what to do next
 class AgentDecision {
-  tool_calls (BashToolCall | WebSearchToolCall | FetchUrlToolCall | FileReadToolCall | FileWriteToolCall | FileEditToolCall | MessageWriterToolCall)[]  // Empty means final response in message
+  tool_calls (BashToolCall | WebSearchToolCall | FetchUrlToolCall | FileReadToolCall | FileWriteToolCall | FileEditToolCall | MessageWriterToolCall | FinishedToolCall)[]  // Completion requires a finished tool call
   message string
 }
 

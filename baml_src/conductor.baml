@@ -134,6 +134,9 @@ function ConductorBootstrapAgenda(input: ConductorBootstrapInput) -> ConductorBo
     Output contract:
     - dispatch_capabilities may include zero, one, or many capability names.
     - Only return capability names from available_capabilities.
+    - Conductor routes app-level capabilities (for example: writer, immediate_response), not worker roles.
+    - Do not return worker names such as researcher or terminal unless explicitly present in available_capabilities.
+    - Use immediate_response only for short conversational acknowledgements (for example: hi, ping, quick status checks).
     - Return zero capabilities when the run should be blocked immediately.
     - If dispatch_capabilities is empty, block_reason is required.
     - rationale must explain why these capabilities were selected.

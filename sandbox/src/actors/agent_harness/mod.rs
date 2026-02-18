@@ -38,7 +38,7 @@ use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::{ModelConfigError, ModelRegistry, ModelResolutionContext};
 use crate::baml_client::types::{
     AgentDecision, Message as BamlMessage,
-    Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall as AgentToolCall,
+    Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall as AgentToolCall,
 };
 use crate::baml_client::{new_collector, ClientRegistry, B};
 use crate::observability::llm_trace::{
@@ -70,7 +70,12 @@ fn tool_call_name(tool_call: &AgentToolCall) -> &str {
         AgentToolCall::FileWriteToolCall(call) => call.tool_name.as_str(),
         AgentToolCall::FileEditToolCall(call) => call.tool_name.as_str(),
         AgentToolCall::MessageWriterToolCall(call) => call.tool_name.as_str(),
+        AgentToolCall::FinishedToolCall(call) => call.tool_name.as_str(),
     }
+}
+
+fn decision_tool_names(decision: &AgentDecision) -> Vec<&str> {
+    decision.tool_calls.iter().map(tool_call_name).collect()
 }
 
 fn tool_call_reasoning(tool_call: &AgentToolCall) -> Option<&str> {
@@ -82,6 +87,7 @@ fn tool_call_reasoning(tool_call: &AgentToolCall) -> Option<&str> {
         AgentToolCall::FileWriteToolCall(call) => call.reasoning.as_deref(),
         AgentToolCall::FileEditToolCall(call) => call.reasoning.as_deref(),
         AgentToolCall::MessageWriterToolCall(call) => call.reasoning.as_deref(),
+        AgentToolCall::FinishedToolCall(call) => call.reasoning.as_deref(),
     }
 }
 
@@ -113,6 +119,9 @@ fn tool_call_args_json(tool_call: &AgentToolCall) -> serde_json::Value {
             "content": call.tool_args.content,
             "mode": call.tool_args.mode,
             "mode_arg": call.tool_args.mode_arg,
+        }),
+        AgentToolCall::FinishedToolCall(call) => serde_json::json!({
+            "summary": call.tool_args.summary,
         }),
     }
 }
@@ -416,6 +425,14 @@ pub trait WorkerPort: Send + Sync {
     /// in a format the LLM can understand.
     fn get_tool_description(&self) -> String;
 
+    /// Optional strict allow-list for tool names in model decisions.
+    ///
+    /// When set, the harness rejects decisions containing tools outside this
+    /// allow-list and retries once with a correction reminder.
+    fn allowed_tool_names(&self) -> Option<&'static [&'static str]> {
+        None
+    }
+
     /// Returns the system context for planning
     ///
     /// This is added to the system prompt for the planning LLM.
@@ -484,7 +501,7 @@ pub trait WorkerPort: Send + Sync {
         }
     }
 
-    /// Validate whether a terminal model response (no tool calls) is allowed.
+    /// Validate whether a terminal model completion decision is allowed.
     ///
     /// Adapters can enforce capability-specific completion invariants.
     fn validate_terminal_decision(
@@ -520,6 +537,24 @@ pub struct AgentHarness<W: WorkerPort> {
 }
 
 impl<W: WorkerPort> AgentHarness<W> {
+    fn disallowed_tool_names(&self, decision: &AgentDecision) -> Vec<String> {
+        let Some(allowed) = self.worker_port.allowed_tool_names() else {
+            return Vec::new();
+        };
+        let mut disallowed = Vec::new();
+        for tool_name in decision_tool_names(decision) {
+            if !allowed
+                .iter()
+                .any(|allowed_name| tool_name == *allowed_name)
+            {
+                disallowed.push(tool_name.to_string());
+            }
+        }
+        disallowed.sort();
+        disallowed.dedup();
+        disallowed
+    }
+
     fn is_retryable_decide_error(error: &HarnessError) -> bool {
         match error {
             HarnessError::Decision(message) => is_retryable_decision_error_message(message),
@@ -670,6 +705,39 @@ impl<W: WorkerPort> AgentHarness<W> {
                     .await
                 {
                     Ok(result) => {
+                        let disallowed_tools = self.disallowed_tool_names(&result.0);
+                        if !disallowed_tools.is_empty() {
+                            let allowed_tools = self
+                                .worker_port
+                                .allowed_tool_names()
+                                .map(|names| names.join(", "))
+                                .unwrap_or_else(|| "<none>".to_string());
+                            let disallowed_tools_csv = disallowed_tools.join(", ");
+                            if attempt == 0 {
+                                self.emit_progress_internal(
+                                    &ctx,
+                                    &progress_tx,
+                                    "decide_retry",
+                                    &format!(
+                                        "Decision used disallowed tools ({disallowed_tools_csv}); retrying with strict tool contract"
+                                    ),
+                                    Some(step_count),
+                                    Some(self.config.max_steps),
+                                )
+                                .await?;
+                                messages.push(BamlMessage {
+                                    role: "assistant".to_string(),
+                                    content: format!(
+                                        "Previous output violated tool contract. Disallowed tools: {disallowed_tools_csv}. Allowed tools: {allowed_tools}. Retry with only allowed tool names."
+                                    ),
+                                });
+                                continue;
+                            }
+                            decision_error = Some(HarnessError::Decision(format!(
+                                "Model emitted disallowed tools after retry: {disallowed_tools_csv}. Allowed: {allowed_tools}"
+                            )));
+                            break;
+                        }
                         decision_result = Some(result);
                         break;
                     }
@@ -789,41 +857,81 @@ impl<W: WorkerPort> AgentHarness<W> {
             }
 
             if decision.tool_calls.is_empty() {
-                if let Err(reason) =
-                    self.worker_port
-                        .validate_terminal_decision(&ctx, &decision, &tool_executions)
-                {
-                    self.emit_progress_internal(
-                        &ctx,
-                        &progress_tx,
-                        "completion_guard",
-                        &reason,
-                        Some(step_count),
-                        Some(self.config.max_steps),
-                    )
-                    .await?;
-                    messages.push(BamlMessage {
-                        role: "assistant".to_string(),
-                        content: format!(
-                            "Completion rejected by worker guard: {reason}\n\
-                             Continue and use tools to satisfy this requirement."
-                        ),
-                    });
-                    continue;
-                }
-
-                final_summary = decision.message.clone();
-                completion_reason = "Model returned final response".to_string();
-                objective_status = ObjectiveStatus::Complete;
-                loop_state = AgentLoopState::Complete;
-                break;
+                let reason = "Completion requires a `finished` tool call. Return tool_calls including `finished` when the objective is complete.";
+                self.emit_progress_internal(
+                    &ctx,
+                    &progress_tx,
+                    "completion_guard",
+                    reason,
+                    Some(step_count),
+                    Some(self.config.max_steps),
+                )
+                .await?;
+                messages.push(BamlMessage {
+                    role: "assistant".to_string(),
+                    content: format!(
+                        "Completion rejected by worker guard: {reason}\n\
+                         Continue and use tools to satisfy this requirement."
+                    ),
+                });
+                continue;
             }
 
             // Execute tools from decision.tool_calls
+            let mut finished_requested = false;
+            let mut finished_summary_override: Option<String> = None;
             for (tool_index, tool_call) in decision.tool_calls.iter().enumerate() {
                 let tool_name = tool_call_name(tool_call).to_string();
                 let tool_reasoning = tool_call_reasoning(tool_call);
                 let tool_args_json = tool_call_args_json(tool_call);
+
+                if let AgentToolCall::FinishedToolCall(call) = tool_call {
+                    finished_requested = true;
+                    if let Some(summary) = &call.tool_args.summary {
+                        let trimmed = summary.trim();
+                        if !trimmed.is_empty() {
+                            finished_summary_override = Some(trimmed.to_string());
+                        }
+                    }
+                    let tool_scope = LlmCallScope {
+                        run_id: ctx.run_id.clone(),
+                        task_id: Some(ctx.loop_id.clone()),
+                        call_id: ctx.call_id.clone(),
+                        session_id: None,
+                        thread_id: None,
+                    };
+                    let tool_ctx = self.trace_emitter.start_tool_call(
+                        self.worker_port.get_model_role(),
+                        &ctx.worker_id,
+                        &tool_name,
+                        &tool_args_json,
+                        tool_reasoning,
+                        Some(tool_scope),
+                    );
+                    let execution = ToolExecution {
+                        tool_name: "finished".to_string(),
+                        success: true,
+                        output: serde_json::json!({
+                            "status": "finished",
+                            "summary": finished_summary_override,
+                        })
+                        .to_string(),
+                        error: None,
+                        execution_time_ms: 0,
+                    };
+                    self.trace_emitter.complete_tool_call(
+                        &tool_ctx,
+                        true,
+                        &execution.output,
+                        execution.error.as_deref(),
+                    );
+                    messages.push(BamlMessage {
+                        role: "assistant".to_string(),
+                        content: tool_execution_message(&ctx, &tool_name, &execution, None),
+                    });
+                    tool_executions.push(execution);
+                    continue;
+                }
 
                 if self.worker_port.should_defer(&tool_name) {
                     debug!(tool = %tool_name, "Tool deferred");
@@ -910,6 +1018,41 @@ impl<W: WorkerPort> AgentHarness<W> {
                         });
                     }
                 }
+            }
+
+            if finished_requested {
+                if let Err(reason) =
+                    self.worker_port
+                        .validate_terminal_decision(&ctx, &decision, &tool_executions)
+                {
+                    self.emit_progress_internal(
+                        &ctx,
+                        &progress_tx,
+                        "completion_guard",
+                        &reason,
+                        Some(step_count),
+                        Some(self.config.max_steps),
+                    )
+                    .await?;
+                    messages.push(BamlMessage {
+                        role: "assistant".to_string(),
+                        content: format!(
+                            "Completion rejected by worker guard: {reason}\n\
+                             Continue and use tools to satisfy this requirement."
+                        ),
+                    });
+                    continue;
+                }
+
+                final_summary = if decision.message.trim().is_empty() {
+                    finished_summary_override.unwrap_or_else(|| "Objective finished.".to_string())
+                } else {
+                    decision.message.clone()
+                };
+                completion_reason = "Model called finished tool".to_string();
+                objective_status = ObjectiveStatus::Complete;
+                loop_state = AgentLoopState::Complete;
+                break;
             }
         }
 

@@ -17,7 +17,7 @@ use crate::observability::llm_trace::{token_usage_from_collector, LlmCallScope, 
 
 pub type SharedConductorModelGateway = Arc<dyn ConductorModelGateway>;
 
-const CAPABILITY_ROUTING_GUIDANCE: &str = "Capability routing guidance:\n- Use researcher for external information gathering, web search, URL fetch, citations, source synthesis, and current-events/news questions.\n- Use terminal for local shell/file/system execution and codebase research (build, test, inspect code/docs, architecture analysis, edit files, run local commands).\n- If objective needs both codebase evidence and external evidence, dispatch both terminal and researcher capabilities.\n- Never route web/news/current-events objectives to terminal when researcher is available.";
+const CAPABILITY_ROUTING_GUIDANCE: &str = "Capability routing guidance:\n- You are a router/orchestrator only. Do not answer the objective directly.\n- For every non-empty objective, dispatch at least one capability from available_capabilities.\n- Conductor routes app-level capabilities (for example: writer, immediate_response), not raw workers.\n- Conductor never routes researcher/terminal workers directly.\n- Writer owns internal worker delegation and may call researcher/terminal as needed.\n- Use immediate_response only for short conversational acknowledgements (for example: hi, ping, quick status checks).\n- Leave dispatch_capabilities empty only when truly blocked; when blocked, you must provide a concrete block_reason.";
 
 #[async_trait]
 pub trait ConductorModelGateway: Send + Sync {
@@ -27,6 +27,12 @@ pub trait ConductorModelGateway: Send + Sync {
         raw_objective: &str,
         available_capabilities: &[String],
     ) -> Result<ConductorBootstrapOutput, ConductorError>;
+
+    async fn immediate_response(
+        &self,
+        run_id: Option<&str>,
+        objective: &str,
+    ) -> Result<String, ConductorError>;
 }
 
 #[derive(Debug)]
@@ -129,6 +135,61 @@ impl ConductorModelGateway for BamlConductorModelGateway {
 
         match &result {
             Ok(output) => {
+                let has_dispatch = !output.dispatch_capabilities.is_empty();
+                let has_block_reason = output
+                    .block_reason
+                    .as_ref()
+                    .map(|reason| !reason.trim().is_empty())
+                    .unwrap_or(false);
+                let has_invalid_dispatch = output.dispatch_capabilities.iter().any(|capability| {
+                    let normalized = capability.trim().to_ascii_lowercase();
+                    normalized.is_empty()
+                        || !available_capabilities
+                            .iter()
+                            .any(|available| available.eq_ignore_ascii_case(&normalized))
+                });
+                if raw_objective.trim().is_empty() {
+                    self.trace_emitter.fail_call_with_usage(
+                        &ctx,
+                        model_used,
+                        provider,
+                        None,
+                        "Conductor objective is empty; cannot route capabilities",
+                        None,
+                        usage.clone(),
+                    );
+                    return Err(ConductorError::ModelGatewayError(
+                        "Conductor objective is empty; cannot route capabilities".to_string(),
+                    ));
+                }
+                if has_invalid_dispatch {
+                    self.trace_emitter.fail_call_with_usage(
+                        &ctx,
+                        model_used,
+                        provider,
+                        None,
+                        "Router returned capabilities outside available_capabilities",
+                        None,
+                        usage.clone(),
+                    );
+                    return Err(ConductorError::ModelGatewayError(
+                        "Router returned capabilities outside available_capabilities".to_string(),
+                    ));
+                }
+                if !has_dispatch && !has_block_reason {
+                    self.trace_emitter.fail_call_with_usage(
+                        &ctx,
+                        model_used,
+                        provider,
+                        None,
+                        "Router returned no dispatch_capabilities without block_reason",
+                        None,
+                        usage.clone(),
+                    );
+                    return Err(ConductorError::ModelGatewayError(
+                        "Router returned no dispatch_capabilities without block_reason".to_string(),
+                    ));
+                }
                 let output_json = serde_json::json!({
                     "dispatch_capabilities": output.dispatch_capabilities,
                     "block_reason": output.block_reason,
@@ -162,6 +223,97 @@ impl ConductorModelGateway for BamlConductorModelGateway {
                 "Conduct assignments model-gateway call failed: {e}"
             ))
         })
+    }
+
+    async fn immediate_response(
+        &self,
+        run_id: Option<&str>,
+        objective: &str,
+    ) -> Result<String, ConductorError> {
+        if objective.trim().is_empty() {
+            return Err(ConductorError::ModelGatewayError(
+                "Immediate response objective is empty".to_string(),
+            ));
+        }
+
+        let (client_registry, resolved) = self.resolve_for_callsite("conductor")?;
+        let model_used = resolved.config.id.as_str();
+        let provider = Some(Self::provider_string(&resolved.config.provider));
+        let system_context = "Conductor immediate response mode: provide one concise plain-text response for the user objective. No markdown tables. Keep it short.";
+        let input_json = serde_json::json!({
+            "objective": objective,
+            "conversation_history": "",
+        });
+        let input_summary = "Generate immediate conductor response";
+        let ctx = self.trace_emitter.start_call(
+            "conductor",
+            "QuickResponse",
+            "conductor-model-gateway",
+            model_used,
+            provider,
+            system_context,
+            &input_json,
+            input_summary,
+            Some(LlmCallScope {
+                run_id: run_id.map(ToString::to_string),
+                task_id: None,
+                call_id: None,
+                session_id: None,
+                thread_id: None,
+            }),
+        );
+
+        let collector = new_collector("conductor.immediate_response");
+        let response = B
+            .QuickResponse
+            .with_client_registry(&client_registry)
+            .with_collector(&collector)
+            .call(objective, "")
+            .await;
+        let usage = token_usage_from_collector(&collector);
+
+        match response {
+            Ok(text) => {
+                let trimmed = text.trim().to_string();
+                if trimmed.is_empty() {
+                    self.trace_emitter.fail_call_with_usage(
+                        &ctx,
+                        model_used,
+                        provider,
+                        None,
+                        "Immediate response returned empty output",
+                        None,
+                        usage,
+                    );
+                    return Err(ConductorError::ModelGatewayError(
+                        "Immediate response returned empty output".to_string(),
+                    ));
+                }
+                self.trace_emitter.complete_call_with_usage(
+                    &ctx,
+                    model_used,
+                    provider,
+                    &serde_json::json!({ "message": trimmed }),
+                    "Immediate response generated",
+                    usage,
+                );
+                Ok(trimmed)
+            }
+            Err(e) => {
+                self.trace_emitter.fail_call_with_usage(
+                    &ctx,
+                    model_used,
+                    provider,
+                    None,
+                    &e.to_string(),
+                    None,
+                    usage,
+                );
+                Err(ConductorError::ModelGatewayError(format!(
+                    "Immediate response model-gateway call failed: {e}"
+                )))
+            }
+        }
     }
 }
 
@@ -222,15 +374,23 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_for_callsite_returns_model_info() {
+        let previous_kimi_key = std::env::var("KIMI_API_KEY").ok();
+        std::env::set_var("KIMI_API_KEY", "test-kimi-key");
         let (event_store, _handle) =
             Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
                 .await
                 .unwrap();
         let model_gateway = BamlConductorModelGateway::new(event_store);
         let result = model_gateway.resolve_for_callsite("conductor");
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "{result:?}");
 
         let (_registry, resolved) = result.unwrap();
         assert!(!resolved.config.id.is_empty());
+
+        if let Some(value) = previous_kimi_key {
+            std::env::set_var("KIMI_API_KEY", value);
+        } else {
+            std::env::remove_var("KIMI_API_KEY");
+        }
     }
 }

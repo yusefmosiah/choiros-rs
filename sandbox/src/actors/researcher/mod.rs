@@ -22,6 +22,9 @@ use tokio::sync::mpsc;
 use crate::actors::agent_harness::{AgentHarness, AgentResult, HarnessConfig, ObjectiveStatus};
 use crate::actors::event_store::EventStoreMsg;
 use crate::actors::model_config::ModelRegistry;
+use crate::actors::writer::{
+    WriterDelegateCapability, WriterDelegateResult, WriterError, WriterMsg,
+};
 use crate::observability::llm_trace::LlmTraceEmitter;
 
 pub use adapter::ResearcherAdapter;
@@ -53,10 +56,21 @@ pub enum ResearcherMsg {
         max_rounds: Option<u8>,
         model_override: Option<String>,
         progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
-        writer_actor: Option<ractor::ActorRef<crate::actors::writer::WriterMsg>>,
+        writer_actor: Option<ractor::ActorRef<WriterMsg>>,
         run_id: Option<String>,
         call_id: Option<String>,
         reply: RpcReplyPort<Result<ResearcherResult, ResearcherError>>,
+    },
+    RunAgenticTaskDetached {
+        objective: String,
+        timeout_ms: Option<u64>,
+        max_results: Option<u32>,
+        max_rounds: Option<u8>,
+        model_override: Option<String>,
+        progress_tx: Option<mpsc::UnboundedSender<ResearcherProgress>>,
+        writer_actor: Option<ractor::ActorRef<WriterMsg>>,
+        run_id: Option<String>,
+        call_id: Option<String>,
     },
     RunWebSearchTool {
         request: ResearcherWebSearchRequest,
@@ -258,6 +272,9 @@ impl Actor for ResearcherActor {
                 call_id,
                 reply,
             } => {
+                let writer_actor_for_run = writer_actor.clone();
+                let run_id_for_run = run_id.clone();
+                let call_id_for_run = call_id.clone();
                 let result = self
                     .run_with_harness(
                         state,
@@ -266,12 +283,44 @@ impl Actor for ResearcherActor {
                         max_rounds,
                         model_override,
                         progress_tx,
-                        writer_actor,
-                        run_id,
-                        call_id,
+                        writer_actor_for_run,
+                        run_id_for_run,
+                        call_id_for_run,
                     )
                     .await;
+                Self::emit_writer_completion(
+                    writer_actor,
+                    run_id.clone(),
+                    call_id.clone(),
+                    result.clone(),
+                );
                 let _ = reply.send(result);
+            }
+            ResearcherMsg::RunAgenticTaskDetached {
+                objective,
+                timeout_ms,
+                max_results: _,
+                max_rounds,
+                model_override,
+                progress_tx,
+                writer_actor,
+                run_id,
+                call_id,
+            } => {
+                let result = self
+                    .run_with_harness(
+                        state,
+                        objective,
+                        timeout_ms,
+                        max_rounds,
+                        model_override,
+                        progress_tx,
+                        writer_actor.clone(),
+                        run_id.clone(),
+                        call_id.clone(),
+                    )
+                    .await;
+                Self::emit_writer_completion(writer_actor, run_id, call_id, result);
             }
             ResearcherMsg::RunWebSearchTool {
                 request,
@@ -335,6 +384,34 @@ impl Actor for ResearcherActor {
 }
 
 impl ResearcherActor {
+    fn emit_writer_completion(
+        writer_actor: Option<ractor::ActorRef<WriterMsg>>,
+        run_id: Option<String>,
+        call_id: Option<String>,
+        result: Result<ResearcherResult, ResearcherError>,
+    ) {
+        if let (Some(writer_actor), Some(run_id)) = (writer_actor, run_id) {
+            let dispatch_id = call_id
+                .clone()
+                .and_then(|id| id.rsplit(':').next().map(ToString::to_string))
+                .unwrap_or_else(|| ulid::Ulid::new().to_string());
+            let completion = result
+                .map(|research| WriterDelegateResult {
+                    capability: WriterDelegateCapability::Researcher,
+                    success: research.success,
+                    summary: research.summary,
+                })
+                .map_err(|error| WriterError::WorkerFailed(error.to_string()));
+            let _ = writer_actor.send_message(WriterMsg::DelegationWorkerCompleted {
+                capability: WriterDelegateCapability::Researcher,
+                run_id: Some(run_id),
+                call_id,
+                dispatch_id,
+                result: completion,
+            });
+        }
+    }
+
     async fn run_with_harness(
         &self,
         state: &ResearcherState,

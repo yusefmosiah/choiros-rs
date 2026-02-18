@@ -9,10 +9,10 @@ use super::*;
 use crate::baml_client::types;
 use baml::BamlDecode;
 
-/// Generated from: (Streaming.BashToolCall | Streaming.WebSearchToolCall | Streaming.FetchUrlToolCall | Streaming.FileReadToolCall | Streaming.FileWriteToolCall | Streaming.FileEditToolCall | Streaming.MessageWriterToolCall)
+/// Generated from: (Streaming.BashToolCall | Streaming.WebSearchToolCall | Streaming.FetchUrlToolCall | Streaming.FileReadToolCall | Streaming.FileWriteToolCall | Streaming.FileEditToolCall | Streaming.MessageWriterToolCall | Streaming.FinishedToolCall)
 #[derive(Debug, Clone, BamlDecode)]
 #[baml(union)]
-pub enum Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall
+pub enum Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall
 {
     #[baml(name = "BashToolCall")]
     BashToolCall(BashToolCall),
@@ -34,15 +34,18 @@ pub enum Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCal
 
     #[baml(name = "MessageWriterToolCall")]
     MessageWriterToolCall(MessageWriterToolCall),
+
+    #[baml(name = "FinishedToolCall")]
+    FinishedToolCall(FinishedToolCall),
 }
 
-impl AsRef<Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall> for Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall {
-    fn as_ref(&self) -> &Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall {
+impl AsRef<Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall> for Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall {
+    fn as_ref(&self) -> &Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall {
         self
     }
 }
 
-impl Default for Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall {
+impl Default for Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall {
     fn default() -> Self {
 
 

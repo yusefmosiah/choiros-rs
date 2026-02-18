@@ -24,8 +24,6 @@
 //!
 //! let args = ConductorArguments {
 //!     event_store: event_store_ref,
-//!     researcher_actor: Some(researcher_ref),
-//!     terminal_actor: Some(terminal_ref),
 //! };
 //!
 //! let (conductor_ref, _handle) = Actor::spawn(None, ConductorActor, args).await?;
@@ -36,6 +34,7 @@ pub mod events;
 pub mod model_gateway;
 pub mod output;
 pub mod protocol;
+pub mod registry;
 mod runtime;
 pub mod state;
 pub mod workers;

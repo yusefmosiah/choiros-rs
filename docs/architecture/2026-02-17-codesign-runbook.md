@@ -24,7 +24,7 @@ what we are building, in what order, and why.
 2. Citation model fully defined: researcher proposes, writer confirms, incentive structure explicit.
 3. `.qwy` document format researched and specified.
 4. Four local embedding collections defined; global store unified.
-5. Eight codebase seams identified and assigned to Phase 0.
+5. Nine codebase seams identified and assigned to Phase 0.
 6. Eight execution phases defined with gates.
 7. Marginalia pulled forward to Phase 1 (safe UI, no infrastructure dependency).
 8. WriterActor ephemeral model decided; WriterSupervisor registry pattern defined.
@@ -32,7 +32,40 @@ what we are building, in what order, and why.
 
 ## What To Do Next
 
-Start Phase 0. Fix the eight seams. Do not begin Phase 1 until Phase 0 gate passes.
+Start Phase 0. Fix the nine seams. Do not begin Phase 1 until Phase 0 gate passes.
+
+## Handoff Status (2026-02-18)
+
+This checkpoint records practical seam-closure progress and evidence captured in the current branch.
+
+### What Landed
+
+1. Writer delegation contract hardening
+   - Writer delegation planning/execution now enforces tool contract at harness boundary.
+   - Writer can only use `message_writer` and `finished` in delegation mode.
+   - Writer synthesis can only use `finished`.
+   - Invalid tools are rejected as contract violations (no silent fallback behavior).
+
+2. Delegation lifecycle correctness
+   - Delegated worker inflight state is cleared on worker completion signal, not on dispatch.
+   - This prevents losing worker lifecycle ownership mid-run.
+
+3. End-to-end verification
+   - Playwright E2E run confirms prompt -> conductor -> writer -> researcher chain with live doc updates.
+   - Run evidence captured with trace/video/screenshot artifacts under ignored Playwright artifact paths.
+
+### Phase 0 Seam Review (Current)
+
+- 0.2 WriterActor ephemeral + WriterSupervisor: in progress; writer-per-run behavior is active in current flow, final concurrency gate coverage still needed.
+- 0.3 ResearcherActor concurrent dispatch: in progress; writer-owned delegation path works, dedicated concurrent stress gate still pending.
+- 0.7 Worker dispatch fire-and-forget: materially improved in writer delegation path; completion arrives asynchronously by actor message.
+- 0.8 EventType::UserInput coverage: active on conductor/writer entry paths in current flow; retain as explicit regression test target.
+
+### What To Do Next (Phase 0 Closure)
+
+1. Add deterministic tests for n concurrent writer runs (run/window isolation + no shared mutable state).
+2. Add regression tests that assert writer delegation rejects non-contract tools.
+3. Add ordered websocket/event assertions for async worker completion -> writer wake -> revision application.
 
 ---
 
@@ -56,6 +89,8 @@ Start Phase 0. Fix the eight seams. Do not begin Phase 1 until Phase 0 gate pass
     completion, sends a typed message back to conductor, then stops.
 12. Conductor remains semi-single-shot: brief RLM harness turn, memory-managed context,
     fast decisions. Subharnesses carry the duration of multistep work.
+13. Conductor delegates only to app agents (Writer, future HarnessedActor). Worker
+    delegation (Researcher/Terminal) is exclusively Writer-owned.
 
 ---
 
@@ -72,6 +107,9 @@ bounded by deterministic safety rails.
 use of RLM is memory management: freeing context from old runs, composing a lean wake
 context for current work. It does not re-plan mid-turn; it spawns subharnesses for
 multistep conductor work.
+
+Conductor does not route worker capabilities directly. It routes app agents. Writer is
+the execution manager for worker delegation and decides when to call Researcher/Terminal.
 
 **SubharnessActor** is the mechanism for arbitrary multistep conductor work. It is a
 proper ractor actor under ConductorSupervisor, not a `tokio::spawn`. Panics become
@@ -446,7 +484,7 @@ Global plane (RuVector — hypervisor)
 
 ### Phase 0 — Refactor (keep all features, fix seams)
 
-Goal: eliminate the eight identified codebase seams without adding new behavior.
+Goal: eliminate the nine identified codebase seams without adding new behavior.
 All existing features must continue to pass their tests after each change.
 
 Seams to fix (in dependency order):
@@ -499,6 +537,18 @@ Seams to fix (in dependency order):
 - Emit `EventType::UserInput` at `POST /conductor/execute`
 - Emit `EventType::UserInput` at writer prompt enqueue (`WriterSource::User`)
 - Gate: event store contains `user_input` events for both surfaces under test
+
+**0.9 libsql → sqlx migration (URGENT — unblocks Phase 6 Nix/cross-compilation)**
+- Replace `libsql` dependency with `sqlx` (already in workspace) in `sandbox/Cargo.toml`
+- Remove manual `run_migrations()` with `PRAGMA table_info` introspection in
+  `actors/event_store.rs`; replace with `sqlx::migrate!()` macro
+- Add proper migration files for `session_id` and `thread_id` columns (currently only
+  added via in-code workarounds, not tracked in `migrations/`)
+- Enable `RETURNING` clause in `handle_append` (currently commented out due to libsql
+  limitation)
+- Enable sqlx compile-time query checking (`SQLX_OFFLINE` mode for CI)
+- Gate: `cargo test -p sandbox --test '*'` passes; no `libsql` dependency remains;
+  `sqlx migrate run` succeeds against a fresh database
 
 **Phase 0 Gate:**
 - All existing integration tests pass
@@ -685,17 +735,27 @@ Conductor gets RLM harness with memory management.
 
 ---
 
-### Phase 5 — Local RuVector
+### Phase 5 — Local Vector Memory
 
 Goal: local vector memory operational. Retrieval APIs available to RLM.
 
+Vector backend decision: **sqlite-vec** (not RuVector/rvf-runtime).
+Rationale: sqlite-vec runs in-process alongside the existing SQLite DB, is maintained by
+the sqlite team, is stable and proven, and covers all Phase 5 needs (four collections,
+HNSW-style ANN search, chunk_hash dedup). RuVector (`rvf-runtime`/`rvf-index`) was
+evaluated and deferred — it was published 4 days before this decision with 57 total
+downloads, and its differentiating feature (SONA learning) is already explicitly deferred
+to Phase 5+. MemoryActor is the abstraction boundary; the backend is swappable without
+changing the RLM-facing API.
+
 **5.1 Dependencies**
-- Add `rvf-runtime`, `rvf-index`, `ort` (MiniLM embeddings) to `sandbox/Cargo.toml`
-- Gate: crates compile; MiniLM model loads
+- Add `sqlite-vec` and `ort` (MiniLM embeddings) to `sandbox/Cargo.toml`
+- Gate: crates compile; MiniLM model loads; sqlite-vec extension loads at runtime
 
 **5.2 MemoryActor**
 - Spawned under SessionSupervisor
-- Manages local RuVector instance
+- Manages local sqlite-vec virtual tables via four collections:
+  episodic, artifacts, trajectories, citations
 - Ingestion: subscribes to `EventType::UserInput`, `VersionSource::Writer` events,
   `AgentResult` completions
 - `chunk_hash` check: skip re-embedding if hash matches cached value
@@ -858,6 +918,7 @@ For each seam: file and line number of the problem, target state.
 | 6 | CapabilityWorkerOutput closed | `conductor/protocol.rs:100-103` | Open for extension |
 | 7 | Blocking ractor::call! in workers | `conductor/workers.rs:27,56,71,91` | Fire-and-forget |
 | 8 | EventType::UserInput never emitted | `actors/event_bus.rs:131` | Emit at all entry points |
+| 9 | libsql bundled C fork (no RETURNING, no proper migrations, blocks cross-compilation) | `sandbox/Cargo.toml:25`, `actors/event_store.rs` | sqlx + `sqlx::migrate!()` |
 
 ---
 
@@ -867,7 +928,7 @@ From `2026-02-17-codesign-sketch-and-questions.md`. All resolved in this documen
 
 | # | Question | Resolution |
 |---|----------|------------|
-| 1 | Canonical artifact unit in RuVector v1? | Whole doc at `VersionSource::Writer` (per harness loop completion) |
+| 1 | Canonical artifact unit in vector memory v1? | Whole doc at `VersionSource::Writer` (per harness loop completion) |
 | 2 | Minimum metadata per artifact record? | `ProvenanceEnvelope` + `chunk_hash` + `loop_id` + `run_id` + `objective` |
 | 3 | Mandatory expansion edges? | `wasRevisionOf`, `hadPrimarySource`, `citation_id` refs |
 | 4 | Staleness policy on hash/version drift? | Hash drift = new record. Old citations point to old hashes. Immutable. |
@@ -883,10 +944,10 @@ From `2026-02-17-codesign-sketch-and-questions.md`. All resolved in this documen
 ## Deferred (Explicit)
 
 - **MicroVMs** — after container boundary is stable (Phase 6 tail or post-Phase 8)
-- **SONA learning** (`ruvector-sona`) — after local RuVector is operational (Phase 5+)
+- **SONA learning** — after local vector memory is operational (Phase 5+); backend TBD (RuVector/rvf deferred pending production maturity)
 - **Self-prompting** (model queries memory to construct its own prompts) — after
   retrieval APIs exist (Phase 5+)
-- **Global RuVector search on external content locally** — external content is
+- **Global vector search on external content locally** — external content is
   citation-graph-only locally; global search enabled in Phase 7
 - **Marginalia annotation creation** — Phase 8 (v1 is read-only display)
 - **PDF app** — remains deferred per existing roadmap

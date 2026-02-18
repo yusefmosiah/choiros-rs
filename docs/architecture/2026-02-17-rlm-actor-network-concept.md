@@ -68,6 +68,13 @@ The model *always* decides what context to load and what topology to use. Most t
 
 ## Actor Network Semantics
 
+### Authority Boundary (Conductor vs Writer)
+
+- Conductor routes app-agents, not raw workers.
+- Writer owns worker lifecycle and delegation planning for `researcher`/`terminal`.
+- This keeps conductor as orchestration-only and makes worker policy local to the
+  app-agent that mutates the living document.
+
 ### Single-Process RLM vs Actor RLM
 
 | RLM Variant | Sub-call Implementation | Use Case |

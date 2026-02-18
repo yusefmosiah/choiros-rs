@@ -10,13 +10,12 @@ use std::sync::Arc;
 use crate::actors::conductor::{
     model_gateway::{BamlConductorModelGateway, SharedConductorModelGateway},
     protocol::ConductorMsg,
+    registry,
     state::ConductorState as RunStateStore,
 };
 use crate::actors::event_store::EventStoreMsg;
-use crate::actors::researcher::ResearcherMsg;
-use crate::actors::terminal::TerminalMsg;
-use crate::actors::writer::{DocumentVersion, Overlay, OverlayStatus, VersionSource};
 use crate::actors::writer::{WriterError, WriterMsg};
+use crate::supervisor::writer::WriterSupervisorMsg;
 
 /// ConductorActor - main orchestration actor.
 #[derive(Debug, Default)]
@@ -27,21 +26,15 @@ pub struct ConductorActor;
 pub struct ConductorArguments {
     /// Event store actor reference for persistence.
     pub event_store: ActorRef<EventStoreMsg>,
-    /// Optional researcher actor for delegation.
-    pub researcher_actor: Option<ActorRef<ResearcherMsg>>,
-    /// Optional terminal actor for delegation.
-    pub terminal_actor: Option<ActorRef<TerminalMsg>>,
-    /// Optional writer actor for event-driven writer authority.
-    pub writer_actor: Option<ActorRef<WriterMsg>>,
+    /// Optional writer supervisor for run-scoped writer lifecycle.
+    pub writer_supervisor: Option<ActorRef<WriterSupervisorMsg>>,
 }
 
 /// Internal state for ConductorActor.
 pub struct ConductorState {
     pub(crate) tasks: RunStateStore,
     pub(crate) event_store: ActorRef<EventStoreMsg>,
-    pub(crate) researcher_actor: Option<ActorRef<ResearcherMsg>>,
-    pub(crate) terminal_actor: Option<ActorRef<TerminalMsg>>,
-    pub(crate) writer_actor: Option<ActorRef<WriterMsg>>,
+    pub(crate) writer_supervisor: Option<ActorRef<WriterSupervisorMsg>>,
     pub(crate) model_gateway: SharedConductorModelGateway,
 }
 
@@ -61,9 +54,7 @@ impl Actor for ConductorActor {
         Ok(ConductorState {
             tasks: RunStateStore::new(),
             event_store: args.event_store,
-            researcher_actor: args.researcher_actor,
-            terminal_actor: args.terminal_actor,
-            writer_actor: args.writer_actor,
+            writer_supervisor: args.writer_supervisor,
             model_gateway,
         })
     }
@@ -90,15 +81,6 @@ impl Actor for ConductorActor {
             ConductorMsg::StartRun { run_id, request } => {
                 self.handle_start_run(&myself, state, run_id, request)
                     .await?;
-            }
-            ConductorMsg::SyncDependencies {
-                researcher_actor,
-                terminal_actor,
-                writer_actor,
-            } => {
-                state.researcher_actor = researcher_actor;
-                state.terminal_actor = terminal_actor;
-                state.writer_actor = writer_actor;
             }
             ConductorMsg::GetRunState { run_id, reply } => {
                 let _ = reply.send(state.tasks.get_run(&run_id).cloned());
@@ -140,51 +122,6 @@ impl Actor for ConductorActor {
                     .await;
                 let _ = reply.send(result);
             }
-            ConductorMsg::ListWriterDocumentVersions { run_id, reply } => {
-                let result = self
-                    .handle_list_writer_document_versions(state, run_id)
-                    .await;
-                let _ = reply.send(result);
-            }
-            ConductorMsg::GetWriterDocumentVersion {
-                run_id,
-                version_id,
-                reply,
-            } => {
-                let result = self
-                    .handle_get_writer_document_version(state, run_id, version_id)
-                    .await;
-                let _ = reply.send(result);
-            }
-            ConductorMsg::ListWriterDocumentOverlays {
-                run_id,
-                base_version_id,
-                status,
-                reply,
-            } => {
-                let result = self
-                    .handle_list_writer_document_overlays(state, run_id, base_version_id, status)
-                    .await;
-                let _ = reply.send(result);
-            }
-            ConductorMsg::CreateWriterDocumentVersion {
-                run_id,
-                parent_version_id,
-                content,
-                source,
-                reply,
-            } => {
-                let result = self
-                    .handle_create_writer_document_version(
-                        state,
-                        run_id,
-                        parent_version_id,
-                        content,
-                        source,
-                    )
-                    .await;
-                let _ = reply.send(result);
-            }
         }
         Ok(())
     }
@@ -200,6 +137,35 @@ impl Actor for ConductorActor {
 }
 
 impl ConductorActor {
+    pub(crate) async fn resolve_writer_actor_for_run(
+        &self,
+        state: &ConductorState,
+        run_id: &str,
+    ) -> Result<ActorRef<WriterMsg>, crate::actors::conductor::ConductorError> {
+        if let Some(writer_actor) = registry::lookup_writer_actor_for_run(run_id) {
+            return Ok(writer_actor);
+        }
+        if let Some(writer_supervisor) = state.writer_supervisor.as_ref() {
+            let writer_id = registry::run_writer_id(run_id);
+            let result = ractor::call!(writer_supervisor, |reply| {
+                WriterSupervisorMsg::GetOrCreateWriter {
+                    writer_id,
+                    user_id: "system".to_string(),
+                    reply,
+                }
+            })
+            .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
+            .map_err(crate::actors::conductor::ConductorError::ActorUnavailable)?;
+            return Ok(result);
+        }
+        if let Some(writer_actor) = registry::lookup_writer_actor() {
+            return Ok(writer_actor);
+        }
+        Err(crate::actors::conductor::ConductorError::ActorUnavailable(
+            "writer actor unavailable".to_string(),
+        ))
+    }
+
     fn map_writer_error(error: WriterError) -> crate::actors::conductor::ConductorError {
         match error {
             WriterError::Validation(message) => {
@@ -224,103 +190,12 @@ impl ConductorActor {
         base_version_id: u64,
     ) -> Result<crate::actors::writer::WriterQueueAck, crate::actors::conductor::ConductorError>
     {
-        let writer_actor = state.writer_actor.as_ref().ok_or_else(|| {
-            crate::actors::conductor::ConductorError::ActorUnavailable(
-                "writer actor unavailable".to_string(),
-            )
-        })?;
+        let writer_actor = self.resolve_writer_actor_for_run(state, &run_id).await?;
         ractor::call!(writer_actor, |reply| WriterMsg::SubmitUserPrompt {
             run_id,
             prompt_diff,
             base_version_id,
             reply
-        })
-        .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
-        .map_err(Self::map_writer_error)
-    }
-
-    async fn handle_list_writer_document_versions(
-        &self,
-        state: &mut ConductorState,
-        run_id: String,
-    ) -> Result<Vec<DocumentVersion>, crate::actors::conductor::ConductorError> {
-        let writer_actor = state.writer_actor.as_ref().ok_or_else(|| {
-            crate::actors::conductor::ConductorError::ActorUnavailable(
-                "writer actor unavailable".to_string(),
-            )
-        })?;
-        ractor::call!(writer_actor, |reply| {
-            WriterMsg::ListWriterDocumentVersions { run_id, reply }
-        })
-        .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
-        .map_err(Self::map_writer_error)
-    }
-
-    async fn handle_get_writer_document_version(
-        &self,
-        state: &mut ConductorState,
-        run_id: String,
-        version_id: u64,
-    ) -> Result<DocumentVersion, crate::actors::conductor::ConductorError> {
-        let writer_actor = state.writer_actor.as_ref().ok_or_else(|| {
-            crate::actors::conductor::ConductorError::ActorUnavailable(
-                "writer actor unavailable".to_string(),
-            )
-        })?;
-        ractor::call!(writer_actor, |reply| WriterMsg::GetWriterDocumentVersion {
-            run_id,
-            version_id,
-            reply
-        })
-        .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
-        .map_err(Self::map_writer_error)
-    }
-
-    async fn handle_list_writer_document_overlays(
-        &self,
-        state: &mut ConductorState,
-        run_id: String,
-        base_version_id: Option<u64>,
-        status: Option<OverlayStatus>,
-    ) -> Result<Vec<Overlay>, crate::actors::conductor::ConductorError> {
-        let writer_actor = state.writer_actor.as_ref().ok_or_else(|| {
-            crate::actors::conductor::ConductorError::ActorUnavailable(
-                "writer actor unavailable".to_string(),
-            )
-        })?;
-        ractor::call!(writer_actor, |reply| {
-            WriterMsg::ListWriterDocumentOverlays {
-                run_id,
-                base_version_id,
-                status,
-                reply,
-            }
-        })
-        .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
-        .map_err(Self::map_writer_error)
-    }
-
-    async fn handle_create_writer_document_version(
-        &self,
-        state: &mut ConductorState,
-        run_id: String,
-        parent_version_id: Option<u64>,
-        content: String,
-        source: VersionSource,
-    ) -> Result<DocumentVersion, crate::actors::conductor::ConductorError> {
-        let writer_actor = state.writer_actor.as_ref().ok_or_else(|| {
-            crate::actors::conductor::ConductorError::ActorUnavailable(
-                "writer actor unavailable".to_string(),
-            )
-        })?;
-        ractor::call!(writer_actor, |reply| {
-            WriterMsg::CreateWriterDocumentVersion {
-                run_id,
-                parent_version_id,
-                content,
-                source,
-                reply,
-            }
         })
         .map_err(|e| crate::actors::conductor::ConductorError::ActorUnavailable(e.to_string()))?
         .map_err(Self::map_writer_error)
@@ -421,6 +296,16 @@ mod tests {
                     .to_string(),
             ))
         }
+
+        async fn immediate_response(
+            &self,
+            _run_id: Option<&str>,
+            _objective: &str,
+        ) -> Result<String, ConductorError> {
+            Err(ConductorError::ModelGatewayError(
+                "immediate_response should not be called in handle_process_event tests".to_string(),
+            ))
+        }
     }
 
     fn test_run(run_id: &str) -> ConductorRunState {
@@ -454,9 +339,7 @@ mod tests {
             ConductorState {
                 tasks: RunStateStore::new(),
                 event_store: event_store.clone(),
-                researcher_actor: None,
-                terminal_actor: None,
-                writer_actor: None,
+                writer_supervisor: None,
                 model_gateway: gateway,
             },
             event_store,

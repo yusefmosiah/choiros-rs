@@ -56,6 +56,10 @@ pub enum StreamTypes {
 
     FileWriteToolCall(FileWriteToolCall),
 
+    FinishedToolArgs(FinishedToolArgs),
+
+    FinishedToolCall(FinishedToolCall),
+
     HistoricalResolution(HistoricalResolution),
 
     Message(Message),
@@ -97,7 +101,7 @@ pub enum StreamTypes {
     WebSearchToolCall(WebSearchToolCall),
 
 
-    Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall(Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall),
+    Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall(Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall),
 
 }
 
@@ -147,6 +151,10 @@ impl baml::KnownTypes for StreamTypes {
 
             StreamTypes::FileWriteToolCall(_) => "FileWriteToolCall",
 
+            StreamTypes::FinishedToolArgs(_) => "FinishedToolArgs",
+
+            StreamTypes::FinishedToolCall(_) => "FinishedToolCall",
+
             StreamTypes::HistoricalResolution(_) => "HistoricalResolution",
 
             StreamTypes::Message(_) => "Message",
@@ -188,7 +196,7 @@ impl baml::KnownTypes for StreamTypes {
             StreamTypes::WebSearchToolCall(_) => "WebSearchToolCall",
 
 
-            StreamTypes::Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall(_) => "Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall",
+            StreamTypes::Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall(_) => "Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall",
 
 
         }

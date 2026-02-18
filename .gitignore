@@ -35,6 +35,15 @@ data/
 # Logs
 *.log
 
+# Playwright artifacts
+tests/artifacts/playwright/
+playwright-report/
+test-results/
+tests/playwright/playwright-report/
+tests/playwright/test-results/
+tests/playwright/tests/artifacts/
+tests/playwright/artifacts/
+
 # Generated conductor runtime artifacts
 sandbox/conductor/runs/
 sandbox/.writer_revisions/

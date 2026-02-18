@@ -20,7 +20,8 @@ pub fn SettingsView(desktop_id: String, window_id: String) -> Element {
     let mut doc_content = use_signal(String::new);
     let mut doc_error = use_signal(|| None::<String>);
     let mut doc_loading = use_signal(|| false);
-    let mut resolved_doc_path = use_signal(|| settings_doc_candidates("model_config")[0].to_string());
+    let mut resolved_doc_path =
+        use_signal(|| settings_doc_candidates("model_config")[0].to_string());
     let mut refresh_counter = use_signal(|| 0u64);
     let tab_label = match active_tab().as_str() {
         "model_config" => "Model Config",

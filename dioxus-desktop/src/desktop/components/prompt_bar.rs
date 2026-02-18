@@ -76,6 +76,7 @@ pub struct TelemetryStreamState {
     pub lines: Vec<TelemetryLine>,
     pub max_lines: usize,
     pub enabled: bool,
+    next_id: u64,
 }
 
 impl TelemetryStreamState {
@@ -84,6 +85,7 @@ impl TelemetryStreamState {
             lines: Vec::new(),
             max_lines,
             enabled: true,
+            next_id: 0,
         }
     }
 
@@ -95,8 +97,9 @@ impl TelemetryStreamState {
         importance: EventImportance,
     ) {
         let now_ms = TelemetryLine::now_ms();
+        self.next_id = self.next_id.saturating_add(1);
         let line = TelemetryLine {
-            id: format!("{}-{}", capability, now_ms),
+            id: format!("{}-{}", capability, self.next_id),
             message,
             capability,
             phase,
@@ -154,7 +157,7 @@ pub fn LiveTelemetryStream(props: LiveTelemetryStreamProps) -> Element {
 
             for line in state_read.lines.iter().rev().enumerate() {
                 div {
-                    key: "{line.1.id}",
+                    key: "{line.1.id}-{line.0}",
                     class: "telemetry-line",
                     style: format!(
                         "position: absolute; bottom: 0; left: 1rem; right: 1rem; padding: 0.25rem 0.5rem; font-size: 0.75rem; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transform: translateY({}px) scale({}); opacity: {}; color: {}; transition: transform 0.1s linear, opacity 0.1s linear;",
@@ -333,6 +336,32 @@ fn failure_from_error(error: Option<ConductorError>) -> (String, String) {
             "Run failed without error details".to_string(),
         )
     })
+}
+
+fn toast_style_for_tone(tone: shared_types::ConductorToastTone) -> &'static str {
+    match tone {
+        shared_types::ConductorToastTone::Info => {
+            "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; background: #60a5fa; color: #0b1020; border: 1px solid #3b82f6; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 600; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;"
+        }
+        shared_types::ConductorToastTone::Success => {
+            "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; background: #34d399; color: #042f2e; border: 1px solid #10b981; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 600; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;"
+        }
+        shared_types::ConductorToastTone::Warning => {
+            "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; background: #fbbf24; color: #111827; border: 1px solid #f59e0b; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 600; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;"
+        }
+        shared_types::ConductorToastTone::Error => {
+            "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; background: #f87171; color: #111827; border: 1px solid #ef4444; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 600; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;"
+        }
+    }
+}
+
+fn toast_icon_for_tone(tone: shared_types::ConductorToastTone) -> &'static str {
+    match tone {
+        shared_types::ConductorToastTone::Info => "i",
+        shared_types::ConductorToastTone::Success => "✓",
+        shared_types::ConductorToastTone::Warning => "!",
+        shared_types::ConductorToastTone::Error => "⚠",
+    }
 }
 
 #[derive(Props, Clone, PartialEq)]
@@ -567,7 +596,7 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
                             if let Some(toast) = conductor_state().toast_payload().cloned() {
                                 button {
                                     class: "conductor-toast-indicator",
-                                    style: "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; background: #14b8a6; color: #042f2e; border: 1px solid #2dd4bf; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 600; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;",
+                                    style: "{toast_style_for_tone(toast.tone)}",
                                     title: "{toast.message}",
                                     onclick: move |_| {
                                         let toast = toast.clone();
@@ -594,7 +623,7 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
                                             }
                                         });
                                     },
-                                    span { "✓" }
+                                    span { "{toast_icon_for_tone(toast.tone)}" }
                                     span { "{toast.title}: {toast.message}" }
                                 }
                             }
@@ -704,7 +733,7 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
                     if let Some(toast) = conductor_state().toast_payload().cloned() {
                         button {
                             class: "conductor-toast-indicator",
-                            style: "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; background: #14b8a6; color: #042f2e; border: 1px solid #2dd4bf; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 600; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;",
+                            style: "{toast_style_for_tone(toast.tone)}",
                             title: "{toast.message}",
                             onclick: move |_| {
                                 let toast = toast.clone();
@@ -731,7 +760,7 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
                                     }
                                 });
                             },
-                            span { "✓" }
+                            span { "{toast_icon_for_tone(toast.tone)}" }
                             span { "{toast.title}: {toast.message}" }
                         }
                     }

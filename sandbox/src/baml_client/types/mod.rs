@@ -61,6 +61,10 @@ pub enum Types {
 
     FileWriteToolCall(FileWriteToolCall),
 
+    FinishedToolArgs(FinishedToolArgs),
+
+    FinishedToolCall(FinishedToolCall),
+
     HistoricalResolution(HistoricalResolution),
 
     Message(Message),
@@ -119,7 +123,7 @@ pub enum Types {
     UrgencyLevel(UrgencyLevel),
 
 
-    Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall(Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall),
+    Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall(Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall),
 
 }
 
@@ -168,6 +172,10 @@ impl baml::KnownTypes for Types {
             Types::FileWriteToolArgs(_) => "FileWriteToolArgs",
 
             Types::FileWriteToolCall(_) => "FileWriteToolCall",
+
+            Types::FinishedToolArgs(_) => "FinishedToolArgs",
+
+            Types::FinishedToolCall(_) => "FinishedToolCall",
 
             Types::HistoricalResolution(_) => "HistoricalResolution",
 
@@ -227,7 +235,7 @@ impl baml::KnownTypes for Types {
             Types::UrgencyLevel(_) => "UrgencyLevel",
 
 
-            Types::Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall(_) => "Union7BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrMessageWriterToolCallOrWebSearchToolCall",
+            Types::Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall(_) => "Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall",
 
 
         }

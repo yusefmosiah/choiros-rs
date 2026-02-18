@@ -221,6 +221,24 @@ impl TypeBuilder {
         )
     }
 
+    /// Access the `FinishedToolArgs` class builder.
+    pub fn FinishedToolArgs(&self) -> FinishedToolArgsClassBuilder {
+        FinishedToolArgsClassBuilder::new(
+            self.inner
+                .get_class("FinishedToolArgs")
+                .expect("class FinishedToolArgs is defined in schema"),
+        )
+    }
+
+    /// Access the `FinishedToolCall` class builder.
+    pub fn FinishedToolCall(&self) -> FinishedToolCallClassBuilder {
+        FinishedToolCallClassBuilder::new(
+            self.inner
+                .get_class("FinishedToolCall")
+                .expect("class FinishedToolCall is defined in schema"),
+        )
+    }
+
     /// Access the `HistoricalResolution` class builder.
     pub fn HistoricalResolution(&self) -> HistoricalResolutionClassBuilder {
         HistoricalResolutionClassBuilder::new(
