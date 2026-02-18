@@ -241,6 +241,32 @@ impl ConductorState {
         self.active_calls.get(call_id)
     }
 
+    /// Resolve the run_id that owns the given capability call.
+    ///
+    /// Searches `active_calls` first (fast path), then falls back to
+    /// scanning all run `active_calls` lists (covers completed calls
+    /// not yet removed from the run's list).
+    pub fn get_run_id_for_call(&self, call_id: &str) -> Option<&str> {
+        if let Some((run_id, _)) = self.active_calls.get(call_id) {
+            return Some(run_id.as_str());
+        }
+        for (run_id, run) in &self.runs {
+            if run.active_calls.iter().any(|c| c.call_id == call_id) {
+                return Some(run_id.as_str());
+            }
+        }
+        None
+    }
+
+    /// Resolve the agenda_item_id that corresponds to a capability call.
+    pub fn get_agenda_item_id_for_call(&self, run_id: &str, call_id: &str) -> Option<String> {
+        let run = self.runs.get(run_id)?;
+        run.active_calls
+            .iter()
+            .find(|c| c.call_id == call_id)
+            .and_then(|c| c.agenda_item_id.clone())
+    }
+
     /// Get active calls for a run
     pub fn get_run_active_calls(&self, run_id: &str) -> Vec<&ConductorCapabilityCall> {
         let Some(run) = self.runs.get(run_id) else {

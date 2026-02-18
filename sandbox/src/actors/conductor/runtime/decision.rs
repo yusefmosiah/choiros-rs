@@ -6,6 +6,7 @@ use crate::actors::conductor::{
     protocol::{ConductorError, ConductorMsg},
     runtime::capability_call::{CapabilityCallActor, CapabilityCallArguments},
 };
+use crate::actors::subharness::{SubharnessActor, SubharnessArguments, SubharnessMsg};
 use crate::actors::writer::SectionState;
 use crate::actors::writer::WriterMsg;
 
@@ -207,6 +208,97 @@ impl ConductorActor {
         }
 
         tracing::info!(run_id = %run_id, call_id = %call_id, capability = %item.capability, "Spawned capability call");
+
+        Ok(())
+    }
+
+    /// Spawn a `SubharnessActor` for a scoped objective.
+    ///
+    /// Registers the subharness as a `ConductorCapabilityCall` (capability = "subharness")
+    /// so the existing active-call and run-finalization machinery applies.
+    /// The SubharnessActor sends `ConductorMsg::SubharnessComplete` back directly.
+    pub(crate) async fn spawn_subharness_for_run(
+        &self,
+        myself: &ActorRef<ConductorMsg>,
+        state: &mut ConductorState,
+        run_id: &str,
+        item: shared_types::ConductorAgendaItem,
+        context: serde_json::Value,
+    ) -> Result<(), ConductorError> {
+        let call_id = ulid::Ulid::new().to_string();
+
+        let call = shared_types::ConductorCapabilityCall {
+            call_id: call_id.clone(),
+            capability: "subharness".to_string(),
+            objective: item.objective.clone(),
+            status: shared_types::CapabilityCallStatus::Running,
+            started_at: chrono::Utc::now(),
+            completed_at: None,
+            parent_call_id: None,
+            agenda_item_id: Some(item.item_id.clone()),
+            artifact_ids: vec![],
+            error: None,
+        };
+
+        state.tasks.register_capability_call(run_id, call).map_err(|e| {
+            ConductorError::ModelGatewayError(format!("Failed to register subharness call: {e}"))
+        })?;
+        state
+            .tasks
+            .update_capability_call(
+                run_id,
+                &call_id,
+                shared_types::CapabilityCallStatus::Running,
+                None,
+            )
+            .ok();
+
+        events::emit_worker_call(
+            &state.event_store,
+            run_id,
+            "subharness",
+            &item.objective,
+        )
+        .await;
+
+        let args = SubharnessArguments {
+            event_store: state.event_store.clone(),
+        };
+
+        let conductor_ref = myself.clone();
+        let run_id_owned = run_id.to_string();
+        let call_id_owned = call_id.clone();
+        let objective = item.objective.clone();
+
+        match Actor::spawn_linked(
+            Some(format!("subharness:{}:{}", run_id_owned, call_id_owned)),
+            SubharnessActor,
+            args,
+            myself.get_cell(),
+        )
+        .await
+        {
+            Ok((subharness_ref, _handle)) => {
+                let _ = subharness_ref.send_message(SubharnessMsg::Execute {
+                    objective,
+                    context,
+                    correlation_id: call_id_owned.clone(),
+                    reply_to: conductor_ref,
+                });
+                tracing::info!(
+                    run_id = %run_id,
+                    call_id = %call_id_owned,
+                    "Spawned SubharnessActor"
+                );
+            }
+            Err(error) => {
+                // Immediately notify conductor so the run can quiesce.
+                let _ = myself.send_message(ConductorMsg::SubharnessFailed {
+                    correlation_id: call_id_owned,
+                    reason: format!("Failed to spawn SubharnessActor: {error}"),
+                });
+            }
+        }
 
         Ok(())
     }

@@ -6,6 +6,10 @@
 //! - Structured event emission (started, progress, completed/failed)
 //! - WorkerTurnReport generation at completion
 //!
+//! The `rlm` submodule provides the RLM (Recursive Language Model) harness —
+//! the general execution mode where the model composes its own context each turn.
+//! The linear `AgentHarness` loop is a degenerate case of the RLM pattern.
+//!
 //! ## Architecture
 //!
 //! The harness uses a simplified loop:
@@ -27,6 +31,9 @@
 //! let harness = AgentHarness::new(adapter, ModelRegistry::new());
 //! let result = harness.run(objective, timeout, max_steps).await?;
 //! ```
+
+pub mod rlm;
+pub mod rlm_port;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

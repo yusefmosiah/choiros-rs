@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT seq as \"seq!\", event_id, timestamp, event_type, payload, actor_id, user_id\n            FROM events\n            WHERE event_type = 'harness.checkpoint'\n              AND payload LIKE ?1\n            ORDER BY seq DESC\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "seq!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "event_id",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "timestamp",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "event_type",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "payload",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "actor_id",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "user_id",
+        "ordinal": 6,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "efc17440fdd323fcc17dba0ac93d188222a96fb161b0f27174bdae89b392b10f"
+}

@@ -241,11 +241,53 @@ impl ConductorActor {
             ));
         }
 
+        // Phase 5.4 — retrieve context snapshot from MemoryActor.
+        // Prepend top context items to the objective so the model has retrieval-grounded context.
+        // 500ms timeout — if memory is slow or unavailable, continue without it.
+        let enriched_objective = if let Some(memory) = &state.memory_actor {
+            let snapshot_result = tokio::time::timeout(
+                std::time::Duration::from_millis(500),
+                async {
+                    ractor::call!(memory, |reply| crate::actors::memory::MemoryMsg::GetContextSnapshot {
+                        run_id: run_id.to_string(),
+                        query: request.objective.clone(),
+                        max_items: 4,
+                        reply,
+                    })
+                },
+            )
+            .await;
+
+            match snapshot_result {
+                Ok(Ok(snapshot)) if !snapshot.items.is_empty() => {
+                    let ctx_lines: Vec<String> = snapshot
+                        .items
+                        .iter()
+                        .map(|item| {
+                            format!(
+                                "[{kind}] {src}: {excerpt}",
+                                kind = item.kind,
+                                src = item.source_ref,
+                                excerpt = &item.content[..item.content.len().min(120)],
+                            )
+                        })
+                        .collect();
+                    format!(
+                        "Retrieved context (relevance-ranked):\n{}\n\nObjective: {}",
+                        ctx_lines.join("\n"),
+                        request.objective
+                    )
+                }
+                _ => request.objective.clone(),
+            }
+        } else {
+            request.objective.clone()
+        };
+
         let conduct_output = state
             .model_gateway
-            .conduct_assignments(Some(run_id), &request.objective, &available_capabilities)
+            .conduct_assignments(Some(run_id), &enriched_objective, &available_capabilities)
             .await?;
-
         let mut selected_capabilities = Vec::new();
         for capability in conduct_output.dispatch_capabilities {
             let normalized = capability.trim().to_ascii_lowercase();

@@ -30,6 +30,14 @@ thiserror = { workspace = true }
 shared-types = { path = "../shared-types" }
 walkdir = "2.5"
 
+# Phase 5 — local vector memory
+rusqlite = { version = "0.31", features = ["bundled"] }
+sqlite-vec = "0.1.7-alpha.10"
+zerocopy = { version = "0.7", features = ["derive"] }
+sha2 = "0.10"
+hex = "0.4"
+fastembed = { version = "5", default-features = false, features = ["ort-download-binaries-native-tls", "hf-hub-native-tls"] }
+
 pulldown-cmark = "0.12"
 regex = { workspace = true }
 futures-util = "0.3.31"

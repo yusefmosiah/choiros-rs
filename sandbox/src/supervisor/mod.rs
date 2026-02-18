@@ -402,6 +402,7 @@ impl Actor for ApplicationSupervisor {
         let session_supervisor_args = SessionSupervisorArgs {
             event_store: event_store.clone(),
             application_supervisor: myself.clone(),
+            vec_db_path: None, // defaults to :memory: in session supervisor
         };
 
         let (session_supervisor, _handle) = Actor::spawn_linked(

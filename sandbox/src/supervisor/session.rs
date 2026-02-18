@@ -6,6 +6,7 @@ use tracing::{error, info};
 use crate::actors::conductor::ConductorMsg;
 use crate::actors::desktop::{DesktopActorMsg, DesktopArguments};
 use crate::actors::event_store::EventStoreMsg;
+use crate::actors::memory::{MemoryActor, MemoryArguments, MemoryMsg};
 use crate::actors::researcher::ResearcherMsg;
 use crate::actors::terminal::TerminalMsg;
 use crate::actors::writer::WriterMsg;
@@ -29,10 +30,14 @@ pub struct SessionSupervisor;
 pub struct SessionSupervisorArgs {
     pub event_store: ActorRef<EventStoreMsg>,
     pub application_supervisor: ActorRef<ApplicationSupervisorMsg>,
+    /// Path for the vector store SQLite file.
+    /// Defaults to `:memory:` if not provided (e.g. in tests).
+    pub vec_db_path: Option<String>,
 }
 
 pub struct SessionSupervisorState {
     pub event_store: ActorRef<EventStoreMsg>,
+    pub memory_actor: ActorRef<MemoryMsg>,
     pub conductor_supervisor: Option<ActorRef<ConductorSupervisorMsg>>,
     pub desktop_supervisor: Option<ActorRef<DesktopSupervisorMsg>>,
     pub terminal_supervisor: Option<ActorRef<TerminalSupervisorMsg>>,
@@ -86,6 +91,23 @@ impl Actor for SessionSupervisor {
     ) -> Result<Self::State, ActorProcessingErr> {
         info!(supervisor = %myself.get_id(), "SessionSupervisor starting");
 
+        // Spawn MemoryActor first — it's a shared service used by Conductor.
+        let vec_db_path = args
+            .vec_db_path
+            .clone()
+            .unwrap_or_else(|| ":memory:".to_string());
+        let (memory_actor, _) = Actor::spawn_linked(
+            None,
+            MemoryActor,
+            MemoryArguments {
+                event_store: args.event_store.clone(),
+                vec_db_path,
+            },
+            myself.get_cell(),
+        )
+        .await
+        .map_err(ActorProcessingErr::from)?;
+
         let (desktop_supervisor, _) = Actor::spawn_linked(
             None,
             DesktopSupervisor,
@@ -133,19 +155,21 @@ impl Actor for SessionSupervisor {
         .map_err(ActorProcessingErr::from)?;
 
         let (conductor_supervisor, _) = Actor::spawn_linked(
-            None,
-            ConductorSupervisor,
-            ConductorSupervisorArgs {
-                event_store: args.event_store.clone(),
-                writer_supervisor: Some(writer_supervisor.clone()),
-            },
-            myself.get_cell(),
-        )
-        .await
-        .map_err(ActorProcessingErr::from)?;
+             None,
+             ConductorSupervisor,
+             ConductorSupervisorArgs {
+                 event_store: args.event_store.clone(),
+                 writer_supervisor: Some(writer_supervisor.clone()),
+                 memory_actor: Some(memory_actor.clone()),
+             },
+             myself.get_cell(),
+         )
+         .await
+         .map_err(ActorProcessingErr::from)?;
 
-        Ok(SessionSupervisorState {
+         Ok(SessionSupervisorState {
             event_store: args.event_store,
+            memory_actor,
             conductor_supervisor: Some(conductor_supervisor),
             desktop_supervisor: Some(desktop_supervisor),
             terminal_supervisor: Some(terminal_supervisor),

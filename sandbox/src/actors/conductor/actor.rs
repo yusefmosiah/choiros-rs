@@ -28,6 +28,8 @@ pub struct ConductorArguments {
     pub event_store: ActorRef<EventStoreMsg>,
     /// Optional writer supervisor for run-scoped writer lifecycle.
     pub writer_supervisor: Option<ActorRef<WriterSupervisorMsg>>,
+    /// Optional memory actor for context retrieval (Phase 5.4).
+    pub memory_actor: Option<ActorRef<crate::actors::memory::MemoryMsg>>,
 }
 
 /// Internal state for ConductorActor.
@@ -35,6 +37,7 @@ pub struct ConductorState {
     pub(crate) tasks: RunStateStore,
     pub(crate) event_store: ActorRef<EventStoreMsg>,
     pub(crate) writer_supervisor: Option<ActorRef<WriterSupervisorMsg>>,
+    pub(crate) memory_actor: Option<ActorRef<crate::actors::memory::MemoryMsg>>,
     pub(crate) model_gateway: SharedConductorModelGateway,
 }
 
@@ -55,6 +58,7 @@ impl Actor for ConductorActor {
             tasks: RunStateStore::new(),
             event_store: args.event_store,
             writer_supervisor: args.writer_supervisor,
+            memory_actor: args.memory_actor,
             model_gateway,
         })
     }
@@ -62,9 +66,11 @@ impl Actor for ConductorActor {
     async fn post_start(
         &self,
         myself: ActorRef<Self::Msg>,
-        _state: &mut Self::State,
+        state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         tracing::info!(actor_id = %myself.get_id(), "ConductorActor started successfully");
+        // Phase 4.4 — restore any in-progress run states from the event store.
+        self.restore_run_states(state).await;
         Ok(())
     }
 
@@ -123,26 +129,37 @@ impl Actor for ConductorActor {
                 let _ = reply.send(result);
             }
 
-            // Phase 2.4 — SubharnessActor completion messages.
-            // Full routing wired in Phase 4; stubs here keep the match exhaustive.
+            // Phase 4 — SubharnessActor completion messages.
             ConductorMsg::SubharnessComplete {
                 correlation_id,
-                result: _,
+                result,
             } => {
-                tracing::debug!(
-                    correlation_id = %correlation_id,
-                    "ConductorActor received SubharnessComplete (Phase 4 handler pending)"
-                );
+                self.handle_subharness_complete(state, correlation_id, result)
+                    .await?;
             }
             ConductorMsg::SubharnessFailed {
                 correlation_id,
                 reason,
             } => {
-                tracing::warn!(
-                    correlation_id = %correlation_id,
-                    reason = %reason,
-                    "ConductorActor received SubharnessFailed (Phase 4 handler pending)"
-                );
+                self.handle_subharness_failed(state, correlation_id, reason)
+                    .await?;
+            }
+
+            // Phase 4 — SubharnessActor in-flight progress.
+            ConductorMsg::SubharnessProgress {
+                correlation_id,
+                kind,
+                content,
+                metadata,
+            } => {
+                self.handle_subharness_progress(
+                    state,
+                    correlation_id,
+                    kind,
+                    content,
+                    metadata,
+                )
+                .await;
             }
         }
         Ok(())
@@ -362,6 +379,7 @@ mod tests {
                 tasks: RunStateStore::new(),
                 event_store: event_store.clone(),
                 writer_supervisor: None,
+                memory_actor: None,
                 model_gateway: gateway,
             },
             event_store,

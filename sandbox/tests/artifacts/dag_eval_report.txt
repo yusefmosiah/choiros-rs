@@ -1,0 +1,48 @@
+
+================================================================================
+  DAG Runtime Eval — Frontier Research Report
+================================================================================
+Date: 2026-02-18 20:28:52 UTC
+Models available: ClaudeBedrockOpus46, ClaudeBedrockSonnet46, KimiK25, ZaiGLM47, ZaiGLM5, ZaiGLM47Flash
+Models requested but unavailable: 
+Scenarios: 6
+  - T1_bash_echo (expected: ToolCalls)
+  - T1_read_cargo (expected: ToolCalls)
+  - T2_analyze_and_summarize (expected: Program)
+  - T2_conditional_check (expected: Program)
+  - T3_read_analyze_classify (expected: Program)
+  - T3_multi_file_synthesis (expected: Program)
+
+================================================================================
+  Model: ClaudeBedrockOpus46
+================================================================================
+
+  >>> Running: T1_bash_echo ...
+
+------------------------------------------------------------
+  ClaudeBedrockOpus46 / T1_bash_echo
+------------------------------------------------------------
+  elapsed: 8156ms | turns: 2 | tools: 1 | nested_llm_calls: 0 | emits: 0
+  completion: The command `echo DAG_EVAL_OK` was successfully executed via bash. The output was:
+
+DAG_EVAL_OK
+
+  TURN 1 [ToolCalls] (4552ms)
+    working_memory: Task is simple: run `echo DAG_EVAL_OK` and report the output. No dependencies or complex logic needed. A single tool call suffices.
+    action_summary: Turn 1: action=ToolCalls, wm='Task is simple: run `echo DAG_EVAL_OK` and report the output. No dependencies or complex logic needed. A single tool call suffices.'
+
+  TURN 2 [Complete] (3601ms)
+    working_memory: The command `echo DAG_EVAL_OK` was executed in Turn 1 and returned the output: DAG_EVAL_OK. Task is complete.
+    action_summary: The command `echo DAG_EVAL_OK` was successfully executed via bash. The output was:
+
+DAG_EVAL_OK
+
+  TOOL EXECUTIONS:
+    [OK] bash(command=echo DAG_EVAL_OK) -> DAG_EVAL_OK (55ms)
+
+  FINAL WORKING MEMORY:
+    The command `echo DAG_EVAL_OK` was executed in Turn 1 and returned the output: DAG_EVAL_OK. Task is complete.
+
+  VERDICT: PASS | MODE_MATCH | completed=true has_bash=true
+
+  >>> Running: T1_read_cargo ...

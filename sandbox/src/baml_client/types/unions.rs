@@ -3,39 +3,42 @@
 //
 // Learn more at https://docs.boundaryml.com
 
+
 //! Generated union types.
 
+use baml::{BamlEncode, BamlDecode};
 use super::*;
-use baml::{BamlDecode, BamlEncode};
+
 
 /// Generated from: (BashToolCall | WebSearchToolCall | FetchUrlToolCall | FileReadToolCall | FileWriteToolCall | FileEditToolCall | MessageWriterToolCall | FinishedToolCall)
 #[derive(Debug, Clone, BamlEncode, BamlDecode)]
 #[baml(union)]
-pub enum Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall
-{
+pub enum Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall {
+
     #[baml(name = "BashToolCall")]
-    BashToolCall(BashToolCall),
-
+        BashToolCall(BashToolCall),
+    
     #[baml(name = "WebSearchToolCall")]
-    WebSearchToolCall(WebSearchToolCall),
-
+        WebSearchToolCall(WebSearchToolCall),
+    
     #[baml(name = "FetchUrlToolCall")]
-    FetchUrlToolCall(FetchUrlToolCall),
-
+        FetchUrlToolCall(FetchUrlToolCall),
+    
     #[baml(name = "FileReadToolCall")]
-    FileReadToolCall(FileReadToolCall),
-
+        FileReadToolCall(FileReadToolCall),
+    
     #[baml(name = "FileWriteToolCall")]
-    FileWriteToolCall(FileWriteToolCall),
-
+        FileWriteToolCall(FileWriteToolCall),
+    
     #[baml(name = "FileEditToolCall")]
-    FileEditToolCall(FileEditToolCall),
-
+        FileEditToolCall(FileEditToolCall),
+    
     #[baml(name = "MessageWriterToolCall")]
-    MessageWriterToolCall(MessageWriterToolCall),
-
+        MessageWriterToolCall(MessageWriterToolCall),
+    
     #[baml(name = "FinishedToolCall")]
-    FinishedToolCall(FinishedToolCall),
+        FinishedToolCall(FinishedToolCall),
+    
 }
 
 impl AsRef<Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall> for Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall {
@@ -46,9 +49,10 @@ impl AsRef<Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolC
 
 impl Default for Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall {
     fn default() -> Self {
-
-
+        
+           
             Self::BashToolCall(Default::default())
-
+        
     }
 }
+

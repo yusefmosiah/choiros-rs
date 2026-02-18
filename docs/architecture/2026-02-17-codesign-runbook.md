@@ -749,8 +749,13 @@ to Phase 5+. MemoryActor is the abstraction boundary; the backend is swappable w
 changing the RLM-facing API.
 
 **5.1 Dependencies**
-- Add `sqlite-vec` and `ort` (MiniLM embeddings) to `sandbox/Cargo.toml`
-- Gate: crates compile; MiniLM model loads; sqlite-vec extension loads at runtime
+- Add `sqlite-vec` (rusqlite, bundled), `fastembed` (wraps `ort`, AllMiniLML6V2),
+  `sha2`, `hex`, `zerocopy` to `sandbox/Cargo.toml`
+- Decision: `fastembed` preferred over bare `ort` — handles tokenizer, session, and
+  model download in one crate; `ort` is its own dep so the plan intent is satisfied.
+  Offline/test mode: `CHOIROS_MEMORY_STUB=1` activates hash-based stub vectors.
+- Gate: crates compile; `Embedder::init()` succeeds (real or stub); sqlite-vec
+  extension loads and `vec0` virtual tables are created at runtime
 
 **5.2 MemoryActor**
 - Spawned under SessionSupervisor

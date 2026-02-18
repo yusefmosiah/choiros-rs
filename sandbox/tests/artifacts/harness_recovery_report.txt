@@ -1,0 +1,12 @@
+
+running 3 tests
+  [PRE-RESULT] resolve_source returned None (correct)
+  [RECOVERY] turn:2 wm:'I have dispatched two branches. Waiting for result' pending:1
+test test_checkpoint_write_and_read ... ok
+  [POST-RESULT] resolve_source returned: 'Found 12 actors. Terminal is isolated from all LLM actors. EventStore is append-'
+test test_recovery_resolve_source_after_result_lands ... ok
+  [LATEST] recovered turn:3 corr:corr-3
+test test_recovery_latest_checkpoint_wins ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+

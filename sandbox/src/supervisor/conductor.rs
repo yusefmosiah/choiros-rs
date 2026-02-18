@@ -6,6 +6,7 @@ use tracing::{error, info};
 
 use crate::actors::conductor::{ConductorActor, ConductorArguments, ConductorMsg};
 use crate::actors::event_store::EventStoreMsg;
+use crate::actors::memory::MemoryMsg;
 use crate::supervisor::writer::WriterSupervisorMsg;
 
 #[derive(Debug, Default)]
@@ -15,12 +16,14 @@ pub struct ConductorSupervisorState {
     pub conductors: HashMap<String, ActorRef<ConductorMsg>>,
     pub event_store: ActorRef<EventStoreMsg>,
     pub writer_supervisor: Option<ActorRef<WriterSupervisorMsg>>,
+    pub memory_actor: Option<ActorRef<MemoryMsg>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ConductorSupervisorArgs {
     pub event_store: ActorRef<EventStoreMsg>,
     pub writer_supervisor: Option<ActorRef<WriterSupervisorMsg>>,
+    pub memory_actor: Option<ActorRef<MemoryMsg>>,
 }
 
 #[derive(Debug)]
@@ -56,6 +59,7 @@ impl Actor for ConductorSupervisor {
             conductors: HashMap::new(),
             event_store: args.event_store,
             writer_supervisor: args.writer_supervisor,
+            memory_actor: args.memory_actor,
         })
     }
 
@@ -114,6 +118,7 @@ impl Actor for ConductorSupervisor {
                 let args = ConductorArguments {
                     event_store: state.event_store.clone(),
                     writer_supervisor: state.writer_supervisor.clone(),
+                    memory_actor: state.memory_actor.clone(),
                 };
 
                 match Actor::spawn_linked(Some(actor_name), ConductorActor, args, myself.get_cell())

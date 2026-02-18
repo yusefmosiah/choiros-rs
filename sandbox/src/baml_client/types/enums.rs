@@ -3,33 +3,136 @@
 //
 // Learn more at https://docs.boundaryml.com
 
+
 //! Generated enum types.
 
-use baml::{BamlDecode, BamlEncode};
+use baml::{BamlEncode, BamlDecode};
+
+
+/// Why a resource was cited by a researcher or writer.
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
+pub enum CitationKind {
+
+/// Researcher retrieved the resource and pulled it into context.
+/// Appears as a link or inline reference in document text.
+    RetrievedContext,
+
+/// This run extends or revises the cited artifact.
+    InlineReference,
+
+/// Explicitly disputes a prior artifact.
+    BuildsOn,
+
+/// Restates a prior objective or directive.
+    Contradicts,
+
+
+    Reissues,
+
+
+}
+
+impl Default for CitationKind {
+    fn default() -> Self {
+        
+        Self::RetrievedContext
+        
+    }
+}
+
+impl std::fmt::Display for CitationKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+
+            Self::RetrievedContext => write!(f, "RetrievedContext"),
+
+            Self::InlineReference => write!(f, "InlineReference"),
+
+            Self::BuildsOn => write!(f, "BuildsOn"),
+
+            Self::Contradicts => write!(f, "Contradicts"),
+
+            Self::Reissues => write!(f, "Reissues"),
+
+
+        }
+    }
+}
+
+impl std::str::FromStr for CitationKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+
+            "RetrievedContext" => Ok(Self::RetrievedContext),
+
+            "InlineReference" => Ok(Self::InlineReference),
+
+            "BuildsOn" => Ok(Self::BuildsOn),
+
+            "Contradicts" => Ok(Self::Contradicts),
+
+            "Reissues" => Ok(Self::Reissues),
+
+
+            _ => Err(()),
+
+        }
+    }
+}
+
+impl AsRef<CitationKind> for CitationKind {
+    fn as_ref(&self) -> &CitationKind {
+        self
+    }
+}
+
+
+
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum ConductorAction {
+
+
     SpawnWorker,
+
 
     AwaitWorker,
 
+
     MergeCanon,
+
 
     Complete,
 
+/// Phase 4: Spawn a focused sub-agent for a bounded scoped task.
     Block,
+
+/// Phase 4: Delegate a task to a named app-level worker.
+    SpawnSubharness,
+
+
+    Delegate,
+
+
 }
 
 impl Default for ConductorAction {
     fn default() -> Self {
+        
         Self::SpawnWorker
+        
     }
 }
 
 impl std::fmt::Display for ConductorAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+
             Self::SpawnWorker => write!(f, "SpawnWorker"),
 
             Self::AwaitWorker => write!(f, "AwaitWorker"),
@@ -39,6 +142,12 @@ impl std::fmt::Display for ConductorAction {
             Self::Complete => write!(f, "Complete"),
 
             Self::Block => write!(f, "Block"),
+
+            Self::SpawnSubharness => write!(f, "SpawnSubharness"),
+
+            Self::Delegate => write!(f, "Delegate"),
+
+
         }
     }
 }
@@ -48,6 +157,7 @@ impl std::str::FromStr for ConductorAction {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+
             "SpawnWorker" => Ok(Self::SpawnWorker),
 
             "AwaitWorker" => Ok(Self::AwaitWorker),
@@ -58,7 +168,13 @@ impl std::str::FromStr for ConductorAction {
 
             "Block" => Ok(Self::Block),
 
+            "SpawnSubharness" => Ok(Self::SpawnSubharness),
+
+            "Delegate" => Ok(Self::Delegate),
+
+
             _ => Err(()),
+
         }
     }
 }
@@ -69,33 +185,124 @@ impl AsRef<ConductorAction> for ConductorAction {
     }
 }
 
+
+
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
+pub enum ContextSourceKind {
+
+/// Query episodic memory for relevant patterns
+/// Load a specific file or document
+    MemoryQuery,
+
+/// Selectively include output from a previous turn (not automatic)
+    Document,
+
+/// Include a specific tool execution result
+    PreviousTurn,
+
+
+    ToolOutput,
+
+
+}
+
+impl Default for ContextSourceKind {
+    fn default() -> Self {
+        
+        Self::MemoryQuery
+        
+    }
+}
+
+impl std::fmt::Display for ContextSourceKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+
+            Self::MemoryQuery => write!(f, "MemoryQuery"),
+
+            Self::Document => write!(f, "Document"),
+
+            Self::PreviousTurn => write!(f, "PreviousTurn"),
+
+            Self::ToolOutput => write!(f, "ToolOutput"),
+
+
+        }
+    }
+}
+
+impl std::str::FromStr for ContextSourceKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+
+            "MemoryQuery" => Ok(Self::MemoryQuery),
+
+            "Document" => Ok(Self::Document),
+
+            "PreviousTurn" => Ok(Self::PreviousTurn),
+
+            "ToolOutput" => Ok(Self::ToolOutput),
+
+
+            _ => Err(()),
+
+        }
+    }
+}
+
+impl AsRef<ContextSourceKind> for ContextSourceKind {
+    fn as_ref(&self) -> &ContextSourceKind {
+        self
+    }
+}
+
+
+
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum EscalationAction {
+
+
     NotifyConductor,
+
 
     RequestHumanReview,
 
+
     AutoRetry,
+
 
     ScaleResources,
 
+
     TerminateRun,
+
 
     ContinueMonitoring,
 
+
     EscalateToOnCall,
+
+
 }
 
 impl Default for EscalationAction {
     fn default() -> Self {
+        
         Self::NotifyConductor
+        
     }
 }
 
 impl std::fmt::Display for EscalationAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+
             Self::NotifyConductor => write!(f, "NotifyConductor"),
 
             Self::RequestHumanReview => write!(f, "RequestHumanReview"),
@@ -109,6 +316,8 @@ impl std::fmt::Display for EscalationAction {
             Self::ContinueMonitoring => write!(f, "ContinueMonitoring"),
 
             Self::EscalateToOnCall => write!(f, "EscalateToOnCall"),
+
+
         }
     }
 }
@@ -118,6 +327,7 @@ impl std::str::FromStr for EscalationAction {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+
             "NotifyConductor" => Ok(Self::NotifyConductor),
 
             "RequestHumanReview" => Ok(Self::RequestHumanReview),
@@ -132,7 +342,9 @@ impl std::str::FromStr for EscalationAction {
 
             "EscalateToOnCall" => Ok(Self::EscalateToOnCall),
 
+
             _ => Err(()),
+
         }
     }
 }
@@ -143,33 +355,49 @@ impl AsRef<EscalationAction> for EscalationAction {
     }
 }
 
+
+
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum EscalationKind {
+
+
     FailureSpike,
+
 
     TimeoutPattern,
 
+
     ResourceExhaustion,
+
 
     SecurityConcern,
 
+
     CostAnomaly,
+
 
     StalledWorkflow,
 
+
     Other,
+
+
 }
 
 impl Default for EscalationKind {
     fn default() -> Self {
+        
         Self::FailureSpike
+        
     }
 }
 
 impl std::fmt::Display for EscalationKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+
             Self::FailureSpike => write!(f, "FailureSpike"),
 
             Self::TimeoutPattern => write!(f, "TimeoutPattern"),
@@ -183,6 +411,8 @@ impl std::fmt::Display for EscalationKind {
             Self::StalledWorkflow => write!(f, "StalledWorkflow"),
 
             Self::Other => write!(f, "Other"),
+
+
         }
     }
 }
@@ -192,6 +422,7 @@ impl std::str::FromStr for EscalationKind {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+
             "FailureSpike" => Ok(Self::FailureSpike),
 
             "TimeoutPattern" => Ok(Self::TimeoutPattern),
@@ -206,7 +437,9 @@ impl std::str::FromStr for EscalationKind {
 
             "Other" => Ok(Self::Other),
 
+
             _ => Err(()),
+
         }
     }
 }
@@ -217,30 +450,44 @@ impl AsRef<EscalationKind> for EscalationKind {
     }
 }
 
+
+
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum ImpactLevel {
+
+
     Low,
+
 
     Medium,
 
+
     High,
+
+
 }
 
 impl Default for ImpactLevel {
     fn default() -> Self {
+        
         Self::Low
+        
     }
 }
 
 impl std::fmt::Display for ImpactLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+
             Self::Low => write!(f, "Low"),
 
             Self::Medium => write!(f, "Medium"),
 
             Self::High => write!(f, "High"),
+
+
         }
     }
 }
@@ -250,13 +497,16 @@ impl std::str::FromStr for ImpactLevel {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+
             "Low" => Ok(Self::Low),
 
             "Medium" => Ok(Self::Medium),
 
             "High" => Ok(Self::High),
 
+
             _ => Err(()),
+
         }
     }
 }
@@ -267,33 +517,141 @@ impl AsRef<ImpactLevel> for ImpactLevel {
     }
 }
 
+
+
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
+pub enum NextActionKind {
+
+/// Execute tools sequentially (linear mode — the common/degenerate case)
+/// Execute a multi-step program (DAG of operations with variable refs,
+/// conditionals, and embedded LLM calls). This is the computationally
+/// universal execution mode. ToolCalls is sugar for a single-layer DAG
+/// where every step is op=ToolCall with no dependencies.
+    ToolCalls,
+
+/// Spawn parallel branches with different approaches
+    Program,
+
+/// Delegate to a sub-harness with fresh context
+    FanOut,
+
+/// Terminal: objective achieved
+    Recurse,
+
+/// Terminal: cannot proceed
+    Complete,
+
+
+    Block,
+
+
+}
+
+impl Default for NextActionKind {
+    fn default() -> Self {
+        
+        Self::ToolCalls
+        
+    }
+}
+
+impl std::fmt::Display for NextActionKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+
+            Self::ToolCalls => write!(f, "ToolCalls"),
+
+            Self::Program => write!(f, "Program"),
+
+            Self::FanOut => write!(f, "FanOut"),
+
+            Self::Recurse => write!(f, "Recurse"),
+
+            Self::Complete => write!(f, "Complete"),
+
+            Self::Block => write!(f, "Block"),
+
+
+        }
+    }
+}
+
+impl std::str::FromStr for NextActionKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+
+            "ToolCalls" => Ok(Self::ToolCalls),
+
+            "Program" => Ok(Self::Program),
+
+            "FanOut" => Ok(Self::FanOut),
+
+            "Recurse" => Ok(Self::Recurse),
+
+            "Complete" => Ok(Self::Complete),
+
+            "Block" => Ok(Self::Block),
+
+
+            _ => Err(()),
+
+        }
+    }
+}
+
+impl AsRef<NextActionKind> for NextActionKind {
+    fn as_ref(&self) -> &NextActionKind {
+        self
+    }
+}
+
+
+
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum ResearchAction {
+
+
     Search,
+
 
     FetchUrl,
 
+
     FileRead,
+
 
     FileWrite,
 
+
     FileEdit,
+
 
     Complete,
 
+
     Block,
+
+
 }
 
 impl Default for ResearchAction {
     fn default() -> Self {
+        
         Self::Search
+        
     }
 }
 
 impl std::fmt::Display for ResearchAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+
             Self::Search => write!(f, "Search"),
 
             Self::FetchUrl => write!(f, "FetchUrl"),
@@ -307,6 +665,8 @@ impl std::fmt::Display for ResearchAction {
             Self::Complete => write!(f, "Complete"),
 
             Self::Block => write!(f, "Block"),
+
+
         }
     }
 }
@@ -316,6 +676,7 @@ impl std::str::FromStr for ResearchAction {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+
             "Search" => Ok(Self::Search),
 
             "FetchUrl" => Ok(Self::FetchUrl),
@@ -330,7 +691,9 @@ impl std::str::FromStr for ResearchAction {
 
             "Block" => Ok(Self::Block),
 
+
             _ => Err(()),
+
         }
     }
 }
@@ -341,30 +704,44 @@ impl AsRef<ResearchAction> for ResearchAction {
     }
 }
 
+
+
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum ResearchStatus {
+
+
     Ongoing,
+
 
     Complete,
 
+
     Blocked,
+
+
 }
 
 impl Default for ResearchStatus {
     fn default() -> Self {
+        
         Self::Ongoing
+        
     }
 }
 
 impl std::fmt::Display for ResearchStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+
             Self::Ongoing => write!(f, "Ongoing"),
 
             Self::Complete => write!(f, "Complete"),
 
             Self::Blocked => write!(f, "Blocked"),
+
+
         }
     }
 }
@@ -374,13 +751,16 @@ impl std::str::FromStr for ResearchStatus {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+
             "Ongoing" => Ok(Self::Ongoing),
 
             "Complete" => Ok(Self::Complete),
 
             "Blocked" => Ok(Self::Blocked),
 
+
             _ => Err(()),
+
         }
     }
 }
@@ -391,27 +771,40 @@ impl AsRef<ResearchStatus> for ResearchStatus {
     }
 }
 
+
+
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum ReviewStatus {
+
+
     Clean,
+
 
     IssuesDetected,
 
+
     Critical,
 
+
     Inconclusive,
+
+
 }
 
 impl Default for ReviewStatus {
     fn default() -> Self {
+        
         Self::Clean
+        
     }
 }
 
 impl std::fmt::Display for ReviewStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+
             Self::Clean => write!(f, "Clean"),
 
             Self::IssuesDetected => write!(f, "IssuesDetected"),
@@ -419,6 +812,8 @@ impl std::fmt::Display for ReviewStatus {
             Self::Critical => write!(f, "Critical"),
 
             Self::Inconclusive => write!(f, "Inconclusive"),
+
+
         }
     }
 }
@@ -428,6 +823,7 @@ impl std::str::FromStr for ReviewStatus {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+
             "Clean" => Ok(Self::Clean),
 
             "IssuesDetected" => Ok(Self::IssuesDetected),
@@ -436,7 +832,9 @@ impl std::str::FromStr for ReviewStatus {
 
             "Inconclusive" => Ok(Self::Inconclusive),
 
+
             _ => Err(()),
+
         }
     }
 }
@@ -447,29 +845,43 @@ impl AsRef<ReviewStatus> for ReviewStatus {
     }
 }
 
+
+
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum RiskCategory {
+
+
     Operational,
+
 
     Technical,
 
+
     Security,
+
 
     Cost,
 
+
     Compliance,
+
+
 }
 
 impl Default for RiskCategory {
     fn default() -> Self {
+        
         Self::Operational
+        
     }
 }
 
 impl std::fmt::Display for RiskCategory {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+
             Self::Operational => write!(f, "Operational"),
 
             Self::Technical => write!(f, "Technical"),
@@ -479,6 +891,8 @@ impl std::fmt::Display for RiskCategory {
             Self::Cost => write!(f, "Cost"),
 
             Self::Compliance => write!(f, "Compliance"),
+
+
         }
     }
 }
@@ -488,6 +902,7 @@ impl std::str::FromStr for RiskCategory {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+
             "Operational" => Ok(Self::Operational),
 
             "Technical" => Ok(Self::Technical),
@@ -498,7 +913,9 @@ impl std::str::FromStr for RiskCategory {
 
             "Compliance" => Ok(Self::Compliance),
 
+
             _ => Err(()),
+
         }
     }
 }
@@ -509,27 +926,145 @@ impl AsRef<RiskCategory> for RiskCategory {
     }
 }
 
+
+
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
+pub enum StepOp {
+
+/// Execute a tool (bash, file_read, file_write, file_edit, web_search, fetch_url).
+/// Same tools available as ToolCallSpec but within a DAG.
+    ToolCall,
+
+/// Call an LLM with a composed prompt. The prompt can reference prior
+/// step outputs via ${step_id}. The harness resolves the model.
+    LlmCall,
+
+/// Pure string transformation: extract via regex, truncate, format.
+/// No I/O, no side effects. The harness evaluates this locally.
+    Transform,
+
+/// Conditional gate: evaluate a predicate on a prior step's output.
+/// Downstream steps with `condition: "gate_step_id"` only execute if
+/// the gate evaluates to true. Predicates: contains, not_contains,
+/// matches_regex, equals, not_equals.
+    Gate,
+
+/// Send a message to the parent actor (progress report, partial result).
+    Emit,
+
+/// Execute a Rhai script. The script has access to registered bindings:
+/// read_file(path)           -> String
+/// write_file(path, content) -> ()
+/// fetch_url(url)            -> String
+/// shell(cmd)                -> String
+/// call_llm(prompt)          -> String
+/// emit_msg(msg)             -> ()
+/// step_output(id)           -> String  (access prior step outputs)
+/// The script's return value (last expression) becomes this step's output.
+/// Use `eval_code` field for the script source. Prior step outputs are
+/// available via step_output("step_id") or pre-injected as variables
+/// if listed in `eval_inputs`.
+    Eval,
+
+
+}
+
+impl Default for StepOp {
+    fn default() -> Self {
+        
+        Self::ToolCall
+        
+    }
+}
+
+impl std::fmt::Display for StepOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+
+            Self::ToolCall => write!(f, "ToolCall"),
+
+            Self::LlmCall => write!(f, "LlmCall"),
+
+            Self::Transform => write!(f, "Transform"),
+
+            Self::Gate => write!(f, "Gate"),
+
+            Self::Emit => write!(f, "Emit"),
+
+            Self::Eval => write!(f, "Eval"),
+
+
+        }
+    }
+}
+
+impl std::str::FromStr for StepOp {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+
+            "ToolCall" => Ok(Self::ToolCall),
+
+            "LlmCall" => Ok(Self::LlmCall),
+
+            "Transform" => Ok(Self::Transform),
+
+            "Gate" => Ok(Self::Gate),
+
+            "Emit" => Ok(Self::Emit),
+
+            "Eval" => Ok(Self::Eval),
+
+
+            _ => Err(()),
+
+        }
+    }
+}
+
+impl AsRef<StepOp> for StepOp {
+    fn as_ref(&self) -> &StepOp {
+        self
+    }
+}
+
+
+
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum UrgencyLevel {
+
+
     Low,
+
 
     Medium,
 
+
     High,
 
+
     Critical,
+
+
 }
 
 impl Default for UrgencyLevel {
     fn default() -> Self {
+        
         Self::Low
+        
     }
 }
 
 impl std::fmt::Display for UrgencyLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+
             Self::Low => write!(f, "Low"),
 
             Self::Medium => write!(f, "Medium"),
@@ -537,6 +1072,8 @@ impl std::fmt::Display for UrgencyLevel {
             Self::High => write!(f, "High"),
 
             Self::Critical => write!(f, "Critical"),
+
+
         }
     }
 }
@@ -546,6 +1083,7 @@ impl std::str::FromStr for UrgencyLevel {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+
             "Low" => Ok(Self::Low),
 
             "Medium" => Ok(Self::Medium),
@@ -554,7 +1092,9 @@ impl std::str::FromStr for UrgencyLevel {
 
             "Critical" => Ok(Self::Critical),
 
+
             _ => Err(()),
+
         }
     }
 }
@@ -564,3 +1104,78 @@ impl AsRef<UrgencyLevel> for UrgencyLevel {
         self
     }
 }
+
+
+
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
+pub enum WorkerKind {
+
+
+    Researcher,
+
+
+    Writer,
+
+
+    Terminal,
+
+
+    Subharness,
+
+
+}
+
+impl Default for WorkerKind {
+    fn default() -> Self {
+        
+        Self::Researcher
+        
+    }
+}
+
+impl std::fmt::Display for WorkerKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+
+            Self::Researcher => write!(f, "Researcher"),
+
+            Self::Writer => write!(f, "Writer"),
+
+            Self::Terminal => write!(f, "Terminal"),
+
+            Self::Subharness => write!(f, "Subharness"),
+
+
+        }
+    }
+}
+
+impl std::str::FromStr for WorkerKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+
+            "Researcher" => Ok(Self::Researcher),
+
+            "Writer" => Ok(Self::Writer),
+
+            "Terminal" => Ok(Self::Terminal),
+
+            "Subharness" => Ok(Self::Subharness),
+
+
+            _ => Err(()),
+
+        }
+    }
+}
+
+impl AsRef<WorkerKind> for WorkerKind {
+    fn as_ref(&self) -> &WorkerKind {
+        self
+    }
+}
+

@@ -7,13 +7,13 @@
 
 mod classes;
 mod enums;
-mod type_aliases;
 mod unions;
+mod type_aliases;
 
 pub use classes::*;
 pub use enums::*;
-pub use type_aliases::*;
 pub use unions::*;
+pub use type_aliases::*;
 
 // Re-export types from baml runtime
 pub use baml::{Audio, Image, Pdf, Video};
@@ -23,6 +23,7 @@ pub use baml::{Checked, StreamState};
 /// Serves as the compile-time type registry for BamlValue.
 #[derive(Debug, Clone)]
 pub enum Types {
+
     AgentDecision(AgentDecision),
 
     AlternativeAction(AlternativeAction),
@@ -34,6 +35,8 @@ pub enum Types {
     ChangesetInput(ChangesetInput),
 
     ChangesetSummaryOutput(ChangesetSummaryOutput),
+
+    Citation(Citation),
 
     ConductorBootstrapInput(ConductorBootstrapInput),
 
@@ -47,7 +50,13 @@ pub enum Types {
 
     ConductorObjectiveRefineOutput(ConductorObjectiveRefineOutput),
 
+    ContextSource(ContextSource),
+
+    DagStep(DagStep),
+
     DetectedAnomaly(DetectedAnomaly),
+
+    FanOutBranch(FanOutBranch),
 
     FetchUrlToolArgs(FetchUrlToolArgs),
 
@@ -77,6 +86,10 @@ pub enum Types {
 
     MessageWriterToolCall(MessageWriterToolCall),
 
+    NextAction(NextAction),
+
+    RecurseSpec(RecurseSpec),
+
     ResearcherPlanInput(ResearcherPlanInput),
 
     ResearcherPlanOutput(ResearcherPlanOutput),
@@ -87,9 +100,15 @@ pub enum Types {
 
     RiskItem(RiskItem),
 
+    RlmTurn(RlmTurn),
+
+    RlmTurnContext(RlmTurnContext),
+
     RunStateSnapshot(RunStateSnapshot),
 
     StreamChunk(StreamChunk),
+
+    ToolCallSpec(ToolCallSpec),
 
     ToolResult(ToolResult),
 
@@ -110,13 +129,19 @@ pub enum Types {
     WebSearchToolCall(WebSearchToolCall),
 
 
+    CitationKind(CitationKind),
+
     ConductorAction(ConductorAction),
+
+    ContextSourceKind(ContextSourceKind),
 
     EscalationAction(EscalationAction),
 
     EscalationKind(EscalationKind),
 
     ImpactLevel(ImpactLevel),
+
+    NextActionKind(NextActionKind),
 
     ResearchAction(ResearchAction),
 
@@ -126,7 +151,11 @@ pub enum Types {
 
     RiskCategory(RiskCategory),
 
+    StepOp(StepOp),
+
     UrgencyLevel(UrgencyLevel),
+
+    WorkerKind(WorkerKind),
 
 
     Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall(Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall),
@@ -153,6 +182,8 @@ impl baml::KnownTypes for Types {
 
             Types::ChangesetSummaryOutput(_) => "ChangesetSummaryOutput",
 
+            Types::Citation(_) => "Citation",
+
             Types::ConductorBootstrapInput(_) => "ConductorBootstrapInput",
 
             Types::ConductorBootstrapOutput(_) => "ConductorBootstrapOutput",
@@ -165,7 +196,13 @@ impl baml::KnownTypes for Types {
 
             Types::ConductorObjectiveRefineOutput(_) => "ConductorObjectiveRefineOutput",
 
+            Types::ContextSource(_) => "ContextSource",
+
+            Types::DagStep(_) => "DagStep",
+
             Types::DetectedAnomaly(_) => "DetectedAnomaly",
+
+            Types::FanOutBranch(_) => "FanOutBranch",
 
             Types::FetchUrlToolArgs(_) => "FetchUrlToolArgs",
 
@@ -195,6 +232,10 @@ impl baml::KnownTypes for Types {
 
             Types::MessageWriterToolCall(_) => "MessageWriterToolCall",
 
+            Types::NextAction(_) => "NextAction",
+
+            Types::RecurseSpec(_) => "RecurseSpec",
+
             Types::ResearcherPlanInput(_) => "ResearcherPlanInput",
 
             Types::ResearcherPlanOutput(_) => "ResearcherPlanOutput",
@@ -205,9 +246,15 @@ impl baml::KnownTypes for Types {
 
             Types::RiskItem(_) => "RiskItem",
 
+            Types::RlmTurn(_) => "RlmTurn",
+
+            Types::RlmTurnContext(_) => "RlmTurnContext",
+
             Types::RunStateSnapshot(_) => "RunStateSnapshot",
 
             Types::StreamChunk(_) => "StreamChunk",
+
+            Types::ToolCallSpec(_) => "ToolCallSpec",
 
             Types::ToolResult(_) => "ToolResult",
 
@@ -228,13 +275,19 @@ impl baml::KnownTypes for Types {
             Types::WebSearchToolCall(_) => "WebSearchToolCall",
 
 
+            Types::CitationKind(_) => "CitationKind",
+
             Types::ConductorAction(_) => "ConductorAction",
+
+            Types::ContextSourceKind(_) => "ContextSourceKind",
 
             Types::EscalationAction(_) => "EscalationAction",
 
             Types::EscalationKind(_) => "EscalationKind",
 
             Types::ImpactLevel(_) => "ImpactLevel",
+
+            Types::NextActionKind(_) => "NextActionKind",
 
             Types::ResearchAction(_) => "ResearchAction",
 
@@ -244,7 +297,11 @@ impl baml::KnownTypes for Types {
 
             Types::RiskCategory(_) => "RiskCategory",
 
+            Types::StepOp(_) => "StepOp",
+
             Types::UrgencyLevel(_) => "UrgencyLevel",
+
+            Types::WorkerKind(_) => "WorkerKind",
 
 
             Types::Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall(_) => "Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall",

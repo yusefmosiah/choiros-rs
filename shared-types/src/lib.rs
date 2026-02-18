@@ -1602,6 +1602,59 @@ pub struct GlobalExternalContentRecord {
 }
 
 // ============================================================================
+// Phase 4.5 — ContextSnapshot (Memory service stub types)
+// ============================================================================
+
+/// A single item in a ContextSnapshot.
+///
+/// Each item is a piece of text (e.g., a document excerpt, a prior
+/// run summary, or an external URL snippet) with provenance metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct ContextItem {
+    /// Unique item identifier (ULID).
+    pub item_id: String,
+    /// Kind of context: "version_snapshot" | "run_trajectory" | "external_content" | "user_input"
+    pub kind: String,
+    /// Source identifier (document path, URL, loop_id, etc.)
+    pub source_ref: String,
+    /// Plain-text content for this item (may be truncated).
+    pub content: String,
+    /// Relevance score assigned by the retrieval model [0.0, 1.0].
+    pub relevance: f64,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Citation reference included in a ContextSnapshot.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct CitationRef {
+    pub cited_id: String,
+    pub cite_kind: CitationKind,
+    pub confidence: f64,
+    pub rationale: String,
+}
+
+/// A snapshot of context retrieved by the MemoryActor for a conductor turn.
+///
+/// Passed as the `context` bundle when spawning a `SubharnessActor`.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct ContextSnapshot {
+    /// Unique snapshot identifier (ULID).
+    pub snapshot_id: String,
+    /// Run this snapshot was generated for.
+    pub run_id: String,
+    /// Objective query used to retrieve context.
+    pub query: String,
+    /// Retrieved context items, ranked by relevance.
+    pub items: Vec<ContextItem>,
+    /// Citations underlying the retrieved items.
+    pub provenance: Vec<CitationRef>,
+    pub created_at: DateTime<Utc>,
+}
+
+// ============================================================================
 // Constants — Phase 2 event topics
 // ============================================================================
 
@@ -1611,6 +1664,207 @@ pub const EVENT_TOPIC_CITATION_REJECTED: &str = "citation.rejected";
 pub const EVENT_TOPIC_USER_INPUT: &str = "user_input";
 pub const EVENT_TOPIC_GLOBAL_EXTERNAL_CONTENT_UPSERT: &str = "global_external_content.upsert";
 pub const EVENT_TOPIC_QWY_CITATION_REGISTRY: &str = "qwy.citation_registry";
+
+// Phase 4 event topics
+pub const EVENT_TOPIC_SUBHARNESS_EXECUTE: &str = "subharness.execute";
+pub const EVENT_TOPIC_SUBHARNESS_RESULT: &str = "subharness.result";
+pub const EVENT_TOPIC_HARNESS_CHECKPOINT: &str = "harness.checkpoint";
+pub const EVENT_TOPIC_TOOL_RESULT: &str = "tool.result";
+
+// ============================================================================
+// Phase 4.5 — Harness durability types
+// ============================================================================
+
+/// A single outstanding actor message the harness fired and hasn't heard back
+/// from yet. Written as part of `HarnessCheckpoint` so recovery can reconstruct
+/// what to wait for.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct PendingReply {
+    /// Correlation ID assigned when the message was sent.
+    pub corr_id: String,
+    /// What kind of actor we messaged ("terminal", "researcher", "subharness").
+    pub actor_kind: String,
+    /// Short description of what was requested (for observability).
+    pub objective_summary: String,
+    /// When the message was sent.
+    pub sent_at: DateTime<Utc>,
+    /// Hard deadline — if no reply by this time the harness treats it as failed.
+    pub timeout_at: Option<DateTime<Utc>>,
+}
+
+/// Durable state written to EventStore at every turn boundary where the harness
+/// fires outbound messages and suspends.
+///
+/// On crash+restart the supervisor reads the latest `harness.checkpoint` event
+/// for the run_id, reconstructs this struct, checks EventStore for already-received
+/// `tool.result` events matching each pending corr_id, and resumes.
+///
+/// The invariant: if a `harness.checkpoint` event exists, the run is live.
+/// If a `subharness.result` / `tool.result` event exists for a pending corr_id,
+/// that reply is already in and should be loaded from EventStore rather than
+/// waited on as a message.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct HarnessCheckpoint {
+    /// Stable identifier for this execution run.
+    pub run_id: String,
+    /// Actor/session identifier.
+    pub actor_id: String,
+    /// Turn number that just completed.
+    pub turn_number: usize,
+    /// Model's articulated reasoning state at this checkpoint.
+    pub working_memory: String,
+    /// Top-level objective the harness is working toward.
+    pub objective: String,
+    /// Messages fired this turn that we haven't received replies for yet.
+    /// Empty → harness is not waiting on anything (should not happen at a
+    /// checkpoint; a checkpoint is only written when replies are pending).
+    pub pending_replies: Vec<PendingReply>,
+    /// Compact log of all turns so far (for context reassembly on recovery).
+    pub turn_summaries: Vec<TurnSummary>,
+    pub checkpointed_at: DateTime<Utc>,
+}
+
+/// Compact record of a single completed turn, stored inside `HarnessCheckpoint`.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct TurnSummary {
+    pub turn_number: usize,
+    pub action_kind: String,
+    pub working_memory_excerpt: String,
+    pub corr_ids_fired: Vec<String>,
+    pub elapsed_ms: u64,
+}
+
+/// Written to EventStore as `tool.result` by whichever actor produced the
+/// result (TerminalActor, ResearcherActor, SubharnessActor).
+///
+/// The harness reads this by `corr_id` on recovery rather than waiting for
+/// the message if the actor already completed.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct ToolResult {
+    /// Matches the `corr_id` in the original `PendingReply`.
+    pub corr_id: String,
+    /// Actor kind that produced this result.
+    pub actor_kind: String,
+    /// Whether the execution succeeded.
+    pub success: bool,
+    /// The output (stdout, research result, subharness working memory, etc.)
+    pub output: String,
+    /// Error details if `success` is false.
+    pub error: Option<String>,
+    pub elapsed_ms: u64,
+    pub completed_at: DateTime<Utc>,
+}
+
+// ============================================================================
+// WorkerMsg Lateral Protocol
+// ============================================================================
+//
+// Workers (Terminal, Researcher) can message each other directly without
+// routing through Conductor. This is the lateral mesh — each agent's context
+// is updated by the other's discoveries in real time, enabling cultural learning
+// across runs when persisted to EventStore.
+//
+// Protocol rules:
+// - Request → Response is a corr_id-keyed round trip (both async sends, no blocking)
+// - Signal is fire-and-forget; receiver may ignore it
+// - Neither side blocks waiting for the other — fire and continue
+// - Conductor is never in the path; these messages are worker-to-worker only
+// - Every message is persisted to EventStore by the sender for tracing
+
+/// The kind of work being requested between workers.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum WorkerRequestKind {
+    /// Ask the Terminal worker to execute a command and return the result.
+    RunCommand {
+        command: String,
+        timeout_ms: Option<u64>,
+    },
+    /// Ask the Researcher worker to look something up and return a summary.
+    Research {
+        query: String,
+        max_results: Option<u32>,
+    },
+    /// Ask for a specific file's content (routed to whoever owns the filesystem).
+    ReadFile { path: String },
+}
+
+/// A lateral request from one worker to another.
+///
+/// The sender fires this and continues — it does not await a reply inline.
+/// The reply arrives later as a `WorkerMsg::Response` keyed by `corr_id`,
+/// which the sender's harness reads via `resolve_source(ToolOutput, corr_id)`.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct WorkerRequest {
+    /// Sender-assigned correlation ID. Receiver echoes this in the Response.
+    pub corr_id: String,
+    /// Which worker sent this (for routing the response back).
+    pub from_actor_id: String,
+    /// What kind of work is being requested.
+    pub kind: WorkerRequestKind,
+    /// Optional natural-language context to help the receiver understand why.
+    pub context: Option<String>,
+    pub sent_at: DateTime<Utc>,
+}
+
+/// Response to a lateral worker request.
+///
+/// The responding worker sends this as a fire-and-forget message back to the
+/// requester actor, which reads it via `resolve_source(ToolOutput, corr_id)`.
+/// The result is also written to EventStore so it survives crash/recovery.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct WorkerResponse {
+    /// Echoed from the original `WorkerRequest`.
+    pub corr_id: String,
+    /// Whether the request was successfully handled.
+    pub success: bool,
+    /// The result payload (command output, research summary, file content, etc.)
+    pub output: String,
+    /// Error details if `success` is false.
+    pub error: Option<String>,
+    pub elapsed_ms: u64,
+    pub completed_at: DateTime<Utc>,
+}
+
+/// One-way signal from one worker to another — no reply expected.
+///
+/// Used for observations ("I found something relevant to your objective"),
+/// intent announcements ("I'm about to modify this file"), or advisory notes
+/// ("this directory is locked by another process").
+///
+/// Receivers may ignore signals. Signals are persisted to EventStore for
+/// post-hoc analysis and cultural learning.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub enum WorkerSignalKind {
+    /// "I found something that may be relevant to your current objective."
+    RelevantFinding,
+    /// "I'm about to take an action that affects shared state."
+    IntentAnnouncement,
+    /// "I've completed work that you may want to build on."
+    WorkComplete,
+    /// "I encountered a condition you should know about."
+    Advisory,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+pub struct WorkerSignal {
+    pub from_actor_id: String,
+    pub to_actor_id: String,
+    pub kind: WorkerSignalKind,
+    /// Human-readable content of the signal.
+    pub content: String,
+    /// Optional structured data (JSON string).
+    pub metadata: Option<String>,
+    pub sent_at: DateTime<Utc>,
+}
 
 // ============================================================================
 // Tests
@@ -1722,5 +1976,11 @@ mod tests {
         DecisionType::export(&config).unwrap();
         ConductorRunState::export(&config).unwrap();
         ConductorRunStatus::export(&config).unwrap();
+        // WorkerMsg lateral protocol
+        WorkerRequestKind::export(&config).unwrap();
+        WorkerRequest::export(&config).unwrap();
+        WorkerResponse::export(&config).unwrap();
+        WorkerSignalKind::export(&config).unwrap();
+        WorkerSignal::export(&config).unwrap();
     }
 }

@@ -8,7 +8,7 @@
 
 mod adapter;
 mod events;
-mod providers;
+pub(crate) mod providers;
 
 // Policy module kept for backward compatibility with BAML types
 // The researcher now uses the unified agent harness instead

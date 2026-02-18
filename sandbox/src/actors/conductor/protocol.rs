@@ -65,6 +65,23 @@ pub enum ConductorMsg {
         correlation_id: String,
         reason: String,
     },
+
+    // -----------------------------------------------------------------------
+    // Phase 4 — SubharnessActor in-flight progress
+    // -----------------------------------------------------------------------
+    /// Intermediate progress report from a running SubharnessActor.
+    ///
+    /// Sent via the `message_writer` tool reinterpreted as parent messaging.
+    /// Non-blocking — conductor logs/persists but does not reply.
+    SubharnessProgress {
+        correlation_id: String,
+        /// Report kind: "progress", "status", "finding", etc.
+        kind: String,
+        /// Human-readable content of the report.
+        content: String,
+        /// Full structured metadata (superset of kind + content).
+        metadata: serde_json::Value,
+    },
 }
 
 /// Output from a worker task
@@ -125,8 +142,64 @@ pub struct SubharnessResult {
 }
 
 // ---------------------------------------------------------------------------
-// Errors
+// Phase 4.2 — NextAction types (Rust-side mirror of ConductorAction BAML)
 // ---------------------------------------------------------------------------
+
+/// Strongly-typed next action for conductor decision steps.
+///
+/// Mirrors the `ConductorAction` BAML enum, extended with Phase 4 variants.
+/// Used by the conductor RLM harness turn (Phase 4.3) rather than
+/// the bootstrap path which still uses `ConductorBootstrapOutput`.
+#[derive(Debug, Clone)]
+pub enum NextAction {
+    /// Dispatch a named worker capability.
+    SpawnWorker {
+        /// Capability name: "writer", "researcher", "terminal".
+        capability: String,
+        /// Objective to pass to the worker.
+        objective: String,
+    },
+    /// Wait for in-flight capability calls to complete.
+    AwaitWorker,
+    /// Merge completed worker proposals into the canonical document.
+    MergeCanon,
+    /// Run is complete — no further steps needed.
+    Complete { reason: String },
+    /// Run is blocked and cannot proceed.
+    Block { reason: String },
+    /// Spawn a `SubharnessActor` for a bounded scoped task.
+    SpawnSubharness {
+        /// Plain-language task description for the sub-agent.
+        task: String,
+        /// Context bundle (JSON) passed to SubharnessActor.
+        context: serde_json::Value,
+    },
+    /// Delegate a task to a named worker kind.
+    Delegate {
+        worker_kind: WorkerKind,
+        task: String,
+    },
+}
+
+/// Worker kind for the `Delegate` action variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkerKind {
+    Researcher,
+    Writer,
+    Terminal,
+    Subharness,
+}
+
+impl std::fmt::Display for WorkerKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WorkerKind::Researcher => write!(f, "researcher"),
+            WorkerKind::Writer => write!(f, "writer"),
+            WorkerKind::Terminal => write!(f, "terminal"),
+            WorkerKind::Subharness => write!(f, "subharness"),
+        }
+    }
+}
 
 /// Errors that can occur in ConductorActor
 #[derive(Debug, thiserror::Error, Clone)]

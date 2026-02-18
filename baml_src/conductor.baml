@@ -11,12 +11,36 @@ enum ConductorAction {
   MergeCanon
   Complete
   Block
+  /// Phase 4: Spawn a focused sub-agent for a bounded scoped task.
+  SpawnSubharness
+  /// Phase 4: Delegate a task to a named app-level worker.
+  Delegate
 }
+
+// ---------------------------------------------------------------------------
+// Phase 4 — WorkerKind
+// ---------------------------------------------------------------------------
+
+enum WorkerKind {
+  Researcher
+  Writer
+  Terminal
+  Subharness
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 — Extended ConductorDecision
+// ---------------------------------------------------------------------------
 
 class ConductorDecision {
   action ConductorAction
   args map<string, string>?
   reason string
+  /// Only set when action == SpawnSubharness.
+  subharness_task string?
+  /// Only set when action == Delegate.
+  delegate_worker WorkerKind?
+  delegate_task string?
 }
 
 class ConductorDecisionInput {

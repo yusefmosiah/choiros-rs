@@ -102,6 +102,21 @@ pub enum EventStoreMsg {
         seq: i64,
         reply: RpcReplyPort<Result<Option<shared_types::Event>, EventStoreError>>,
     },
+    /// Find events by corr_id field inside the payload JSON.
+    /// Used by harness recovery to check whether a pending reply has already
+    /// arrived (written as `tool.result` or `subharness.result` by the actor
+    /// that completed work).
+    GetEventsByCorrId {
+        corr_id: String,
+        event_type_prefix: Option<String>,
+        reply: RpcReplyPort<Result<Vec<shared_types::Event>, EventStoreError>>,
+    },
+    /// Get the latest harness checkpoint event for a given run_id.
+    /// Used by harness recovery to reconstruct in-flight state after a crash.
+    GetLatestHarnessCheckpoint {
+        run_id: String,
+        reply: RpcReplyPort<Result<Option<shared_types::Event>, EventStoreError>>,
+    },
 }
 
 impl EventStoreActor {
@@ -240,6 +255,22 @@ impl Actor for EventStoreActor {
             }
             EventStoreMsg::GetEventBySeq { seq, reply } => {
                 let result = self.handle_get_event_by_seq(seq, state).await;
+                let _ = reply.send(result);
+            }
+            EventStoreMsg::GetEventsByCorrId {
+                corr_id,
+                event_type_prefix,
+                reply,
+            } => {
+                let result = self
+                    .handle_get_events_by_corr_id(&corr_id, event_type_prefix.as_deref(), state)
+                    .await;
+                let _ = reply.send(result);
+            }
+            EventStoreMsg::GetLatestHarnessCheckpoint { run_id, reply } => {
+                let result = self
+                    .handle_get_latest_harness_checkpoint(&run_id, state)
+                    .await;
                 let _ = reply.send(result);
             }
         }
@@ -530,6 +561,78 @@ impl EventStoreActor {
             .await?;
         Ok(row.max_seq)
     }
+
+    /// Find all events whose payload contains `"corr_id": "<corr_id>"`.
+    /// Optionally filter by event_type prefix.
+    /// Used by harness recovery to check whether a pending reply already landed.
+    async fn handle_get_events_by_corr_id(
+        &self,
+        corr_id: &str,
+        event_type_prefix: Option<&str>,
+        state: &mut EventStoreState,
+    ) -> Result<Vec<shared_types::Event>, EventStoreError> {
+        // SQLite JSON1: use json_extract to match corr_id in payload
+        let corr_id_pattern = format!("%\"corr_id\":\"{corr_id}\"%");
+        let rows = if let Some(prefix) = event_type_prefix {
+            let like_prefix = format!("{prefix}%");
+            sqlx::query_as!(
+                EventRow,
+                r#"
+                SELECT seq as "seq!", event_id, timestamp, event_type, payload, actor_id, user_id
+                FROM events
+                WHERE payload LIKE ?1
+                  AND event_type LIKE ?2
+                ORDER BY seq ASC
+                "#,
+                corr_id_pattern,
+                like_prefix,
+            )
+            .fetch_all(&state.pool)
+            .await?
+        } else {
+            sqlx::query_as!(
+                EventRow,
+                r#"
+                SELECT seq as "seq!", event_id, timestamp, event_type, payload, actor_id, user_id
+                FROM events
+                WHERE payload LIKE ?1
+                ORDER BY seq ASC
+                "#,
+                corr_id_pattern,
+            )
+            .fetch_all(&state.pool)
+            .await?
+        };
+
+        rows.into_iter().map(parse_event_row).collect()
+    }
+
+    /// Get the most recent `harness.checkpoint` event for a given run_id.
+    /// Returns None if no checkpoint exists (run never checkpointed or already
+    /// complete and cleaned up).
+    async fn handle_get_latest_harness_checkpoint(
+        &self,
+        run_id: &str,
+        state: &mut EventStoreState,
+    ) -> Result<Option<shared_types::Event>, EventStoreError> {
+        let run_id_pattern = format!("%\"run_id\":\"{run_id}\"%");
+        let maybe_row = sqlx::query_as!(
+            EventRow,
+            r#"
+            SELECT seq as "seq!", event_id, timestamp, event_type, payload, actor_id, user_id
+            FROM events
+            WHERE event_type = 'harness.checkpoint'
+              AND payload LIKE ?1
+            ORDER BY seq DESC
+            LIMIT 1
+            "#,
+            run_id_pattern,
+        )
+        .fetch_optional(&state.pool)
+        .await?;
+
+        maybe_row.map(parse_event_row).transpose()
+    }
 }
 
 // ============================================================================
@@ -607,6 +710,36 @@ pub async fn get_event_by_seq(
 ) -> Result<Result<Option<shared_types::Event>, EventStoreError>, ractor::RactorErr<EventStoreMsg>>
 {
     ractor::call!(store, |reply| EventStoreMsg::GetEventBySeq { seq, reply })
+}
+
+/// Find events matching a corr_id in their payload.
+/// Optionally filter by event_type prefix (e.g. "tool.result" or "subharness.result").
+pub async fn get_events_by_corr_id(
+    store: &ActorRef<EventStoreMsg>,
+    corr_id: impl Into<String>,
+    event_type_prefix: Option<String>,
+) -> Result<Result<Vec<shared_types::Event>, EventStoreError>, ractor::RactorErr<EventStoreMsg>> {
+    ractor::call!(store, |reply| EventStoreMsg::GetEventsByCorrId {
+        corr_id: corr_id.into(),
+        event_type_prefix,
+        reply,
+    })
+}
+
+/// Get the latest harness.checkpoint event for a run_id.
+/// Returns None if the run has no checkpoint yet (not started or already cleaned up).
+pub async fn get_latest_harness_checkpoint(
+    store: &ActorRef<EventStoreMsg>,
+    run_id: impl Into<String>,
+) -> Result<Result<Option<shared_types::Event>, EventStoreError>, ractor::RactorErr<EventStoreMsg>>
+{
+    ractor::call!(
+        store,
+        |reply| EventStoreMsg::GetLatestHarnessCheckpoint {
+            run_id: run_id.into(),
+            reply,
+        }
+    )
 }
 
 // ============================================================================

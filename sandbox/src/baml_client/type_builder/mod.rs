@@ -50,477 +50,605 @@ impl TypeBuilder {
     // Schema Class Accessors (1:1 with schema class names)
     // =========================================================================
 
+
     /// Access the `AgentDecision` class builder.
     pub fn AgentDecision(&self) -> AgentDecisionClassBuilder {
         AgentDecisionClassBuilder::new(
-            self.inner
-                .get_class("AgentDecision")
-                .expect("class AgentDecision is defined in schema"),
+            self.inner.get_class("AgentDecision")
+                .expect("class AgentDecision is defined in schema")
         )
     }
+
 
     /// Access the `AlternativeAction` class builder.
     pub fn AlternativeAction(&self) -> AlternativeActionClassBuilder {
         AlternativeActionClassBuilder::new(
-            self.inner
-                .get_class("AlternativeAction")
-                .expect("class AlternativeAction is defined in schema"),
+            self.inner.get_class("AlternativeAction")
+                .expect("class AlternativeAction is defined in schema")
         )
     }
+
 
     /// Access the `BashToolArgs` class builder.
     pub fn BashToolArgs(&self) -> BashToolArgsClassBuilder {
         BashToolArgsClassBuilder::new(
-            self.inner
-                .get_class("BashToolArgs")
-                .expect("class BashToolArgs is defined in schema"),
+            self.inner.get_class("BashToolArgs")
+                .expect("class BashToolArgs is defined in schema")
         )
     }
+
 
     /// Access the `BashToolCall` class builder.
     pub fn BashToolCall(&self) -> BashToolCallClassBuilder {
         BashToolCallClassBuilder::new(
-            self.inner
-                .get_class("BashToolCall")
-                .expect("class BashToolCall is defined in schema"),
+            self.inner.get_class("BashToolCall")
+                .expect("class BashToolCall is defined in schema")
         )
     }
+
 
     /// Access the `ChangesetInput` class builder.
     pub fn ChangesetInput(&self) -> ChangesetInputClassBuilder {
         ChangesetInputClassBuilder::new(
-            self.inner
-                .get_class("ChangesetInput")
-                .expect("class ChangesetInput is defined in schema"),
+            self.inner.get_class("ChangesetInput")
+                .expect("class ChangesetInput is defined in schema")
         )
     }
+
 
     /// Access the `ChangesetSummaryOutput` class builder.
     pub fn ChangesetSummaryOutput(&self) -> ChangesetSummaryOutputClassBuilder {
         ChangesetSummaryOutputClassBuilder::new(
-            self.inner
-                .get_class("ChangesetSummaryOutput")
-                .expect("class ChangesetSummaryOutput is defined in schema"),
+            self.inner.get_class("ChangesetSummaryOutput")
+                .expect("class ChangesetSummaryOutput is defined in schema")
         )
     }
+
+
+    /// Access the `Citation` class builder.
+    pub fn Citation(&self) -> CitationClassBuilder {
+        CitationClassBuilder::new(
+            self.inner.get_class("Citation")
+                .expect("class Citation is defined in schema")
+        )
+    }
+
 
     /// Access the `ConductorBootstrapInput` class builder.
     pub fn ConductorBootstrapInput(&self) -> ConductorBootstrapInputClassBuilder {
         ConductorBootstrapInputClassBuilder::new(
-            self.inner
-                .get_class("ConductorBootstrapInput")
-                .expect("class ConductorBootstrapInput is defined in schema"),
+            self.inner.get_class("ConductorBootstrapInput")
+                .expect("class ConductorBootstrapInput is defined in schema")
         )
     }
+
 
     /// Access the `ConductorBootstrapOutput` class builder.
     pub fn ConductorBootstrapOutput(&self) -> ConductorBootstrapOutputClassBuilder {
         ConductorBootstrapOutputClassBuilder::new(
-            self.inner
-                .get_class("ConductorBootstrapOutput")
-                .expect("class ConductorBootstrapOutput is defined in schema"),
+            self.inner.get_class("ConductorBootstrapOutput")
+                .expect("class ConductorBootstrapOutput is defined in schema")
         )
     }
+
 
     /// Access the `ConductorDecision` class builder.
     pub fn ConductorDecision(&self) -> ConductorDecisionClassBuilder {
         ConductorDecisionClassBuilder::new(
-            self.inner
-                .get_class("ConductorDecision")
-                .expect("class ConductorDecision is defined in schema"),
+            self.inner.get_class("ConductorDecision")
+                .expect("class ConductorDecision is defined in schema")
         )
     }
+
 
     /// Access the `ConductorDecisionInput` class builder.
     pub fn ConductorDecisionInput(&self) -> ConductorDecisionInputClassBuilder {
         ConductorDecisionInputClassBuilder::new(
-            self.inner
-                .get_class("ConductorDecisionInput")
-                .expect("class ConductorDecisionInput is defined in schema"),
+            self.inner.get_class("ConductorDecisionInput")
+                .expect("class ConductorDecisionInput is defined in schema")
         )
     }
+
 
     /// Access the `ConductorObjectiveRefineInput` class builder.
     pub fn ConductorObjectiveRefineInput(&self) -> ConductorObjectiveRefineInputClassBuilder {
         ConductorObjectiveRefineInputClassBuilder::new(
-            self.inner
-                .get_class("ConductorObjectiveRefineInput")
-                .expect("class ConductorObjectiveRefineInput is defined in schema"),
+            self.inner.get_class("ConductorObjectiveRefineInput")
+                .expect("class ConductorObjectiveRefineInput is defined in schema")
         )
     }
+
 
     /// Access the `ConductorObjectiveRefineOutput` class builder.
     pub fn ConductorObjectiveRefineOutput(&self) -> ConductorObjectiveRefineOutputClassBuilder {
         ConductorObjectiveRefineOutputClassBuilder::new(
-            self.inner
-                .get_class("ConductorObjectiveRefineOutput")
-                .expect("class ConductorObjectiveRefineOutput is defined in schema"),
+            self.inner.get_class("ConductorObjectiveRefineOutput")
+                .expect("class ConductorObjectiveRefineOutput is defined in schema")
         )
     }
+
+
+    /// Access the `ContextSource` class builder.
+    pub fn ContextSource(&self) -> ContextSourceClassBuilder {
+        ContextSourceClassBuilder::new(
+            self.inner.get_class("ContextSource")
+                .expect("class ContextSource is defined in schema")
+        )
+    }
+
+
+    /// Access the `DagStep` class builder.
+    pub fn DagStep(&self) -> DagStepClassBuilder {
+        DagStepClassBuilder::new(
+            self.inner.get_class("DagStep")
+                .expect("class DagStep is defined in schema")
+        )
+    }
+
 
     /// Access the `DetectedAnomaly` class builder.
     pub fn DetectedAnomaly(&self) -> DetectedAnomalyClassBuilder {
         DetectedAnomalyClassBuilder::new(
-            self.inner
-                .get_class("DetectedAnomaly")
-                .expect("class DetectedAnomaly is defined in schema"),
+            self.inner.get_class("DetectedAnomaly")
+                .expect("class DetectedAnomaly is defined in schema")
         )
     }
+
+
+    /// Access the `FanOutBranch` class builder.
+    pub fn FanOutBranch(&self) -> FanOutBranchClassBuilder {
+        FanOutBranchClassBuilder::new(
+            self.inner.get_class("FanOutBranch")
+                .expect("class FanOutBranch is defined in schema")
+        )
+    }
+
 
     /// Access the `FetchUrlToolArgs` class builder.
     pub fn FetchUrlToolArgs(&self) -> FetchUrlToolArgsClassBuilder {
         FetchUrlToolArgsClassBuilder::new(
-            self.inner
-                .get_class("FetchUrlToolArgs")
-                .expect("class FetchUrlToolArgs is defined in schema"),
+            self.inner.get_class("FetchUrlToolArgs")
+                .expect("class FetchUrlToolArgs is defined in schema")
         )
     }
+
 
     /// Access the `FetchUrlToolCall` class builder.
     pub fn FetchUrlToolCall(&self) -> FetchUrlToolCallClassBuilder {
         FetchUrlToolCallClassBuilder::new(
-            self.inner
-                .get_class("FetchUrlToolCall")
-                .expect("class FetchUrlToolCall is defined in schema"),
+            self.inner.get_class("FetchUrlToolCall")
+                .expect("class FetchUrlToolCall is defined in schema")
         )
     }
+
 
     /// Access the `FileEditToolArgs` class builder.
     pub fn FileEditToolArgs(&self) -> FileEditToolArgsClassBuilder {
         FileEditToolArgsClassBuilder::new(
-            self.inner
-                .get_class("FileEditToolArgs")
-                .expect("class FileEditToolArgs is defined in schema"),
+            self.inner.get_class("FileEditToolArgs")
+                .expect("class FileEditToolArgs is defined in schema")
         )
     }
+
 
     /// Access the `FileEditToolCall` class builder.
     pub fn FileEditToolCall(&self) -> FileEditToolCallClassBuilder {
         FileEditToolCallClassBuilder::new(
-            self.inner
-                .get_class("FileEditToolCall")
-                .expect("class FileEditToolCall is defined in schema"),
+            self.inner.get_class("FileEditToolCall")
+                .expect("class FileEditToolCall is defined in schema")
         )
     }
+
 
     /// Access the `FileReadToolArgs` class builder.
     pub fn FileReadToolArgs(&self) -> FileReadToolArgsClassBuilder {
         FileReadToolArgsClassBuilder::new(
-            self.inner
-                .get_class("FileReadToolArgs")
-                .expect("class FileReadToolArgs is defined in schema"),
+            self.inner.get_class("FileReadToolArgs")
+                .expect("class FileReadToolArgs is defined in schema")
         )
     }
+
 
     /// Access the `FileReadToolCall` class builder.
     pub fn FileReadToolCall(&self) -> FileReadToolCallClassBuilder {
         FileReadToolCallClassBuilder::new(
-            self.inner
-                .get_class("FileReadToolCall")
-                .expect("class FileReadToolCall is defined in schema"),
+            self.inner.get_class("FileReadToolCall")
+                .expect("class FileReadToolCall is defined in schema")
         )
     }
+
 
     /// Access the `FileWriteToolArgs` class builder.
     pub fn FileWriteToolArgs(&self) -> FileWriteToolArgsClassBuilder {
         FileWriteToolArgsClassBuilder::new(
-            self.inner
-                .get_class("FileWriteToolArgs")
-                .expect("class FileWriteToolArgs is defined in schema"),
+            self.inner.get_class("FileWriteToolArgs")
+                .expect("class FileWriteToolArgs is defined in schema")
         )
     }
+
 
     /// Access the `FileWriteToolCall` class builder.
     pub fn FileWriteToolCall(&self) -> FileWriteToolCallClassBuilder {
         FileWriteToolCallClassBuilder::new(
-            self.inner
-                .get_class("FileWriteToolCall")
-                .expect("class FileWriteToolCall is defined in schema"),
+            self.inner.get_class("FileWriteToolCall")
+                .expect("class FileWriteToolCall is defined in schema")
         )
     }
+
 
     /// Access the `FinishedToolArgs` class builder.
     pub fn FinishedToolArgs(&self) -> FinishedToolArgsClassBuilder {
         FinishedToolArgsClassBuilder::new(
-            self.inner
-                .get_class("FinishedToolArgs")
-                .expect("class FinishedToolArgs is defined in schema"),
+            self.inner.get_class("FinishedToolArgs")
+                .expect("class FinishedToolArgs is defined in schema")
         )
     }
+
 
     /// Access the `FinishedToolCall` class builder.
     pub fn FinishedToolCall(&self) -> FinishedToolCallClassBuilder {
         FinishedToolCallClassBuilder::new(
-            self.inner
-                .get_class("FinishedToolCall")
-                .expect("class FinishedToolCall is defined in schema"),
+            self.inner.get_class("FinishedToolCall")
+                .expect("class FinishedToolCall is defined in schema")
         )
     }
+
 
     /// Access the `HistoricalResolution` class builder.
     pub fn HistoricalResolution(&self) -> HistoricalResolutionClassBuilder {
         HistoricalResolutionClassBuilder::new(
-            self.inner
-                .get_class("HistoricalResolution")
-                .expect("class HistoricalResolution is defined in schema"),
+            self.inner.get_class("HistoricalResolution")
+                .expect("class HistoricalResolution is defined in schema")
         )
     }
+
 
     /// Access the `Message` class builder.
     pub fn Message(&self) -> MessageClassBuilder {
         MessageClassBuilder::new(
-            self.inner
-                .get_class("Message")
-                .expect("class Message is defined in schema"),
+            self.inner.get_class("Message")
+                .expect("class Message is defined in schema")
         )
     }
+
 
     /// Access the `MessageWriterToolArgs` class builder.
     pub fn MessageWriterToolArgs(&self) -> MessageWriterToolArgsClassBuilder {
         MessageWriterToolArgsClassBuilder::new(
-            self.inner
-                .get_class("MessageWriterToolArgs")
-                .expect("class MessageWriterToolArgs is defined in schema"),
+            self.inner.get_class("MessageWriterToolArgs")
+                .expect("class MessageWriterToolArgs is defined in schema")
         )
     }
+
 
     /// Access the `MessageWriterToolCall` class builder.
     pub fn MessageWriterToolCall(&self) -> MessageWriterToolCallClassBuilder {
         MessageWriterToolCallClassBuilder::new(
-            self.inner
-                .get_class("MessageWriterToolCall")
-                .expect("class MessageWriterToolCall is defined in schema"),
+            self.inner.get_class("MessageWriterToolCall")
+                .expect("class MessageWriterToolCall is defined in schema")
         )
     }
+
+
+    /// Access the `NextAction` class builder.
+    pub fn NextAction(&self) -> NextActionClassBuilder {
+        NextActionClassBuilder::new(
+            self.inner.get_class("NextAction")
+                .expect("class NextAction is defined in schema")
+        )
+    }
+
+
+    /// Access the `RecurseSpec` class builder.
+    pub fn RecurseSpec(&self) -> RecurseSpecClassBuilder {
+        RecurseSpecClassBuilder::new(
+            self.inner.get_class("RecurseSpec")
+                .expect("class RecurseSpec is defined in schema")
+        )
+    }
+
 
     /// Access the `ResearcherPlanInput` class builder.
     pub fn ResearcherPlanInput(&self) -> ResearcherPlanInputClassBuilder {
         ResearcherPlanInputClassBuilder::new(
-            self.inner
-                .get_class("ResearcherPlanInput")
-                .expect("class ResearcherPlanInput is defined in schema"),
+            self.inner.get_class("ResearcherPlanInput")
+                .expect("class ResearcherPlanInput is defined in schema")
         )
     }
+
 
     /// Access the `ResearcherPlanOutput` class builder.
     pub fn ResearcherPlanOutput(&self) -> ResearcherPlanOutputClassBuilder {
         ResearcherPlanOutputClassBuilder::new(
-            self.inner
-                .get_class("ResearcherPlanOutput")
-                .expect("class ResearcherPlanOutput is defined in schema"),
+            self.inner.get_class("ResearcherPlanOutput")
+                .expect("class ResearcherPlanOutput is defined in schema")
         )
     }
+
 
     /// Access the `Resume` class builder.
     pub fn Resume(&self) -> ResumeClassBuilder {
         ResumeClassBuilder::new(
-            self.inner
-                .get_class("Resume")
-                .expect("class Resume is defined in schema"),
+            self.inner.get_class("Resume")
+                .expect("class Resume is defined in schema")
         )
     }
+
 
     /// Access the `ReviewScope` class builder.
     pub fn ReviewScope(&self) -> ReviewScopeClassBuilder {
         ReviewScopeClassBuilder::new(
-            self.inner
-                .get_class("ReviewScope")
-                .expect("class ReviewScope is defined in schema"),
+            self.inner.get_class("ReviewScope")
+                .expect("class ReviewScope is defined in schema")
         )
     }
+
 
     /// Access the `RiskItem` class builder.
     pub fn RiskItem(&self) -> RiskItemClassBuilder {
         RiskItemClassBuilder::new(
-            self.inner
-                .get_class("RiskItem")
-                .expect("class RiskItem is defined in schema"),
+            self.inner.get_class("RiskItem")
+                .expect("class RiskItem is defined in schema")
         )
     }
+
+
+    /// Access the `RlmTurn` class builder.
+    pub fn RlmTurn(&self) -> RlmTurnClassBuilder {
+        RlmTurnClassBuilder::new(
+            self.inner.get_class("RlmTurn")
+                .expect("class RlmTurn is defined in schema")
+        )
+    }
+
+
+    /// Access the `RlmTurnContext` class builder.
+    pub fn RlmTurnContext(&self) -> RlmTurnContextClassBuilder {
+        RlmTurnContextClassBuilder::new(
+            self.inner.get_class("RlmTurnContext")
+                .expect("class RlmTurnContext is defined in schema")
+        )
+    }
+
 
     /// Access the `RunStateSnapshot` class builder.
     pub fn RunStateSnapshot(&self) -> RunStateSnapshotClassBuilder {
         RunStateSnapshotClassBuilder::new(
-            self.inner
-                .get_class("RunStateSnapshot")
-                .expect("class RunStateSnapshot is defined in schema"),
+            self.inner.get_class("RunStateSnapshot")
+                .expect("class RunStateSnapshot is defined in schema")
         )
     }
+
 
     /// Access the `StreamChunk` class builder.
     pub fn StreamChunk(&self) -> StreamChunkClassBuilder {
         StreamChunkClassBuilder::new(
-            self.inner
-                .get_class("StreamChunk")
-                .expect("class StreamChunk is defined in schema"),
+            self.inner.get_class("StreamChunk")
+                .expect("class StreamChunk is defined in schema")
         )
     }
+
+
+    /// Access the `ToolCallSpec` class builder.
+    pub fn ToolCallSpec(&self) -> ToolCallSpecClassBuilder {
+        ToolCallSpecClassBuilder::new(
+            self.inner.get_class("ToolCallSpec")
+                .expect("class ToolCallSpec is defined in schema")
+        )
+    }
+
 
     /// Access the `ToolResult` class builder.
     pub fn ToolResult(&self) -> ToolResultClassBuilder {
         ToolResultClassBuilder::new(
-            self.inner
-                .get_class("ToolResult")
-                .expect("class ToolResult is defined in schema"),
+            self.inner.get_class("ToolResult")
+                .expect("class ToolResult is defined in schema")
         )
     }
+
 
     /// Access the `WatcherEscalation` class builder.
     pub fn WatcherEscalation(&self) -> WatcherEscalationClassBuilder {
         WatcherEscalationClassBuilder::new(
-            self.inner
-                .get_class("WatcherEscalation")
-                .expect("class WatcherEscalation is defined in schema"),
+            self.inner.get_class("WatcherEscalation")
+                .expect("class WatcherEscalation is defined in schema")
         )
     }
+
 
     /// Access the `WatcherEvent` class builder.
     pub fn WatcherEvent(&self) -> WatcherEventClassBuilder {
         WatcherEventClassBuilder::new(
-            self.inner
-                .get_class("WatcherEvent")
-                .expect("class WatcherEvent is defined in schema"),
+            self.inner.get_class("WatcherEvent")
+                .expect("class WatcherEvent is defined in schema")
         )
     }
+
 
     /// Access the `WatcherLogWindowInput` class builder.
     pub fn WatcherLogWindowInput(&self) -> WatcherLogWindowInputClassBuilder {
         WatcherLogWindowInputClassBuilder::new(
-            self.inner
-                .get_class("WatcherLogWindowInput")
-                .expect("class WatcherLogWindowInput is defined in schema"),
+            self.inner.get_class("WatcherLogWindowInput")
+                .expect("class WatcherLogWindowInput is defined in schema")
         )
     }
+
 
     /// Access the `WatcherMitigationInput` class builder.
     pub fn WatcherMitigationInput(&self) -> WatcherMitigationInputClassBuilder {
         WatcherMitigationInputClassBuilder::new(
-            self.inner
-                .get_class("WatcherMitigationInput")
-                .expect("class WatcherMitigationInput is defined in schema"),
+            self.inner.get_class("WatcherMitigationInput")
+                .expect("class WatcherMitigationInput is defined in schema")
         )
     }
+
 
     /// Access the `WatcherMitigationOutput` class builder.
     pub fn WatcherMitigationOutput(&self) -> WatcherMitigationOutputClassBuilder {
         WatcherMitigationOutputClassBuilder::new(
-            self.inner
-                .get_class("WatcherMitigationOutput")
-                .expect("class WatcherMitigationOutput is defined in schema"),
+            self.inner.get_class("WatcherMitigationOutput")
+                .expect("class WatcherMitigationOutput is defined in schema")
         )
     }
+
 
     /// Access the `WatcherReviewOutput` class builder.
     pub fn WatcherReviewOutput(&self) -> WatcherReviewOutputClassBuilder {
         WatcherReviewOutputClassBuilder::new(
-            self.inner
-                .get_class("WatcherReviewOutput")
-                .expect("class WatcherReviewOutput is defined in schema"),
+            self.inner.get_class("WatcherReviewOutput")
+                .expect("class WatcherReviewOutput is defined in schema")
         )
     }
+
 
     /// Access the `WebSearchToolArgs` class builder.
     pub fn WebSearchToolArgs(&self) -> WebSearchToolArgsClassBuilder {
         WebSearchToolArgsClassBuilder::new(
-            self.inner
-                .get_class("WebSearchToolArgs")
-                .expect("class WebSearchToolArgs is defined in schema"),
+            self.inner.get_class("WebSearchToolArgs")
+                .expect("class WebSearchToolArgs is defined in schema")
         )
     }
+
 
     /// Access the `WebSearchToolCall` class builder.
     pub fn WebSearchToolCall(&self) -> WebSearchToolCallClassBuilder {
         WebSearchToolCallClassBuilder::new(
-            self.inner
-                .get_class("WebSearchToolCall")
-                .expect("class WebSearchToolCall is defined in schema"),
+            self.inner.get_class("WebSearchToolCall")
+                .expect("class WebSearchToolCall is defined in schema")
         )
     }
+
 
     // =========================================================================
     // Schema Enum Accessors (1:1 with schema enum names)
     // =========================================================================
 
+
+    /// Access the `CitationKind` enum builder.
+    pub fn CitationKind(&self) -> CitationKindEnumBuilder {
+        CitationKindEnumBuilder::new(
+            self.inner.get_enum("CitationKind")
+                .expect("enum CitationKind is defined in schema")
+        )
+    }
+
+
     /// Access the `ConductorAction` enum builder.
     pub fn ConductorAction(&self) -> ConductorActionEnumBuilder {
         ConductorActionEnumBuilder::new(
-            self.inner
-                .get_enum("ConductorAction")
-                .expect("enum ConductorAction is defined in schema"),
+            self.inner.get_enum("ConductorAction")
+                .expect("enum ConductorAction is defined in schema")
         )
     }
+
+
+    /// Access the `ContextSourceKind` enum builder.
+    pub fn ContextSourceKind(&self) -> ContextSourceKindEnumBuilder {
+        ContextSourceKindEnumBuilder::new(
+            self.inner.get_enum("ContextSourceKind")
+                .expect("enum ContextSourceKind is defined in schema")
+        )
+    }
+
 
     /// Access the `EscalationAction` enum builder.
     pub fn EscalationAction(&self) -> EscalationActionEnumBuilder {
         EscalationActionEnumBuilder::new(
-            self.inner
-                .get_enum("EscalationAction")
-                .expect("enum EscalationAction is defined in schema"),
+            self.inner.get_enum("EscalationAction")
+                .expect("enum EscalationAction is defined in schema")
         )
     }
+
 
     /// Access the `EscalationKind` enum builder.
     pub fn EscalationKind(&self) -> EscalationKindEnumBuilder {
         EscalationKindEnumBuilder::new(
-            self.inner
-                .get_enum("EscalationKind")
-                .expect("enum EscalationKind is defined in schema"),
+            self.inner.get_enum("EscalationKind")
+                .expect("enum EscalationKind is defined in schema")
         )
     }
+
 
     /// Access the `ImpactLevel` enum builder.
     pub fn ImpactLevel(&self) -> ImpactLevelEnumBuilder {
         ImpactLevelEnumBuilder::new(
-            self.inner
-                .get_enum("ImpactLevel")
-                .expect("enum ImpactLevel is defined in schema"),
+            self.inner.get_enum("ImpactLevel")
+                .expect("enum ImpactLevel is defined in schema")
         )
     }
+
+
+    /// Access the `NextActionKind` enum builder.
+    pub fn NextActionKind(&self) -> NextActionKindEnumBuilder {
+        NextActionKindEnumBuilder::new(
+            self.inner.get_enum("NextActionKind")
+                .expect("enum NextActionKind is defined in schema")
+        )
+    }
+
 
     /// Access the `ResearchAction` enum builder.
     pub fn ResearchAction(&self) -> ResearchActionEnumBuilder {
         ResearchActionEnumBuilder::new(
-            self.inner
-                .get_enum("ResearchAction")
-                .expect("enum ResearchAction is defined in schema"),
+            self.inner.get_enum("ResearchAction")
+                .expect("enum ResearchAction is defined in schema")
         )
     }
+
 
     /// Access the `ResearchStatus` enum builder.
     pub fn ResearchStatus(&self) -> ResearchStatusEnumBuilder {
         ResearchStatusEnumBuilder::new(
-            self.inner
-                .get_enum("ResearchStatus")
-                .expect("enum ResearchStatus is defined in schema"),
+            self.inner.get_enum("ResearchStatus")
+                .expect("enum ResearchStatus is defined in schema")
         )
     }
+
 
     /// Access the `ReviewStatus` enum builder.
     pub fn ReviewStatus(&self) -> ReviewStatusEnumBuilder {
         ReviewStatusEnumBuilder::new(
-            self.inner
-                .get_enum("ReviewStatus")
-                .expect("enum ReviewStatus is defined in schema"),
+            self.inner.get_enum("ReviewStatus")
+                .expect("enum ReviewStatus is defined in schema")
         )
     }
+
 
     /// Access the `RiskCategory` enum builder.
     pub fn RiskCategory(&self) -> RiskCategoryEnumBuilder {
         RiskCategoryEnumBuilder::new(
-            self.inner
-                .get_enum("RiskCategory")
-                .expect("enum RiskCategory is defined in schema"),
+            self.inner.get_enum("RiskCategory")
+                .expect("enum RiskCategory is defined in schema")
         )
     }
+
+
+    /// Access the `StepOp` enum builder.
+    pub fn StepOp(&self) -> StepOpEnumBuilder {
+        StepOpEnumBuilder::new(
+            self.inner.get_enum("StepOp")
+                .expect("enum StepOp is defined in schema")
+        )
+    }
+
 
     /// Access the `UrgencyLevel` enum builder.
     pub fn UrgencyLevel(&self) -> UrgencyLevelEnumBuilder {
         UrgencyLevelEnumBuilder::new(
-            self.inner
-                .get_enum("UrgencyLevel")
-                .expect("enum UrgencyLevel is defined in schema"),
+            self.inner.get_enum("UrgencyLevel")
+                .expect("enum UrgencyLevel is defined in schema")
         )
     }
+
+
+    /// Access the `WorkerKind` enum builder.
+    pub fn WorkerKind(&self) -> WorkerKindEnumBuilder {
+        WorkerKindEnumBuilder::new(
+            self.inner.get_enum("WorkerKind")
+                .expect("enum WorkerKind is defined in schema")
+        )
+    }
+
 
     // =========================================================================
     // Primitive Types (all infallible)

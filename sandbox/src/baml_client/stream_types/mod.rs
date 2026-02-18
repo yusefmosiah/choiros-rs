@@ -8,16 +8,17 @@
 //! Full implementation coming in Phase 6.
 
 mod classes;
-mod type_aliases;
 mod unions;
+mod type_aliases;
 
 pub use classes::*;
-pub use type_aliases::*;
 pub use unions::*;
+pub use type_aliases::*;
 
 /// Streaming variants of types (all fields Optional).
 #[derive(Debug, Clone)]
 pub enum StreamTypes {
+
     AgentDecision(AgentDecision),
 
     AlternativeAction(AlternativeAction),
@@ -29,6 +30,8 @@ pub enum StreamTypes {
     ChangesetInput(ChangesetInput),
 
     ChangesetSummaryOutput(ChangesetSummaryOutput),
+
+    Citation(Citation),
 
     ConductorBootstrapInput(ConductorBootstrapInput),
 
@@ -42,7 +45,13 @@ pub enum StreamTypes {
 
     ConductorObjectiveRefineOutput(ConductorObjectiveRefineOutput),
 
+    ContextSource(ContextSource),
+
+    DagStep(DagStep),
+
     DetectedAnomaly(DetectedAnomaly),
+
+    FanOutBranch(FanOutBranch),
 
     FetchUrlToolArgs(FetchUrlToolArgs),
 
@@ -72,6 +81,10 @@ pub enum StreamTypes {
 
     MessageWriterToolCall(MessageWriterToolCall),
 
+    NextAction(NextAction),
+
+    RecurseSpec(RecurseSpec),
+
     ResearcherPlanInput(ResearcherPlanInput),
 
     ResearcherPlanOutput(ResearcherPlanOutput),
@@ -82,9 +95,15 @@ pub enum StreamTypes {
 
     RiskItem(RiskItem),
 
+    RlmTurn(RlmTurn),
+
+    RlmTurnContext(RlmTurnContext),
+
     RunStateSnapshot(RunStateSnapshot),
 
     StreamChunk(StreamChunk),
+
+    ToolCallSpec(ToolCallSpec),
 
     ToolResult(ToolResult),
 
@@ -129,6 +148,8 @@ impl baml::KnownTypes for StreamTypes {
 
             StreamTypes::ChangesetSummaryOutput(_) => "ChangesetSummaryOutput",
 
+            StreamTypes::Citation(_) => "Citation",
+
             StreamTypes::ConductorBootstrapInput(_) => "ConductorBootstrapInput",
 
             StreamTypes::ConductorBootstrapOutput(_) => "ConductorBootstrapOutput",
@@ -141,7 +162,13 @@ impl baml::KnownTypes for StreamTypes {
 
             StreamTypes::ConductorObjectiveRefineOutput(_) => "ConductorObjectiveRefineOutput",
 
+            StreamTypes::ContextSource(_) => "ContextSource",
+
+            StreamTypes::DagStep(_) => "DagStep",
+
             StreamTypes::DetectedAnomaly(_) => "DetectedAnomaly",
+
+            StreamTypes::FanOutBranch(_) => "FanOutBranch",
 
             StreamTypes::FetchUrlToolArgs(_) => "FetchUrlToolArgs",
 
@@ -171,6 +198,10 @@ impl baml::KnownTypes for StreamTypes {
 
             StreamTypes::MessageWriterToolCall(_) => "MessageWriterToolCall",
 
+            StreamTypes::NextAction(_) => "NextAction",
+
+            StreamTypes::RecurseSpec(_) => "RecurseSpec",
+
             StreamTypes::ResearcherPlanInput(_) => "ResearcherPlanInput",
 
             StreamTypes::ResearcherPlanOutput(_) => "ResearcherPlanOutput",
@@ -181,9 +212,15 @@ impl baml::KnownTypes for StreamTypes {
 
             StreamTypes::RiskItem(_) => "RiskItem",
 
+            StreamTypes::RlmTurn(_) => "RlmTurn",
+
+            StreamTypes::RlmTurnContext(_) => "RlmTurnContext",
+
             StreamTypes::RunStateSnapshot(_) => "RunStateSnapshot",
 
             StreamTypes::StreamChunk(_) => "StreamChunk",
+
+            StreamTypes::ToolCallSpec(_) => "ToolCallSpec",
 
             StreamTypes::ToolResult(_) => "ToolResult",
 
