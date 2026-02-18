@@ -708,18 +708,42 @@ pub async fn prompt_document(
         }
     };
 
+    // 3.3: Extract user intent text from prompt_diff (Insert + Replace ops only)
+    let prompt_text: String = req
+        .prompt_diff
+        .iter()
+        .filter_map(|op| match op {
+            shared_types::PatchOp::Insert { text, .. } => Some(text.as_str()),
+            shared_types::PatchOp::Replace { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let user_input_record = shared_types::UserInputRecord {
+        input_id: ulid::Ulid::new().to_string(),
+        content: prompt_text,
+        surface: "writer".to_string(),
+        desktop_id: String::new(),
+        session_id: String::new(),
+        thread_id: run_id.clone(),
+        run_id: Some(run_id.clone()),
+        document_path: Some(req.path.clone()),
+        base_version_id: Some(req.base_version_id),
+        created_at: chrono::Utc::now(),
+    };
     let _ = state
         .app_state
         .event_store()
         .cast(EventStoreMsg::AppendAsync {
             event: AppendEvent {
-                event_type: "user_input".to_string(),
+                event_type: shared_types::EVENT_TOPIC_USER_INPUT.to_string(),
                 payload: serde_json::json!({
                     "surface": "writer.prompt_document",
                     "run_id": &run_id,
                     "path": &req.path,
                     "base_version_id": req.base_version_id,
                     "prompt_diff_len": req.prompt_diff.len(),
+                    "record": user_input_record,
                 }),
                 actor_id: "api.writer".to_string(),
                 user_id: "system".to_string(),

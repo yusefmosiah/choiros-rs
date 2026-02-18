@@ -54,6 +54,9 @@ pub struct WriterState {
     seen_order: VecDeque<String>,
     inbox_processing: bool,
     run_documents_by_run_id: HashMap<String, WriterDocumentRuntime>,
+    /// Confirmed citation stubs per run_id — populated on DelegationWorkerCompleted,
+    /// used to populate .qwy citation_registry on version save (Phase 3.5).
+    confirmed_citations_by_run_id: HashMap<String, Vec<ProposedCitationStub>>,
 }
 
 #[derive(Debug, Clone)]
@@ -230,11 +233,27 @@ pub enum WriterDelegateCapability {
     Terminal,
 }
 
+/// Minimal citation stub passed from researcher to writer for confirmation events.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProposedCitationStub {
+    pub citation_id: String,
+    /// "external_url" | "version_snapshot" | "qwy_block" etc.
+    pub cited_kind: String,
+    /// URL, artifact path, or block_id
+    pub cited_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WriterDelegateResult {
     pub capability: WriterDelegateCapability,
     pub success: bool,
     pub summary: String,
+    /// Citation stubs proposed during this delegation run (for writer confirmation).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proposed_citation_ids: Vec<String>,
+    /// Full stubs for external content publish trigger (3.4).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proposed_citation_stubs: Vec<ProposedCitationStub>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -364,6 +383,8 @@ pub(crate) fn dispatch_delegate_capability(
                 summary: format!(
                     "Researcher delegation dispatched asynchronously ({delegate_key})"
                 ),
+                proposed_citation_ids: vec![],
+                proposed_citation_stubs: vec![],
             })
         }
         WriterDelegateCapability::Terminal => {
@@ -428,6 +449,8 @@ pub(crate) fn dispatch_delegate_capability(
                 capability: WriterDelegateCapability::Terminal,
                 success: true,
                 summary: format!("Terminal delegation dispatched asynchronously ({delegate_key})"),
+                proposed_citation_ids: vec![],
+                proposed_citation_stubs: vec![],
             })
         }
     }
@@ -456,6 +479,7 @@ impl Actor for WriterActor {
             seen_order: VecDeque::new(),
             inbox_processing: false,
             run_documents_by_run_id: HashMap::new(),
+            confirmed_citations_by_run_id: HashMap::new(),
         })
     }
 
@@ -1188,13 +1212,45 @@ impl WriterActor {
         Self::spawn_changeset_summarization(ChangesetSummarizationCtx {
             event_store: state.event_store.clone(),
             model_registry: state.model_registry.clone(),
-            run_id,
+            run_id: run_id.clone(),
             desktop_id,
             source: source_str,
             before_content,
             after_content: content,
             target_version_id: version.version_id,
         });
+
+        // 3.5: Emit .qwy citation_registry event on writer loop completion
+        if matches!(version.source, VersionSource::Writer) {
+            if let Some(stubs) = state.confirmed_citations_by_run_id.get(&run_id) {
+                if !stubs.is_empty() {
+                    let entries: Vec<serde_json::Value> = stubs
+                        .iter()
+                        .map(|s| {
+                            serde_json::json!({
+                                "citation_id": s.citation_id,
+                                "cited_kind": s.cited_kind,
+                                "cited_id": s.cited_id,
+                            })
+                        })
+                        .collect();
+                    let payload = serde_json::json!({
+                        "run_id": run_id,
+                        "version_id": version.version_id,
+                        "citation_registry": entries,
+                    });
+                    let _ = state.event_store.cast(EventStoreMsg::AppendAsync {
+                        event: AppendEvent {
+                            event_type: shared_types::EVENT_TOPIC_QWY_CITATION_REGISTRY
+                                .to_string(),
+                            payload,
+                            actor_id: state.writer_id.clone(),
+                            user_id: state.user_id.clone(),
+                        },
+                    });
+                }
+            }
+        }
 
         Ok(version)
     }
@@ -1223,14 +1279,37 @@ impl WriterActor {
             )));
         }
 
+        // 3.3: Emit UserInputRecord for writer surface
+        let prompt_text: String = prompt_diff
+            .iter()
+            .filter_map(|op| match op {
+                shared_types::PatchOp::Insert { text, .. } => Some(text.as_str()),
+                shared_types::PatchOp::Replace { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let user_input_record = shared_types::UserInputRecord {
+            input_id: ulid::Ulid::new().to_string(),
+            content: prompt_text,
+            surface: "writer".to_string(),
+            desktop_id: String::new(),
+            session_id: String::new(),
+            thread_id: run_id.clone(),
+            run_id: Some(run_id.clone()),
+            document_path: None,
+            base_version_id: Some(base_version_id),
+            created_at: chrono::Utc::now(),
+        };
         let _ = state.event_store.cast(EventStoreMsg::AppendAsync {
             event: AppendEvent {
-                event_type: "user_input".to_string(),
+                event_type: shared_types::EVENT_TOPIC_USER_INPUT.to_string(),
                 payload: serde_json::json!({
                     "surface": "writer.submit_user_prompt",
                     "run_id": &run_id,
                     "base_version_id": base_version_id,
                     "prompt_diff_len": prompt_diff.len(),
+                    "record": user_input_record,
                 }),
                 actor_id: "writer".to_string(),
                 user_id: state.user_id.clone(),
@@ -1750,6 +1829,7 @@ impl WriterActor {
                 VersionSource::System
             }
         };
+        let is_writer_source = matches!(version_source, VersionSource::Writer);
 
         let version = run_doc
             .create_version(
@@ -1777,13 +1857,45 @@ impl WriterActor {
         Self::spawn_changeset_summarization(ChangesetSummarizationCtx {
             event_store: state.event_store.clone(),
             model_registry: state.model_registry.clone(),
-            run_id,
+            run_id: run_id.clone(),
             desktop_id,
             source: source.as_str().to_string(),
             before_content,
             after_content: content,
             target_version_id: version.version_id,
         });
+
+        // 3.5: Emit .qwy citation_registry event on writer synthesis completion
+        if is_writer_source {
+            if let Some(stubs) = state.confirmed_citations_by_run_id.get(&run_id) {
+                if !stubs.is_empty() {
+                    let entries: Vec<serde_json::Value> = stubs
+                        .iter()
+                        .map(|s| {
+                            serde_json::json!({
+                                "citation_id": s.citation_id,
+                                "cited_kind": s.cited_kind,
+                                "cited_id": s.cited_id,
+                            })
+                        })
+                        .collect();
+                    let payload = serde_json::json!({
+                        "run_id": run_id,
+                        "version_id": version.version_id,
+                        "citation_registry": entries,
+                    });
+                    let _ = state.event_store.cast(EventStoreMsg::AppendAsync {
+                        event: AppendEvent {
+                            event_type: shared_types::EVENT_TOPIC_QWY_CITATION_REGISTRY
+                                .to_string(),
+                            payload,
+                            actor_id: state.writer_id.clone(),
+                            user_id: state.user_id.clone(),
+                        },
+                    });
+                }
+            }
+        }
 
         Ok(revision)
     }
@@ -1986,17 +2098,39 @@ impl WriterActor {
         let source = Self::source_for_delegated_capability(capability);
         let correlation_id = call_id.unwrap_or_else(|| dispatch_id.clone());
 
-        let (success, summary) = match result {
+        let (success, summary, proposed_citation_ids, proposed_citation_stubs) = match result {
             Ok(delegate_result) => {
                 let summary = if delegate_result.summary.trim().is_empty() {
                     "Delegated worker completed without summary.".to_string()
                 } else {
                     delegate_result.summary
                 };
-                (delegate_result.success, summary)
+                (
+                    delegate_result.success,
+                    summary,
+                    delegate_result.proposed_citation_ids,
+                    delegate_result.proposed_citation_stubs,
+                )
             }
-            Err(error) => (false, error.to_string()),
+            Err(error) => (false, error.to_string(), vec![], vec![]),
         };
+
+        // 3.2: Emit citation.confirmed / citation.rejected for proposed citations
+        Self::emit_citation_confirmation_events(state, &run_id, &proposed_citation_ids, success);
+
+        // 3.4: Emit global_external_content.upsert for confirmed external citations
+        if success {
+            Self::emit_global_external_content_upsert(state, &run_id, &proposed_citation_stubs);
+        }
+
+        // 3.5: Accumulate confirmed stubs for .qwy citation_registry on version save
+        if success && !proposed_citation_stubs.is_empty() {
+            state
+                .confirmed_citations_by_run_id
+                .entry(run_id.clone())
+                .or_default()
+                .extend(proposed_citation_stubs);
+        }
 
         let section_state = if success {
             SectionState::Complete
@@ -2081,6 +2215,84 @@ impl WriterActor {
                         .cast(TerminalSupervisorMsg::RemoveTerminal { terminal_id });
                 }
             }
+        }
+    }
+
+    /// 3.2: Emit citation.confirmed or citation.rejected events based on synthesis success.
+    /// Called when a delegated worker (researcher/terminal) completes with proposed citation IDs.
+    fn emit_citation_confirmation_events(
+        state: &WriterState,
+        run_id: &str,
+        proposed_citation_ids: &[String],
+        confirmed: bool,
+    ) {
+        if proposed_citation_ids.is_empty() {
+            return;
+        }
+        let topic = if confirmed {
+            shared_types::EVENT_TOPIC_CITATION_CONFIRMED
+        } else {
+            shared_types::EVENT_TOPIC_CITATION_REJECTED
+        };
+        let status = if confirmed { "confirmed" } else { "rejected" };
+        let confirmed_by: Option<String> = if confirmed {
+            Some("writer".to_string())
+        } else {
+            None
+        };
+        let confirmed_at: Option<String> = if confirmed {
+            Some(chrono::Utc::now().to_rfc3339())
+        } else {
+            None
+        };
+        for citation_id in proposed_citation_ids {
+            let payload = serde_json::json!({
+                "citation_id": citation_id,
+                "citing_run_id": run_id,
+                "status": status,
+                "confirmed_by": confirmed_by,
+                "confirmed_at": confirmed_at,
+            });
+            let _ = state.event_store.cast(EventStoreMsg::AppendAsync {
+                event: AppendEvent {
+                    event_type: topic.to_string(),
+                    payload,
+                    actor_id: state.writer_id.clone(),
+                    user_id: state.user_id.clone(),
+                },
+            });
+        }
+    }
+
+    /// 3.4: Emit global_external_content.upsert for confirmed external URL citations.
+    /// This event signals the global store to create or increment the citation count for
+    /// the cited URL. Downstream persistence is wired in Phase 5/6.
+    fn emit_global_external_content_upsert(
+        state: &WriterState,
+        run_id: &str,
+        stubs: &[ProposedCitationStub],
+    ) {
+        for stub in stubs {
+            if stub.cited_kind != "external_url" {
+                continue;
+            }
+            let payload = serde_json::json!({
+                "citation_id": stub.citation_id,
+                "citing_run_id": run_id,
+                "cited_kind": stub.cited_kind,
+                "cited_id": stub.cited_id,
+                // content_id is the URL hash — computed downstream by the store
+                "action": "upsert",
+            });
+            let _ = state.event_store.cast(EventStoreMsg::AppendAsync {
+                event: AppendEvent {
+                    event_type: shared_types::EVENT_TOPIC_GLOBAL_EXTERNAL_CONTENT_UPSERT
+                        .to_string(),
+                    payload,
+                    actor_id: state.writer_id.clone(),
+                    user_id: state.user_id.clone(),
+                },
+            });
         }
     }
 

@@ -1292,6 +1292,8 @@ impl TerminalActor {
                     capability: WriterDelegateCapability::Terminal,
                     success: terminal.success,
                     summary: terminal.summary,
+                    proposed_citation_ids: vec![],
+                    proposed_citation_stubs: vec![],
                 })
                 .map_err(|error| WriterError::WorkerFailed(error.to_string()));
             let _ = writer_actor.send_message(WriterMsg::DelegationWorkerCompleted {

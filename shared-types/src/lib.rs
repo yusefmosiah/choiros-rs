@@ -1608,6 +1608,9 @@ pub struct GlobalExternalContentRecord {
 pub const EVENT_TOPIC_CITATION_PROPOSED: &str = "citation.proposed";
 pub const EVENT_TOPIC_CITATION_CONFIRMED: &str = "citation.confirmed";
 pub const EVENT_TOPIC_CITATION_REJECTED: &str = "citation.rejected";
+pub const EVENT_TOPIC_USER_INPUT: &str = "user_input";
+pub const EVENT_TOPIC_GLOBAL_EXTERNAL_CONTENT_UPSERT: &str = "global_external_content.upsert";
+pub const EVENT_TOPIC_QWY_CITATION_REGISTRY: &str = "qwy.citation_registry";
 
 // ============================================================================
 // Tests

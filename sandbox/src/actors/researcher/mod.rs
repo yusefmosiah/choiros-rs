@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::actors::agent_harness::{AgentHarness, AgentResult, HarnessConfig, ObjectiveStatus};
-use crate::actors::event_store::EventStoreMsg;
+use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::ModelRegistry;
 use crate::actors::writer::{
     WriterDelegateCapability, WriterDelegateResult, WriterError, WriterMsg,
@@ -162,6 +162,12 @@ pub struct ResearcherResult {
     pub raw_results_count: usize,
     pub error: Option<String>,
     pub worker_report: Option<shared_types::WorkerTurnReport>,
+    /// Citation IDs emitted as citation.proposed events (for writer confirmation).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proposed_citation_ids: Vec<String>,
+    /// Full stubs for external content publish trigger (3.4).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proposed_citation_stubs: Vec<crate::actors::writer::ProposedCitationStub>,
 }
 
 #[derive(Debug, thiserror::Error, Clone)]
@@ -384,6 +390,60 @@ impl Actor for ResearcherActor {
 }
 
 impl ResearcherActor {
+    /// Emit `citation.proposed` events for all citations extracted from a research run.
+    /// Returns (citation_ids, citation_stubs) for writer confirmation (3.2) and external
+    /// content publish trigger (3.4).
+    fn emit_citation_proposed_events(
+        event_store: &ractor::ActorRef<EventStoreMsg>,
+        researcher_id: &str,
+        user_id: &str,
+        run_id: Option<&str>,
+        loop_id: &str,
+        citations: &[ResearchCitation],
+    ) -> (Vec<String>, Vec<crate::actors::writer::ProposedCitationStub>) {
+        let mut emitted_ids = Vec::new();
+        let mut stubs = Vec::new();
+        for citation in citations {
+            let citation_id = ulid::Ulid::new().to_string();
+            let cited_kind = "external_url".to_string();
+            let cited_id = citation.url.clone();
+            let citation_record = shared_types::CitationRecord {
+                citation_id: citation_id.clone(),
+                cited_id: cited_id.clone(),
+                cited_kind: cited_kind.clone(),
+                citing_run_id: run_id.unwrap_or("").to_string(),
+                citing_loop_id: loop_id.to_string(),
+                citing_actor: "researcher".to_string(),
+                cite_kind: shared_types::CitationKind::RetrievedContext,
+                confidence: citation.score.unwrap_or(0.0),
+                excerpt: Some(citation.snippet.clone()),
+                rationale: citation.title.clone(),
+                status: shared_types::CitationStatus::Proposed,
+                proposed_by: "researcher".to_string(),
+                confirmed_by: None,
+                confirmed_at: None,
+                created_at: chrono::Utc::now(),
+            };
+            if let Ok(payload) = serde_json::to_value(&citation_record) {
+                let _ = event_store.cast(EventStoreMsg::AppendAsync {
+                    event: AppendEvent {
+                        event_type: shared_types::EVENT_TOPIC_CITATION_PROPOSED.to_string(),
+                        payload,
+                        actor_id: researcher_id.to_string(),
+                        user_id: user_id.to_string(),
+                    },
+                });
+                emitted_ids.push(citation_id.clone());
+                stubs.push(crate::actors::writer::ProposedCitationStub {
+                    citation_id,
+                    cited_kind,
+                    cited_id,
+                });
+            }
+        }
+        (emitted_ids, stubs)
+    }
+
     fn emit_writer_completion(
         writer_actor: Option<ractor::ActorRef<WriterMsg>>,
         run_id: Option<String>,
@@ -400,6 +460,8 @@ impl ResearcherActor {
                     capability: WriterDelegateCapability::Researcher,
                     success: research.success,
                     summary: research.summary,
+                    proposed_citation_ids: research.proposed_citation_ids,
+                    proposed_citation_stubs: research.proposed_citation_stubs,
                 })
                 .map_err(|error| WriterError::WorkerFailed(error.to_string()));
             let _ = writer_actor.send_message(WriterMsg::DelegationWorkerCompleted {
@@ -464,7 +526,7 @@ impl ResearcherActor {
                 objective,
                 model_override,
                 None,
-                run_id,
+                run_id.clone(),
                 call_id,
             )
             .await
@@ -517,6 +579,21 @@ impl ResearcherActor {
 
         let raw_results_count = citations.len();
 
+        // 3.1: Emit citation.proposed for each extracted citation; capture IDs and stubs
+        let (proposed_citation_ids, proposed_citation_stubs) = if !citations.is_empty() {
+            let loop_id = run_id.as_deref().unwrap_or("").to_string();
+            Self::emit_citation_proposed_events(
+                &state.event_store,
+                &state.researcher_id,
+                &state.user_id,
+                run_id.as_deref(),
+                &loop_id,
+                &citations,
+            )
+        } else {
+            (Vec::new(), Vec::new())
+        };
+
         Ok(ResearcherResult {
             summary: agent_result.summary,
             success: agent_result.success,
@@ -531,6 +608,8 @@ impl ResearcherActor {
             raw_results_count,
             error: None,
             worker_report: agent_result.worker_report,
+            proposed_citation_ids,
+            proposed_citation_stubs,
         })
     }
 }

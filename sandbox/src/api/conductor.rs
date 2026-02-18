@@ -437,16 +437,30 @@ pub async fn execute_task(
         return (StatusCode::BAD_REQUEST, body).into_response();
     }
 
+    let input_id = ulid::Ulid::new().to_string();
+    let user_input_record = shared_types::UserInputRecord {
+        input_id: input_id.clone(),
+        content: request.objective.clone(),
+        surface: "conductor".to_string(),
+        desktop_id: request.desktop_id.clone(),
+        session_id: request.desktop_id.clone(),
+        thread_id: String::new(),
+        run_id: None,
+        document_path: None,
+        base_version_id: None,
+        created_at: chrono::Utc::now(),
+    };
     let _ = state
         .app_state
         .event_store()
         .cast(EventStoreMsg::AppendAsync {
             event: AppendEvent {
-                event_type: "user_input".to_string(),
+                event_type: shared_types::EVENT_TOPIC_USER_INPUT.to_string(),
                 payload: serde_json::json!({
                     "surface": "conductor.execute",
                     "objective": &request.objective,
                     "desktop_id": &request.desktop_id,
+                    "record": user_input_record,
                 }),
                 actor_id: "api.conductor".to_string(),
                 user_id: "system".to_string(),
