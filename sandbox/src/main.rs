@@ -67,16 +67,22 @@ async fn main() -> std::io::Result<()> {
 
     tracing::info!("Starting ChoirOS Sandbox API Server");
 
-    // Use configurable path for database
-    let db_path =
+    // Use configurable path for database.
+    // Strip the `sqlite:` URL scheme prefix if present — the sandbox uses sqlx
+    // which accepts both `sqlite:path` and a bare path, but EventStoreArguments::File
+    // expects a plain path without the scheme.
+    let db_path_raw =
         std::env::var("DATABASE_URL").unwrap_or_else(|_| "/opt/choiros/data/events.db".to_string());
-    let db_path = std::path::PathBuf::from(db_path);
+    let db_path_raw = db_path_raw
+        .strip_prefix("sqlite:")
+        .unwrap_or(&db_path_raw)
+        .to_string();
+    let db_path = std::path::PathBuf::from(&db_path_raw);
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent).expect("Failed to create data directory");
     }
 
-    // Create EventStoreActor (foundation of the system)
-    // libsql takes a plain file path (not sqlite:// URL like sqlx)
+    // Create EventStoreActor (foundation of the system).
     let db_path_str = db_path.to_str().expect("Invalid database path");
     tracing::info!("Connecting to database: {}", db_path_str);
     let (event_store, _handle) = Actor::spawn(
@@ -122,7 +128,12 @@ async fn main() -> std::io::Result<()> {
     // Keep watcher code available for future reintroduction after control-flow refactor.
     tracing::info!("Watcher runtime disabled for simplification refactor");
 
-    tracing::info!("Starting HTTP server on http://0.0.0.0:8080");
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8080);
+
+    tracing::info!("Starting HTTP server on http://0.0.0.0:{port}");
 
     // Configure CORS to allow known UI origins
     let allowed_origins = [
@@ -132,6 +143,9 @@ async fn main() -> std::io::Result<()> {
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://100.91.73.16:3000",
+        // Hypervisor reverse-proxy origin
+        "http://localhost:9090",
+        "http://127.0.0.1:9090",
     ]
     .iter()
     .map(|origin| HeaderValue::from_str(origin).expect("Invalid CORS origin"))
@@ -156,6 +170,6 @@ async fn main() -> std::io::Result<()> {
 
     let app = api::router().with_state(api_state).layer(cors);
 
-    let listener = TcpListener::bind("0.0.0.0:8080").await?;
+    let listener = TcpListener::bind(format!("0.0.0.0:{port}")).await?;
     axum::serve(listener, app).await
 }

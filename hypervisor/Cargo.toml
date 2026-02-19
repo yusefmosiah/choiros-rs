@@ -5,15 +5,65 @@ edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Edge router - authenticates and routes to sandboxes"
+description = "Edge router — authenticates requests and manages sandbox process lifecycle"
 
 [[bin]]
 name = "hypervisor"
 path = "src/main.rs"
 
 [dependencies]
+# Async
 tokio = { workspace = true }
-tracing = { workspace = true }
+futures-util = "0.3"
+
+# Web
+axum = { version = "0.8", features = ["ws", "macros"] }
+axum-extra = { version = "0.10", features = ["cookie", "cookie-signed"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+http-body-util = "0.1"
+tokio-tungstenite = "0.23"
+
+# Auth — WebAuthn / passkeys
+webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
+
+# Sessions
+tower-sessions = { version = "0.15" }
+async-trait = { workspace = true }
+
+# Database
+sqlx = { workspace = true }
+
+# Password / recovery code hashing
+argon2 = "0.5"
+rand = "0.9"
+hex = "0.4"
+base64 = "0.22"
+url = "2"
+time = "0.3"
+
+# Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+# IDs
+uuid = { workspace = true }
+
+# Time
+chrono = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Config
+dotenvy = { workspace = true }
+
+# Shared
 shared-types = { path = "../shared-types" }

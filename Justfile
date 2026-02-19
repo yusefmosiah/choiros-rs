@@ -12,7 +12,22 @@ dev-sandbox:
 
 # Run hypervisor component
 dev-hypervisor:
-    cd hypervisor && cargo run
+    cd hypervisor && SQLX_OFFLINE=true DATABASE_URL="sqlite:../data/hypervisor.db" cargo run
+
+# Build the Dioxus WASM frontend (debug) into target/dx/sandbox-ui/debug/web/public
+build-ui:
+    cd dioxus-desktop && dx build
+
+# Build the Dioxus WASM frontend (release)
+build-ui-release:
+    cd dioxus-desktop && dx build --release
+
+# Build UI then run hypervisor — full stack on port 9090
+# Builds the sandbox binary, the Dioxus WASM frontend, then starts the hypervisor.
+# The hypervisor serves the WASM app and proxies authenticated traffic to the sandbox.
+dev-full: build-ui
+    cargo build -p sandbox
+    cd hypervisor && SQLX_OFFLINE=true DATABASE_URL="sqlite:../data/hypervisor.db" cargo run
 
 # Run Dioxus frontend development server (port 3000)
 dev-ui:
@@ -22,6 +37,7 @@ dev-ui:
 stop:
     @echo "Stopping ChoirOS development processes..."
     @pkill -9 -f "target/debug/sandbox" 2>/dev/null || true
+    @pkill -9 -f "target/debug/hypervisor" 2>/dev/null || true
     @pkill -9 -f "dx serve --port 3000" 2>/dev/null || true
     @pkill -9 -f "vite --port 3000" 2>/dev/null || true
     @echo "✓ All processes stopped"
@@ -78,9 +94,17 @@ fix:
 migrate:
     cd sandbox && cargo sqlx migrate run
 
+# Run hypervisor migrations
+migrate-hypervisor:
+    cd hypervisor && DATABASE_URL="sqlite:../data/hypervisor.db" sqlx migrate run
+
 # Create new migration file with given name
 new-migration NAME:
     cd sandbox && cargo sqlx migrate add {{NAME}}
+
+# Create new hypervisor migration
+new-hypervisor-migration NAME:
+    cd hypervisor && sqlx migrate add {{NAME}}
 
 # Docker
 # Build Docker image for choir-sandbox

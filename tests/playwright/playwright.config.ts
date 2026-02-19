@@ -12,14 +12,34 @@ export default defineConfig({
     ["html", { outputFolder: "../artifacts/playwright/html-report", open: "never" }],
   ],
   outputDir: "../artifacts/playwright/test-results",
-  use: {
-    baseURL: "http://127.0.0.1:3000",
-    trace: "on",
-    video: "on",
-    screenshot: "only-on-failure",
-    viewport: {
-      width: 1720,
-      height: 980,
+  projects: [
+    {
+      name: "hypervisor",
+      testMatch: ["bios-auth.spec.ts", "proxy-integration.spec.ts"],
+      use: {
+        baseURL: "http://localhost:9090",
+        trace: "on",
+        video: "on",
+        screenshot: "only-on-failure",
+        viewport: { width: 1280, height: 800 },
+      },
     },
-  },
+    {
+      name: "sandbox",
+      testMatch: [
+        "conductor-writer.e2e.spec.ts",
+        "phase1-marginalia.spec.ts",
+        "phase3-citations.spec.ts",
+        "phase4-subharness.spec.ts",
+        "weather-delegation.e2e.spec.ts",
+      ],
+      use: {
+        baseURL: "http://127.0.0.1:3000",
+        trace: "on",
+        video: "on",
+        screenshot: "only-on-failure",
+        viewport: { width: 1720, height: 980 },
+      },
+    },
+  ],
 });

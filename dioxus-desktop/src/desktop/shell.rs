@@ -6,6 +6,7 @@ use dioxus::prelude::*;
 use gloo_timers::future::TimeoutFuture;
 use shared_types::DesktopState;
 
+use crate::auth::{probe_session, AuthModal, AuthState};
 use crate::desktop::actions;
 use crate::desktop::actions::ShowDesktopSnapshot;
 use crate::desktop::apps::core_apps;
@@ -21,6 +22,10 @@ use crate::interop::get_viewport_size;
 
 #[component]
 pub fn DesktopShell(desktop_id: String) -> Element {
+    // Auth context — provided to the whole subtree
+    let mut auth = use_context_provider(|| Signal::new(AuthState::default()));
+    let require_auth_from_url = use_signal(should_require_auth_from_url);
+
     let mut desktop_state = use_signal(|| None::<DesktopState>);
     let loading = use_signal(|| true);
     let mut error = use_signal(|| None::<String>);
@@ -48,6 +53,25 @@ pub fn DesktopShell(desktop_id: String) -> Element {
         spawn(async move {
             effects::track_viewport(viewport).await;
         });
+    });
+
+    // Probe /auth/me once on load so other components know session state.
+    use_effect(move || {
+        spawn(async move {
+            probe_session(auth).await;
+        });
+    });
+
+    // If the app boots on /login or /register, force the auth modal.
+    // This keeps URL intent authoritative even after /auth/me reports unauthenticated.
+    use_effect(move || {
+        if !require_auth_from_url() {
+            return;
+        }
+        let current = auth.read().clone();
+        if matches!(current, AuthState::Unknown | AuthState::Unauthenticated) {
+            auth.set(AuthState::Required);
+        }
     });
 
     use_effect(move || {
@@ -339,7 +363,20 @@ pub fn DesktopShell(desktop_id: String) -> Element {
                 telemetry_state,
             }
         }
+
+        // Auth modal — renders as fixed overlay when AuthState::Required
+        AuthModal {}
     }
+}
+
+fn should_require_auth_from_url() -> bool {
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
+    let Ok(pathname) = window.location().pathname() else {
+        return false;
+    };
+    matches!(pathname.as_str(), "/login" | "/register")
 }
 
 const DEFAULT_TOKENS: &str = r#"

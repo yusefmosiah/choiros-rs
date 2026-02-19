@@ -1,7 +1,7 @@
 # ChoirOS Codesign Runbook
 
 Date: 2026-02-17
-Status: Living document — checkpointed 2026-02-18 (Phase 4 partial, Phase 5 complete)
+Status: Living document — checkpointed 2026-02-18 (Phase 4 complete, Phase 5 complete, Phase 6 started)
 Supersedes: `2026-02-17-codesign-sketch-and-questions.md` (Gate 0 questions resolved)
 
 ## Narrative Summary (1-minute read)
@@ -28,12 +28,23 @@ what we are building, in what order, and why.
 6. Eight execution phases defined with gates.
 7. Marginalia pulled forward to Phase 1 (safe UI, no infrastructure dependency).
 8. WriterActor ephemeral model decided; WriterSupervisor registry pattern defined.
-9. SubharnessActor pattern defined for conductor multistep work.
+9. ActorHarnessActor pattern defined for conductor multistep work.
+10. Phase 6 resequenced: hypervisor-as-Rust-process first, Nix packaging second.
+11. Hypervisor two-sandbox-per-user model defined: live (always-on while logged in) + dev (on-demand).
 
 ## What To Do Next
 
-Close Phase 4 item 4.3: wire conductor wake to run a brief `AgentHarness` turn with
-`HarnessProfile::Conductor`, then re-run the Phase 4 gate.
+Phase 6a gate is complete. Both remaining items are done.
+
+Next: Phase 6b — point the Dioxus frontend at the hypervisor.
+
+Immediate steps:
+1. Add Dioxus BIOS components: Router with `LoginPage`, `RegisterPage`, `RecoveryPage`
+2. Add `web-sys` + JS shim for `navigator.credentials` from WASM
+3. Wire `tower-http::ServeDir` in the hypervisor to serve the Dioxus dist folder
+4. Delete `BIOS_SHELL` once the WASM build is serving
+
+After that: home manager Nix setup → sandbox flake → frontend flake → hypervisor flake → EC2.
 
 ## Execution Checkpoint (2026-02-18)
 
@@ -44,9 +55,9 @@ changes since the previous code review.
 
 | Item | Status |
 |---|---|
-| 4.1 SubharnessActor — full actor, runs AgentHarness, sends typed completion | ✅ Done |
-| 4.2 NextAction expansion — SpawnSubharness variant + conductor wiring | ✅ Done |
-| 4.3 Conductor RLM harness turn — conductor uses `HarnessProfile::Conductor` | ✅ Done (2026-02-18) |
+| 4.1 ActorHarnessActor — full actor, runs AgentHarness, sends typed completion | ✅ Done |
+| 4.2 NextAction expansion — SpawnActorHarness variant + conductor wiring | ✅ Done |
+| 4.3 Conductor ALM harness turn — conductor uses `HarnessProfile::Conductor` | ✅ Done (2026-02-18) |
 | 4.4 Run state durability — `restore_run_states` from event store on restart | ✅ Done |
 | 4.5 ContextSnapshot type — `ContextSnapshot` + MemoryActor `GetContextSnapshot` | ✅ Done |
 
@@ -63,8 +74,8 @@ changes since the previous code review.
 - Model returns routing decision as JSON in `finished.summary`, parsed by `parse_routing_decision()`.
   Falls back to the legacy single-shot BAML bootstrap on parse failure — conductor remains
   operational even when the harness output is malformed.
-- Both `AgentHarness` and `RlmHarness` now enforce `timeout_budget_ms` via wall-clock deadline.
-- `RlmHarness` enforces `max_recurse_depth` before FanOut/Recurse dispatches.
+- Both `AgentHarness` and `AlmHarness` now enforce `timeout_budget_ms` via wall-clock deadline.
+- `AlmHarness` enforces `max_recurse_depth` before FanOut/Recurse dispatches.
 - Artifact path portability: `persist_tool_execution_artifact` and `sandbox_root()` check
   `CHOIROS_DATA_DIR` before falling back to `CARGO_MANIFEST_DIR`.
 
@@ -81,6 +92,112 @@ Phase 5 is complete in this branch:
 1. Add deterministic tests for n concurrent writer runs (run/window isolation + no shared mutable state).
 2. Add regression tests that assert writer delegation rejects non-contract tools.
 3. Add ordered websocket/event assertions for async worker completion -> writer wake -> revision application.
+
+### Phase 6 Hypervisor Status (2026-02-18)
+
+Phase 6 is resequenced. The original plan interleaved Nix packaging with runtime
+infrastructure. The actual dependency order:
+
+1. Hypervisor as a Rust/Axum process — works on Mac today, no Nix required.
+2. Nix packaging — only needed for reproducible builds and EC2 deployment.
+   Blocked on seam 0.9 (libsql → sqlx) for cross-compilation.
+
+**Revised Phase 6 sequence:**
+
+```
+6a. Hypervisor process (DONE — 2026-02-18)
+6b. Home manager (Nix dev shell on Mac)
+6c. sandbox/flake.nix (depends on seam 0.9)
+6d. frontend/flake.nix
+6e. hypervisor/flake.nix + sandbox-as-NixOS-container (Podman)
+6f. EC2 NixOS deployment
+```
+
+**Hypervisor architecture (Phase 6a, DONE):**
+
+```
+Internet
+  └── Hypervisor (Axum, port 9090)
+        ├── Auth: WebAuthn passkeys (webauthn-rs v0.5) + argon2id recovery codes
+        ├── Session store: MemoryStore (tower-sessions v0.15)
+        │   TODO: replace with SQLite-backed store when tower-sessions-sqlx-store
+        │   aligns with tower-sessions-core v0.15
+        ├── Sandbox registry (per-user: live + dev)
+        │   ├── live sandbox: auto-starts on first authenticated request
+        │   │   idle timeout: 30min default (SANDBOX_IDLE_TIMEOUT_SECS)
+        │   └── dev sandbox: explicit start only (/admin/sandboxes/{id}/dev/start)
+        ├── Reverse proxy → live sandbox (default route, port 8080)
+        │   WebSocket upgrade proxied via tokio-tungstenite
+        └── Reverse proxy → dev sandbox (/dev/ path prefix, port 8081)
+```
+
+**Env vars for hypervisor:**
+
+| Var | Default | Notes |
+|---|---|---|
+| `HYPERVISOR_PORT` | `9090` | Hypervisor listen port |
+| `SANDBOX_BINARY` | `./target/debug/sandbox` | Path to sandbox binary |
+| `SANDBOX_LIVE_PORT` | `8080` | Live sandbox port |
+| `SANDBOX_DEV_PORT` | `8081` | Dev sandbox port |
+| `SANDBOX_IDLE_TIMEOUT_SECS` | `1800` | 30 min default |
+| `HYPERVISOR_DATABASE_URL` | `sqlite:./data/hypervisor.db` | Auth DB |
+| `WEBAUTHN_RP_ID` | `localhost` | Must match domain (no port) |
+| `WEBAUTHN_RP_ORIGIN` | `http://localhost:9090` | Full origin |
+| `WEBAUTHN_RP_NAME` | `ChoirOS` | Display name |
+
+**Phase 6a gate:**
+
+| Item | Status |
+|---|---|
+| Hypervisor builds clean, zero warnings | ✅ Done |
+| Unauthenticated requests redirect to /login | ✅ Done |
+| /login serves passkey ceremony HTML | ✅ Done |
+| Sandbox registry: live + dev roles, spawn/stop/swap | ✅ Done |
+| HTTP + WebSocket reverse proxy | ✅ Done |
+| Recovery code generation (argon2id, 10 codes) | ✅ Done |
+| `just dev-hypervisor` works | ✅ Done |
+| End-to-end passkey registration + login verified | ✅ Done (2026-02-19) |
+| Frontend pointed at hypervisor instead of sandbox | 🔲 Pending |
+
+**Additional items completed (2026-02-19, session 3):**
+
+- `BIOS_SHELL` rewritten with real WebAuthn JS — routes by `window.location.pathname`,
+  calls `navigator.credentials.create`/`get` directly (no npm deps), encodes
+  ArrayBuffer fields as base64url for server
+- `register_finish` now calls `sess::set_user` — auto-login after registration
+- `tests/playwright/bios-auth.spec.ts` — 10 E2E tests, all passing:
+  page renders (register/login/recovery), unauthenticated redirect, register+recovery
+  codes, register→logout→login cycle, logout clears session, invalid credential errors
+- `playwright.config.ts` split into `hypervisor` project (port 9090) and
+  `sandbox` project (port 3000) so the two test suites don't conflict
+
+**Key insight on virtual authenticator cross-context:**
+A WebAuthn credential is bound to the authenticator instance that created it.
+Cross-context login tests must reuse the same browser context (same virtual
+authenticator), not spin up a fresh context. Register and login in the same
+context; use `page.evaluate(() => fetch('/auth/logout', ...))` to clear the
+session between steps.
+
+**Open items before 6b:**
+
+- **Session persistence (known upstream bug — 2026-02-18):**
+  `tower-sessions-sqlx-store` v0.15.0 was published with an incorrect dependency on
+  `tower-sessions-core` v0.14 instead of v0.15. This causes a trait-mismatch compile
+  error: `SqliteStore` implements `SessionStore` from core v0.14, but
+  `SessionManagerLayer` requires `SessionStore` from core v0.15 — Rust treats these as
+  distinct traits even though they are identical at the source level.
+  Current workaround: `MemoryStore` (in-process only). **Every hypervisor restart logs
+  all users out.** Acceptable during development; must be fixed before prod.
+  Fix procedure (when upstream ships a patch):
+  1. Bump `tower-sessions-sqlx-store` in `hypervisor/Cargo.toml` to the patched version.
+  2. In `main.rs`: replace `MemoryStore::default()` with `SqliteStore::new(db.clone())`.
+  3. Add `session_store.migrate().await?;` after creating the store.
+  4. Remove this note and the inline TODO comment in `main.rs`.
+  Check: `https://crates.io/crates/tower-sessions-sqlx-store` — expect fix within ~2 weeks
+  of 2026-02-18.
+- `WEBAUTHN_RP_ORIGIN` must be HTTPS in prod; set `.with_secure(true)` in the session layer.
+- The `SESSION_SECRET` config field is stubbed but not yet wired to signed cookies.
+  Add `axum_extra` cookie signing or tower-sessions signing when ready.
 
 ---
 
@@ -100,9 +217,9 @@ Phase 5 is complete in this branch:
 9. Global RuVector runs in the hypervisor. Local RuVector runs in the sandbox.
    Publishing is opt-in per version. Global store is enabled after auth and API proxying.
 10. WriterActor is ephemeral, spawned per document run. WriterSupervisor is the registry.
-11. SubharnessActor is a conductor-scoped lambda actor: spawned on demand, runs to
+11. ActorHarnessActor is a conductor-scoped lambda actor: spawned on demand, runs to
     completion, sends a typed message back to conductor, then stops.
-12. Conductor remains semi-single-shot: brief RLM harness turn, memory-managed context,
+12. Conductor remains semi-single-shot: brief ALM harness turn, memory-managed context,
     fast decisions. Subharnesses carry the duration of multistep work.
 13. Conductor delegates only to app agents (Writer, future HarnessedActor). Worker
     delegation (Researcher/Terminal) is exclusively Writer-owned.
@@ -111,14 +228,14 @@ Phase 5 is complete in this branch:
 
 ## Three-Spine Architecture
 
-### Spine 1: RLM Control Flow
+### Spine 1: ALM Control Flow
 
-The RLM (Recursive Language Model) is the default execution mode. Linear tool-looping
+The ALM (Agentic Language Model) is the default execution mode. Linear tool-looping
 is a degenerate case of `NextAction::ToolCalls`. The model composes its own context
 each turn via retrieval APIs. Topology (linear / parallel / recursive) is model-chosen,
 bounded by deterministic safety rails.
 
-**Conductor** gets the same RLM harness as workers, configured for brevity. Its primary
+**Conductor** gets the same ALM harness as workers, configured for brevity. Its primary
 use of RLM is memory management: freeing context from old runs, composing a lean wake
 context for current work. It does not re-plan mid-turn; it spawns subharnesses for
 multistep conductor work.
@@ -126,14 +243,14 @@ multistep conductor work.
 Conductor does not route worker capabilities directly. It routes app agents. Writer is
 the execution manager for worker delegation and decides when to call Researcher/Terminal.
 
-**SubharnessActor** is the mechanism for arbitrary multistep conductor work. It is a
+**ActorHarnessActor** is the mechanism for arbitrary multistep conductor work. It is a
 proper ractor actor under ConductorSupervisor, not a `tokio::spawn`. Panics become
 supervision signals. Completion is a typed message back to conductor's mailbox.
 
 **NextAction** variants (to be implemented in Phase 3):
 ```
 ToolCalls       — linear, call one or more tools this turn
-SpawnSubharness — spawn a SubharnessActor for multistep work
+SpawnActorHarness — spawn a ActorHarnessActor for multistep work
 Delegate        — route to a worker or app agent
 Complete        — objective achieved
 Block           — cannot proceed, needs human or escalation
@@ -386,7 +503,7 @@ ApplicationSupervisor
 └── SessionSupervisor (per session)
     ├── ConductorSupervisor
     │   ├── ConductorActor          (one per session)
-    │   └── SubharnessActor         (ephemeral, spawned per conductor request)
+    │   └── ActorHarnessActor         (ephemeral, spawned per conductor request)
     ├── WriterSupervisor            (NEW — registry for ephemeral writers)
     │   └── WriterActor             (ephemeral, one per open document run)
     ├── ResearcherSupervisor        (NEW — registry for concurrent research)
@@ -421,18 +538,18 @@ ApplicationSupervisor
 - Completion arrives as a typed message in conductor's mailbox
 - Panics become supervision signals, not silent hangs
 
-**SubharnessActor: new**
+**ActorHarnessActor: new**
 ```
-SubharnessActor
+ActorHarnessActor
   spawned by:   ConductorActor (on demand)
   lifetime:     single objective — spawns, runs, sends completion, stops
-  messages in:  SubharnessMsg::Execute {
+  messages in:  ActorHarnessMsg::Execute {
                   objective, context, correlation_id, reply_to: ActorRef<ConductorMsg>
                 }
   messages out: ConductorMsg::SubharnessComplete { correlation_id, result, citations }
                 ConductorMsg::SubharnessFailed  { correlation_id, reason }
   supervision:  under ConductorSupervisor
-  profile:      HarnessProfile::Subharness (medium steps, scoped context)
+  profile:      HarnessProfile::ActorHarness (medium steps, scoped context)
 ```
 
 **CapabilityWorkerOutput: open for extension**
@@ -441,7 +558,7 @@ pub enum CapabilityWorkerOutput {
     Researcher(ResearcherResult),
     Terminal(TerminalAgentResult),
     Writer(WriterCompletionResult),    // new
-    Subharness(SubharnessResult),      // new
+    Subharness(ActorHarnessResult),      // new
 }
 ```
 
@@ -454,7 +571,7 @@ pub enum CapabilityWorkerOutput {
 **Run state durability**
 - `ConductorRunState` currently lives in-memory only (`HashMap<run_id, ConductorRunState>`)
 - Needs a durable projection path from the event store for conductor wake context
-- Required before RLM harness can free and rehydrate run memories
+- Required before ALM harness can free and rehydrate run memories
 
 ### HarnessProfile
 
@@ -643,11 +760,11 @@ No implementation beyond the type definitions and their serialization.
   cumulative_summary, last_updated_at)
 - `ExternalContentRecord` (local and global variants — schema above)
 
-**2.4 SubharnessActor message types**
-- `SubharnessMsg::Execute` (objective, context, correlation_id, reply_to)
+**2.4 ActorHarnessActor message types**
+- `ActorHarnessMsg::Execute` (objective, context, correlation_id, reply_to)
 - `ConductorMsg::SubharnessComplete` (correlation_id, result, citations)
 - `ConductorMsg::SubharnessFailed` (correlation_id, reason)
-- `SubharnessResult` struct
+- `ActorHarnessResult` struct
 
 **2.5 HarnessProfile enum**
 - `HarnessProfile` (Conductor | Worker | Subharness) with associated config
@@ -711,21 +828,21 @@ Citation events flow into the event store.
 
 ### Phase 4 — RLM Harness
 
-Goal: model-managed context composition per turn. SubharnessActor implementation.
-Conductor gets RLM harness with memory management.
+Goal: model-managed context composition per turn. ActorHarnessActor implementation.
+Conductor gets ALM harness with memory management.
 
-**4.1 SubharnessActor implementation**
+**4.1 ActorHarnessActor implementation**
 - Full ractor actor under ConductorSupervisor
-- Runs `AgentHarness` with `HarnessProfile::Subharness`
+- Runs `AgentHarness` with `HarnessProfile::ActorHarness`
 - Sends typed `SubharnessComplete` or `SubharnessFailed` to conductor on finish
 - Gate: conductor spawns subharness, receives completion message, run continues
 
 **4.2 NextAction enum expansion**
-- Add `SpawnSubharness`, `Delegate`, variants
+- Add `SpawnActorHarness`, `Delegate`, variants
 - Conductor BAML functions updated to return expanded NextAction
-- Gate: conductor can choose SpawnSubharness and correctly spawn + await
+- Gate: conductor can choose SpawnActorHarness and correctly spawn + await
 
-**4.3 Conductor RLM harness turn**
+**4.3 Conductor ALM harness turn**
 - Conductor runs brief `AgentHarness` with `HarnessProfile::Conductor`
 - Context: bounded agent-tree snapshot + recent run state
 - Memory management: conductor can mark old run states for eviction
@@ -743,7 +860,7 @@ Conductor gets RLM harness with memory management.
 - Gate: ContextSnapshot carries provenance for all items; stub MemoryActor compiles
 
 **Phase 4 Gate:**
-- SubharnessActor spawns, runs, returns typed completion to conductor
+- ActorHarnessActor spawns, runs, returns typed completion to conductor
 - Conductor wake-context reconstruction from event store works
 - HarnessProfile::Conductor enforces step budget
 - All existing capability dispatch still works
@@ -761,7 +878,7 @@ HNSW-style ANN search, chunk_hash dedup). RuVector (`rvf-runtime`/`rvf-index`) w
 evaluated and deferred — it was published 4 days before this decision with 57 total
 downloads, and its differentiating feature (SONA learning) is already explicitly deferred
 to Phase 5+. MemoryActor is the abstraction boundary; the backend is swappable without
-changing the RLM-facing API.
+changing the ALM-facing API.
 
 **5.1 Dependencies**
 - Add `sqlite-vec` (rusqlite, bundled), `fastembed` (wraps `ort`, AllMiniLML6V2),

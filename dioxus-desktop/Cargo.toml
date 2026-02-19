@@ -33,12 +33,21 @@ web-sys = { version = "0.3", features = [
     "ErrorEvent",
     "Event",
     "HtmlScriptElement",
+    "HtmlInputElement",
     "Location",
     "MessageEvent",
     "MouseEvent",
     "Storage",
     "WebSocket",
     "Window",
+    # WebAuthn
+    "CredentialsContainer",
+    "PublicKeyCredential",
+    "PublicKeyCredentialCreationOptions",
+    "PublicKeyCredentialRequestOptions",
+    "AuthenticatorResponse",
+    "AuthenticatorAttestationResponse",
+    "AuthenticatorAssertionResponse",
 ] }
 gloo-net = "0.6"
 gloo-timers = { version = "0.3", features = ["futures"] }

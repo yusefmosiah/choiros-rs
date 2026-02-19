@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT p.credential_id, p.passkey_json FROM passkeys p JOIN users u ON p.user_id = u.id WHERE u.username = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "credential_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "passkey_json",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "3d077e06c268617b89b226a3b026bdc83a8e5f65398327ba777c334b3b71ebfd"
+}
