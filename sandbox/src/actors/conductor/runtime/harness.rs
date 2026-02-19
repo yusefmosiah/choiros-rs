@@ -1,14 +1,14 @@
 //! Conductor subharness completion and progress handlers (Phase 4.3).
 //!
-//! Wires `ConductorMsg::ActorHarnessComplete`, `ActorHarnessFailed`, and
-//! `ActorHarnessProgress` into the existing capability call / run
+//! Wires `ConductorMsg::HarnessComplete`, `HarnessFailed`, and
+//! `HarnessProgress` into the existing capability call / run
 //! finalization machinery.
 
 use ractor::ActorProcessingErr;
 
 use crate::actors::conductor::actor::{ConductorActor, ConductorState};
 use crate::actors::conductor::events;
-use crate::actors::conductor::protocol::ActorHarnessResult;
+use crate::actors::conductor::protocol::HarnessResult;
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 
 impl ConductorActor {
@@ -16,17 +16,17 @@ impl ConductorActor {
     ///
     /// The `correlation_id` is the `call_id` that was registered when the
     /// subharness was spawned (see `spawn_capability_call` in `decision.rs`).
-    pub(crate) async fn handle_actor_harness_complete(
+    pub(crate) async fn handle_harness_complete(
         &self,
         state: &mut ConductorState,
         correlation_id: String,
-        result: ActorHarnessResult,
+        result: HarnessResult,
     ) -> Result<(), ActorProcessingErr> {
         tracing::info!(
             correlation_id = %correlation_id,
             steps_taken = result.steps_taken,
             objective_satisfied = result.objective_satisfied,
-            "ActorHarnessActor completed"
+            "HarnessActor completed"
         );
 
         // Resolve which run owns this correlation.
@@ -35,7 +35,7 @@ impl ConductorActor {
             None => {
                 tracing::warn!(
                     correlation_id = %correlation_id,
-                    "ActorHarnessComplete: no matching capability call found; ignoring"
+                    "HarnessComplete: no matching capability call found; ignoring"
                 );
                 return Ok(());
             }
@@ -69,7 +69,7 @@ impl ConductorActor {
             created_at: chrono::Utc::now(),
             source_call_id: correlation_id.clone(),
             metadata: Some(serde_json::json!({
-                "capability": "actor_harness",
+                "capability": "harness",
                 "objective_satisfied": result.objective_satisfied,
                 "steps_taken": result.steps_taken,
                 "completion_reason": result.completion_reason,
@@ -82,7 +82,7 @@ impl ConductorActor {
             &state.event_store,
             &run_id,
             &correlation_id,
-            "actor_harness",
+            "harness",
             &format!(
                 "subharness completed (satisfied={})",
                 result.objective_satisfied
@@ -90,13 +90,13 @@ impl ConductorActor {
         )
         .await;
 
-        self.finalize_run_if_quiescent_actor_harness(state, &run_id)
+        self.finalize_run_if_quiescent_harness(state, &run_id)
             .await?;
         Ok(())
     }
 
     /// Handle subharness failure.
-    pub(crate) async fn handle_actor_harness_failed(
+    pub(crate) async fn handle_harness_failed(
         &self,
         state: &mut ConductorState,
         correlation_id: String,
@@ -105,7 +105,7 @@ impl ConductorActor {
         tracing::warn!(
             correlation_id = %correlation_id,
             reason = %reason,
-            "ActorHarnessActor failed"
+            "HarnessActor failed"
         );
 
         let run_id = match state.tasks.get_run_id_for_call(&correlation_id) {
@@ -113,7 +113,7 @@ impl ConductorActor {
             None => {
                 tracing::warn!(
                     correlation_id = %correlation_id,
-                    "ActorHarnessFailed: no matching capability call found; ignoring"
+                    "HarnessFailed: no matching capability call found; ignoring"
                 );
                 return Ok(());
             }
@@ -140,23 +140,23 @@ impl ConductorActor {
             &state.event_store,
             &run_id,
             &correlation_id,
-            "actor_harness",
+            "harness",
             &reason,
             Some(shared_types::FailureKind::Unknown),
         )
         .await;
 
-        self.finalize_run_if_quiescent_actor_harness(state, &run_id)
+        self.finalize_run_if_quiescent_harness(state, &run_id)
             .await?;
         Ok(())
     }
 
-    /// Handle in-flight progress from a running ActorHarnessActor.
+    /// Handle in-flight progress from a running HarnessActor.
     ///
     /// This is non-blocking and advisory — the conductor persists the report
     /// to the event store for observability and run-document enrichment but
     /// does not alter run state.
-    pub(crate) async fn handle_actor_harness_progress(
+    pub(crate) async fn handle_harness_progress(
         &self,
         state: &ConductorState,
         correlation_id: String,
@@ -167,7 +167,7 @@ impl ConductorActor {
         tracing::debug!(
             correlation_id = %correlation_id,
             kind = %kind,
-            "ActorHarnessActor progress"
+            "HarnessActor progress"
         );
 
         // Resolve which run owns this correlation for the event actor_id.
@@ -179,7 +179,7 @@ impl ConductorActor {
 
         let _ = state.event_store.send_message(EventStoreMsg::AppendAsync {
             event: AppendEvent {
-                event_type: "actor_harness.progress.received".to_string(),
+                event_type: "harness.progress.received".to_string(),
                 payload: serde_json::json!({
                     "correlation_id": correlation_id,
                     "run_id": run_id,
@@ -196,7 +196,7 @@ impl ConductorActor {
 
     /// Same semantics as `finalize_run_if_quiescent` in `completion.rs`
     /// but callable from the subharness path without borrowing issues.
-    async fn finalize_run_if_quiescent_actor_harness(
+    async fn finalize_run_if_quiescent_harness(
         &self,
         state: &mut ConductorState,
         run_id: &str,

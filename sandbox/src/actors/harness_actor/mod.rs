@@ -1,10 +1,10 @@
-//! SubharnessActor — scoped sub-agent executor for Conductor delegation.
+//! HarnessActor — scoped sub-agent executor for Conductor delegation.
 //!
-//! A SubharnessActor is a one-shot actor:
-//! 1. Receives a single `SubharnessMsg::Execute`.
-//! 2. Runs `AgentHarness` with `HarnessProfile::Subharness`.
-//! 3. Emits `subharness.execute` and `subharness.result` events.
-//! 4. Sends typed `ConductorMsg::SubharnessComplete` (or `SubharnessFailed`) back to Conductor.
+//! A HarnessActor is a one-shot actor:
+//! 1. Receives a single `HarnessMsg::Execute`.
+//! 2. Runs `AgentHarness` with `HarnessProfile::Harness`.
+//! 3. Emits `harness.execute` and `harness.result` events.
+//! 4. Sends typed `ConductorMsg::HarnessComplete` (or `HarnessFailed`) back to Conductor.
 //! 5. Stops itself.
 //!
 //! The actor never calls back into Conductor other than through those two
@@ -12,50 +12,50 @@
 
 mod adapter;
 
-pub use adapter::SubharnessAdapter;
+pub use adapter::HarnessAdapter;
 
 use async_trait::async_trait;
 use chrono::Utc;
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 
 use crate::actors::agent_harness::{AgentHarness, HarnessProfile, ObjectiveStatus};
-use crate::actors::conductor::protocol::{ConductorMsg, SubharnessResult};
+use crate::actors::conductor::protocol::{ConductorMsg, HarnessResult};
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::ModelRegistry;
 use crate::observability::llm_trace::LlmTraceEmitter;
 
 // ─── Public re-exports for use-sites ───────────────────────────────────────
 
-pub use crate::actors::conductor::protocol::SubharnessMsg;
+pub use crate::actors::conductor::protocol::HarnessMsg;
 
 // ─── Actor shell ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Default)]
-pub struct SubharnessActor;
+pub struct HarnessActor;
 
-/// Arguments used when spawning a `SubharnessActor`.
+/// Arguments used when spawning a `HarnessActor`.
 #[derive(Clone)]
-pub struct SubharnessArguments {
+pub struct HarnessArguments {
     pub event_store: ActorRef<EventStoreMsg>,
 }
 
 /// Internal actor state (minimal — all runtime data arrives in the message).
-pub struct SubharnessState {
+pub struct HarnessState {
     pub(crate) event_store: ActorRef<EventStoreMsg>,
 }
 
 #[async_trait]
-impl Actor for SubharnessActor {
-    type Msg = SubharnessMsg;
-    type State = SubharnessState;
-    type Arguments = SubharnessArguments;
+impl Actor for HarnessActor {
+    type Msg = HarnessMsg;
+    type State = HarnessState;
+    type Arguments = HarnessArguments;
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        Ok(SubharnessState {
+        Ok(HarnessState {
             event_store: args.event_store,
         })
     }
@@ -67,21 +67,16 @@ impl Actor for SubharnessActor {
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            SubharnessMsg::Execute {
+            HarnessMsg::Execute {
                 objective,
                 context,
                 correlation_id,
                 reply_to,
             } => {
-                emit_subharness_execute(
-                    &state.event_store,
-                    &correlation_id,
-                    &objective,
-                    &context,
-                )
-                .await;
+                emit_harness_execute(&state.event_store, &correlation_id, &objective, &context)
+                    .await;
 
-                let result = run_subharness(
+                let result = run_harness(
                     state,
                     objective.clone(),
                     context,
@@ -92,20 +87,20 @@ impl Actor for SubharnessActor {
 
                 match result {
                     Ok(subharness_result) => {
-                        emit_subharness_result(
+                        emit_harness_result(
                             &state.event_store,
                             &correlation_id,
                             &objective,
                             &subharness_result,
                         )
                         .await;
-                        let _ = reply_to.send_message(ConductorMsg::SubharnessComplete {
+                        let _ = reply_to.send_message(ConductorMsg::HarnessComplete {
                             correlation_id,
                             result: subharness_result,
                         });
                     }
                     Err(reason) => {
-                        let _ = reply_to.send_message(ConductorMsg::SubharnessFailed {
+                        let _ = reply_to.send_message(ConductorMsg::HarnessFailed {
                             correlation_id,
                             reason,
                         });
@@ -121,18 +116,18 @@ impl Actor for SubharnessActor {
 
 // ─── Harness execution ──────────────────────────────────────────────────────
 
-async fn run_subharness(
-    state: &SubharnessState,
+async fn run_harness(
+    state: &HarnessState,
     objective: String,
     context: serde_json::Value,
     correlation_id: String,
     conductor: ActorRef<ConductorMsg>,
-) -> Result<SubharnessResult, String> {
+) -> Result<HarnessResult, String> {
     let model_registry = ModelRegistry::new();
     let trace_emitter = LlmTraceEmitter::new(state.event_store.clone());
-    let config = HarnessProfile::Subharness.default_config();
+    let config = HarnessProfile::Harness.default_config();
 
-    let adapter = SubharnessAdapter::new(
+    let adapter = HarnessAdapter::new(
         state.event_store.clone(),
         conductor,
         correlation_id.clone(),
@@ -143,7 +138,7 @@ async fn run_subharness(
 
     let agent_result = harness
         .run(
-            format!("subharness:{}", correlation_id),
+            format!("harness:{}", correlation_id),
             "system".to_string(),
             objective.clone(),
             None,
@@ -156,7 +151,7 @@ async fn run_subharness(
 
     let objective_satisfied = matches!(agent_result.objective_status, ObjectiveStatus::Complete);
 
-    Ok(SubharnessResult {
+    Ok(HarnessResult {
         output: agent_result.summary,
         citations: vec![],
         objective_satisfied,
@@ -167,7 +162,7 @@ async fn run_subharness(
 
 // ─── Event emission ─────────────────────────────────────────────────────────
 
-async fn emit_subharness_execute(
+async fn emit_harness_execute(
     event_store: &ActorRef<EventStoreMsg>,
     correlation_id: &str,
     objective: &str,
@@ -181,19 +176,19 @@ async fn emit_subharness_execute(
     });
     let _ = event_store.send_message(EventStoreMsg::AppendAsync {
         event: AppendEvent {
-            event_type: "subharness.execute".to_string(),
+            event_type: "harness.execute".to_string(),
             payload,
-            actor_id: format!("subharness:{}", correlation_id),
+            actor_id: format!("harness:{}", correlation_id),
             user_id: "system".to_string(),
         },
     });
 }
 
-async fn emit_subharness_result(
+async fn emit_harness_result(
     event_store: &ActorRef<EventStoreMsg>,
     correlation_id: &str,
     objective: &str,
-    result: &SubharnessResult,
+    result: &HarnessResult,
 ) {
     let payload = serde_json::json!({
         "corr_id": correlation_id,
@@ -206,9 +201,9 @@ async fn emit_subharness_result(
     });
     let _ = event_store.send_message(EventStoreMsg::AppendAsync {
         event: AppendEvent {
-            event_type: "subharness.result".to_string(),
+            event_type: "harness.result".to_string(),
             payload,
-            actor_id: format!("subharness:{}", correlation_id),
+            actor_id: format!("harness:{}", correlation_id),
             user_id: "system".to_string(),
         },
     });

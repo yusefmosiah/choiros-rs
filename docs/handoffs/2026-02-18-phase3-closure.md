@@ -13,9 +13,9 @@ confirmed external URLs are published as global_external_content events, and a
 `.qwy`-style citation registry is emitted on every writer loop version save. All 5
 Phase 3 Playwright gate tests pass. 169/169 unit tests pass.
 
-The next phase is Phase 4 (RLM Harness): ActorHarnessActor implementation, NextAction
+The next phase is Phase 4 (RLM Harness): HarnessActor implementation, NextAction
 enum expansion, Conductor RLM harness turn, run state durability, and ContextSnapshot.
-The gate types for all Phase 4 work (ActorHarnessMsg, HarnessProfile, ActorHarnessResult)
+The gate types for all Phase 4 work (HarnessMsg, HarnessProfile, HarnessResult)
 were already defined in Phase 2 — Phase 4 is implementation only, no new types.
 
 ## What Changed (this session)
@@ -124,20 +124,20 @@ tests/playwright/phase3-citations.spec.ts  5 gate tests (new file)
 
 Spec: `docs/architecture/2026-02-17-codesign-runbook.md`, Phase 4 section (line 697+)
 
-### 4.1 — ActorHarnessActor implementation
+### 4.1 — HarnessActor implementation
 
 The types are already defined (Phase 2):
-- `ActorHarnessMsg::Execute` in `sandbox/src/actors/conductor/protocol.rs`
+- `HarnessMsg::Execute` in `sandbox/src/actors/conductor/protocol.rs`
 - `ConductorMsg::SubharnessComplete`, `ConductorMsg::SubharnessFailed` (stub handlers)
-- `ActorHarnessResult` struct
+- `HarnessResult` struct
 
 What needs to be built:
-1. Full `ActorHarnessActor` — ractor actor under `ConductorSupervisor`
-   - Accepts `ActorHarnessMsg::Execute { objective, context, conductor_ref, correlation_id }`
+1. Full `HarnessActor` — ractor actor under `ConductorSupervisor`
+   - Accepts `HarnessMsg::Execute { objective, context, conductor_ref, correlation_id }`
    - Runs `AgentHarness` with `HarnessProfile::Subharness`
-   - On finish: sends `ConductorMsg::SubharnessComplete(ActorHarnessResult)` or `SubharnessFailed`
+   - On finish: sends `ConductorMsg::SubharnessComplete(HarnessResult)` or `SubharnessFailed`
    - Stops itself after sending result (ephemeral)
-2. Wire into `ConductorSupervisor`: spawn on `SpawnActorHarness` conductor decision
+2. Wire into `ConductorSupervisor`: spawn on `SpawnHarness` conductor decision
 3. Stub handlers in `ConductorActor` for `SubharnessComplete` / `SubharnessFailed`
 4. Gate test: conductor spawns subharness, subharness runs a trivial harness turn,
    conductor receives typed completion message
@@ -146,10 +146,10 @@ What needs to be built:
 
 Current `NextAction` in `sandbox/src/actors/conductor/` (BAML + Rust):
 - Check what variants exist today in `baml_src/` and `ConductorDecision` in protocol.rs
-- Add `SpawnActorHarness { objective: String, context: String }` variant
+- Add `SpawnHarness { objective: String, context: String }` variant
 - Add `Delegate { target: String, objective: String }` variant (for routing to Writer)
 - Update BAML `conductor_plan` function to return expanded set
-- Gate: conductor can choose `SpawnActorHarness` in a test scenario
+- Gate: conductor can choose `SpawnHarness` in a test scenario
 
 ### 4.3 — Conductor RLM harness turn
 
@@ -175,7 +175,7 @@ Current `NextAction` in `sandbox/src/actors/conductor/` (BAML + Rust):
 
 ### Phase 4 Gate (from runbook)
 
-- ActorHarnessActor spawns, runs, returns typed completion to conductor
+- HarnessActor spawns, runs, returns typed completion to conductor
 - Conductor wake-context reconstruction from event store works
 - `HarnessProfile::Conductor` enforces step budget
 - All existing capability dispatch still works (no regressions)
@@ -185,7 +185,7 @@ Current `NextAction` in `sandbox/src/actors/conductor/` (BAML + Rust):
 Write `tests/playwright/phase4-rlm-harness.spec.ts`:
 - Trigger a conductor run that requires subharness delegation
 - Verify `conductor.subharness.spawned` event appears
-- Verify `conductor.subharness.completed` event appears with `ActorHarnessResult` payload
+- Verify `conductor.subharness.completed` event appears with `HarnessResult` payload
 - Verify existing citation/marginalia events still fire (regression)
 
 ## Quick commands

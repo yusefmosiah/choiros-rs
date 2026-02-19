@@ -6,7 +6,7 @@ use crate::actors::conductor::{
     protocol::{ConductorError, ConductorMsg},
     runtime::capability_call::{CapabilityCallActor, CapabilityCallArguments},
 };
-use crate::actors::actor_harness_actor::{ActorHarnessActor, ActorHarnessArguments, ActorHarnessMsg};
+use crate::actors::harness_actor::{HarnessActor, HarnessArguments, HarnessMsg};
 use crate::actors::writer::SectionState;
 use crate::actors::writer::WriterMsg;
 
@@ -212,12 +212,12 @@ impl ConductorActor {
         Ok(())
     }
 
-    /// Spawn a `ActorHarnessActor` for a scoped objective.
+    /// Spawn a `HarnessActor` for a scoped objective.
     ///
-    /// Registers the subharness as a `ConductorCapabilityCall` (capability = "actor_harness")
+    /// Registers the subharness as a `ConductorCapabilityCall` (capability = "harness")
     /// so the existing active-call and run-finalization machinery applies.
-    /// The ActorHarnessActor sends `ConductorMsg::ActorHarnessComplete` back directly.
-    pub(crate) async fn spawn_actor_harness_for_run(
+    /// The HarnessActor sends `ConductorMsg::HarnessComplete` back directly.
+    pub(crate) async fn spawn_harness_for_run(
         &self,
         myself: &ActorRef<ConductorMsg>,
         state: &mut ConductorState,
@@ -229,7 +229,7 @@ impl ConductorActor {
 
         let call = shared_types::ConductorCapabilityCall {
             call_id: call_id.clone(),
-            capability: "actor_harness".to_string(),
+            capability: "harness".to_string(),
             objective: item.objective.clone(),
             status: shared_types::CapabilityCallStatus::Running,
             started_at: chrono::Utc::now(),
@@ -258,9 +258,9 @@ impl ConductorActor {
             )
             .ok();
 
-        events::emit_worker_call(&state.event_store, run_id, "actor_harness", &item.objective).await;
+        events::emit_worker_call(&state.event_store, run_id, "harness", &item.objective).await;
 
-        let args = ActorHarnessArguments {
+        let args = HarnessArguments {
             event_store: state.event_store.clone(),
         };
 
@@ -270,15 +270,15 @@ impl ConductorActor {
         let objective = item.objective.clone();
 
         match Actor::spawn_linked(
-            Some(format!("actor_harness:{}:{}", run_id_owned, call_id_owned)),
-            ActorHarnessActor,
+            Some(format!("harness:{}:{}", run_id_owned, call_id_owned)),
+            HarnessActor,
             args,
             myself.get_cell(),
         )
         .await
         {
             Ok((subharness_ref, _handle)) => {
-                let _ = subharness_ref.send_message(ActorHarnessMsg::Execute {
+                let _ = subharness_ref.send_message(HarnessMsg::Execute {
                     objective,
                     context,
                     correlation_id: call_id_owned.clone(),
@@ -287,14 +287,14 @@ impl ConductorActor {
                 tracing::info!(
                     run_id = %run_id,
                     call_id = %call_id_owned,
-                    "Spawned ActorHarnessActor"
+                    "Spawned HarnessActor"
                 );
             }
             Err(error) => {
                 // Immediately notify conductor so the run can quiesce.
-                let _ = myself.send_message(ConductorMsg::ActorHarnessFailed {
+                let _ = myself.send_message(ConductorMsg::HarnessFailed {
                     correlation_id: call_id_owned,
-                    reason: format!("Failed to spawn ActorHarnessActor: {error}"),
+                    reason: format!("Failed to spawn HarnessActor: {error}"),
                 });
             }
         }

@@ -18,11 +18,11 @@
 //! side-effectful execution (shell, network, agent spawning) routes through
 //! the actor system, not inline.
 //!
-//! **FanOut** — fire N `ActorHarnessMsg::Execute` messages to the actor
+//! **FanOut** — fire N `HarnessMsg::Execute` messages to the actor
 //! system. Returns correlation IDs immediately (non-blocking). The model
 //! reads results in a subsequent turn via `ContextSourceKind::ToolOutput`.
 //!
-//! **Recurse** — fire 1 `ActorHarnessMsg::Execute`. Same non-blocking pattern.
+//! **Recurse** — fire 1 `HarnessMsg::Execute`. Same non-blocking pattern.
 //!
 //! **Complete / Block** — terminal actions.
 //!
@@ -207,16 +207,16 @@ pub trait AlmPort: Send + Sync {
     /// On crash+restart the supervisor reads the latest checkpoint and recovers.
     async fn write_checkpoint(&self, checkpoint: &shared_types::HarnessCheckpoint);
 
-    /// Fire a `ActorHarnessMsg::Execute` to the actor system and return immediately.
+    /// Fire a `HarnessMsg::Execute` to the actor system and return immediately.
     ///
     /// This is the FanOut/Recurse execution primitive. The harness calls this
-    /// for each branch; the port sends the message to a fresh ActorHarnessActor.
+    /// for each branch; the port sends the message to a fresh HarnessActor.
     /// The reply arrives later as a `subharness.result` event in EventStore,
     /// keyed by `corr_id`. The model reads it in a subsequent turn via
     /// `resolve_source(ToolOutput, corr_id)`.
     ///
     /// Implementations must be non-blocking — spawn the actor and return.
-    async fn spawn_actor_harness(&self, objective: &str, context: serde_json::Value, corr_id: &str);
+    async fn spawn_harness(&self, objective: &str, context: serde_json::Value, corr_id: &str);
 }
 
 // ─── DAG Executor ────────────────────────────────────────────────────────────
@@ -905,14 +905,14 @@ impl<P: AlmPort> AlmHarness<P> {
                                 .as_deref()
                                 .map(|s| serde_json::json!({ "seed": s }))
                                 .unwrap_or(serde_json::Value::Null);
-                            // Fire-and-forget: port sends ActorHarnessMsg::Execute and returns immediately
+                            // Fire-and-forget: port sends HarnessMsg::Execute and returns immediately
                             self.port
-                                .spawn_actor_harness(&b.objective, ctx, &corr_id)
+                                .spawn_harness(&b.objective, ctx, &corr_id)
                                 .await;
                             pending_corr_ids.push(corr_id.clone());
                             pending_replies.push(shared_types::PendingReply {
                                 corr_id: corr_id.clone(),
-                                actor_kind: "actor_harness".to_string(),
+                                actor_kind: "harness".to_string(),
                                 objective_summary: truncate_str(&b.objective, 120).to_string(),
                                 sent_at: now,
                                 timeout_at: Some(timeout),
@@ -957,12 +957,12 @@ impl<P: AlmPort> AlmHarness<P> {
                         info!("Recurse dispatching subharness corr:{corr_id}");
                         // Fire-and-forget: same non-blocking pattern as FanOut
                         self.port
-                            .spawn_actor_harness(&recurse_obj, recurse_ctx, &corr_id)
+                            .spawn_harness(&recurse_obj, recurse_ctx, &corr_id)
                             .await;
                         pending_corr_ids.push(corr_id.clone());
                         pending_replies.push(shared_types::PendingReply {
                             corr_id: corr_id.clone(),
-                            actor_kind: "actor_harness".to_string(),
+                            actor_kind: "harness".to_string(),
                             objective_summary: truncate_str(&recurse_obj, 120).to_string(),
                             sent_at: now,
                             timeout_at: Some(now + Duration::seconds(120)),

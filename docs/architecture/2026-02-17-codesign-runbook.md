@@ -28,7 +28,7 @@ what we are building, in what order, and why.
 6. Eight execution phases defined with gates.
 7. Marginalia pulled forward to Phase 1 (safe UI, no infrastructure dependency).
 8. WriterActor ephemeral model decided; WriterSupervisor registry pattern defined.
-9. ActorHarnessActor pattern defined for conductor multistep work.
+9. HarnessActor pattern defined for conductor multistep work.
 10. Phase 6 resequenced: hypervisor-as-Rust-process first, Nix packaging second.
 11. Hypervisor two-sandbox-per-user model defined: live (always-on while logged in) + dev (on-demand).
 
@@ -55,8 +55,8 @@ changes since the previous code review.
 
 | Item | Status |
 |---|---|
-| 4.1 ActorHarnessActor — full actor, runs AgentHarness, sends typed completion | ✅ Done |
-| 4.2 NextAction expansion — SpawnActorHarness variant + conductor wiring | ✅ Done |
+| 4.1 HarnessActor — full actor, runs AgentHarness, sends typed completion | ✅ Done |
+| 4.2 NextAction expansion — SpawnHarness variant + conductor wiring | ✅ Done |
 | 4.3 Conductor ALM harness turn — conductor uses `HarnessProfile::Conductor` | ✅ Done (2026-02-18) |
 | 4.4 Run state durability — `restore_run_states` from event store on restart | ✅ Done |
 | 4.5 ContextSnapshot type — `ContextSnapshot` + MemoryActor `GetContextSnapshot` | ✅ Done |
@@ -217,7 +217,7 @@ session between steps.
 9. Global RuVector runs in the hypervisor. Local RuVector runs in the sandbox.
    Publishing is opt-in per version. Global store is enabled after auth and API proxying.
 10. WriterActor is ephemeral, spawned per document run. WriterSupervisor is the registry.
-11. ActorHarnessActor is a conductor-scoped lambda actor: spawned on demand, runs to
+11. HarnessActor is a conductor-scoped lambda actor: spawned on demand, runs to
     completion, sends a typed message back to conductor, then stops.
 12. Conductor remains semi-single-shot: brief ALM harness turn, memory-managed context,
     fast decisions. Subharnesses carry the duration of multistep work.
@@ -243,14 +243,14 @@ multistep conductor work.
 Conductor does not route worker capabilities directly. It routes app agents. Writer is
 the execution manager for worker delegation and decides when to call Researcher/Terminal.
 
-**ActorHarnessActor** is the mechanism for arbitrary multistep conductor work. It is a
+**HarnessActor** is the mechanism for arbitrary multistep conductor work. It is a
 proper ractor actor under ConductorSupervisor, not a `tokio::spawn`. Panics become
 supervision signals. Completion is a typed message back to conductor's mailbox.
 
 **NextAction** variants (to be implemented in Phase 3):
 ```
 ToolCalls       — linear, call one or more tools this turn
-SpawnActorHarness — spawn a ActorHarnessActor for multistep work
+SpawnHarness — spawn a HarnessActor for multistep work
 Delegate        — route to a worker or app agent
 Complete        — objective achieved
 Block           — cannot proceed, needs human or escalation
@@ -503,7 +503,7 @@ ApplicationSupervisor
 └── SessionSupervisor (per session)
     ├── ConductorSupervisor
     │   ├── ConductorActor          (one per session)
-    │   └── ActorHarnessActor         (ephemeral, spawned per conductor request)
+    │   └── HarnessActor         (ephemeral, spawned per conductor request)
     ├── WriterSupervisor            (NEW — registry for ephemeral writers)
     │   └── WriterActor             (ephemeral, one per open document run)
     ├── ResearcherSupervisor        (NEW — registry for concurrent research)
@@ -538,18 +538,18 @@ ApplicationSupervisor
 - Completion arrives as a typed message in conductor's mailbox
 - Panics become supervision signals, not silent hangs
 
-**ActorHarnessActor: new**
+**HarnessActor: new**
 ```
-ActorHarnessActor
+HarnessActor
   spawned by:   ConductorActor (on demand)
   lifetime:     single objective — spawns, runs, sends completion, stops
-  messages in:  ActorHarnessMsg::Execute {
+  messages in:  HarnessMsg::Execute {
                   objective, context, correlation_id, reply_to: ActorRef<ConductorMsg>
                 }
   messages out: ConductorMsg::SubharnessComplete { correlation_id, result, citations }
                 ConductorMsg::SubharnessFailed  { correlation_id, reason }
   supervision:  under ConductorSupervisor
-  profile:      HarnessProfile::ActorHarness (medium steps, scoped context)
+  profile:      HarnessProfile::Harness (medium steps, scoped context)
 ```
 
 **CapabilityWorkerOutput: open for extension**
@@ -558,7 +558,7 @@ pub enum CapabilityWorkerOutput {
     Researcher(ResearcherResult),
     Terminal(TerminalAgentResult),
     Writer(WriterCompletionResult),    // new
-    Subharness(ActorHarnessResult),      // new
+    Subharness(HarnessResult),      // new
 }
 ```
 
@@ -760,11 +760,11 @@ No implementation beyond the type definitions and their serialization.
   cumulative_summary, last_updated_at)
 - `ExternalContentRecord` (local and global variants — schema above)
 
-**2.4 ActorHarnessActor message types**
-- `ActorHarnessMsg::Execute` (objective, context, correlation_id, reply_to)
+**2.4 HarnessActor message types**
+- `HarnessMsg::Execute` (objective, context, correlation_id, reply_to)
 - `ConductorMsg::SubharnessComplete` (correlation_id, result, citations)
 - `ConductorMsg::SubharnessFailed` (correlation_id, reason)
-- `ActorHarnessResult` struct
+- `HarnessResult` struct
 
 **2.5 HarnessProfile enum**
 - `HarnessProfile` (Conductor | Worker | Subharness) with associated config
@@ -828,19 +828,19 @@ Citation events flow into the event store.
 
 ### Phase 4 — RLM Harness
 
-Goal: model-managed context composition per turn. ActorHarnessActor implementation.
+Goal: model-managed context composition per turn. HarnessActor implementation.
 Conductor gets ALM harness with memory management.
 
-**4.1 ActorHarnessActor implementation**
+**4.1 HarnessActor implementation**
 - Full ractor actor under ConductorSupervisor
-- Runs `AgentHarness` with `HarnessProfile::ActorHarness`
+- Runs `AgentHarness` with `HarnessProfile::Harness`
 - Sends typed `SubharnessComplete` or `SubharnessFailed` to conductor on finish
 - Gate: conductor spawns subharness, receives completion message, run continues
 
 **4.2 NextAction enum expansion**
-- Add `SpawnActorHarness`, `Delegate`, variants
+- Add `SpawnHarness`, `Delegate`, variants
 - Conductor BAML functions updated to return expanded NextAction
-- Gate: conductor can choose SpawnActorHarness and correctly spawn + await
+- Gate: conductor can choose SpawnHarness and correctly spawn + await
 
 **4.3 Conductor ALM harness turn**
 - Conductor runs brief `AgentHarness` with `HarnessProfile::Conductor`
@@ -860,7 +860,7 @@ Conductor gets ALM harness with memory management.
 - Gate: ContextSnapshot carries provenance for all items; stub MemoryActor compiles
 
 **Phase 4 Gate:**
-- ActorHarnessActor spawns, runs, returns typed completion to conductor
+- HarnessActor spawns, runs, returns typed completion to conductor
 - Conductor wake-context reconstruction from event store works
 - HarnessProfile::Conductor enforces step budget
 - All existing capability dispatch still works

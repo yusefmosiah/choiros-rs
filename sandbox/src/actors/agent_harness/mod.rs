@@ -340,7 +340,7 @@ pub enum HarnessProfile {
     Worker,
     /// Scoped subharness turns: medium step budget, objective-scoped context,
     /// returns typed completion to conductor.
-    ActorHarness,
+    Harness,
 }
 
 impl HarnessProfile {
@@ -359,7 +359,7 @@ impl HarnessProfile {
                 emit_progress: true,
                 emit_worker_report: true,
             },
-            HarnessProfile::ActorHarness => HarnessConfig {
+            HarnessProfile::Harness => HarnessConfig {
                 timeout_budget_ms: 60_000,
                 max_steps: 50,
                 emit_progress: true,

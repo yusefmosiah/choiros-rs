@@ -258,7 +258,7 @@ Note: MemoryQuery is not yet available (Phase 5).
         );
     }
 
-    async fn spawn_actor_harness(&self, objective: &str, _context: serde_json::Value, corr_id: &str) {
+    async fn spawn_harness(&self, objective: &str, _context: serde_json::Value, corr_id: &str) {
         // In eval: log spawn but don't actually launch actors (no actor system in eval).
         println!("  [SPAWN_SUBHARNESS] corr:{corr_id} objective:{objective}");
     }

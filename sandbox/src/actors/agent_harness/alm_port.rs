@@ -39,10 +39,10 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::actors::agent_harness::alm::{LlmCallResult, AlmPort, AlmToolExecution};
-use crate::actors::conductor::protocol::{ConductorMsg, ActorHarnessMsg};
+use crate::actors::conductor::protocol::{ConductorMsg, HarnessMsg};
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::ModelRegistry;
-use crate::actors::actor_harness_actor::{ActorHarnessActor, ActorHarnessArguments};
+use crate::actors::harness_actor::{HarnessActor, HarnessArguments};
 use crate::actors::terminal::TerminalMsg;
 use crate::baml_client::types::ContextSourceKind;
 use crate::baml_client::{new_collector, B};
@@ -175,7 +175,7 @@ ContextSourceKind::ToolOutput with that corr_id on the next turn to read the res
                 // Poll EventStore for result events keyed by corr_id.
                 // 2s timeout on the DB call: if EventStore is stuck we treat
                 // the result as not-ready and the model retries next turn.
-                for event_prefix in &["actor_harness.result", "tool.result"] {
+                for event_prefix in &["harness.result", "tool.result"] {
                     let result = ractor::call_t!(
                         self.event_store,
                         |reply| EventStoreMsg::GetEventsByCorrId {
@@ -435,28 +435,28 @@ ContextSourceKind::ToolOutput with that corr_id on the next turn to read the res
         );
     }
 
-    async fn spawn_actor_harness(&self, objective: &str, context: serde_json::Value, corr_id: &str) {
+    async fn spawn_harness(&self, objective: &str, context: serde_json::Value, corr_id: &str) {
         info!("ActorAlmPort: spawning subharness corr:{corr_id}");
-        let args = ActorHarnessArguments {
+        let args = HarnessArguments {
             event_store: self.event_store.clone(),
         };
         let spawn_result =
-            Actor::spawn(Some(format!("subharness-{corr_id}")), ActorHarnessActor, args).await;
+            Actor::spawn(Some(format!("subharness-{corr_id}")), HarnessActor, args).await;
 
         match spawn_result {
             Ok((actor_ref, _)) => {
-                let msg = ActorHarnessMsg::Execute {
+                let msg = HarnessMsg::Execute {
                     objective: objective.to_string(),
                     context,
                     correlation_id: corr_id.to_string(),
                     reply_to: self.conductor.clone(),
                 };
                 if let Err(e) = actor_ref.send_message(msg) {
-                    error!("Failed to send ActorHarnessMsg::Execute corr:{corr_id}: {e}");
+                    error!("Failed to send HarnessMsg::Execute corr:{corr_id}: {e}");
                 }
             }
             Err(e) => {
-                error!("Failed to spawn ActorHarnessActor corr:{corr_id}: {e}");
+                error!("Failed to spawn HarnessActor corr:{corr_id}: {e}");
             }
         }
     }

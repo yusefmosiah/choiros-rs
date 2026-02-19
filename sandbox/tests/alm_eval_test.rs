@@ -780,7 +780,7 @@ impl MinimalEvalAdapter {
 #[async_trait::async_trait]
 impl WorkerPort for MinimalEvalAdapter {
     fn get_model_role(&self) -> &str {
-        "actor_harness"
+        "harness"
     }
 
     fn get_tool_description(&self) -> String {

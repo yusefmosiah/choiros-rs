@@ -477,7 +477,7 @@ Use Program when you need data flow between steps."#
         );
     }
 
-    async fn spawn_actor_harness(&self, objective: &str, _context: serde_json::Value, corr_id: &str) {
+    async fn spawn_harness(&self, objective: &str, _context: serde_json::Value, corr_id: &str) {
         println!(
             "  [SPAWN_SUBHARNESS] corr:{corr_id} obj:{}",
             &objective[..objective.len().min(80)]

@@ -9,7 +9,7 @@ pub mod event_store;
 pub mod memory;
 pub mod model_config;
 pub mod researcher;
-pub mod actor_harness_actor;
+pub mod harness_actor;
 pub mod terminal;
 pub mod writer;
 

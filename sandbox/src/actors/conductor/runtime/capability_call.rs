@@ -238,7 +238,7 @@ async fn emit_result_to_writer(
         Ok(CapabilityWorkerOutput::ImmediateResponse(_)) => {
             return;
         }
-        Ok(CapabilityWorkerOutput::Subharness(_)) => {
+        Ok(CapabilityWorkerOutput::Harness(_)) => {
             let writer_content = format!(
                 "Capability failed.\nCapability: {}\nError: unsupported capability output",
                 capability

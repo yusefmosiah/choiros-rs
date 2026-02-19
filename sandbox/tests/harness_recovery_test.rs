@@ -57,7 +57,7 @@ impl AlmPort for RecoveryTestPort {
             return None;
         }
         // Poll EventStore with a 2s timeout — same logic as ActorAlmPort
-        for event_prefix in &["actor_harness.result", "tool.result"] {
+        for event_prefix in &["harness.result", "tool.result"] {
             let result = ractor::call_t!(
                 self.event_store,
                 |reply| EventStoreMsg::GetEventsByCorrId {
@@ -129,7 +129,7 @@ impl AlmPort for RecoveryTestPort {
         });
     }
 
-    async fn spawn_actor_harness(&self, _objective: &str, _ctx: serde_json::Value, _corr_id: &str) {}
+    async fn spawn_harness(&self, _objective: &str, _ctx: serde_json::Value, _corr_id: &str) {}
 }
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
@@ -166,7 +166,7 @@ async fn test_checkpoint_write_and_read() {
         objective: "analyse the codebase and write a report".into(),
         pending_replies: vec![PendingReply {
             corr_id: corr_id.clone(),
-            actor_kind: "actor_harness".into(),
+            actor_kind: "harness".into(),
             objective_summary: "analyse src/actors".into(),
             sent_at: now,
             timeout_at: Some(now + chrono::Duration::seconds(120)),
@@ -266,7 +266,7 @@ async fn test_recovery_resolve_source_after_result_lands() {
     assert!(before.is_none(), "no result before subharness completes");
     println!("  [PRE-RESULT] resolve_source returned None (correct)");
 
-    // Step 2: Simulate subharness completing — write actor_harness.result to EventStore
+    // Step 2: Simulate subharness completing — write harness.result to EventStore
     let result_payload = serde_json::json!({
         "correlation_id": corr_id,
         "corr_id": corr_id,
@@ -278,9 +278,9 @@ async fn test_recovery_resolve_source_after_result_lands() {
     });
     let _ = store.send_message(EventStoreMsg::AppendAsync {
         event: AppendEvent {
-            event_type: "actor_harness.result".into(),
+            event_type: "harness.result".into(),
             payload: result_payload,
-            actor_id: format!("actor_harness:{corr_id}"),
+            actor_id: format!("harness:{corr_id}"),
             user_id: "system".into(),
         },
     });
@@ -294,7 +294,7 @@ async fn test_recovery_resolve_source_after_result_lands() {
         .await;
     assert!(
         after.is_some(),
-        "result available after actor_harness.result event written"
+        "result available after harness.result event written"
     );
     let text = after.unwrap();
     assert!(
@@ -330,7 +330,7 @@ async fn test_recovery_latest_checkpoint_wins() {
         objective: "test".into(),
         pending_replies: vec![PendingReply {
             corr_id: "corr-1".into(),
-            actor_kind: "actor_harness".into(),
+            actor_kind: "harness".into(),
             objective_summary: "branch 1".into(),
             sent_at: now,
             timeout_at: None,
@@ -351,7 +351,7 @@ async fn test_recovery_latest_checkpoint_wins() {
         objective: "test".into(),
         pending_replies: vec![PendingReply {
             corr_id: "corr-3".into(),
-            actor_kind: "actor_harness".into(),
+            actor_kind: "harness".into(),
             objective_summary: "branch 3".into(),
             sent_at: now,
             timeout_at: None,

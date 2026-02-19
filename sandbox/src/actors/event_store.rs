@@ -713,7 +713,7 @@ pub async fn get_event_by_seq(
 }
 
 /// Find events matching a corr_id in their payload.
-/// Optionally filter by event_type prefix (e.g. "tool.result" or "actor_harness.result").
+/// Optionally filter by event_type prefix (e.g. "tool.result" or "harness.result").
 pub async fn get_events_by_corr_id(
     store: &ActorRef<EventStoreMsg>,
     corr_id: impl Into<String>,

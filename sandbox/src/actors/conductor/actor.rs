@@ -129,30 +129,30 @@ impl Actor for ConductorActor {
                 let _ = reply.send(result);
             }
 
-            // Phase 4 — ActorHarnessActor completion messages.
-            ConductorMsg::ActorHarnessComplete {
+            // Phase 4 — HarnessActor completion messages.
+            ConductorMsg::HarnessComplete {
                 correlation_id,
                 result,
             } => {
-                self.handle_actor_harness_complete(state, correlation_id, result)
+                self.handle_harness_complete(state, correlation_id, result)
                     .await?;
             }
-            ConductorMsg::ActorHarnessFailed {
+            ConductorMsg::HarnessFailed {
                 correlation_id,
                 reason,
             } => {
-                self.handle_actor_harness_failed(state, correlation_id, reason)
+                self.handle_harness_failed(state, correlation_id, reason)
                     .await?;
             }
 
-            // Phase 4 — ActorHarnessActor in-flight progress.
-            ConductorMsg::ActorHarnessProgress {
+            // Phase 4 — HarnessActor in-flight progress.
+            ConductorMsg::HarnessProgress {
                 correlation_id,
                 kind,
                 content,
                 metadata,
             } => {
-                self.handle_actor_harness_progress(state, correlation_id, kind, content, metadata)
+                self.handle_harness_progress(state, correlation_id, kind, content, metadata)
                     .await;
             }
         }

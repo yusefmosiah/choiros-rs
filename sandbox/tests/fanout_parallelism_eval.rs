@@ -1,7 +1,7 @@
 //! FanOut parallelism eval — verifies the async dispatch model under load.
 //!
 //! What this tests:
-//! 1. N FanOut branches fire simultaneously via spawn_actor_harness
+//! 1. N FanOut branches fire simultaneously via spawn_harness
 //! 2. Each branch gets a unique corr_id
 //! 3. A checkpoint is written capturing all N pending corr_ids
 //! 4. Results arrive asynchronously (out of order, variable delay)
@@ -63,7 +63,7 @@ impl AlmPort for FanOutTrackingPort {
         if !matches!(kind, ContextSourceKind::ToolOutput) {
             return None;
         }
-        for event_prefix in &["actor_harness.result", "tool.result"] {
+        for event_prefix in &["harness.result", "tool.result"] {
             let result = ractor::call_t!(
                 self.event_store,
                 |reply| EventStoreMsg::GetEventsByCorrId {
@@ -131,7 +131,7 @@ impl AlmPort for FanOutTrackingPort {
         });
     }
 
-    async fn spawn_actor_harness(&self, objective: &str, _ctx: serde_json::Value, corr_id: &str) {
+    async fn spawn_harness(&self, objective: &str, _ctx: serde_json::Value, corr_id: &str) {
         // Record the spawn for timing/ordering assertions
         self.spawned.lock().unwrap().push((
             corr_id.to_string(),
@@ -139,7 +139,7 @@ impl AlmPort for FanOutTrackingPort {
             Instant::now(),
         ));
         // Simulate the subharness writing its result to EventStore asynchronously.
-        // In production, ActorHarnessActor does this after completing its run.
+        // In production, HarnessActor does this after completing its run.
         // Here we do it in a spawned task with a variable delay to prove
         // out-of-order arrival is handled correctly.
         let corr_id_owned = corr_id.to_string();
@@ -169,9 +169,9 @@ impl AlmPort for FanOutTrackingPort {
             });
             let _ = store.send_message(EventStoreMsg::AppendAsync {
                 event: AppendEvent {
-                    event_type: "actor_harness.result".into(),
+                    event_type: "harness.result".into(),
                     payload,
-                    actor_id: format!("actor_harness:{corr_id_owned}"),
+                    actor_id: format!("harness:{corr_id_owned}"),
                     user_id: "system".into(),
                 },
             });
@@ -196,7 +196,7 @@ async fn make_event_store() -> (ractor::ActorRef<EventStoreMsg>, tempfile::TempD
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-/// Fire N branches via spawn_actor_harness, verify all N corr_ids tracked in checkpoint.
+/// Fire N branches via spawn_harness, verify all N corr_ids tracked in checkpoint.
 #[tokio::test]
 async fn test_fanout_all_branches_tracked() {
     const N: usize = 5;
@@ -224,12 +224,12 @@ async fn test_fanout_all_branches_tracked() {
     for i in 0..N {
         let corr_id = format!("fanout-1-{i}");
         let objective = format!("analyse module {i}");
-        port.spawn_actor_harness(&objective, serde_json::Value::Null, &corr_id)
+        port.spawn_harness(&objective, serde_json::Value::Null, &corr_id)
             .await;
         corr_ids.push(corr_id.clone());
         pending_replies.push(PendingReply {
             corr_id: corr_id.clone(),
-            actor_kind: "actor_harness".into(),
+            actor_kind: "harness".into(),
             objective_summary: objective,
             sent_at: now,
             timeout_at: Some(timeout),
@@ -323,7 +323,7 @@ async fn test_fanout_out_of_order_arrival() {
     let mut corr_ids = Vec::new();
     for i in 0..N {
         let corr_id = format!("fanout-ooo-{i}");
-        port.spawn_actor_harness(&format!("task {i}"), serde_json::Value::Null, &corr_id)
+        port.spawn_harness(&format!("task {i}"), serde_json::Value::Null, &corr_id)
             .await;
         corr_ids.push(corr_id);
     }

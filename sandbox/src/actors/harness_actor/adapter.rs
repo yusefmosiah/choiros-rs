@@ -1,4 +1,4 @@
-//! ActorHarnessAdapter — WorkerPort implementation for ActorHarnessActor.
+//! HarnessAdapter — WorkerPort implementation for HarnessActor.
 //!
 //! Provides a scoped execution context with full tool access:
 //! - Tools: bash, web_search, fetch_url, file_read, file_write, file_edit, message_parent
@@ -53,7 +53,7 @@ fn validate_sandbox_path(user_path: &str) -> Result<PathBuf, String> {
     Ok(full_path)
 }
 
-pub struct ActorHarnessAdapter {
+pub struct HarnessAdapter {
     event_store: ActorRef<EventStoreMsg>,
     conductor: ActorRef<ConductorMsg>,
     correlation_id: String,
@@ -63,7 +63,7 @@ pub struct ActorHarnessAdapter {
     shell: String,
 }
 
-impl ActorHarnessAdapter {
+impl HarnessAdapter {
     pub fn new(
         event_store: ActorRef<EventStoreMsg>,
         conductor: ActorRef<ConductorMsg>,
@@ -92,7 +92,7 @@ impl ActorHarnessAdapter {
             event: AppendEvent {
                 event_type: event_type.to_string(),
                 payload,
-                actor_id: format!("actor_harness:{}", self.correlation_id),
+                actor_id: format!("harness:{}", self.correlation_id),
                 user_id: "system".to_string(),
             },
         });
@@ -166,7 +166,7 @@ impl ActorHarnessAdapter {
         // Fire-and-forget to conductor
         let _ = self
             .conductor
-            .send_message(ConductorMsg::ActorHarnessProgress {
+            .send_message(ConductorMsg::HarnessProgress {
                 correlation_id: self.correlation_id.clone(),
                 kind: mode.to_string(),
                 content: content.to_string(),
@@ -175,7 +175,7 @@ impl ActorHarnessAdapter {
 
         // Also persist to event store for observability
         self.emit_event(
-            "actor_harness.parent_message",
+            "harness.parent_message",
             serde_json::json!({
                 "correlation_id": self.correlation_id,
                 "kind": mode,
@@ -189,9 +189,9 @@ impl ActorHarnessAdapter {
 }
 
 #[async_trait]
-impl WorkerPort for ActorHarnessAdapter {
+impl WorkerPort for HarnessAdapter {
     fn get_model_role(&self) -> &str {
-        "actor_harness"
+        "harness"
     }
 
     fn get_tool_description(&self) -> String {
@@ -287,7 +287,7 @@ Guidelines:
                 let timeout_ms: u64 = 30_000;
 
                 self.emit_event(
-                    "actor_harness.bash_call",
+                    "harness.bash_call",
                     serde_json::json!({
                         "correlation_id": self.correlation_id,
                         "command": command,
@@ -575,7 +575,7 @@ Guidelines:
         _report: shared_types::WorkerTurnReport,
     ) -> Result<(), HarnessError> {
         self.emit_event(
-            "actor_harness.worker_report",
+            "harness.worker_report",
             serde_json::json!({
                 "correlation_id": self.correlation_id,
                 "loop_id": ctx.loop_id,
@@ -592,7 +592,7 @@ Guidelines:
         progress: AgentProgress,
     ) -> Result<(), HarnessError> {
         self.emit_event(
-            "actor_harness.progress",
+            "harness.progress",
             serde_json::json!({
                 "correlation_id": self.correlation_id,
                 "loop_id": ctx.loop_id,

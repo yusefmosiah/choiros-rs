@@ -176,7 +176,7 @@ impl AlmPort for MockAlmPort {
         );
     }
 
-    async fn spawn_actor_harness(&self, objective: &str, _context: serde_json::Value, corr_id: &str) {
+    async fn spawn_harness(&self, objective: &str, _context: serde_json::Value, corr_id: &str) {
         println!("[SPAWN_SUBHARNESS] corr:{corr_id} objective:{objective}");
     }
 }
