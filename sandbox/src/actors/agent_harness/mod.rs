@@ -6,7 +6,7 @@
 //! - Structured event emission (started, progress, completed/failed)
 //! - WorkerTurnReport generation at completion
 //!
-//! The `rlm` submodule provides the RLM (Recursive Language Model) harness —
+//! The `rlm` submodule provides the ALM (Agentic Language Model) harness —
 //! the general execution mode where the model composes its own context each turn.
 //! The linear `AgentHarness` loop is a degenerate case of the RLM pattern.
 //!
@@ -32,8 +32,8 @@
 //! let result = harness.run(objective, timeout, max_steps).await?;
 //! ```
 
-pub mod rlm;
-pub mod rlm_port;
+pub mod alm;
+pub mod alm_port;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -340,7 +340,7 @@ pub enum HarnessProfile {
     Worker,
     /// Scoped subharness turns: medium step budget, objective-scoped context,
     /// returns typed completion to conductor.
-    Subharness,
+    ActorHarness,
 }
 
 impl HarnessProfile {
@@ -359,7 +359,7 @@ impl HarnessProfile {
                 emit_progress: true,
                 emit_worker_report: true,
             },
-            HarnessProfile::Subharness => HarnessConfig {
+            HarnessProfile::ActorHarness => HarnessConfig {
                 timeout_budget_ms: 60_000,
                 max_steps: 50,
                 emit_progress: true,
@@ -777,8 +777,7 @@ impl<W: WorkerPort> AgentHarness<W> {
                 if final_summary.is_empty() {
                     final_summary = format!(
                         "Timeout after {}ms. Completed {} steps.",
-                        self.config.timeout_budget_ms,
-                        step_count
+                        self.config.timeout_budget_ms, step_count
                     );
                 }
                 loop_state = AgentLoopState::Blocked;

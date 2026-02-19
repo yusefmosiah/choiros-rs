@@ -400,7 +400,10 @@ impl ResearcherActor {
         run_id: Option<&str>,
         loop_id: &str,
         citations: &[ResearchCitation],
-    ) -> (Vec<String>, Vec<crate::actors::writer::ProposedCitationStub>) {
+    ) -> (
+        Vec<String>,
+        Vec<crate::actors::writer::ProposedCitationStub>,
+    ) {
         let mut emitted_ids = Vec::new();
         let mut stubs = Vec::new();
         for citation in citations {

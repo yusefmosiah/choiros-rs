@@ -5,4 +5,4 @@ pub(crate) mod decision;
 pub(crate) mod durability;
 pub(crate) mod finalize;
 pub(crate) mod start_run;
-pub(crate) mod subharness;
+pub(crate) mod actor_harness;

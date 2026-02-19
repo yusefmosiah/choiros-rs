@@ -1,36 +1,36 @@
 //! RLM Harness Eval — test the actual RLM execution model with real LLM calls.
 //!
-//! Compares RlmHarness (context composition + working memory) against the
+//! Compares AlmHarness (context composition + working memory) against the
 //! linear AgentHarness on identical tasks.
 //!
 //! Run:
 //!   cargo test -p sandbox --test rlm_harness_eval -- --nocapture
 //!   CHOIR_LIVE_MODEL_IDS=KimiK25 cargo test -p sandbox --test rlm_harness_eval -- --nocapture
 
-use sandbox::actors::agent_harness::rlm::{
-    LlmCallResult, RlmConfig, RlmHarness, RlmPort, RlmRunResult, RlmToolExecution,
+use sandbox::actors::agent_harness::alm::{
+    LlmCallResult, AlmConfig, AlmHarness, AlmPort, RlmRunResult, AlmToolExecution,
 };
 use sandbox::actors::model_config::{ModelRegistry, ProviderConfig};
 use sandbox::baml_client::types::ContextSourceKind;
 use sandbox::runtime_env::ensure_tls_cert_env;
+use shared_types;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use shared_types;
 
 // ─── Eval adapter ────────────────────────────────────────────────────────────
 
-struct EvalRlmPort {
+struct EvalAlmPort {
     model_id: String,
 }
 
-impl EvalRlmPort {
+impl EvalAlmPort {
     fn new(model_id: String) -> Self {
         Self { model_id }
     }
 }
 
 #[async_trait::async_trait]
-impl RlmPort for EvalRlmPort {
+impl AlmPort for EvalAlmPort {
     fn capabilities_description(&self) -> String {
         r#"Available tools:
 
@@ -83,13 +83,12 @@ Note: MemoryQuery is not yet available (Phase 5).
         &self,
         tool_name: &str,
         tool_args: &HashMap<String, String>,
-    ) -> RlmToolExecution {
+    ) -> AlmToolExecution {
         let start = Instant::now();
         match tool_name {
             "bash" => {
                 let command = tool_args.get("command").map(|s| s.as_str()).unwrap_or("");
-                let shell =
-                    std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+                let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
                 let result = tokio::time::timeout(
                     Duration::from_secs(15),
                     tokio::process::Command::new(&shell)
@@ -113,7 +112,7 @@ Note: MemoryQuery is not yet available (Phase 5).
                             }
                             combined.push_str(stderr.trim_end());
                         }
-                        RlmToolExecution {
+                        AlmToolExecution {
                             turn: 0,
                             tool_name: "bash".into(),
                             tool_args: tool_args.clone(),
@@ -127,7 +126,7 @@ Note: MemoryQuery is not yet available (Phase 5).
                             elapsed_ms: start.elapsed().as_millis() as u64,
                         }
                     }
-                    Ok(Err(e)) => RlmToolExecution {
+                    Ok(Err(e)) => AlmToolExecution {
                         turn: 0,
                         tool_name: "bash".into(),
                         tool_args: tool_args.clone(),
@@ -136,7 +135,7 @@ Note: MemoryQuery is not yet available (Phase 5).
                         error: Some(format!("exec: {e}")),
                         elapsed_ms: start.elapsed().as_millis() as u64,
                     },
-                    Err(_) => RlmToolExecution {
+                    Err(_) => AlmToolExecution {
                         turn: 0,
                         tool_name: "bash".into(),
                         tool_args: tool_args.clone(),
@@ -150,7 +149,7 @@ Note: MemoryQuery is not yet available (Phase 5).
             "file_read" => {
                 let path = tool_args.get("path").map(|s| s.as_str()).unwrap_or("");
                 match tokio::fs::read_to_string(path).await {
-                    Ok(content) => RlmToolExecution {
+                    Ok(content) => AlmToolExecution {
                         turn: 0,
                         tool_name: "file_read".into(),
                         tool_args: tool_args.clone(),
@@ -159,7 +158,7 @@ Note: MemoryQuery is not yet available (Phase 5).
                         error: None,
                         elapsed_ms: start.elapsed().as_millis() as u64,
                     },
-                    Err(e) => RlmToolExecution {
+                    Err(e) => AlmToolExecution {
                         turn: 0,
                         tool_name: "file_read".into(),
                         tool_args: tool_args.clone(),
@@ -174,7 +173,7 @@ Note: MemoryQuery is not yet available (Phase 5).
                 let path = tool_args.get("path").map(|s| s.as_str()).unwrap_or("");
                 let content = tool_args.get("content").map(|s| s.as_str()).unwrap_or("");
                 match tokio::fs::write(path, content).await {
-                    Ok(_) => RlmToolExecution {
+                    Ok(_) => AlmToolExecution {
                         turn: 0,
                         tool_name: "file_write".into(),
                         tool_args: tool_args.clone(),
@@ -183,7 +182,7 @@ Note: MemoryQuery is not yet available (Phase 5).
                         error: None,
                         elapsed_ms: start.elapsed().as_millis() as u64,
                     },
-                    Err(e) => RlmToolExecution {
+                    Err(e) => AlmToolExecution {
                         turn: 0,
                         tool_name: "file_write".into(),
                         tool_args: tool_args.clone(),
@@ -194,7 +193,7 @@ Note: MemoryQuery is not yet available (Phase 5).
                     },
                 }
             }
-            _ => RlmToolExecution {
+            _ => AlmToolExecution {
                 turn: 0,
                 tool_name: tool_name.into(),
                 tool_args: tool_args.clone(),
@@ -216,7 +215,10 @@ Note: MemoryQuery is not yet available (Phase 5).
         // Real implementation would call BAML with the resolved model
         let start = Instant::now();
         LlmCallResult {
-            output: format!("(eval stub LLM response for prompt of {} chars)", prompt.len()),
+            output: format!(
+                "(eval stub LLM response for prompt of {} chars)",
+                prompt.len()
+            ),
             success: true,
             error: None,
             elapsed_ms: start.elapsed().as_millis() as u64,
@@ -256,12 +258,7 @@ Note: MemoryQuery is not yet available (Phase 5).
         );
     }
 
-    async fn spawn_subharness(
-        &self,
-        objective: &str,
-        _context: serde_json::Value,
-        corr_id: &str,
-    ) {
+    async fn spawn_actor_harness(&self, objective: &str, _context: serde_json::Value, corr_id: &str) {
         // In eval: log spawn but don't actually launch actors (no actor system in eval).
         println!("  [SPAWN_SUBHARNESS] corr:{corr_id} objective:{objective}");
     }
@@ -311,7 +308,10 @@ fn eval_models() -> Vec<String> {
 }
 
 fn print_rlm_result(model_id: &str, scenario: &str, result: &RlmRunResult, elapsed_ms: u64) {
-    println!("\n  --- {model_id} / {scenario} ({elapsed_ms}ms, {} turns) ---", result.turns_taken);
+    println!(
+        "\n  --- {model_id} / {scenario} ({elapsed_ms}ms, {} turns) ---",
+        result.turns_taken
+    );
     println!("  completion: {}", result.completion_reason);
     println!(
         "  tools: {}",
@@ -378,7 +378,7 @@ async fn rlm_harness_basic_scenarios() {
         ),
     ];
 
-    let config = RlmConfig {
+    let config = AlmConfig {
         max_turns: 8,
         max_recurse_depth: 2,
         timeout_budget_ms: 60_000,
@@ -394,14 +394,12 @@ async fn rlm_harness_basic_scenarios() {
             let start = Instant::now();
             println!("\n  running {model_id} / {name}...");
 
-            let port = EvalRlmPort::new(model_id.clone());
-            let harness = RlmHarness::new(port, ModelRegistry::new(), config.clone());
+            let port = EvalAlmPort::new(model_id.clone());
+            let harness = AlmHarness::new(port, ModelRegistry::new(), config.clone());
 
-            let result = tokio::time::timeout(
-                Duration::from_secs(90),
-                harness.run(objective.to_string()),
-            )
-            .await;
+            let result =
+                tokio::time::timeout(Duration::from_secs(90), harness.run(objective.to_string()))
+                    .await;
 
             let elapsed_ms = start.elapsed().as_millis() as u64;
 

@@ -10,9 +10,9 @@ Scope: nine commits plus local uncommitted changes since the previous review.
 
 | Item | Status |
 |---|---|
-| 4.1 SubharnessActor — full actor + typed completion | Done |
-| 4.2 NextAction expansion — `SpawnSubharness` + conductor wiring | Done |
-| 4.3 Conductor RLM harness turn (`HarnessProfile::Conductor`) | Not done |
+| 4.1 ActorHarnessActor — full actor + typed completion | Done |
+| 4.2 NextAction expansion — `SpawnActorHarness` + conductor wiring | Done |
+| 4.3 Conductor ALM harness turn (`HarnessProfile::Conductor`) | Not done |
 | 4.4 Run state durability (`restore_run_states`) | Done |
 | 4.5 ContextSnapshot + MemoryActor `GetContextSnapshot` | Done |
 
@@ -63,7 +63,7 @@ recorded, external content published, `.qwy` citation registry emitted.
 - **Phase 2** — All type definitions: `.qwy` core types (`BlockId`, `QwyDocument`, etc.),
   `CitationKind`/`CitationStatus`/`CitationRecord`, embedding collection records
   (`UserInputRecord`, `VersionSnapshotRecord`, `RunTrajectoryRecord`, etc.),
-  `SubharnessMsg`/`SubharnessResult`, `HarnessProfile`, `WriterSupervisorMsg`
+  `ActorHarnessMsg`/`ActorHarnessResult`, `HarnessProfile`, `WriterSupervisorMsg`
   Resolve/Register/Deregister. Also fixed all 3 pre-existing test failures
   (`test_execute_task_message_missing_workers`, `test_run_agentic_task_times_out_long_command`,
   `test_run_agentic_task_executes_curl_against_local_server`).
@@ -272,7 +272,7 @@ Execution order is explicitly reset to avoid architecture drift: ship real deskt
 
 **Note**: Logging, Watcher, Model Policy, and Researcher baseline are now **operational foundations**, not active milestones. They are available for use by the Prompt Bar -> Conductor execution lane.
 
-## RLM Alignment Slice (2026-02-09)
+## ALM Alignment Slice (2026-02-09)
 
 Objective:
 - Align current harness work with `RLM_INTEGRATION_REPORT.md` and `state_index_addendum.md` so Prompt Bar + Conductor can scale without context drift.

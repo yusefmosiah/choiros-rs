@@ -18,11 +18,11 @@
 //! side-effectful execution (shell, network, agent spawning) routes through
 //! the actor system, not inline.
 //!
-//! **FanOut** — fire N `SubharnessMsg::Execute` messages to the actor
+//! **FanOut** — fire N `ActorHarnessMsg::Execute` messages to the actor
 //! system. Returns correlation IDs immediately (non-blocking). The model
 //! reads results in a subsequent turn via `ContextSourceKind::ToolOutput`.
 //!
-//! **Recurse** — fire 1 `SubharnessMsg::Execute`. Same non-blocking pattern.
+//! **Recurse** — fire 1 `ActorHarnessMsg::Execute`. Same non-blocking pattern.
 //!
 //! **Complete / Block** — terminal actions.
 //!
@@ -52,14 +52,14 @@ pub struct RlmRunResult {
     pub final_working_memory: String,
     pub completion_reason: String,
     pub turns_taken: usize,
-    pub tool_executions: Vec<RlmToolExecution>,
+    pub tool_executions: Vec<AlmToolExecution>,
     pub turn_log: Vec<RlmTurnLog>,
     pub dag_traces: Vec<DagTrace>,
 }
 
 /// Record of a single tool execution within the RLM loop.
 #[derive(Debug, Clone)]
-pub struct RlmToolExecution {
+pub struct AlmToolExecution {
     pub turn: usize,
     pub tool_name: String,
     pub tool_args: HashMap<String, String>,
@@ -103,7 +103,7 @@ pub struct RlmTurnLog {
 
 /// Configuration for the RLM harness.
 #[derive(Debug, Clone)]
-pub struct RlmConfig {
+pub struct AlmConfig {
     pub max_turns: usize,
     pub max_recurse_depth: usize,
     pub timeout_budget_ms: u64,
@@ -111,7 +111,7 @@ pub struct RlmConfig {
     pub max_dag_steps: usize,
 }
 
-impl Default for RlmConfig {
+impl Default for AlmConfig {
     fn default() -> Self {
         Self {
             max_turns: 15,
@@ -136,7 +136,7 @@ pub struct LlmCallResult {
 /// This is the execution boundary — the harness calls the model, the port
 /// executes actions. Analogous to `WorkerPort` but designed for RLM semantics.
 #[async_trait::async_trait]
-pub trait RlmPort: Send + Sync {
+pub trait AlmPort: Send + Sync {
     /// Get the capabilities description (tool list, available resources).
     fn capabilities_description(&self) -> String;
 
@@ -188,7 +188,7 @@ pub trait RlmPort: Send + Sync {
         &self,
         tool_name: &str,
         tool_args: &HashMap<String, String>,
-    ) -> RlmToolExecution;
+    ) -> AlmToolExecution;
 
     /// Execute an LLM call within a DAG step.
     async fn call_llm(
@@ -207,21 +207,16 @@ pub trait RlmPort: Send + Sync {
     /// On crash+restart the supervisor reads the latest checkpoint and recovers.
     async fn write_checkpoint(&self, checkpoint: &shared_types::HarnessCheckpoint);
 
-    /// Fire a `SubharnessMsg::Execute` to the actor system and return immediately.
+    /// Fire a `ActorHarnessMsg::Execute` to the actor system and return immediately.
     ///
     /// This is the FanOut/Recurse execution primitive. The harness calls this
-    /// for each branch; the port sends the message to a fresh SubharnessActor.
+    /// for each branch; the port sends the message to a fresh ActorHarnessActor.
     /// The reply arrives later as a `subharness.result` event in EventStore,
     /// keyed by `corr_id`. The model reads it in a subsequent turn via
     /// `resolve_source(ToolOutput, corr_id)`.
     ///
     /// Implementations must be non-blocking — spawn the actor and return.
-    async fn spawn_subharness(
-        &self,
-        objective: &str,
-        context: serde_json::Value,
-        corr_id: &str,
-    );
+    async fn spawn_actor_harness(&self, objective: &str, context: serde_json::Value, corr_id: &str);
 }
 
 // ─── DAG Executor ────────────────────────────────────────────────────────────
@@ -278,11 +273,7 @@ fn evaluate_gate(predicate: &str, input: &str) -> bool {
 }
 
 /// Execute a Transform step.
-fn execute_transform(
-    transform_op: &str,
-    input: &str,
-    pattern: &str,
-) -> Result<String, String> {
+fn execute_transform(transform_op: &str, input: &str, pattern: &str) -> Result<String, String> {
     match transform_op {
         "regex" => {
             let re = Regex::new(pattern).map_err(|e| format!("regex error: {e}"))?;
@@ -400,12 +391,12 @@ fn topological_sort(steps: &[DagStep]) -> Result<Vec<usize>, String> {
 }
 
 /// Execute a DAG program. Returns a trace and the final step outputs.
-pub async fn execute_dag<P: RlmPort>(
+pub async fn execute_dag<P: AlmPort>(
     port: &P,
     steps: &[DagStep],
     turn: usize,
     max_steps: usize,
-) -> Result<(DagTrace, StepOutputs, Vec<RlmToolExecution>), String> {
+) -> Result<(DagTrace, StepOutputs, Vec<AlmToolExecution>), String> {
     if steps.is_empty() {
         return Ok((
             DagTrace {
@@ -431,7 +422,7 @@ pub async fn execute_dag<P: RlmPort>(
     let mut outputs: StepOutputs = HashMap::new();
     let mut gate_results: HashMap<String, bool> = HashMap::new();
     let mut step_traces: Vec<DagStepTrace> = Vec::new();
-    let mut tool_executions: Vec<RlmToolExecution> = Vec::new();
+    let mut tool_executions: Vec<AlmToolExecution> = Vec::new();
 
     for &idx in &execution_order {
         let step = &steps[idx];
@@ -441,7 +432,10 @@ pub async fn execute_dag<P: RlmPort>(
         if let Some(cond_id) = &step.condition {
             let gate_val = gate_results.get(cond_id.as_str()).copied().unwrap_or(false);
             if !gate_val {
-                debug!("DAG step '{}' skipped (gate '{}' was false)", step.id, cond_id);
+                debug!(
+                    "DAG step '{}' skipped (gate '{}' was false)",
+                    step.id, cond_id
+                );
                 outputs.insert(step.id.clone(), "(skipped)".to_string());
                 step_traces.push(DagStepTrace {
                     step_id: step.id.clone(),
@@ -457,127 +451,126 @@ pub async fn execute_dag<P: RlmPort>(
             }
         }
 
-        let result: Result<String, String> = match step.op {
-            StepOp::ToolCall => {
-                let tool_name = step
-                    .tool_name
-                    .as_deref()
-                    .ok_or_else(|| format!("Step '{}': ToolCall missing tool_name", step.id))?;
-                let raw_args = step.tool_args.as_ref().cloned().unwrap_or_default();
-                // Substitute ${refs} in all arg values
-                let args: HashMap<String, String> = raw_args
-                    .into_iter()
-                    .map(|(k, v)| (k, substitute_refs(&v, &outputs)))
-                    .collect();
+        let result: Result<String, String> =
+            match step.op {
+                StepOp::ToolCall => {
+                    let tool_name = step
+                        .tool_name
+                        .as_deref()
+                        .ok_or_else(|| format!("Step '{}': ToolCall missing tool_name", step.id))?;
+                    let raw_args = step.tool_args.as_ref().cloned().unwrap_or_default();
+                    // Substitute ${refs} in all arg values
+                    let args: HashMap<String, String> = raw_args
+                        .into_iter()
+                        .map(|(k, v)| (k, substitute_refs(&v, &outputs)))
+                        .collect();
 
-                let exec = port.execute_tool(tool_name, &args).await;
-                let output = if exec.success {
-                    exec.output.clone()
-                } else {
-                    format!(
-                        "ERROR: {}",
-                        exec.error.as_deref().unwrap_or("unknown error")
-                    )
-                };
-                let success = exec.success;
-                tool_executions.push(RlmToolExecution {
-                    turn,
-                    ..exec
-                });
-                if success {
-                    Ok(output)
-                } else {
-                    // Tool errors are non-fatal to the DAG — downstream steps
-                    // see the error text and can gate on it
-                    Ok(output)
+                    let exec = port.execute_tool(tool_name, &args).await;
+                    let output = if exec.success {
+                        exec.output.clone()
+                    } else {
+                        format!(
+                            "ERROR: {}",
+                            exec.error.as_deref().unwrap_or("unknown error")
+                        )
+                    };
+                    let success = exec.success;
+                    tool_executions.push(AlmToolExecution { turn, ..exec });
+                    if success {
+                        Ok(output)
+                    } else {
+                        // Tool errors are non-fatal to the DAG — downstream steps
+                        // see the error text and can gate on it
+                        Ok(output)
+                    }
                 }
-            }
 
-            StepOp::LlmCall => {
-                let raw_prompt = step
-                    .prompt
-                    .as_deref()
-                    .ok_or_else(|| format!("Step '{}': LlmCall missing prompt", step.id))?;
-                let prompt = substitute_refs(raw_prompt, &outputs);
-                let system_prompt = step
-                    .system_prompt
-                    .as_deref()
-                    .map(|s| substitute_refs(s, &outputs));
+                StepOp::LlmCall => {
+                    let raw_prompt = step
+                        .prompt
+                        .as_deref()
+                        .ok_or_else(|| format!("Step '{}': LlmCall missing prompt", step.id))?;
+                    let prompt = substitute_refs(raw_prompt, &outputs);
+                    let system_prompt = step
+                        .system_prompt
+                        .as_deref()
+                        .map(|s| substitute_refs(s, &outputs));
 
-                let llm_result = port
-                    .call_llm(
-                        &prompt,
-                        system_prompt.as_deref(),
-                        step.model_hint.as_deref(),
-                    )
-                    .await;
+                    let llm_result = port
+                        .call_llm(
+                            &prompt,
+                            system_prompt.as_deref(),
+                            step.model_hint.as_deref(),
+                        )
+                        .await;
 
-                if llm_result.success {
-                    Ok(llm_result.output)
-                } else {
+                    if llm_result.success {
+                        Ok(llm_result.output)
+                    } else {
+                        Err(format!(
+                            "LLM call failed: {}",
+                            llm_result.error.as_deref().unwrap_or("unknown")
+                        ))
+                    }
+                }
+
+                StepOp::Transform => {
+                    let op = step.transform_op.as_deref().ok_or_else(|| {
+                        format!("Step '{}': Transform missing transform_op", step.id)
+                    })?;
+                    let raw_input = step.transform_input.as_deref().ok_or_else(|| {
+                        format!("Step '{}': Transform missing transform_input", step.id)
+                    })?;
+                    let input = substitute_refs(raw_input, &outputs);
+                    let raw_pattern = step.transform_pattern.as_deref().ok_or_else(|| {
+                        format!("Step '{}': Transform missing transform_pattern", step.id)
+                    })?;
+                    let pattern = substitute_refs(raw_pattern, &outputs);
+
+                    execute_transform(op, &input, &pattern)
+                }
+
+                StepOp::Gate => {
+                    let predicate = step.gate_predicate.as_deref().ok_or_else(|| {
+                        format!("Step '{}': Gate missing gate_predicate", step.id)
+                    })?;
+                    // Gate input is the output of the first dependency
+                    let dep_output = step
+                        .depends_on
+                        .first()
+                        .and_then(|dep_id| outputs.get(dep_id))
+                        .map(|s| s.as_str())
+                        .unwrap_or("");
+
+                    let gate_value = evaluate_gate(predicate, dep_output);
+                    gate_results.insert(step.id.clone(), gate_value);
+
+                    Ok(format!("{gate_value}"))
+                }
+
+                StepOp::Emit => {
+                    let raw_msg = step
+                        .emit_message
+                        .as_deref()
+                        .ok_or_else(|| format!("Step '{}': Emit missing emit_message", step.id))?;
+                    let msg = substitute_refs(raw_msg, &outputs);
+                    port.emit_message(&msg).await;
+                    Ok(format!("(emitted: {})", truncate_str(&msg, 200)))
+                }
+
+                StepOp::Eval => {
+                    // Eval is a placeholder for Phase 4.5: async execution via
+                    // TerminalActor message (non-blocking, returns corr_id).
+                    // For now, surface the code field so the model can see what
+                    // it requested, pending actor-message wiring.
+                    let code = step.eval_code.as_deref().unwrap_or("(no code)");
                     Err(format!(
-                        "LLM call failed: {}",
-                        llm_result.error.as_deref().unwrap_or("unknown")
+                        "StepOp::Eval not yet wired to TerminalActor. \
+                     Code was: {}",
+                        &code[..code.len().min(200)]
                     ))
                 }
-            }
-
-            StepOp::Transform => {
-                let op = step.transform_op.as_deref().ok_or_else(|| {
-                    format!("Step '{}': Transform missing transform_op", step.id)
-                })?;
-                let raw_input = step.transform_input.as_deref().ok_or_else(|| {
-                    format!("Step '{}': Transform missing transform_input", step.id)
-                })?;
-                let input = substitute_refs(raw_input, &outputs);
-                let raw_pattern = step.transform_pattern.as_deref().ok_or_else(|| {
-                    format!("Step '{}': Transform missing transform_pattern", step.id)
-                })?;
-                let pattern = substitute_refs(raw_pattern, &outputs);
-
-                execute_transform(op, &input, &pattern)
-            }
-
-            StepOp::Gate => {
-                let predicate = step.gate_predicate.as_deref().ok_or_else(|| {
-                    format!("Step '{}': Gate missing gate_predicate", step.id)
-                })?;
-                // Gate input is the output of the first dependency
-                let dep_output = step
-                    .depends_on
-                    .first()
-                    .and_then(|dep_id| outputs.get(dep_id))
-                    .map(|s| s.as_str())
-                    .unwrap_or("");
-
-                let gate_value = evaluate_gate(predicate, dep_output);
-                gate_results.insert(step.id.clone(), gate_value);
-
-                Ok(format!("{gate_value}"))
-            }
-
-            StepOp::Emit => {
-                let raw_msg = step.emit_message.as_deref().ok_or_else(|| {
-                    format!("Step '{}': Emit missing emit_message", step.id)
-                })?;
-                let msg = substitute_refs(raw_msg, &outputs);
-                port.emit_message(&msg).await;
-                Ok(format!("(emitted: {})", truncate_str(&msg, 200)))
-            }
-
-            StepOp::Eval => {
-                // Eval is a placeholder for Phase 4.5: async execution via
-                // TerminalActor message (non-blocking, returns corr_id).
-                // For now, surface the code field so the model can see what
-                // it requested, pending actor-message wiring.
-                let code = step.eval_code.as_deref().unwrap_or("(no code)");
-                Err(format!(
-                    "StepOp::Eval not yet wired to TerminalActor. \
-                     Code was: {}",
-                    &code[..code.len().min(200)]
-                ))
-            }
-        };
+            };
 
         let elapsed_ms = step_start.elapsed().as_millis() as u64;
 
@@ -632,14 +625,14 @@ pub async fn execute_dag<P: RlmPort>(
 
 // ─── The RLM Harness ─────────────────────────────────────────────────────────
 
-pub struct RlmHarness<P: RlmPort> {
+pub struct AlmHarness<P: AlmPort> {
     port: P,
     model_registry: ModelRegistry,
-    config: RlmConfig,
+    config: AlmConfig,
 }
 
-impl<P: RlmPort> RlmHarness<P> {
-    pub fn new(port: P, model_registry: ModelRegistry, config: RlmConfig) -> Self {
+impl<P: AlmPort> AlmHarness<P> {
+    pub fn new(port: P, model_registry: ModelRegistry, config: AlmConfig) -> Self {
         Self {
             port,
             model_registry,
@@ -659,10 +652,7 @@ impl<P: RlmPort> RlmHarness<P> {
         self.run_inner(objective).await
     }
 
-    async fn run_inner(
-        &self,
-        objective: String,
-    ) -> Result<RlmRunResult, String> {
+    async fn run_inner(&self, objective: String) -> Result<RlmRunResult, String> {
         let model_id = self.port.model_id();
         let client_registry = self
             .model_registry
@@ -674,7 +664,7 @@ impl<P: RlmPort> RlmHarness<P> {
         let mut assembled_context: Option<String> = None;
         let mut action_results: Option<String> = None;
         let mut turn_history: Vec<String> = Vec::new();
-        let mut all_tool_executions: Vec<RlmToolExecution> = Vec::new();
+        let mut all_tool_executions: Vec<AlmToolExecution> = Vec::new();
         let mut all_dag_traces: Vec<DagTrace> = Vec::new();
         let mut turn_log: Vec<RlmTurnLog> = Vec::new();
         // Durability tracking
@@ -703,7 +693,8 @@ impl<P: RlmPort> RlmHarness<P> {
                     final_working_memory: working_memory.unwrap_or_default(),
                     completion_reason: format!(
                         "timeout: exceeded {}ms budget after {} turns",
-                        self.config.timeout_budget_ms, turn - 1
+                        self.config.timeout_budget_ms,
+                        turn - 1
                     ),
                     turns_taken: turn - 1,
                     tool_executions: all_tool_executions,
@@ -856,14 +847,7 @@ impl<P: RlmPort> RlmHarness<P> {
                 NextActionKind::Program => {
                     // The computationally universal case: execute a DAG.
                     let steps = action.program.as_deref().unwrap_or(&[]);
-                    match execute_dag(
-                        &self.port,
-                        steps,
-                        turn,
-                        self.config.max_dag_steps,
-                    )
-                    .await
-                    {
+                    match execute_dag(&self.port, steps, turn, self.config.max_dag_steps).await {
                         Ok((trace, _outputs, tool_execs)) => {
                             // Build action results summary from the trace
                             let mut summary_parts: Vec<String> = Vec::new();
@@ -886,8 +870,7 @@ impl<P: RlmPort> RlmHarness<P> {
                             all_dag_traces.push(trace);
                         }
                         Err(dag_err) => {
-                            action_results =
-                                Some(format!("[DAG EXECUTION ERROR] {dag_err}"));
+                            action_results = Some(format!("[DAG EXECUTION ERROR] {dag_err}"));
                         }
                     }
                 }
@@ -917,17 +900,19 @@ impl<P: RlmPort> RlmHarness<P> {
                             let corr_id = format!("fanout-{turn}-{i}");
                             info!("FanOut branch {i}: dispatching subharness corr:{corr_id}");
                             // Build context JSON from optional context_seed string
-                            let ctx = b.context_seed.as_deref()
+                            let ctx = b
+                                .context_seed
+                                .as_deref()
                                 .map(|s| serde_json::json!({ "seed": s }))
                                 .unwrap_or(serde_json::Value::Null);
-                            // Fire-and-forget: port sends SubharnessMsg::Execute and returns immediately
+                            // Fire-and-forget: port sends ActorHarnessMsg::Execute and returns immediately
                             self.port
-                                .spawn_subharness(&b.objective, ctx, &corr_id)
+                                .spawn_actor_harness(&b.objective, ctx, &corr_id)
                                 .await;
                             pending_corr_ids.push(corr_id.clone());
                             pending_replies.push(shared_types::PendingReply {
                                 corr_id: corr_id.clone(),
-                                actor_kind: "subharness".to_string(),
+                                actor_kind: "actor_harness".to_string(),
                                 objective_summary: truncate_str(&b.objective, 120).to_string(),
                                 sent_at: now,
                                 timeout_at: Some(timeout),
@@ -972,12 +957,12 @@ impl<P: RlmPort> RlmHarness<P> {
                         info!("Recurse dispatching subharness corr:{corr_id}");
                         // Fire-and-forget: same non-blocking pattern as FanOut
                         self.port
-                            .spawn_subharness(&recurse_obj, recurse_ctx, &corr_id)
+                            .spawn_actor_harness(&recurse_obj, recurse_ctx, &corr_id)
                             .await;
                         pending_corr_ids.push(corr_id.clone());
                         pending_replies.push(shared_types::PendingReply {
                             corr_id: corr_id.clone(),
-                            actor_kind: "subharness".to_string(),
+                            actor_kind: "actor_harness".to_string(),
                             objective_summary: truncate_str(&recurse_obj, 120).to_string(),
                             sent_at: now,
                             timeout_at: Some(now + Duration::seconds(120)),
@@ -1099,7 +1084,10 @@ mod tests {
         outputs.insert("analyze".to_string(), "analysis result".to_string());
 
         let result = substitute_refs("Input: ${read}\nAnalysis: ${analyze}", &outputs);
-        assert_eq!(result, "Input: file contents here\nAnalysis: analysis result");
+        assert_eq!(
+            result,
+            "Input: file contents here\nAnalysis: analysis result"
+        );
     }
 
     #[test]
@@ -1118,7 +1106,10 @@ mod tests {
 
     #[test]
     fn test_evaluate_gate_contains() {
-        assert!(evaluate_gate("contains:CRITICAL", "Found CRITICAL issue in auth"));
+        assert!(evaluate_gate(
+            "contains:CRITICAL",
+            "Found CRITICAL issue in auth"
+        ));
         assert!(!evaluate_gate("contains:CRITICAL", "All looks fine"));
     }
 

@@ -1241,8 +1241,7 @@ impl WriterActor {
                     });
                     let _ = state.event_store.cast(EventStoreMsg::AppendAsync {
                         event: AppendEvent {
-                            event_type: shared_types::EVENT_TOPIC_QWY_CITATION_REGISTRY
-                                .to_string(),
+                            event_type: shared_types::EVENT_TOPIC_QWY_CITATION_REGISTRY.to_string(),
                             payload,
                             actor_id: state.writer_id.clone(),
                             user_id: state.user_id.clone(),
@@ -1886,8 +1885,7 @@ impl WriterActor {
                     });
                     let _ = state.event_store.cast(EventStoreMsg::AppendAsync {
                         event: AppendEvent {
-                            event_type: shared_types::EVENT_TOPIC_QWY_CITATION_REGISTRY
-                                .to_string(),
+                            event_type: shared_types::EVENT_TOPIC_QWY_CITATION_REGISTRY.to_string(),
                             payload,
                             actor_id: state.writer_id.clone(),
                             user_id: state.user_id.clone(),

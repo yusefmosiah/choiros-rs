@@ -22,7 +22,7 @@ use ractor::Actor;
 use uuid::Uuid;
 
 use sandbox::actors::conductor::actor::{ConductorActor, ConductorArguments};
-use sandbox::actors::conductor::protocol::{ConductorMsg};
+use sandbox::actors::conductor::protocol::ConductorMsg;
 use sandbox::actors::event_store::{
     AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg,
 };
@@ -154,9 +154,18 @@ async fn test_conductor_restores_multiple_runs_after_restart() {
     let (event_store, _tmp) = make_event_store().await;
 
     let runs: Vec<(String, &str)> = vec![
-        (format!("run-a-{}", Uuid::new_v4().as_simple()), "write report"),
-        (format!("run-b-{}", Uuid::new_v4().as_simple()), "analyse logs"),
-        (format!("run-c-{}", Uuid::new_v4().as_simple()), "deploy service"),
+        (
+            format!("run-a-{}", Uuid::new_v4().as_simple()),
+            "write report",
+        ),
+        (
+            format!("run-b-{}", Uuid::new_v4().as_simple()),
+            "analyse logs",
+        ),
+        (
+            format!("run-c-{}", Uuid::new_v4().as_simple()),
+            "deploy service",
+        ),
     ];
 
     // Write all three run.started events
@@ -193,7 +202,10 @@ async fn test_conductor_restores_multiple_runs_after_restart() {
             "run '{run_id}' must be Blocked, got: {:?}",
             run.status
         );
-        assert_eq!(&run.objective, objective, "objective must match for run '{run_id}'");
+        assert_eq!(
+            &run.objective, objective,
+            "objective must match for run '{run_id}'"
+        );
 
         println!("  [MULTI-RESTORE] run:{run_id} status:{:?}", run.status);
     }
@@ -238,7 +250,10 @@ async fn test_conductor_does_not_duplicate_on_duplicate_run_started_events() {
         "duplicated run must still be Blocked"
     );
 
-    println!("  [DEDUP] Duplicate run.started events handled — single entry, status: {:?}", run.status);
+    println!(
+        "  [DEDUP] Duplicate run.started events handled — single entry, status: {:?}",
+        run.status
+    );
 }
 
 /// An event with a missing `run_id` field in its payload is silently skipped.
@@ -339,8 +354,13 @@ async fn test_conductor_accepts_new_run_after_recovery() {
     let restored_run_id = format!("run-restored-{}", Uuid::new_v4().as_simple());
 
     // Pre-crash state: one run was active
-    write_run_started_event(&event_store, &restored_run_id, "pre-crash objective", "desktop-1")
-        .await;
+    write_run_started_event(
+        &event_store,
+        &restored_run_id,
+        "pre-crash objective",
+        "desktop-1",
+    )
+    .await;
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     // Restart conductor

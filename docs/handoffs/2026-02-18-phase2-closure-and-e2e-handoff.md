@@ -38,11 +38,11 @@ No runtime behavior was added — types only.
 - `UserInputRecord`, `VersionSnapshotRecord`, `RunTrajectoryRecord`
 - `DocTrajectoryRecord`, `ExternalContentRecord`, `GlobalExternalContentRecord`
 
-**2.4 SubharnessActor message types** (sandbox/actors/conductor/protocol.rs):
-- `SubharnessMsg::Execute`
+**2.4 ActorHarnessActor message types** (sandbox/actors/conductor/protocol.rs):
+- `ActorHarnessMsg::Execute`
 - `ConductorMsg::SubharnessComplete`, `ConductorMsg::SubharnessFailed` (stub handlers in actor.rs)
-- `SubharnessResult` struct
-- `CapabilityWorkerOutput::Subharness` promoted from unit → `Subharness(SubharnessResult)`
+- `ActorHarnessResult` struct
+- `CapabilityWorkerOutput::Subharness` promoted from unit → `Subharness(ActorHarnessResult)`
 
 **2.5 HarnessProfile** (sandbox/actors/agent_harness/mod.rs):
 - `HarnessProfile` enum: `Conductor` | `Worker` | `Subharness`
@@ -166,7 +166,7 @@ Once tests are green and E2E is passing:
 
 ```bash
 git add -A
-git commit -m "Phase 2: type definitions (.qwy, Citation, embeddings, SubharnessActor, HarnessProfile, WriterSupervisor); Phase 1 code review cleanup"
+git commit -m "Phase 2: type definitions (.qwy, Citation, embeddings, ActorHarnessActor, HarnessProfile, WriterSupervisor); Phase 1 code review cleanup"
 ```
 
 Then begin Phase 3 per the runbook (`docs/architecture/2026-02-17-codesign-runbook.md`):
@@ -190,7 +190,7 @@ docs/handoffs/2026-02-18-phase2-closure-and-e2e-handoff.md — this file
 # Phase 2 type files (all new or extended)
 shared-types/src/lib.rs                            — .qwy + citation + embedding types
 baml_src/types.baml                                — CitationKind enum, Citation class
-sandbox/src/actors/conductor/protocol.rs           — SubharnessMsg, SubharnessResult, ConductorMsg variants
+sandbox/src/actors/conductor/protocol.rs           — ActorHarnessMsg, ActorHarnessResult, ConductorMsg variants
 sandbox/src/actors/agent_harness/mod.rs            — HarnessProfile enum
 sandbox/src/supervisor/writer.rs                   — WriterSupervisorMsg Resolve/Register/Deregister
 

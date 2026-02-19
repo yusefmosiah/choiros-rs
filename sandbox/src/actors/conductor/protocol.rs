@@ -52,28 +52,28 @@ pub enum ConductorMsg {
     },
 
     // -----------------------------------------------------------------------
-    // Phase 2.4 — SubharnessActor completion messages
+    // Phase 2.4 — ActorHarnessActor completion messages
     // -----------------------------------------------------------------------
-    /// A SubharnessActor completed its objective successfully.
-    SubharnessComplete {
+    /// A ActorHarnessActor completed its objective successfully.
+    ActorHarnessComplete {
         /// Opaque correlation handle supplied at spawn time.
         correlation_id: String,
-        result: SubharnessResult,
+        result: ActorHarnessResult,
     },
-    /// A SubharnessActor failed (panicked or returned an error).
-    SubharnessFailed {
+    /// A ActorHarnessActor failed (panicked or returned an error).
+    ActorHarnessFailed {
         correlation_id: String,
         reason: String,
     },
 
     // -----------------------------------------------------------------------
-    // Phase 4 — SubharnessActor in-flight progress
+    // Phase 4 — ActorHarnessActor in-flight progress
     // -----------------------------------------------------------------------
-    /// Intermediate progress report from a running SubharnessActor.
+    /// Intermediate progress report from a running ActorHarnessActor.
     ///
     /// Sent via the `message_writer` tool reinterpreted as parent messaging.
     /// Non-blocking — conductor logs/persists but does not reply.
-    SubharnessProgress {
+    ActorHarnessProgress {
         correlation_id: String,
         /// Report kind: "progress", "status", "finding", etc.
         kind: String,
@@ -100,19 +100,19 @@ pub enum CapabilityWorkerOutput {
     Terminal(TerminalAgentResult),
     Writer(WriterOrchestrationResult),
     ImmediateResponse(String),
-    Subharness(SubharnessResult),
+    Subharness(ActorHarnessResult),
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2.4 — SubharnessActor types
+// Phase 2.4 — ActorHarnessActor types
 // ---------------------------------------------------------------------------
 
-/// Messages handled by SubharnessActor.
+/// Messages handled by ActorHarnessActor.
 ///
-/// SubharnessActor is a one-shot actor: it receives a single `Execute`
+/// ActorHarnessActor is a one-shot actor: it receives a single `Execute`
 /// message, runs to completion, sends a typed reply to conductor, then stops.
 #[derive(Debug)]
-pub enum SubharnessMsg {
+pub enum ActorHarnessMsg {
     /// Execute a scoped objective.
     Execute {
         /// Plain-language objective for this subharness run.
@@ -126,9 +126,9 @@ pub enum SubharnessMsg {
     },
 }
 
-/// Completion payload returned by a SubharnessActor.
+/// Completion payload returned by a ActorHarnessActor.
 #[derive(Debug, Clone)]
-pub struct SubharnessResult {
+pub struct ActorHarnessResult {
     /// Final output text (markdown, JSON, or plain prose).
     pub output: String,
     /// Citations produced during the subharness run.
@@ -167,11 +167,11 @@ pub enum NextAction {
     Complete { reason: String },
     /// Run is blocked and cannot proceed.
     Block { reason: String },
-    /// Spawn a `SubharnessActor` for a bounded scoped task.
-    SpawnSubharness {
+    /// Spawn a `ActorHarnessActor` for a bounded scoped task.
+    SpawnActorHarness {
         /// Plain-language task description for the sub-agent.
         task: String,
-        /// Context bundle (JSON) passed to SubharnessActor.
+        /// Context bundle (JSON) passed to ActorHarnessActor.
         context: serde_json::Value,
     },
     /// Delegate a task to a named worker kind.
@@ -187,7 +187,7 @@ pub enum WorkerKind {
     Researcher,
     Writer,
     Terminal,
-    Subharness,
+    ActorHarness,
 }
 
 impl std::fmt::Display for WorkerKind {
@@ -196,7 +196,7 @@ impl std::fmt::Display for WorkerKind {
             WorkerKind::Researcher => write!(f, "researcher"),
             WorkerKind::Writer => write!(f, "writer"),
             WorkerKind::Terminal => write!(f, "terminal"),
-            WorkerKind::Subharness => write!(f, "subharness"),
+            WorkerKind::ActorHarness => write!(f, "actor_harness"),
         }
     }
 }

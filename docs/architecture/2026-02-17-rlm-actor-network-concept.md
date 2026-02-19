@@ -1,4 +1,4 @@
-# RLM Actor Network: Conceptual Architecture
+# ALM Actor Network: Conceptual Architecture
 
 **Date:** 2026-02-17
 **Status:** Research / Conceptual
@@ -18,7 +18,7 @@
 
 **Security stance:** RLM doesn't introduce new attack vectors beyond existing LLM risks (prompt injection, data exfil). The recursive capability is exercised through typed actor messages, not arbitrary code execution. The security boundary remains the microVM.
 
-**Model contracts:** ChoirOS defines capability contracts at three levels—System (RLM harness), Harness (Conductor/Terminal/Researcher), and Task (specific objective). These are API documentation, not role assignments.
+**Model contracts:** ChoirOS defines capability contracts at three levels—System (ALM harness), Harness (Conductor/Terminal/Researcher), and Task (specific objective). These are API documentation, not role assignments.
 
 ---
 
@@ -26,13 +26,13 @@
 
 ### Traditional vs RLM Execution
 
-| Aspect | Traditional Agent | RLM Actor Network |
+| Aspect | Traditional Agent | ALM Actor Network |
 |--------|------------------|-------------------|
 | **Context** | Append-only message history | Model-composed per turn from documents |
 | **Topology** | Linear: decide → execute → loop | Model-controlled: parallel, speculative, recursive |
 | **Delegation** | Function calls in same process | Actor messages across microVMs |
 | **State** | Accumulating context window | Document store + working memory |
-| **Default** | Simple loop is the easy path | RLM is the default; simple loops are `NextAction::ToolCalls` |
+| **Default** | Simple loop is the easy path | ALM is the default; simple loops are `NextAction::ToolCalls` |
 
 ### The RLM as Default
 
@@ -151,7 +151,7 @@ The sub-harness is an actor. It may run in:
 3. **Live upgrade:** Zero-downtime code updates for long-running agents
 4. **RLM delegation:** Cross-sandbox recursion for security isolation
 
-### RLM Delegation Across MicroVMs
+### ALM Delegation Across MicroVMs
 
 ```rust
 // Conductor in MicroVM A decides to delegate
@@ -358,7 +358,7 @@ Even self-prompting models need to understand their capabilities. This is not ro
 ### System Contract Template
 
 ```
-You are operating within a Recursive Language Model (RLM) harness.
+You are operating within a Agentic Language Model (ALM) harness.
 
 CAPABILITIES
 
@@ -475,7 +475,7 @@ ChoirOS contracts with models at multiple levels:
 │  LEVEL 1: SYSTEM CONTRACT                                    │
 │  (Invariant across all ChoirOS interactions)                │
 │                                                              │
-│  - You operate in an RLM harness                            │
+│  - You operate in an ALM harness                            │
 │  - You may compose context and control topology             │
 │  - Episodic memory is available via query                   │
 │  - Filesystem is truth; memory is resonance                 │

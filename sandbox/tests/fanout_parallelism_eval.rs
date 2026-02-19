@@ -1,7 +1,7 @@
 //! FanOut parallelism eval — verifies the async dispatch model under load.
 //!
 //! What this tests:
-//! 1. N FanOut branches fire simultaneously via spawn_subharness
+//! 1. N FanOut branches fire simultaneously via spawn_actor_harness
 //! 2. Each branch gets a unique corr_id
 //! 3. A checkpoint is written capturing all N pending corr_ids
 //! 4. Results arrive asynchronously (out of order, variable delay)
@@ -21,10 +21,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use sandbox::actors::agent_harness::alm::{LlmCallResult, AlmPort, AlmToolExecution};
 use sandbox::actors::event_store::{
     AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg,
 };
-use sandbox::actors::agent_harness::rlm::{LlmCallResult, RlmPort, RlmToolExecution};
 use sandbox::baml_client::types::ContextSourceKind;
 
 // ─── FanOut tracking port ────────────────────────────────────────────────────
@@ -40,11 +40,19 @@ struct FanOutTrackingPort {
 }
 
 #[async_trait::async_trait]
-impl RlmPort for FanOutTrackingPort {
-    fn capabilities_description(&self) -> String { "fanout-eval".into() }
-    fn model_id(&self) -> &str { "test" }
-    fn run_id(&self) -> &str { &self.run_id }
-    fn actor_id(&self) -> &str { &self.actor_id }
+impl AlmPort for FanOutTrackingPort {
+    fn capabilities_description(&self) -> String {
+        "fanout-eval".into()
+    }
+    fn model_id(&self) -> &str {
+        "test"
+    }
+    fn run_id(&self) -> &str {
+        &self.run_id
+    }
+    fn actor_id(&self) -> &str {
+        &self.actor_id
+    }
 
     async fn resolve_source(
         &self,
@@ -55,7 +63,7 @@ impl RlmPort for FanOutTrackingPort {
         if !matches!(kind, ContextSourceKind::ToolOutput) {
             return None;
         }
-        for event_prefix in &["subharness.result", "tool.result"] {
+        for event_prefix in &["actor_harness.result", "tool.result"] {
             let result = ractor::call_t!(
                 self.event_store,
                 |reply| EventStoreMsg::GetEventsByCorrId {
@@ -81,15 +89,29 @@ impl RlmPort for FanOutTrackingPort {
         None
     }
 
-    async fn execute_tool(&self, tool_name: &str, tool_args: &HashMap<String, String>) -> RlmToolExecution {
-        RlmToolExecution {
-            turn: 0, tool_name: tool_name.into(), tool_args: tool_args.clone(),
-            success: false, output: String::new(), error: Some("not used".into()), elapsed_ms: 0,
+    async fn execute_tool(
+        &self,
+        tool_name: &str,
+        tool_args: &HashMap<String, String>,
+    ) -> AlmToolExecution {
+        AlmToolExecution {
+            turn: 0,
+            tool_name: tool_name.into(),
+            tool_args: tool_args.clone(),
+            success: false,
+            output: String::new(),
+            error: Some("not used".into()),
+            elapsed_ms: 0,
         }
     }
 
     async fn call_llm(&self, _p: &str, _s: Option<&str>, _h: Option<&str>) -> LlmCallResult {
-        LlmCallResult { output: String::new(), success: false, error: None, elapsed_ms: 0 }
+        LlmCallResult {
+            output: String::new(),
+            success: false,
+            error: None,
+            elapsed_ms: 0,
+        }
     }
 
     async fn emit_message(&self, _msg: &str) {}
@@ -109,7 +131,7 @@ impl RlmPort for FanOutTrackingPort {
         });
     }
 
-    async fn spawn_subharness(&self, objective: &str, _ctx: serde_json::Value, corr_id: &str) {
+    async fn spawn_actor_harness(&self, objective: &str, _ctx: serde_json::Value, corr_id: &str) {
         // Record the spawn for timing/ordering assertions
         self.spawned.lock().unwrap().push((
             corr_id.to_string(),
@@ -117,7 +139,7 @@ impl RlmPort for FanOutTrackingPort {
             Instant::now(),
         ));
         // Simulate the subharness writing its result to EventStore asynchronously.
-        // In production, SubharnessActor does this after completing its run.
+        // In production, ActorHarnessActor does this after completing its run.
         // Here we do it in a spawned task with a variable delay to prove
         // out-of-order arrival is handled correctly.
         let corr_id_owned = corr_id.to_string();
@@ -147,9 +169,9 @@ impl RlmPort for FanOutTrackingPort {
             });
             let _ = store.send_message(EventStoreMsg::AppendAsync {
                 event: AppendEvent {
-                    event_type: "subharness.result".into(),
+                    event_type: "actor_harness.result".into(),
                     payload,
-                    actor_id: format!("subharness:{corr_id_owned}"),
+                    actor_id: format!("actor_harness:{corr_id_owned}"),
                     user_id: "system".into(),
                 },
             });
@@ -174,7 +196,7 @@ async fn make_event_store() -> (ractor::ActorRef<EventStoreMsg>, tempfile::TempD
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-/// Fire N branches via spawn_subharness, verify all N corr_ids tracked in checkpoint.
+/// Fire N branches via spawn_actor_harness, verify all N corr_ids tracked in checkpoint.
 #[tokio::test]
 async fn test_fanout_all_branches_tracked() {
     const N: usize = 5;
@@ -202,11 +224,12 @@ async fn test_fanout_all_branches_tracked() {
     for i in 0..N {
         let corr_id = format!("fanout-1-{i}");
         let objective = format!("analyse module {i}");
-        port.spawn_subharness(&objective, serde_json::Value::Null, &corr_id).await;
+        port.spawn_actor_harness(&objective, serde_json::Value::Null, &corr_id)
+            .await;
         corr_ids.push(corr_id.clone());
         pending_replies.push(PendingReply {
             corr_id: corr_id.clone(),
-            actor_kind: "subharness".into(),
+            actor_kind: "actor_harness".into(),
             objective_summary: objective,
             sent_at: now,
             timeout_at: Some(timeout),
@@ -214,7 +237,11 @@ async fn test_fanout_all_branches_tracked() {
     }
     let dispatch_elapsed = dispatch_start.elapsed();
 
-    println!("  [FANOUT] dispatched {} branches in {}ms", N, dispatch_elapsed.as_millis());
+    println!(
+        "  [FANOUT] dispatched {} branches in {}ms",
+        N,
+        dispatch_elapsed.as_millis()
+    );
 
     // Dispatch must be fast — all N fire-and-forget sends complete before any result arrives
     assert!(
@@ -241,7 +268,10 @@ async fn test_fanout_all_branches_tracked() {
     assert_eq!(spawns.len(), N, "all {N} branches spawned");
     let spawned_ids: Vec<&str> = spawns.iter().map(|(id, _, _)| id.as_str()).collect();
     for id in &corr_ids {
-        assert!(spawned_ids.contains(&id.as_str()), "corr_id {id} was spawned");
+        assert!(
+            spawned_ids.contains(&id.as_str()),
+            "corr_id {id} was spawned"
+        );
     }
     println!("  [SPAWNED] {:?}", spawned_ids);
     drop(spawns);
@@ -253,17 +283,25 @@ async fn test_fanout_all_branches_tracked() {
     let resolve_start = Instant::now();
     let mut resolved = 0;
     for id in &corr_ids {
-        let result = port.resolve_source(&ContextSourceKind::ToolOutput, id, None).await;
+        let result = port
+            .resolve_source(&ContextSourceKind::ToolOutput, id, None)
+            .await;
         if result.is_some() {
             resolved += 1;
             let text = result.unwrap();
-            println!("  [RESOLVED] corr:{id} -> '{}'", &text[..40.min(text.len())]);
+            println!(
+                "  [RESOLVED] corr:{id} -> '{}'",
+                &text[..40.min(text.len())]
+            );
         } else {
             println!("  [MISSING] corr:{id}");
         }
     }
     let resolve_elapsed = resolve_start.elapsed();
-    println!("  [RESOLVE] resolved {resolved}/{N} in {}ms", resolve_elapsed.as_millis());
+    println!(
+        "  [RESOLVE] resolved {resolved}/{N} in {}ms",
+        resolve_elapsed.as_millis()
+    );
     assert_eq!(resolved, N, "all {N} results arrived and are resolvable");
 }
 
@@ -285,12 +323,8 @@ async fn test_fanout_out_of_order_arrival() {
     let mut corr_ids = Vec::new();
     for i in 0..N {
         let corr_id = format!("fanout-ooo-{i}");
-        port.spawn_subharness(
-            &format!("task {i}"),
-            serde_json::Value::Null,
-            &corr_id,
-        )
-        .await;
+        port.spawn_actor_harness(&format!("task {i}"), serde_json::Value::Null, &corr_id)
+            .await;
         corr_ids.push(corr_id);
     }
 
@@ -300,12 +334,20 @@ async fn test_fanout_out_of_order_arrival() {
 
     let mut resolved_order = Vec::new();
     for id in &corr_ids {
-        if port.resolve_source(&ContextSourceKind::ToolOutput, id, None).await.is_some() {
+        if port
+            .resolve_source(&ContextSourceKind::ToolOutput, id, None)
+            .await
+            .is_some()
+        {
             resolved_order.push(id.as_str());
         }
     }
 
-    assert_eq!(resolved_order.len(), N, "all {N} out-of-order results resolved");
+    assert_eq!(
+        resolved_order.len(),
+        N,
+        "all {N} out-of-order results resolved"
+    );
     println!("  [OUT-OF-ORDER] all {N} resolved regardless of arrival order");
 }
 

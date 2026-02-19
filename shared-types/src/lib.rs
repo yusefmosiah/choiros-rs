@@ -1523,7 +1523,7 @@ pub struct VersionSnapshotRecord {
 pub struct RunTrajectoryRecord {
     pub loop_id: String,
     pub run_id: String,
-    /// "researcher" | "writer" | "terminal" | "conductor" | "subharness"
+    /// "researcher" | "writer" | "terminal" | "conductor" | "actor_harness"
     pub worker_type: String,
     pub objective: String,
     /// Human-readable summary of what happened in this run.
@@ -1637,7 +1637,7 @@ pub struct CitationRef {
 
 /// A snapshot of context retrieved by the MemoryActor for a conductor turn.
 ///
-/// Passed as the `context` bundle when spawning a `SubharnessActor`.
+/// Passed as the `context` bundle when spawning a `ActorHarnessActor`.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
 pub struct ContextSnapshot {
@@ -1666,8 +1666,8 @@ pub const EVENT_TOPIC_GLOBAL_EXTERNAL_CONTENT_UPSERT: &str = "global_external_co
 pub const EVENT_TOPIC_QWY_CITATION_REGISTRY: &str = "qwy.citation_registry";
 
 // Phase 4 event topics
-pub const EVENT_TOPIC_SUBHARNESS_EXECUTE: &str = "subharness.execute";
-pub const EVENT_TOPIC_SUBHARNESS_RESULT: &str = "subharness.result";
+pub const EVENT_TOPIC_ACTOR_HARNESS_EXECUTE: &str = "actor_harness.execute";
+pub const EVENT_TOPIC_ACTOR_HARNESS_RESULT: &str = "actor_harness.result";
 pub const EVENT_TOPIC_HARNESS_CHECKPOINT: &str = "harness.checkpoint";
 pub const EVENT_TOPIC_TOOL_RESULT: &str = "tool.result";
 
@@ -1683,7 +1683,7 @@ pub const EVENT_TOPIC_TOOL_RESULT: &str = "tool.result";
 pub struct PendingReply {
     /// Correlation ID assigned when the message was sent.
     pub corr_id: String,
-    /// What kind of actor we messaged ("terminal", "researcher", "subharness").
+    /// What kind of actor we messaged ("terminal", "researcher", "actor_harness").
     pub actor_kind: String,
     /// Short description of what was requested (for observability).
     pub objective_summary: String,
@@ -1701,7 +1701,7 @@ pub struct PendingReply {
 /// `tool.result` events matching each pending corr_id, and resumes.
 ///
 /// The invariant: if a `harness.checkpoint` event exists, the run is live.
-/// If a `subharness.result` / `tool.result` event exists for a pending corr_id,
+/// If a `actor_harness.result` / `tool.result` event exists for a pending corr_id,
 /// that reply is already in and should be loaded from EventStore rather than
 /// waited on as a message.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -1738,7 +1738,7 @@ pub struct TurnSummary {
 }
 
 /// Written to EventStore as `tool.result` by whichever actor produced the
-/// result (TerminalActor, ResearcherActor, SubharnessActor).
+/// result (TerminalActor, ResearcherActor, ActorHarnessActor).
 ///
 /// The harness reads this by `corr_id` on recovery rather than waiting for
 /// the message if the actor already completed.
@@ -1751,7 +1751,7 @@ pub struct ToolResult {
     pub actor_kind: String,
     /// Whether the execution succeeded.
     pub success: bool,
-    /// The output (stdout, research result, subharness working memory, etc.)
+    /// The output (stdout, research result, actor_harness working memory, etc.)
     pub output: String,
     /// Error details if `success` is false.
     pub error: Option<String>,

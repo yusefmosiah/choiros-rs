@@ -55,9 +55,7 @@ fn missing_env_for_provider(provider: &ProviderConfig) -> Vec<String> {
             if bedrock_auth_present() && tls_ready {
                 Vec::new()
             } else {
-                let mut missing = vec![
-                    "AWS auth or SSL_CERT_FILE".to_string(),
-                ];
+                let mut missing = vec!["AWS auth or SSL_CERT_FILE".to_string()];
                 if !tls_ready {
                     missing.push("SSL_CERT_FILE".to_string());
                 }
@@ -97,9 +95,7 @@ where
                 last_error = err.clone();
                 if attempt < attempts && is_rate_limited_error(&err) {
                     let delay = base_delay_ms.saturating_mul(attempt as u64);
-                    println!(
-                        "  RETRY {label} attempt {attempt}/{attempts} after {delay}ms: {err}"
-                    );
+                    println!("  RETRY {label} attempt {attempt}/{attempts} after {delay}ms: {err}");
                     sleep(Duration::from_millis(delay)).await;
                     continue;
                 }
@@ -215,9 +211,7 @@ fn grade_bootstrap(
         if dispatched.is_empty() && block_reason.is_some() {
             return Grade::Pass;
         }
-        return Grade::Fail(format!(
-            "expected block but got dispatched={dispatched:?}"
-        ));
+        return Grade::Fail(format!("expected block but got dispatched={dispatched:?}"));
     }
 
     if dispatched.is_empty() {
@@ -233,7 +227,9 @@ fn grade_bootstrap(
     }
 
     if !expected_any.is_empty() {
-        let has = expected_any.iter().any(|exp| dispatched.iter().any(|d| d == exp));
+        let has = expected_any
+            .iter()
+            .any(|exp| dispatched.iter().any(|d| d == exp));
         if !has {
             return Grade::Marginal(format!(
                 "dispatched {dispatched:?} but expected one of {expected_any:?}"
@@ -273,14 +269,7 @@ async fn tier1_conductor_bootstrap_eval() {
     assert!(!sampled.is_empty(), "No models available for eval");
 
     // scenarios: (name, objective, capabilities, expected_any, forbidden, expect_block)
-    let scenarios: Vec<(
-        &str,
-        &str,
-        Vec<String>,
-        Vec<String>,
-        Vec<String>,
-        bool,
-    )> = vec![
+    let scenarios: Vec<(&str, &str, Vec<String>, Vec<String>, Vec<String>, bool)> = vec![
         (
             "simple_greeting",
             "Hello! How are you?",
@@ -336,34 +325,30 @@ async fn tier1_conductor_bootstrap_eval() {
                 let _permit = permit;
                 let start = Instant::now();
 
-                let result = run_with_retry(
-                    &format!("bootstrap:{model_id}:{name}"),
-                    3,
-                    || {
-                        let registry = registry.clone();
-                        let model_id = model_id.clone();
-                        let caps = caps.clone();
-                        let objective = objective.to_string();
-                        async move {
-                            let client_registry = registry
-                                .create_runtime_client_registry_for_model(&model_id)
-                                .map_err(|e| format!("registry: {e}"))?;
-                            let input = ConductorBootstrapInput {
-                                raw_objective: objective,
-                                available_capabilities: caps,
-                            };
-                            tokio::time::timeout(
-                                Duration::from_secs(30),
-                                B.ConductorBootstrapAgenda
-                                    .with_client_registry(&client_registry)
-                                    .call(&input),
-                            )
-                            .await
-                            .map_err(|_| "timed out".to_string())?
-                            .map_err(|e| format!("call: {e}"))
-                        }
-                    },
-                )
+                let result = run_with_retry(&format!("bootstrap:{model_id}:{name}"), 3, || {
+                    let registry = registry.clone();
+                    let model_id = model_id.clone();
+                    let caps = caps.clone();
+                    let objective = objective.to_string();
+                    async move {
+                        let client_registry = registry
+                            .create_runtime_client_registry_for_model(&model_id)
+                            .map_err(|e| format!("registry: {e}"))?;
+                        let input = ConductorBootstrapInput {
+                            raw_objective: objective,
+                            available_capabilities: caps,
+                        };
+                        tokio::time::timeout(
+                            Duration::from_secs(30),
+                            B.ConductorBootstrapAgenda
+                                .with_client_registry(&client_registry)
+                                .call(&input),
+                        )
+                        .await
+                        .map_err(|_| "timed out".to_string())?
+                        .map_err(|e| format!("call: {e}"))
+                    }
+                })
                 .await;
 
                 let latency_ms = start.elapsed().as_millis() as u64;
@@ -430,11 +415,16 @@ fn grade_decide(
         if tool_names.is_empty() {
             return Grade::Fail("expected tool calls but got none".to_string());
         }
-        let non_finished: Vec<_> = tool_names.iter().filter(|t| t.as_str() != "finished").collect();
+        let non_finished: Vec<_> = tool_names
+            .iter()
+            .filter(|t| t.as_str() != "finished")
+            .collect();
         if non_finished.is_empty() {
             return Grade::Marginal("only finished call, no action tools".to_string());
         }
-        let has = non_finished.iter().any(|t| acceptable_tools.iter().any(|a| a == *t));
+        let has = non_finished
+            .iter()
+            .any(|t| acceptable_tools.iter().any(|a| a == *t));
         if !has {
             return Grade::Fail(format!(
                 "tools {tool_names:?} don't match acceptable {acceptable_tools:?}"
@@ -530,31 +520,27 @@ async fn tier1_decide_eval() {
                 let _permit = permit;
                 let start = Instant::now();
 
-                let result = run_with_retry(
-                    &format!("decide:{model_id}:{name}"),
-                    3,
-                    || {
-                        let registry = registry.clone();
-                        let model_id = model_id.clone();
-                        let messages = messages.clone();
-                        let sys_ctx = sys_ctx.to_string();
-                        let tools = tools.to_string();
-                        async move {
-                            let client_registry = registry
-                                .create_runtime_client_registry_for_model(&model_id)
-                                .map_err(|e| format!("registry: {e}"))?;
-                            tokio::time::timeout(
-                                Duration::from_secs(30),
-                                B.Decide
-                                    .with_client_registry(&client_registry)
-                                    .call(&messages, &sys_ctx, &tools),
-                            )
-                            .await
-                            .map_err(|_| "timed out".to_string())?
-                            .map_err(|e| format!("call: {e}"))
-                        }
-                    },
-                )
+                let result = run_with_retry(&format!("decide:{model_id}:{name}"), 3, || {
+                    let registry = registry.clone();
+                    let model_id = model_id.clone();
+                    let messages = messages.clone();
+                    let sys_ctx = sys_ctx.to_string();
+                    let tools = tools.to_string();
+                    async move {
+                        let client_registry = registry
+                            .create_runtime_client_registry_for_model(&model_id)
+                            .map_err(|e| format!("registry: {e}"))?;
+                        tokio::time::timeout(
+                            Duration::from_secs(30),
+                            B.Decide
+                                .with_client_registry(&client_registry)
+                                .call(&messages, &sys_ctx, &tools),
+                        )
+                        .await
+                        .map_err(|_| "timed out".to_string())?
+                        .map_err(|e| format!("call: {e}"))
+                    }
+                })
                 .await;
 
                 let latency_ms = start.elapsed().as_millis() as u64;
@@ -562,7 +548,8 @@ async fn tier1_decide_eval() {
                     Ok(decision) => {
                         let tool_names: Vec<String> =
                             decision.tool_calls.iter().map(extract_tool_name).collect();
-                        let grade = grade_decide(expect_tc, &acceptable, &tool_names, &decision.message);
+                        let grade =
+                            grade_decide(expect_tc, &acceptable, &tool_names, &decision.message);
                         EvalResult {
                             model_id,
                             scenario: name.to_string(),
@@ -609,11 +596,18 @@ fn grade_changeset(
     impact_str: &str,
     op_taxonomy: &[String],
 ) -> Grade {
-    if !acceptable_impacts.iter().any(|a| impact_str.contains(a.as_str())) {
-        return Grade::Marginal(format!("impact '{impact_str}' not in {acceptable_impacts:?}"));
+    if !acceptable_impacts
+        .iter()
+        .any(|a| impact_str.contains(a.as_str()))
+    {
+        return Grade::Marginal(format!(
+            "impact '{impact_str}' not in {acceptable_impacts:?}"
+        ));
     }
     let summary_lower = summary.to_ascii_lowercase();
-    let has_kw = expected_keywords.iter().any(|kw| summary_lower.contains(kw.as_str()));
+    let has_kw = expected_keywords
+        .iter()
+        .any(|kw| summary_lower.contains(kw.as_str()));
     if !has_kw {
         return Grade::Marginal(format!("summary missing keywords {expected_keywords:?}"));
     }
@@ -688,36 +682,32 @@ async fn tier1_summarize_changeset_eval() {
                 let _permit = permit;
                 let start = Instant::now();
 
-                let result = run_with_retry(
-                    &format!("changeset:{model_id}:{name}"),
-                    3,
-                    || {
-                        let registry = registry.clone();
-                        let model_id = model_id.clone();
-                        async move {
-                            let client_registry = registry
-                                .create_runtime_client_registry_for_model(&model_id)
-                                .map_err(|e| format!("registry: {e}"))?;
-                            let input = ChangesetInput {
-                                patch_id: format!("eval-{name}"),
-                                loop_id: None,
-                                before_content: before.to_string(),
-                                after_content: after.to_string(),
-                                ops_json: ops.to_string(),
-                                source: source.to_string(),
-                            };
-                            tokio::time::timeout(
-                                Duration::from_secs(30),
-                                B.SummarizeChangeset
-                                    .with_client_registry(&client_registry)
-                                    .call(&input),
-                            )
-                            .await
-                            .map_err(|_| "timed out".to_string())?
-                            .map_err(|e| format!("call: {e}"))
-                        }
-                    },
-                )
+                let result = run_with_retry(&format!("changeset:{model_id}:{name}"), 3, || {
+                    let registry = registry.clone();
+                    let model_id = model_id.clone();
+                    async move {
+                        let client_registry = registry
+                            .create_runtime_client_registry_for_model(&model_id)
+                            .map_err(|e| format!("registry: {e}"))?;
+                        let input = ChangesetInput {
+                            patch_id: format!("eval-{name}"),
+                            loop_id: None,
+                            before_content: before.to_string(),
+                            after_content: after.to_string(),
+                            ops_json: ops.to_string(),
+                            source: source.to_string(),
+                        };
+                        tokio::time::timeout(
+                            Duration::from_secs(30),
+                            B.SummarizeChangeset
+                                .with_client_registry(&client_registry)
+                                .call(&input),
+                        )
+                        .await
+                        .map_err(|_| "timed out".to_string())?
+                        .map_err(|e| format!("call: {e}"))
+                    }
+                })
                 .await;
 
                 let latency_ms = start.elapsed().as_millis() as u64;
@@ -790,7 +780,7 @@ impl MinimalEvalAdapter {
 #[async_trait::async_trait]
 impl WorkerPort for MinimalEvalAdapter {
     fn get_model_role(&self) -> &str {
-        "subharness"
+        "actor_harness"
     }
 
     fn get_tool_description(&self) -> String {
@@ -953,9 +943,10 @@ async fn tier2_harness_loop_eval() {
     ];
 
     // Spawn in-memory event store for the trace emitter
-    let (event_store, _es_handle) = Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-        .await
-        .expect("spawn in-memory event store");
+    let (event_store, _es_handle) =
+        Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+            .await
+            .expect("spawn in-memory event store");
 
     let mut results = Vec::new();
 
@@ -994,14 +985,12 @@ async fn tier2_harness_loop_eval() {
 
             let eval = match result {
                 Ok(Ok(agent_result)) => {
-                    let satisfied = matches!(agent_result.objective_status, ObjectiveStatus::Complete);
+                    let satisfied =
+                        matches!(agent_result.objective_status, ObjectiveStatus::Complete);
                     let grade = if satisfied {
                         Grade::Pass
                     } else {
-                        Grade::Marginal(format!(
-                            "status={:?}",
-                            agent_result.objective_status,
-                        ))
+                        Grade::Marginal(format!("status={:?}", agent_result.objective_status,))
                     };
                     EvalResult {
                         model_id: model_id.clone(),
@@ -1068,8 +1057,14 @@ async fn tier3_conductor_e2e_eval() {
 
     let objectives: Vec<(&str, &str)> = vec![
         ("greeting", "Hello, just checking in."),
-        ("research_task", "Research what version of Rust is currently stable and write a brief note."),
-        ("code_analysis", "Read sandbox/src/main.rs and summarize what it does."),
+        (
+            "research_task",
+            "Research what version of Rust is currently stable and write a brief note.",
+        ),
+        (
+            "code_analysis",
+            "Read sandbox/src/main.rs and summarize what it does.",
+        ),
     ];
 
     let mut results = Vec::new();
@@ -1182,9 +1177,18 @@ fn truncate(s: &str, max: usize) -> String {
 
 fn print_eval_summary(tier_name: &str, results: &[EvalResult]) {
     let total = results.len();
-    let pass = results.iter().filter(|r| matches!(r.grade, Grade::Pass)).count();
-    let marginal = results.iter().filter(|r| matches!(r.grade, Grade::Marginal(_))).count();
-    let fail = results.iter().filter(|r| matches!(r.grade, Grade::Fail(_))).count();
+    let pass = results
+        .iter()
+        .filter(|r| matches!(r.grade, Grade::Pass))
+        .count();
+    let marginal = results
+        .iter()
+        .filter(|r| matches!(r.grade, Grade::Marginal(_)))
+        .count();
+    let fail = results
+        .iter()
+        .filter(|r| matches!(r.grade, Grade::Fail(_)))
+        .count();
     let avg_latency = if total > 0 {
         results.iter().map(|r| r.latency_ms).sum::<u64>() / total as u64
     } else {
@@ -1192,7 +1196,9 @@ fn print_eval_summary(tier_name: &str, results: &[EvalResult]) {
     };
 
     println!("\n--- {tier_name} Summary ---");
-    println!("  total={total} pass={pass} marginal={marginal} fail={fail} avg_latency={avg_latency}ms");
+    println!(
+        "  total={total} pass={pass} marginal={marginal} fail={fail} avg_latency={avg_latency}ms"
+    );
 
     let mut model_ids: Vec<String> = results.iter().map(|r| r.model_id.clone()).collect();
     model_ids.sort();

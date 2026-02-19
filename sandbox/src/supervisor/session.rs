@@ -155,19 +155,19 @@ impl Actor for SessionSupervisor {
         .map_err(ActorProcessingErr::from)?;
 
         let (conductor_supervisor, _) = Actor::spawn_linked(
-             None,
-             ConductorSupervisor,
-             ConductorSupervisorArgs {
-                 event_store: args.event_store.clone(),
-                 writer_supervisor: Some(writer_supervisor.clone()),
-                 memory_actor: Some(memory_actor.clone()),
-             },
-             myself.get_cell(),
-         )
-         .await
-         .map_err(ActorProcessingErr::from)?;
+            None,
+            ConductorSupervisor,
+            ConductorSupervisorArgs {
+                event_store: args.event_store.clone(),
+                writer_supervisor: Some(writer_supervisor.clone()),
+                memory_actor: Some(memory_actor.clone()),
+            },
+            myself.get_cell(),
+        )
+        .await
+        .map_err(ActorProcessingErr::from)?;
 
-         Ok(SessionSupervisorState {
+        Ok(SessionSupervisorState {
             event_store: args.event_store,
             memory_actor,
             conductor_supervisor: Some(conductor_supervisor),

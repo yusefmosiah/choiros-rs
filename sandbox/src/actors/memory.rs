@@ -183,10 +183,12 @@ impl VecStore {
         // Simpler: store a lookup by rowid, then use the rowid to fetch the vector.
         // For now we use the auxiliary content column to re-embed on the fly (stub ok).
         let sql = format!("SELECT content FROM {table} WHERE item_id = ? LIMIT 1");
-        match self.conn.query_row(&sql, rusqlite::params![item_id], |row| {
-            let content: String = row.get(0)?;
-            Ok(content)
-        }) {
+        match self
+            .conn
+            .query_row(&sql, rusqlite::params![item_id], |row| {
+                let content: String = row.get(0)?;
+                Ok(content)
+            }) {
             Ok(_content) => {
                 // Re-embedding is done by the caller via Embedder — we just confirm existence.
                 // Return a sentinel so caller knows item exists.
@@ -206,13 +208,16 @@ impl VecStore {
         // Returns (item_id, source_ref, content) for each found item.
         let mut results = Vec::new();
         for id in item_ids {
-            let sql =
-                format!("SELECT item_id, source_ref, content FROM {table} WHERE item_id = ? LIMIT 1");
-            match self
-                .conn
-                .query_row(&sql, rusqlite::params![id], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
-                }) {
+            let sql = format!(
+                "SELECT item_id, source_ref, content FROM {table} WHERE item_id = ? LIMIT 1"
+            );
+            match self.conn.query_row(&sql, rusqlite::params![id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            }) {
                 Ok(row) => results.push(row),
                 Err(rusqlite::Error::QueryReturnedNoRows) => {}
                 Err(e) => return Err(e),
@@ -466,8 +471,7 @@ impl Actor for MemoryActor {
         let vec_db_path = args.vec_db_path.clone();
 
         let inner = tokio::task::spawn_blocking(move || {
-            let store =
-                VecStore::open(&vec_db_path).map_err(|e| format!("VecStore::open: {e}"))?;
+            let store = VecStore::open(&vec_db_path).map_err(|e| format!("VecStore::open: {e}"))?;
             let embedder = Embedder::init();
             Ok::<_, String>(Arc::new(Mutex::new(MemoryInner { store, embedder })))
         })
@@ -598,9 +602,8 @@ impl Actor for MemoryActor {
                         }
                     }
 
-                    merged.sort_by(|a, b| {
-                        a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
-                    });
+                    merged
+                        .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
                     merged.truncate(max_items);
 
                     merged
@@ -690,7 +693,9 @@ impl Actor for MemoryActor {
 
                     // Sort by descending relevance.
                     expanded.sort_by(|a, b| {
-                        b.relevance.partial_cmp(&a.relevance).unwrap_or(std::cmp::Ordering::Equal)
+                        b.relevance
+                            .partial_cmp(&a.relevance)
+                            .unwrap_or(std::cmp::Ordering::Equal)
                     });
 
                     ArtifactSearchResult { items: expanded }
@@ -736,9 +741,8 @@ impl Actor for MemoryActor {
                     }
 
                     // Sort by ascending distance (highest relevance first).
-                    candidates.sort_by(|a, b| {
-                        a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
-                    });
+                    candidates
+                        .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
                     // Pack greedily within token budget (1 token ≈ 4 chars).
                     let char_budget = token_budget * 4;

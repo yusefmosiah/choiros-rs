@@ -1203,9 +1203,9 @@ impl Actor for TerminalActor {
                     }
                     _ => Err(TerminalError::NotRunning),
                 };
-                // Emit tool.result to EventStore so ActorRlmPort::resolve_source(ToolOutput, corr_id)
+                // Emit tool.result to EventStore so ActorAlmPort::resolve_source(ToolOutput, corr_id)
                 // can find the result on the next harness turn. The call_id field carries the corr_id
-                // assigned by dispatch_bash_async in ActorRlmPort.
+                // assigned by dispatch_bash_async in ActorAlmPort.
                 if let Some(corr_id) = &call_id {
                     let (success, output, error) = match &result {
                         Ok(r) => (r.success, r.summary.clone(), None::<String>),

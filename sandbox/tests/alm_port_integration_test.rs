@@ -1,6 +1,6 @@
 //! ALM port integration tests — bash dispatch path.
 //!
-//! Tests the `ActorRlmPort::dispatch_tool("bash")` → `TerminalMsg::RunAgenticTaskDetached`
+//! Tests the `ActorAlmPort::dispatch_tool("bash")` → `TerminalMsg::RunAgenticTaskDetached`
 //! → `tool.result` EventStore write chain.
 //!
 //! ## What this covers
@@ -23,14 +23,16 @@ use std::collections::HashMap;
 use ractor::Actor;
 use uuid::Uuid;
 
-use sandbox::actors::agent_harness::rlm::RlmPort;
-use sandbox::actors::agent_harness::rlm_port::ActorRlmPort;
+use sandbox::actors::agent_harness::alm::AlmPort;
+use sandbox::actors::agent_harness::alm_port::ActorAlmPort;
 use sandbox::actors::conductor::protocol::ConductorMsg;
 use sandbox::actors::event_store::{
     AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg,
 };
 use sandbox::actors::terminal::TerminalMsg;
-use sandbox::supervisor::terminal::{TerminalSupervisor, TerminalSupervisorArgs, TerminalSupervisorMsg};
+use sandbox::supervisor::terminal::{
+    TerminalSupervisor, TerminalSupervisorArgs, TerminalSupervisorMsg,
+};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -61,19 +63,21 @@ async fn make_terminal(
     .await
     .expect("spawn TerminalSupervisor");
 
-    ractor::call!(&supervisor, |reply| TerminalSupervisorMsg::GetOrCreateTerminal {
-        terminal_id: format!("alm-test-{}", Uuid::new_v4().as_simple()),
-        user_id: "test-user".to_string(),
-        shell: "/bin/bash".to_string(),
-        working_dir: "/tmp".to_string(),
-        reply,
+    ractor::call!(&supervisor, |reply| {
+        TerminalSupervisorMsg::GetOrCreateTerminal {
+            terminal_id: format!("alm-test-{}", Uuid::new_v4().as_simple()),
+            user_id: "test-user".to_string(),
+            shell: "/bin/bash".to_string(),
+            working_dir: "/tmp".to_string(),
+            reply,
+        }
     })
     .expect("rpc failed")
     .expect("terminal create failed")
 }
 
 /// Minimal stub ConductorActor that accepts SubharnessComplete/Failed messages
-/// without panicking — we need a live ActorRef<ConductorMsg> for ActorRlmPort.
+/// without panicking — we need a live ActorRef<ConductorMsg> for ActorAlmPort.
 struct StubConductor;
 
 #[async_trait::async_trait]
@@ -101,7 +105,9 @@ impl Actor for StubConductor {
 }
 
 async fn make_stub_conductor() -> ractor::ActorRef<ConductorMsg> {
-    let (actor, _) = Actor::spawn(None, StubConductor, ()).await.expect("spawn stub conductor");
+    let (actor, _) = Actor::spawn(None, StubConductor, ())
+        .await
+        .expect("spawn stub conductor");
     actor
 }
 
@@ -118,7 +124,7 @@ async fn test_dispatch_tool_bash_returns_dispatched_corr_id() {
     let terminal = make_terminal(event_store.clone()).await;
     let conductor = make_stub_conductor().await;
 
-    let port = ActorRlmPort::new(
+    let port = ActorAlmPort::new(
         format!("run-{}", Uuid::new_v4().as_simple()),
         "alm-test-actor",
         "stub-model",
@@ -132,7 +138,10 @@ async fn test_dispatch_tool_bash_returns_dispatched_corr_id() {
 
     let result = port.execute_tool("bash", &args).await;
 
-    assert!(result.success, "bash dispatch should report success (fire-and-forget)");
+    assert!(
+        result.success,
+        "bash dispatch should report success (fire-and-forget)"
+    );
     assert!(
         result.output.starts_with("dispatched:corr_id:"),
         "output must be dispatched:corr_id:<id>, got: '{}'",
@@ -154,7 +163,7 @@ async fn test_dispatch_tool_bash_without_terminal_returns_error() {
     let (event_store, _tmp) = make_event_store().await;
     let conductor = make_stub_conductor().await;
 
-    let port = ActorRlmPort::new(
+    let port = ActorAlmPort::new(
         format!("run-{}", Uuid::new_v4().as_simple()),
         "alm-test-actor-noterminal",
         "stub-model",
@@ -191,7 +200,7 @@ async fn test_resolve_source_returns_none_before_result_lands() {
     let (event_store, _tmp) = make_event_store().await;
     let conductor = make_stub_conductor().await;
 
-    let port = ActorRlmPort::new(
+    let port = ActorAlmPort::new(
         format!("run-{}", Uuid::new_v4().as_simple()),
         "alm-test-resolve",
         "stub-model",
@@ -240,7 +249,7 @@ async fn test_resolve_source_returns_result_after_tool_result_event() {
     let run_id = format!("run-{}", Uuid::new_v4().as_simple());
     let corr_id = format!("bash-{}", Uuid::new_v4().as_simple());
 
-    let port = ActorRlmPort::new(
+    let port = ActorAlmPort::new(
         run_id.clone(),
         "alm-test-resolve-after",
         "stub-model",
@@ -294,7 +303,7 @@ async fn test_resolve_source_returns_result_after_tool_result_event() {
 /// `dispatch_tool` (the corr_id-accepting variant) fires the terminal message
 /// with the correct corr_id embedded as `call_id`.
 ///
-/// Verifies the `ActorRlmPort::dispatch_tool` API used by the checkpoint-aware
+/// Verifies the `ActorAlmPort::dispatch_tool` API used by the checkpoint-aware
 /// turn loop, where the caller controls the corr_id for tracking in `pending_replies`.
 #[tokio::test]
 async fn test_dispatch_tool_uses_caller_corr_id() {
@@ -304,7 +313,7 @@ async fn test_dispatch_tool_uses_caller_corr_id() {
     let run_id = format!("run-{}", Uuid::new_v4().as_simple());
     let corr_id = format!("bash-caller-corr-{}", Uuid::new_v4().as_simple());
 
-    let port = ActorRlmPort::new(
+    let port = ActorAlmPort::new(
         run_id.clone(),
         "alm-test-dispatch-corr",
         "stub-model",
@@ -314,7 +323,10 @@ async fn test_dispatch_tool_uses_caller_corr_id() {
     );
 
     let mut args = HashMap::new();
-    args.insert("command".to_string(), "echo caller-controlled-corr".to_string());
+    args.insert(
+        "command".to_string(),
+        "echo caller-controlled-corr".to_string(),
+    );
 
     // dispatch_tool with a caller-supplied corr_id (the checkpoint-aware path)
     port.dispatch_tool("bash", &args, &corr_id).await;
@@ -336,7 +348,7 @@ async fn test_emit_message_writes_harness_emit_event() {
     let conductor = make_stub_conductor().await;
     let run_id = format!("run-{}", Uuid::new_v4().as_simple());
 
-    let port = ActorRlmPort::new(
+    let port = ActorAlmPort::new(
         run_id.clone(),
         "alm-test-emit",
         "stub-model",
@@ -366,15 +378,26 @@ async fn test_emit_message_writes_harness_emit_event() {
     .expect("rpc ok")
     .expect("store ok");
 
-    assert!(!events.is_empty(), "must have at least one harness.emit event");
+    assert!(
+        !events.is_empty(),
+        "must have at least one harness.emit event"
+    );
 
     let ev = events.last().unwrap();
-    let msg = ev.payload.get("message").and_then(|v| v.as_str()).unwrap_or("");
+    let msg = ev
+        .payload
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     assert!(
         msg.contains("starting analysis phase"),
         "message content must be preserved, got: '{msg}'"
     );
-    let ev_run_id = ev.payload.get("run_id").and_then(|v| v.as_str()).unwrap_or("");
+    let ev_run_id = ev
+        .payload
+        .get("run_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     assert_eq!(ev_run_id, run_id, "run_id must be scoped correctly");
 
     println!("  [EMIT] harness.emit event verified in EventStore");

@@ -713,7 +713,7 @@ pub async fn get_event_by_seq(
 }
 
 /// Find events matching a corr_id in their payload.
-/// Optionally filter by event_type prefix (e.g. "tool.result" or "subharness.result").
+/// Optionally filter by event_type prefix (e.g. "tool.result" or "actor_harness.result").
 pub async fn get_events_by_corr_id(
     store: &ActorRef<EventStoreMsg>,
     corr_id: impl Into<String>,
@@ -733,13 +733,10 @@ pub async fn get_latest_harness_checkpoint(
     run_id: impl Into<String>,
 ) -> Result<Result<Option<shared_types::Event>, EventStoreError>, ractor::RactorErr<EventStoreMsg>>
 {
-    ractor::call!(
-        store,
-        |reply| EventStoreMsg::GetLatestHarnessCheckpoint {
-            run_id: run_id.into(),
-            reply,
-        }
-    )
+    ractor::call!(store, |reply| EventStoreMsg::GetLatestHarnessCheckpoint {
+        run_id: run_id.into(),
+        reply,
+    })
 }
 
 // ============================================================================

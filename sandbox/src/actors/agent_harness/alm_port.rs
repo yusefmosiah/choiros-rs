@@ -1,7 +1,7 @@
-//! Production `RlmPort` implementation for use within the actor system.
+//! Production `AlmPort` implementation for use within the actor system.
 //!
-//! `ActorRlmPort` holds references to the live actor tree and implements
-//! `RlmPort` with two hard rules:
+//! `ActorAlmPort` holds references to the live actor tree and implements
+//! `AlmPort` with two hard rules:
 //!
 //! ## Shell isolation rule
 //!
@@ -38,21 +38,21 @@ use ractor::{Actor, ActorRef};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::actors::agent_harness::rlm::{LlmCallResult, RlmPort, RlmToolExecution};
-use crate::actors::conductor::protocol::{ConductorMsg, SubharnessMsg};
+use crate::actors::agent_harness::alm::{LlmCallResult, AlmPort, AlmToolExecution};
+use crate::actors::conductor::protocol::{ConductorMsg, ActorHarnessMsg};
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::ModelRegistry;
-use crate::actors::subharness::{SubharnessActor, SubharnessArguments};
+use crate::actors::actor_harness_actor::{ActorHarnessActor, ActorHarnessArguments};
 use crate::actors::terminal::TerminalMsg;
 use crate::baml_client::types::ContextSourceKind;
 use crate::baml_client::{new_collector, B};
 use shared_types::HarnessCheckpoint;
 
-/// Production `RlmPort` backed by live actor references.
+/// Production `AlmPort` backed by live actor references.
 ///
 /// All actor interactions are fire-and-forget. Shell access is gated through
 /// `terminal`. This port never calls `tokio::process::Command` directly.
-pub struct ActorRlmPort {
+pub struct ActorAlmPort {
     pub run_id: String,
     pub actor_id: String,
     pub model_id: String,
@@ -64,7 +64,7 @@ pub struct ActorRlmPort {
     pub terminal: Option<ActorRef<TerminalMsg>>,
 }
 
-impl ActorRlmPort {
+impl ActorAlmPort {
     pub fn new(
         run_id: impl Into<String>,
         actor_id: impl Into<String>,
@@ -106,7 +106,7 @@ impl ActorRlmPort {
 }
 
 #[async_trait]
-impl RlmPort for ActorRlmPort {
+impl AlmPort for ActorAlmPort {
     fn capabilities_description(&self) -> String {
         let shell_line = if self.terminal.is_some() {
             "1. bash - Execute shell commands via TerminalActor (async — result arrives next turn)\n   Args: command (string, required)\n"
@@ -170,14 +170,12 @@ ContextSourceKind::ToolOutput with that corr_id on the next turn to read the res
         _max_tokens: Option<i64>,
     ) -> Option<String> {
         match kind {
-            ContextSourceKind::Document => {
-                tokio::fs::read_to_string(source_ref).await.ok()
-            }
+            ContextSourceKind::Document => tokio::fs::read_to_string(source_ref).await.ok(),
             ContextSourceKind::ToolOutput => {
                 // Poll EventStore for result events keyed by corr_id.
                 // 2s timeout on the DB call: if EventStore is stuck we treat
                 // the result as not-ready and the model retries next turn.
-                for event_prefix in &["subharness.result", "tool.result"] {
+                for event_prefix in &["actor_harness.result", "tool.result"] {
                     let result = ractor::call_t!(
                         self.event_store,
                         |reply| EventStoreMsg::GetEventsByCorrId {
@@ -228,13 +226,13 @@ ContextSourceKind::ToolOutput with that corr_id on the next turn to read the res
         &self,
         tool_name: &str,
         tool_args: &HashMap<String, String>,
-    ) -> RlmToolExecution {
+    ) -> AlmToolExecution {
         let start = Instant::now();
         match tool_name {
             "bash" => {
                 let command = tool_args.get("command").cloned().unwrap_or_default();
                 if self.terminal.is_none() {
-                    return RlmToolExecution {
+                    return AlmToolExecution {
                         turn: 0,
                         tool_name: "bash".into(),
                         tool_args: tool_args.clone(),
@@ -248,7 +246,7 @@ ContextSourceKind::ToolOutput with that corr_id on the next turn to read the res
                 let corr_id = format!("bash-{}", Uuid::new_v4().as_simple());
                 self.dispatch_bash_async(&command, &corr_id);
                 info!("execute_tool(bash) dispatched async corr:{corr_id}");
-                RlmToolExecution {
+                AlmToolExecution {
                     turn: 0,
                     tool_name: "bash".into(),
                     tool_args: tool_args.clone(),
@@ -262,7 +260,7 @@ ContextSourceKind::ToolOutput with that corr_id on the next turn to read the res
             "file_read" => {
                 let path = tool_args.get("path").map(|s| s.as_str()).unwrap_or("");
                 match tokio::fs::read_to_string(path).await {
-                    Ok(content) => RlmToolExecution {
+                    Ok(content) => AlmToolExecution {
                         turn: 0,
                         tool_name: "file_read".into(),
                         tool_args: tool_args.clone(),
@@ -271,7 +269,7 @@ ContextSourceKind::ToolOutput with that corr_id on the next turn to read the res
                         error: None,
                         elapsed_ms: start.elapsed().as_millis() as u64,
                     },
-                    Err(e) => RlmToolExecution {
+                    Err(e) => AlmToolExecution {
                         turn: 0,
                         tool_name: "file_read".into(),
                         tool_args: tool_args.clone(),
@@ -287,7 +285,7 @@ ContextSourceKind::ToolOutput with that corr_id on the next turn to read the res
                 let path = tool_args.get("path").map(|s| s.as_str()).unwrap_or("");
                 let content = tool_args.get("content").map(|s| s.as_str()).unwrap_or("");
                 match tokio::fs::write(path, content).await {
-                    Ok(_) => RlmToolExecution {
+                    Ok(_) => AlmToolExecution {
                         turn: 0,
                         tool_name: "file_write".into(),
                         tool_args: tool_args.clone(),
@@ -296,7 +294,7 @@ ContextSourceKind::ToolOutput with that corr_id on the next turn to read the res
                         error: None,
                         elapsed_ms: start.elapsed().as_millis() as u64,
                     },
-                    Err(e) => RlmToolExecution {
+                    Err(e) => AlmToolExecution {
                         turn: 0,
                         tool_name: "file_write".into(),
                         tool_args: tool_args.clone(),
@@ -308,7 +306,7 @@ ContextSourceKind::ToolOutput with that corr_id on the next turn to read the res
                 }
             }
 
-            other => RlmToolExecution {
+            other => AlmToolExecution {
                 turn: 0,
                 tool_name: other.into(),
                 tool_args: tool_args.clone(),
@@ -431,41 +429,34 @@ ContextSourceKind::ToolOutput with that corr_id on the next turn to read the res
         });
         info!(
             "write_checkpoint: run:{} turn:{} pending:{}",
-            checkpoint.run_id, checkpoint.turn_number, checkpoint.pending_replies.len()
+            checkpoint.run_id,
+            checkpoint.turn_number,
+            checkpoint.pending_replies.len()
         );
     }
 
-    async fn spawn_subharness(
-        &self,
-        objective: &str,
-        context: serde_json::Value,
-        corr_id: &str,
-    ) {
-        info!("ActorRlmPort: spawning subharness corr:{corr_id}");
-        let args = SubharnessArguments {
+    async fn spawn_actor_harness(&self, objective: &str, context: serde_json::Value, corr_id: &str) {
+        info!("ActorAlmPort: spawning subharness corr:{corr_id}");
+        let args = ActorHarnessArguments {
             event_store: self.event_store.clone(),
         };
-        let spawn_result = Actor::spawn(
-            Some(format!("subharness-{corr_id}")),
-            SubharnessActor,
-            args,
-        )
-        .await;
+        let spawn_result =
+            Actor::spawn(Some(format!("subharness-{corr_id}")), ActorHarnessActor, args).await;
 
         match spawn_result {
             Ok((actor_ref, _)) => {
-                let msg = SubharnessMsg::Execute {
+                let msg = ActorHarnessMsg::Execute {
                     objective: objective.to_string(),
                     context,
                     correlation_id: corr_id.to_string(),
                     reply_to: self.conductor.clone(),
                 };
                 if let Err(e) = actor_ref.send_message(msg) {
-                    error!("Failed to send SubharnessMsg::Execute corr:{corr_id}: {e}");
+                    error!("Failed to send ActorHarnessMsg::Execute corr:{corr_id}: {e}");
                 }
             }
             Err(e) => {
-                error!("Failed to spawn SubharnessActor corr:{corr_id}: {e}");
+                error!("Failed to spawn ActorHarnessActor corr:{corr_id}: {e}");
             }
         }
     }

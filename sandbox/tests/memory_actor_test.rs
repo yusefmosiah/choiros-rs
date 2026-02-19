@@ -18,11 +18,11 @@ use std::sync::{Arc, Mutex};
 // Force stub embedder for all tests in this file.
 // (Also set via std::env::set_var in each test for isolation.)
 
-use sandbox::actors::memory::{
-    chunk_hash, CollectionKind, Embedder, IngestRequest, MemoryActor, MemoryArguments,
-    MemoryInner, MemoryMsg, VecStore,
-};
 use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};
+use sandbox::actors::memory::{
+    chunk_hash, CollectionKind, Embedder, IngestRequest, MemoryActor, MemoryArguments, MemoryInner,
+    MemoryMsg, VecStore,
+};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -93,7 +93,14 @@ fn test_ingest_and_dedup() {
     assert!(!guard.store.hash_exists("version_snapshots", &hash));
     guard
         .store
-        .insert("version_snapshots", &ulid(), "doc/test.qwy", content, &hash, vec)
+        .insert(
+            "version_snapshots",
+            &ulid(),
+            "doc/test.qwy",
+            content,
+            &hash,
+            vec,
+        )
         .expect("insert should succeed");
     assert!(guard.store.hash_exists("version_snapshots", &hash));
 
@@ -135,7 +142,10 @@ fn test_knn_returns_nearest_first() {
         .expect("search");
 
     assert!(!hits.is_empty(), "expected hits");
-    assert_eq!(hits[0].content, "alpha content", "nearest should be exact match");
+    assert_eq!(
+        hits[0].content, "alpha content",
+        "nearest should be exact match"
+    );
     // Exact match should have distance very close to 0.
     assert!(
         hits[0].distance < 0.001,
@@ -144,7 +154,10 @@ fn test_knn_returns_nearest_first() {
     );
     // Results must be ordered ascending by distance.
     for w in hits.windows(2) {
-        assert!(w[0].distance <= w[1].distance, "results not sorted by distance");
+        assert!(
+            w[0].distance <= w[1].distance,
+            "results not sorted by distance"
+        );
     }
 }
 
@@ -158,10 +171,26 @@ async fn test_get_context_snapshot_merges_collections() {
     {
         let guard = inner.lock().unwrap();
         let seeds: &[(&str, CollectionKind, &str)] = &[
-            ("user asked about memory retrieval", CollectionKind::UserInputs, "input/1"),
-            ("document about memory retrieval architecture", CollectionKind::VersionSnapshots, "doc/memory.qwy"),
-            ("run completed memory-related task successfully", CollectionKind::RunTrajectories, "run/abc"),
-            ("doc trajectory: memory module iteratively improved", CollectionKind::DocTrajectories, "doc/memory.qwy"),
+            (
+                "user asked about memory retrieval",
+                CollectionKind::UserInputs,
+                "input/1",
+            ),
+            (
+                "document about memory retrieval architecture",
+                CollectionKind::VersionSnapshots,
+                "doc/memory.qwy",
+            ),
+            (
+                "run completed memory-related task successfully",
+                CollectionKind::RunTrajectories,
+                "run/abc",
+            ),
+            (
+                "doc trajectory: memory module iteratively improved",
+                CollectionKind::DocTrajectories,
+                "doc/memory.qwy",
+            ),
         ];
         for (content, col, src) in seeds {
             let hash = chunk_hash(content);
@@ -174,9 +203,10 @@ async fn test_get_context_snapshot_merges_collections() {
     }
 
     // Spawn the actor and issue GetContextSnapshot.
-    let (event_store, _) = ractor::Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-        .await
-        .expect("event store spawn");
+    let (event_store, _) =
+        ractor::Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+            .await
+            .expect("event store spawn");
 
     let (memory, _) = ractor::Actor::spawn(
         None,
@@ -191,10 +221,26 @@ async fn test_get_context_snapshot_merges_collections() {
 
     // The actor opens its own fresh VecStore — we need to seed via Ingest messages.
     let seeds: &[(&str, CollectionKind, &str)] = &[
-        ("user asked about memory retrieval", CollectionKind::UserInputs, "input/1"),
-        ("document about memory retrieval architecture", CollectionKind::VersionSnapshots, "doc/memory.qwy"),
-        ("run completed memory-related task", CollectionKind::RunTrajectories, "run/abc"),
-        ("doc trajectory: memory module improved over time", CollectionKind::DocTrajectories, "doc/memory.qwy"),
+        (
+            "user asked about memory retrieval",
+            CollectionKind::UserInputs,
+            "input/1",
+        ),
+        (
+            "document about memory retrieval architecture",
+            CollectionKind::VersionSnapshots,
+            "doc/memory.qwy",
+        ),
+        (
+            "run completed memory-related task",
+            CollectionKind::RunTrajectories,
+            "run/abc",
+        ),
+        (
+            "doc trajectory: memory module improved over time",
+            CollectionKind::DocTrajectories,
+            "doc/memory.qwy",
+        ),
     ];
 
     for (content, col, src) in seeds {
@@ -250,9 +296,10 @@ async fn test_get_context_snapshot_merges_collections() {
 async fn test_artifact_search_single_collection() {
     stub_env();
 
-    let (event_store, _) = ractor::Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-        .await
-        .expect("event store spawn");
+    let (event_store, _) =
+        ractor::Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+            .await
+            .expect("event store spawn");
 
     let (memory, _) = ractor::Actor::spawn(
         None,
@@ -267,8 +314,14 @@ async fn test_artifact_search_single_collection() {
 
     // Seed two version snapshots.
     let docs = [
-        ("chapter on Rust actor systems and concurrency", "doc/rust-actors.qwy"),
-        ("chapter on Python scripting and automation", "doc/python.qwy"),
+        (
+            "chapter on Rust actor systems and concurrency",
+            "doc/rust-actors.qwy",
+        ),
+        (
+            "chapter on Python scripting and automation",
+            "doc/python.qwy",
+        ),
     ];
     for (content, src) in &docs {
         let inserted = ractor::call!(memory, |reply| MemoryMsg::Ingest {
@@ -318,9 +371,10 @@ async fn test_artifact_search_single_collection() {
 async fn test_ingest_dedup_via_actor() {
     stub_env();
 
-    let (event_store, _) = ractor::Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-        .await
-        .expect("event store spawn");
+    let (event_store, _) =
+        ractor::Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+            .await
+            .expect("event store spawn");
 
     let (memory, _) = ractor::Actor::spawn(
         None,
@@ -371,9 +425,10 @@ async fn test_ingest_dedup_via_actor() {
 async fn test_artifact_expand_finds_neighbors() {
     stub_env();
 
-    let (event_store, _) = ractor::Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-        .await
-        .expect("event store spawn");
+    let (event_store, _) =
+        ractor::Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+            .await
+            .expect("event store spawn");
 
     let (memory, _) = ractor::Actor::spawn(
         None,
@@ -428,7 +483,10 @@ async fn test_artifact_expand_finds_neighbors() {
     // Original item_id should NOT be in results (expand excludes seeds).
     // (the trajectory item should appear instead)
     assert!(
-        result.items.iter().all(|i| i.kind != "version_snapshot" || i.source_ref != "doc/arch.qwy"),
+        result
+            .items
+            .iter()
+            .all(|i| i.kind != "version_snapshot" || i.source_ref != "doc/arch.qwy"),
         "expanded results should not include the seed item itself"
     );
 
@@ -441,9 +499,10 @@ async fn test_artifact_expand_finds_neighbors() {
 async fn test_artifact_context_pack_respects_budget() {
     stub_env();
 
-    let (event_store, _) = ractor::Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-        .await
-        .expect("event store spawn");
+    let (event_store, _) =
+        ractor::Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+            .await
+            .expect("event store spawn");
 
     let (memory, _) = ractor::Actor::spawn(
         None,
@@ -458,10 +517,22 @@ async fn test_artifact_context_pack_respects_budget() {
 
     // Seed several items.
     let docs = [
-        ("a long piece of content about memory systems and retrieval algorithms in detail", CollectionKind::VersionSnapshots, "doc/mem.qwy"),
+        (
+            "a long piece of content about memory systems and retrieval algorithms in detail",
+            CollectionKind::VersionSnapshots,
+            "doc/mem.qwy",
+        ),
         ("short user input", CollectionKind::UserInputs, "input/1"),
-        ("run trajectory for memory task completion with notes on what worked", CollectionKind::RunTrajectories, "run/mem"),
-        ("doc trajectory across all memory-related documents over time", CollectionKind::DocTrajectories, "doc/mem.qwy"),
+        (
+            "run trajectory for memory task completion with notes on what worked",
+            CollectionKind::RunTrajectories,
+            "run/mem",
+        ),
+        (
+            "doc trajectory across all memory-related documents over time",
+            CollectionKind::DocTrajectories,
+            "doc/mem.qwy",
+        ),
     ];
     for (content, col, src) in &docs {
         let _ = ractor::call!(memory, |reply| MemoryMsg::Ingest {
@@ -508,9 +579,10 @@ async fn test_artifact_context_pack_respects_budget() {
 async fn test_artifact_context_pack_deterministic_items() {
     stub_env();
 
-    let (event_store, _) = ractor::Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-        .await
-        .expect("event store spawn");
+    let (event_store, _) =
+        ractor::Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+            .await
+            .expect("event store spawn");
 
     let (memory, _) = ractor::Actor::spawn(
         None,
@@ -572,9 +644,10 @@ async fn test_artifact_context_pack_deterministic_items() {
 async fn test_selective_reembedding_only_changed_blocks() {
     stub_env();
 
-    let (event_store, _) = ractor::Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
-        .await
-        .expect("event store spawn");
+    let (event_store, _) =
+        ractor::Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+            .await
+            .expect("event store spawn");
 
     let (memory, _) = ractor::Actor::spawn(
         None,
@@ -621,9 +694,9 @@ async fn test_selective_reembedding_only_changed_blocks() {
     let block_b_v2 = "Section 2: refactored implementation using ractor supervised actors.";
 
     let v2_blocks = [
-        (block_a, "doc/arch.qwy#intro"),        // unchanged → should be skipped
-        (block_b_v2, "doc/arch.qwy#section2"),   // changed → should be inserted
-        (block_c, "doc/arch.qwy#conclusion"),    // unchanged → should be skipped
+        (block_a, "doc/arch.qwy#intro"), // unchanged → should be skipped
+        (block_b_v2, "doc/arch.qwy#section2"), // changed → should be inserted
+        (block_c, "doc/arch.qwy#conclusion"), // unchanged → should be skipped
     ];
 
     let mut v2_inserted = 0usize;

@@ -15,8 +15,8 @@
 //!   cargo test -p sandbox --test dag_eval -- --nocapture
 //!   CHOIR_LIVE_MODEL_IDS=KimiK25,ZaiGLM47 cargo test -p sandbox --test dag_eval -- --nocapture
 
-use sandbox::actors::agent_harness::rlm::{
-    LlmCallResult, RlmConfig, RlmHarness, RlmPort, RlmRunResult, RlmToolExecution,
+use sandbox::actors::agent_harness::alm::{
+    LlmCallResult, AlmConfig, AlmHarness, AlmPort, RlmRunResult, AlmToolExecution,
 };
 use sandbox::actors::model_config::{ModelRegistry, ProviderConfig};
 use sandbox::baml_client::types::ContextSourceKind;
@@ -138,7 +138,7 @@ impl DagEvalPort {
 }
 
 #[async_trait::async_trait]
-impl RlmPort for DagEvalPort {
+impl AlmPort for DagEvalPort {
     fn capabilities_description(&self) -> String {
         r#"Available tools:
 
@@ -188,13 +188,12 @@ Use Program when you need data flow between steps."#
         &self,
         tool_name: &str,
         tool_args: &HashMap<String, String>,
-    ) -> RlmToolExecution {
+    ) -> AlmToolExecution {
         let start = Instant::now();
         match tool_name {
             "bash" => {
                 let command = tool_args.get("command").map(|s| s.as_str()).unwrap_or("");
-                let shell =
-                    std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+                let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
                 let result = tokio::time::timeout(
                     Duration::from_secs(15),
                     tokio::process::Command::new(&shell)
@@ -219,7 +218,7 @@ Use Program when you need data flow between steps."#
                             }
                             combined.push_str(stderr.trim_end());
                         }
-                        RlmToolExecution {
+                        AlmToolExecution {
                             turn: 0,
                             tool_name: "bash".into(),
                             tool_args: tool_args.clone(),
@@ -233,7 +232,7 @@ Use Program when you need data flow between steps."#
                             elapsed_ms: start.elapsed().as_millis() as u64,
                         }
                     }
-                    Ok(Err(e)) => RlmToolExecution {
+                    Ok(Err(e)) => AlmToolExecution {
                         turn: 0,
                         tool_name: "bash".into(),
                         tool_args: tool_args.clone(),
@@ -242,7 +241,7 @@ Use Program when you need data flow between steps."#
                         error: Some(format!("exec: {e}")),
                         elapsed_ms: start.elapsed().as_millis() as u64,
                     },
-                    Err(_) => RlmToolExecution {
+                    Err(_) => AlmToolExecution {
                         turn: 0,
                         tool_name: "bash".into(),
                         tool_args: tool_args.clone(),
@@ -262,7 +261,7 @@ Use Program when you need data flow between steps."#
                     format!("{}/{}", env!("CARGO_MANIFEST_DIR"), path)
                 };
                 match tokio::fs::read_to_string(&full_path).await {
-                    Ok(content) => RlmToolExecution {
+                    Ok(content) => AlmToolExecution {
                         turn: 0,
                         tool_name: "file_read".into(),
                         tool_args: tool_args.clone(),
@@ -271,7 +270,7 @@ Use Program when you need data flow between steps."#
                         error: None,
                         elapsed_ms: start.elapsed().as_millis() as u64,
                     },
-                    Err(e) => RlmToolExecution {
+                    Err(e) => AlmToolExecution {
                         turn: 0,
                         tool_name: "file_read".into(),
                         tool_args: tool_args.clone(),
@@ -287,7 +286,7 @@ Use Program when you need data flow between steps."#
                 let content = tool_args.get("content").map(|s| s.as_str()).unwrap_or("");
                 // Only allow /tmp writes
                 if !path.starts_with("/tmp/") {
-                    return RlmToolExecution {
+                    return AlmToolExecution {
                         turn: 0,
                         tool_name: "file_write".into(),
                         tool_args: tool_args.clone(),
@@ -298,7 +297,7 @@ Use Program when you need data flow between steps."#
                     };
                 }
                 match tokio::fs::write(path, content).await {
-                    Ok(_) => RlmToolExecution {
+                    Ok(_) => AlmToolExecution {
                         turn: 0,
                         tool_name: "file_write".into(),
                         tool_args: tool_args.clone(),
@@ -307,7 +306,7 @@ Use Program when you need data flow between steps."#
                         error: None,
                         elapsed_ms: start.elapsed().as_millis() as u64,
                     },
-                    Err(e) => RlmToolExecution {
+                    Err(e) => AlmToolExecution {
                         turn: 0,
                         tool_name: "file_write".into(),
                         tool_args: tool_args.clone(),
@@ -318,7 +317,7 @@ Use Program when you need data flow between steps."#
                     },
                 }
             }
-            _ => RlmToolExecution {
+            _ => AlmToolExecution {
                 turn: 0,
                 tool_name: tool_name.into(),
                 tool_args: tool_args.clone(),
@@ -455,14 +454,15 @@ Use Program when you need data flow between steps."#
     }
 
     async fn emit_message(&self, message: &str) {
-        self.emit_log
-            .lock()
-            .unwrap()
-            .push(message.to_string());
+        self.emit_log.lock().unwrap().push(message.to_string());
     }
 
-    fn run_id(&self) -> &str { "dag-eval-run" }
-    fn actor_id(&self) -> &str { "dag-eval-actor" }
+    fn run_id(&self) -> &str {
+        "dag-eval-run"
+    }
+    fn actor_id(&self) -> &str {
+        "dag-eval-actor"
+    }
 
     async fn dispatch_tool(&self, tool_name: &str, _args: &HashMap<String, String>, corr_id: &str) {
         println!("  [DISPATCH] corr:{corr_id} tool:{tool_name}");
@@ -471,12 +471,17 @@ Use Program when you need data flow between steps."#
     async fn write_checkpoint(&self, checkpoint: &shared_types::HarnessCheckpoint) {
         println!(
             "  [CHECKPOINT] run:{} turn:{} pending:{}",
-            checkpoint.run_id, checkpoint.turn_number, checkpoint.pending_replies.len()
+            checkpoint.run_id,
+            checkpoint.turn_number,
+            checkpoint.pending_replies.len()
         );
     }
 
-    async fn spawn_subharness(&self, objective: &str, _context: serde_json::Value, corr_id: &str) {
-        println!("  [SPAWN_SUBHARNESS] corr:{corr_id} obj:{}", &objective[..objective.len().min(80)]);
+    async fn spawn_actor_harness(&self, objective: &str, _context: serde_json::Value, corr_id: &str) {
+        println!(
+            "  [SPAWN_SUBHARNESS] corr:{corr_id} obj:{}",
+            &objective[..objective.len().min(80)]
+        );
     }
 }
 
@@ -549,7 +554,8 @@ fn report_scenario(
     elapsed_ms: u64,
 ) {
     report.subsection(&format!("{model_id} / {scenario_name}"));
-    report.line(&format!("  elapsed: {}ms | turns: {} | tools: {} | nested_llm_calls: {} | emits: {}",
+    report.line(&format!(
+        "  elapsed: {}ms | turns: {} | tools: {} | nested_llm_calls: {} | emits: {}",
         elapsed_ms,
         result.turns_taken,
         result.tool_executions.len(),
@@ -632,7 +638,10 @@ fn report_scenario(
                 lc.elapsed_ms,
                 lc.model_hint,
             ));
-            report.line(&format!("      prompt ({} chars): {}", lc.prompt_len, lc.prompt_preview));
+            report.line(&format!(
+                "      prompt ({} chars): {}",
+                lc.prompt_len, lc.prompt_preview
+            ));
             if let Some(sp) = &lc.system_prompt {
                 report.line(&format!("      system: {sp}"));
             }
@@ -804,7 +813,10 @@ async fn dag_runtime_eval() {
 
     let mut report = Report::new();
     report.section("DAG Runtime Eval — Frontier Research Report");
-    report.line(&format!("Date: {}", chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")));
+    report.line(&format!(
+        "Date: {}",
+        chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+    ));
     report.line(&format!("Models available: {}", available.join(", ")));
     report.line(&format!(
         "Models requested but unavailable: {}",
@@ -827,7 +839,7 @@ async fn dag_runtime_eval() {
         report.line(&format!("  - {} (expected: {})", s.name, s.expected_mode));
     }
 
-    let config = RlmConfig {
+    let config = AlmConfig {
         max_turns: 10,
         max_recurse_depth: 3,
         timeout_budget_ms: 120_000,
@@ -860,7 +872,7 @@ async fn dag_runtime_eval() {
             report.line(&format!("\n  >>> Running: {} ...", scenario.name));
 
             let port = DagEvalPort::new(model_id.clone(), ModelRegistry::new());
-            let harness = RlmHarness::new(port, ModelRegistry::new(), config.clone());
+            let harness = AlmHarness::new(port, ModelRegistry::new(), config.clone());
 
             let result = tokio::time::timeout(
                 Duration::from_secs(120),
@@ -918,9 +930,7 @@ async fn dag_runtime_eval() {
                         "USED_PROGRAM_UNEXPECTED"
                     };
 
-                    report.line(&format!(
-                        "\n  VERDICT: {verdict} | {mode_match} | {detail}"
-                    ));
+                    report.line(&format!("\n  VERDICT: {verdict} | {mode_match} | {detail}"));
 
                     all_results.push(ScenarioResult {
                         model: model_id.clone(),
@@ -1019,8 +1029,15 @@ async fn dag_runtime_eval() {
 
         report.line(&format!(
             "{:<25} {:<30} {:>5} {:>8} {:>7} {:>5} {:>5} {:>5}  {}",
-            r.model, r.scenario, pass_str, mode_str, match_str, r.turns, r.dag_steps,
-            r.nested_llm_calls, detail
+            r.model,
+            r.scenario,
+            pass_str,
+            mode_str,
+            match_str,
+            r.turns,
+            r.dag_steps,
+            r.nested_llm_calls,
+            detail
         ));
     }
 
@@ -1040,7 +1057,9 @@ async fn dag_runtime_eval() {
     report.line("5. Do models use Transform steps for data manipulation?");
     report.line("6. Which models are best at DAG authoring? Quality tier differences?");
     report.line("7. Is the DAG representation ergonomic for the model, or do they struggle with the syntax?");
-    report.line("8. How does this compare to the model just writing bash scripts with embedded curl calls?");
+    report.line(
+        "8. How does this compare to the model just writing bash scripts with embedded curl calls?",
+    );
 
     report.finish();
 }

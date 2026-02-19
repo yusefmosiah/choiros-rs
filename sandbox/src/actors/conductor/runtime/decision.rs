@@ -6,7 +6,7 @@ use crate::actors::conductor::{
     protocol::{ConductorError, ConductorMsg},
     runtime::capability_call::{CapabilityCallActor, CapabilityCallArguments},
 };
-use crate::actors::subharness::{SubharnessActor, SubharnessArguments, SubharnessMsg};
+use crate::actors::actor_harness_actor::{ActorHarnessActor, ActorHarnessArguments, ActorHarnessMsg};
 use crate::actors::writer::SectionState;
 use crate::actors::writer::WriterMsg;
 
@@ -212,12 +212,12 @@ impl ConductorActor {
         Ok(())
     }
 
-    /// Spawn a `SubharnessActor` for a scoped objective.
+    /// Spawn a `ActorHarnessActor` for a scoped objective.
     ///
-    /// Registers the subharness as a `ConductorCapabilityCall` (capability = "subharness")
+    /// Registers the subharness as a `ConductorCapabilityCall` (capability = "actor_harness")
     /// so the existing active-call and run-finalization machinery applies.
-    /// The SubharnessActor sends `ConductorMsg::SubharnessComplete` back directly.
-    pub(crate) async fn spawn_subharness_for_run(
+    /// The ActorHarnessActor sends `ConductorMsg::ActorHarnessComplete` back directly.
+    pub(crate) async fn spawn_actor_harness_for_run(
         &self,
         myself: &ActorRef<ConductorMsg>,
         state: &mut ConductorState,
@@ -229,7 +229,7 @@ impl ConductorActor {
 
         let call = shared_types::ConductorCapabilityCall {
             call_id: call_id.clone(),
-            capability: "subharness".to_string(),
+            capability: "actor_harness".to_string(),
             objective: item.objective.clone(),
             status: shared_types::CapabilityCallStatus::Running,
             started_at: chrono::Utc::now(),
@@ -240,9 +240,14 @@ impl ConductorActor {
             error: None,
         };
 
-        state.tasks.register_capability_call(run_id, call).map_err(|e| {
-            ConductorError::ModelGatewayError(format!("Failed to register subharness call: {e}"))
-        })?;
+        state
+            .tasks
+            .register_capability_call(run_id, call)
+            .map_err(|e| {
+                ConductorError::ModelGatewayError(format!(
+                    "Failed to register subharness call: {e}"
+                ))
+            })?;
         state
             .tasks
             .update_capability_call(
@@ -253,15 +258,9 @@ impl ConductorActor {
             )
             .ok();
 
-        events::emit_worker_call(
-            &state.event_store,
-            run_id,
-            "subharness",
-            &item.objective,
-        )
-        .await;
+        events::emit_worker_call(&state.event_store, run_id, "actor_harness", &item.objective).await;
 
-        let args = SubharnessArguments {
+        let args = ActorHarnessArguments {
             event_store: state.event_store.clone(),
         };
 
@@ -271,15 +270,15 @@ impl ConductorActor {
         let objective = item.objective.clone();
 
         match Actor::spawn_linked(
-            Some(format!("subharness:{}:{}", run_id_owned, call_id_owned)),
-            SubharnessActor,
+            Some(format!("actor_harness:{}:{}", run_id_owned, call_id_owned)),
+            ActorHarnessActor,
             args,
             myself.get_cell(),
         )
         .await
         {
             Ok((subharness_ref, _handle)) => {
-                let _ = subharness_ref.send_message(SubharnessMsg::Execute {
+                let _ = subharness_ref.send_message(ActorHarnessMsg::Execute {
                     objective,
                     context,
                     correlation_id: call_id_owned.clone(),
@@ -288,14 +287,14 @@ impl ConductorActor {
                 tracing::info!(
                     run_id = %run_id,
                     call_id = %call_id_owned,
-                    "Spawned SubharnessActor"
+                    "Spawned ActorHarnessActor"
                 );
             }
             Err(error) => {
                 // Immediately notify conductor so the run can quiesce.
-                let _ = myself.send_message(ConductorMsg::SubharnessFailed {
+                let _ = myself.send_message(ConductorMsg::ActorHarnessFailed {
                     correlation_id: call_id_owned,
-                    reason: format!("Failed to spawn SubharnessActor: {error}"),
+                    reason: format!("Failed to spawn ActorHarnessActor: {error}"),
                 });
             }
         }

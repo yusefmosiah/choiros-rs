@@ -21,13 +21,13 @@ Immediate app pattern: human UX first, then headless API, then app-agent harness
 
 - Phase 4 is partial: items 4.1, 4.2, 4.4, and 4.5 are complete.
 - Phase 4 item 4.3 is still open: conductor wake still runs the BAML
-  `ConductorBootstrap` path instead of an RLM harness turn with
+  `ConductorBootstrap` path instead of an ALM harness turn with
   `HarnessProfile::Conductor`.
 - Phase 4 gate is therefore not yet met (`HarnessProfile::Conductor` step-budget
   enforcement is the remaining blocker).
 - Phase 5 is complete: MemoryActor + sqlite-vec + fastembed are integrated and
   the gate suite is passing.
-- Immediate execution target: wire conductor wake to a bounded RLM harness turn
+- Immediate execution target: wire conductor wake to a bounded ALM harness turn
   without violating non-blocking conductor constraints.
 
 ## What We Are Building Right Now
@@ -142,13 +142,13 @@ Immediate app pattern: human UX first, then headless API, then app-agent harness
 - Run narrative + semantic events are first-class UX and conductor wake context.
 - Backend is canonical for app/window UI state; browser localStorage is non-authoritative.
 - Filesystem (grep/find/read) is the primary deterministic retrieval path for agents; vector memory is the associative/episodic layer on top.
-- MemoryActor uses **sqlite-vec** for vector persistence (in-process, four collections, HNSW-style ANN, chunk_hash dedup). RuVector (`rvf-runtime`/`rvf-index`) is deferred pending production maturity; SONA learning deferred to Phase 5+. MemoryActor is the abstraction boundary — backend is swappable without changing the RLM-facing API.
+- MemoryActor uses **sqlite-vec** for vector persistence (in-process, four collections, HNSW-style ANN, chunk_hash dedup). RuVector (`rvf-runtime`/`rvf-index`) is deferred pending production maturity; SONA learning deferred to Phase 5+. MemoryActor is the abstraction boundary — backend is swappable without changing the ALM-facing API.
 - Local memory is private per-user. Global knowledge store receives only explicitly published content.
-- RLM (Recursive Language Model) is the default execution mode; linear tool-looping is a degenerate case of `NextAction::ToolCalls`.
+- ALM (Agentic Language Model) is the default execution mode; linear tool-looping is a degenerate case of `NextAction::ToolCalls`.
 - Model composes its own context each turn via `ContextSnapshot` — retrieved from MemoryAgent, selected documents, and working memory.
 - Self-prompting replaces role-based prompting: the model queries memory to construct effective prompts, rather than relying on static system prompts.
 - RLM security boundary is the microVM, not an internal sandbox — recursive calls become actor messages that may cross security domains.
-- ChoirOS defines capability contracts at three levels: System (RLM harness semantics), Harness (Conductor/Terminal/Researcher specialization), and Task (objective-specific context). These are API documentation, not role assignments.
+- ChoirOS defines capability contracts at three levels: System (ALM harness semantics), Harness (Conductor/Terminal/Researcher specialization), and Task (objective-specific context). These are API documentation, not role assignments.
 
 ## One-Line Summary Per Core Doc
 

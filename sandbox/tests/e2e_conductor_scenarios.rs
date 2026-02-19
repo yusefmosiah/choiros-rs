@@ -59,7 +59,10 @@ async fn setup_test_app() -> (axum::Router, tempfile::TempDir) {
     let app_state = Arc::new(AppState::new(event_store));
     let ws_sessions: sandbox::api::websocket::WsSessions =
         Arc::new(tokio::sync::Mutex::new(HashMap::new()));
-    let api_state = api::ApiState { app_state, ws_sessions };
+    let api_state = api::ApiState {
+        app_state,
+        ws_sessions,
+    };
     let app = api::router().with_state(api_state);
     (app, temp_dir)
 }
@@ -103,10 +106,7 @@ async fn submit_run(app: &axum::Router, objective: &str) -> String {
         status,
         body
     );
-    let run_id = body["run_id"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    let run_id = body["run_id"].as_str().unwrap_or("").to_string();
     assert!(
         !run_id.is_empty(),
         "run_id must be non-empty in 202 response, body={}",
@@ -194,7 +194,9 @@ async fn test_conductor_to_terminal_delegation() {
     let early_events = get_events(&app, &run_id).await;
     let types = event_types(&early_events);
     assert!(
-        types.iter().any(|t| t.contains("conductor.run.started") || t.contains("conductor.task.started")),
+        types
+            .iter()
+            .any(|t| t.contains("conductor.run.started") || t.contains("conductor.task.started")),
         "at least one conductor lifecycle event must be emitted within 500ms, got: {types:?}"
     );
 
@@ -264,7 +266,9 @@ async fn test_conductor_to_researcher_delegation() {
 
     // At least one capability call should be researcher or writer
     // (conductor may choose researcher or writer — both are valid for a research task)
-    let has_knowledge_worker = calls.iter().any(|(cap, _)| cap == "researcher" || cap == "writer");
+    let has_knowledge_worker = calls
+        .iter()
+        .any(|(cap, _)| cap == "researcher" || cap == "writer");
     assert!(
         has_knowledge_worker,
         "conductor must use researcher or writer for a research objective, \
@@ -363,7 +367,8 @@ async fn test_concurrent_run_isolation() {
         let ev_run = ev["payload"]["run_id"].as_str().unwrap_or("");
         if !ev_run.is_empty() {
             assert_ne!(
-                ev_run, run_b,
+                ev_run,
+                run_b,
                 "run_a events must not contain run_b's run_id (scope bleed), event: {}",
                 ev["event_type"].as_str().unwrap_or("?")
             );
@@ -373,7 +378,8 @@ async fn test_concurrent_run_isolation() {
         let ev_run = ev["payload"]["run_id"].as_str().unwrap_or("");
         if !ev_run.is_empty() {
             assert_ne!(
-                ev_run, run_a,
+                ev_run,
+                run_a,
                 "run_b events must not contain run_a's run_id (scope bleed), event: {}",
                 ev["event_type"].as_str().unwrap_or("?")
             );
@@ -497,7 +503,5 @@ async fn test_conductor_rejects_invalid_request() {
         "whitespace objective must return 4xx, got {status2} body={body2}"
     );
 
-    println!(
-        "  [ASSERT] empty objective rejected: {status}, whitespace rejected: {status2}"
-    );
+    println!("  [ASSERT] empty objective rejected: {status}, whitespace rejected: {status2}");
 }

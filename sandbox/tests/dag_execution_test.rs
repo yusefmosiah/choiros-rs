@@ -1,6 +1,6 @@
 //! DAG Execution Tests — test the computationally universal execution substrate.
 //!
-//! These tests exercise the DAG executor directly with a mock RlmPort, verifying:
+//! These tests exercise the DAG executor directly with a mock AlmPort, verifying:
 //! - Multi-step execution with variable references
 //! - Conditional gates (steps skipped when gate is false)
 //! - Transform operations (regex, truncate, json_extract)
@@ -14,9 +14,9 @@
 //! Run:
 //!   cargo test -p sandbox --test dag_execution_test -- --nocapture
 
-use sandbox::actors::agent_harness::rlm::{
-    execute_dag, DagStepTrace, DagTrace, LlmCallResult, RlmConfig, RlmHarness, RlmPort,
-    RlmRunResult, RlmToolExecution,
+use sandbox::actors::agent_harness::alm::{
+    execute_dag, DagStepTrace, DagTrace, LlmCallResult, AlmConfig, AlmHarness, AlmPort,
+    RlmRunResult, AlmToolExecution,
 };
 use sandbox::baml_client::types::{ContextSourceKind, DagStep, StepOp};
 use shared_types;
@@ -26,7 +26,7 @@ use std::time::Instant;
 
 // ─── Mock Port ───────────────────────────────────────────────────────────────
 
-struct MockRlmPort {
+struct MockAlmPort {
     /// Captured emit messages for assertions
     emitted: Arc<Mutex<Vec<String>>>,
     /// Captured LLM prompts for assertions
@@ -35,7 +35,7 @@ struct MockRlmPort {
     llm_response: String,
 }
 
-impl MockRlmPort {
+impl MockAlmPort {
     fn new(llm_response: &str) -> Self {
         Self {
             emitted: Arc::new(Mutex::new(Vec::new())),
@@ -54,7 +54,7 @@ impl MockRlmPort {
 }
 
 #[async_trait::async_trait]
-impl RlmPort for MockRlmPort {
+impl AlmPort for MockAlmPort {
     fn capabilities_description(&self) -> String {
         "mock".to_string()
     }
@@ -76,14 +76,14 @@ impl RlmPort for MockRlmPort {
         &self,
         tool_name: &str,
         tool_args: &HashMap<String, String>,
-    ) -> RlmToolExecution {
+    ) -> AlmToolExecution {
         let start = Instant::now();
         match tool_name {
             "bash" => {
                 let cmd = tool_args.get("command").cloned().unwrap_or_default();
                 // Simple mock: echo commands return the argument
                 if cmd.starts_with("echo ") {
-                    RlmToolExecution {
+                    AlmToolExecution {
                         turn: 0,
                         tool_name: "bash".into(),
                         tool_args: tool_args.clone(),
@@ -93,7 +93,7 @@ impl RlmPort for MockRlmPort {
                         elapsed_ms: start.elapsed().as_millis() as u64,
                     }
                 } else if cmd == "fail" {
-                    RlmToolExecution {
+                    AlmToolExecution {
                         turn: 0,
                         tool_name: "bash".into(),
                         tool_args: tool_args.clone(),
@@ -103,7 +103,7 @@ impl RlmPort for MockRlmPort {
                         elapsed_ms: start.elapsed().as_millis() as u64,
                     }
                 } else {
-                    RlmToolExecution {
+                    AlmToolExecution {
                         turn: 0,
                         tool_name: "bash".into(),
                         tool_args: tool_args.clone(),
@@ -116,7 +116,7 @@ impl RlmPort for MockRlmPort {
             }
             "file_read" => {
                 let path = tool_args.get("path").cloned().unwrap_or_default();
-                RlmToolExecution {
+                AlmToolExecution {
                     turn: 0,
                     tool_name: "file_read".into(),
                     tool_args: tool_args.clone(),
@@ -126,7 +126,7 @@ impl RlmPort for MockRlmPort {
                     elapsed_ms: start.elapsed().as_millis() as u64,
                 }
             }
-            _ => RlmToolExecution {
+            _ => AlmToolExecution {
                 turn: 0,
                 tool_name: tool_name.into(),
                 tool_args: tool_args.clone(),
@@ -157,8 +157,12 @@ impl RlmPort for MockRlmPort {
         self.emitted.lock().unwrap().push(message.to_string());
     }
 
-    fn run_id(&self) -> &str { "test-run" }
-    fn actor_id(&self) -> &str { "test-actor" }
+    fn run_id(&self) -> &str {
+        "test-run"
+    }
+    fn actor_id(&self) -> &str {
+        "test-actor"
+    }
 
     async fn dispatch_tool(&self, tool_name: &str, _args: &HashMap<String, String>, corr_id: &str) {
         println!("[DISPATCH] corr:{corr_id} tool:{tool_name}");
@@ -167,16 +171,12 @@ impl RlmPort for MockRlmPort {
     async fn write_checkpoint(&self, checkpoint: &shared_types::HarnessCheckpoint) {
         println!(
             "[CHECKPOINT] turn:{} pending:{}",
-            checkpoint.turn_number, checkpoint.pending_replies.len()
+            checkpoint.turn_number,
+            checkpoint.pending_replies.len()
         );
     }
 
-    async fn spawn_subharness(
-        &self,
-        objective: &str,
-        _context: serde_json::Value,
-        corr_id: &str,
-    ) {
+    async fn spawn_actor_harness(&self, objective: &str, _context: serde_json::Value, corr_id: &str) {
         println!("[SPAWN_SUBHARNESS] corr:{corr_id} objective:{objective}");
     }
 }
@@ -206,7 +206,10 @@ fn make_step(id: &str, op: StepOp, depends_on: Vec<&str>) -> DagStep {
 }
 
 fn print_trace(trace: &DagTrace) {
-    println!("  DAG trace (turn {}, {}ms total):", trace.turn, trace.total_elapsed_ms);
+    println!(
+        "  DAG trace (turn {}, {}ms total):",
+        trace.turn, trace.total_elapsed_ms
+    );
     for st in &trace.steps {
         let status = if st.skipped {
             "SKIP"
@@ -220,10 +223,7 @@ fn print_trace(trace: &DagTrace) {
         } else {
             st.output.clone()
         };
-        println!(
-            "    [{status}] {}: {} — {}",
-            st.step_id, st.op, out_preview
-        );
+        println!("    [{status}] {}: {} — {}", st.step_id, st.op, out_preview);
     }
 }
 
@@ -232,7 +232,7 @@ fn print_trace(trace: &DagTrace) {
 #[tokio::test]
 async fn test_dag_linear_tool_chain() {
     // a -> b -> c: each step reads the output of the previous via ${ref}
-    let port = MockRlmPort::new("");
+    let port = MockAlmPort::new("");
     let steps = vec![
         {
             let mut s = make_step("get_os", StepOp::ToolCall, vec![]);
@@ -278,7 +278,7 @@ async fn test_dag_linear_tool_chain() {
 #[tokio::test]
 async fn test_dag_conditional_gate_true() {
     // read -> analyze (LLM) -> gate (contains CRITICAL) -> deep_review (only if gate true)
-    let port = MockRlmPort::new("Found CRITICAL vulnerability in auth module");
+    let port = MockAlmPort::new("Found CRITICAL vulnerability in auth module");
     let steps = vec![
         {
             let mut s = make_step("read", StepOp::ToolCall, vec![]);
@@ -325,7 +325,7 @@ async fn test_dag_conditional_gate_true() {
 #[tokio::test]
 async fn test_dag_conditional_gate_false() {
     // Same structure but LLM response doesn't contain CRITICAL
-    let port = MockRlmPort::new("Code looks clean, no issues found");
+    let port = MockAlmPort::new("Code looks clean, no issues found");
     let steps = vec![
         {
             let mut s = make_step("read", StepOp::ToolCall, vec![]);
@@ -376,7 +376,7 @@ async fn test_dag_conditional_gate_false() {
 
 #[tokio::test]
 async fn test_dag_transform_regex() {
-    let port = MockRlmPort::new("");
+    let port = MockAlmPort::new("");
     let steps = vec![
         {
             let mut s = make_step("data", StepOp::ToolCall, vec![]);
@@ -411,7 +411,7 @@ async fn test_dag_transform_regex() {
 
 #[tokio::test]
 async fn test_dag_transform_json_extract() {
-    let port = MockRlmPort::new("");
+    let port = MockAlmPort::new("");
     let steps = vec![
         {
             let mut s = make_step("api_call", StepOp::ToolCall, vec![]);
@@ -447,12 +447,15 @@ async fn test_dag_transform_json_extract() {
 #[tokio::test]
 async fn test_dag_diamond_dependency() {
     // Diamond: a -> b, a -> c, b+c -> d
-    let port = MockRlmPort::new("synthesized");
+    let port = MockAlmPort::new("synthesized");
     let steps = vec![
         {
             let mut s = make_step("a", StepOp::ToolCall, vec![]);
             s.tool_name = Some("bash".to_string());
-            s.tool_args = Some(HashMap::from([("command".into(), "echo source_data".into())]));
+            s.tool_args = Some(HashMap::from([(
+                "command".into(),
+                "echo source_data".into(),
+            )]));
             s
         },
         {
@@ -490,7 +493,7 @@ async fn test_dag_diamond_dependency() {
 #[tokio::test]
 async fn test_dag_tool_failure_propagates() {
     // Step a fails, step b gets the error text via ${a}
-    let port = MockRlmPort::new("");
+    let port = MockAlmPort::new("");
     let steps = vec![
         {
             let mut s = make_step("a", StepOp::ToolCall, vec![]);
@@ -501,10 +504,7 @@ async fn test_dag_tool_failure_propagates() {
         {
             let mut s = make_step("b", StepOp::ToolCall, vec!["a"]);
             s.tool_name = Some("bash".to_string());
-            s.tool_args = Some(HashMap::from([(
-                "command".into(),
-                "echo got: ${a}".into(),
-            )]));
+            s.tool_args = Some(HashMap::from([("command".into(), "echo got: ${a}".into())]));
             s
         },
     ];
@@ -520,7 +520,7 @@ async fn test_dag_tool_failure_propagates() {
 
 #[tokio::test]
 async fn test_dag_empty() {
-    let port = MockRlmPort::new("");
+    let port = MockAlmPort::new("");
     let (trace, outputs, tool_execs) = execute_dag(&port, &[], 1, 30).await.unwrap();
     assert_eq!(trace.steps.len(), 0);
     assert!(outputs.is_empty());
@@ -530,7 +530,7 @@ async fn test_dag_empty() {
 
 #[tokio::test]
 async fn test_dag_exceeds_max_steps() {
-    let port = MockRlmPort::new("");
+    let port = MockAlmPort::new("");
     let steps: Vec<DagStep> = (0..5)
         .map(|i| {
             let mut s = make_step(&format!("s{i}"), StepOp::ToolCall, vec![]);
@@ -549,7 +549,7 @@ async fn test_dag_exceeds_max_steps() {
 #[tokio::test]
 async fn test_dag_llm_call_with_substitution() {
     // Verify that LLM prompts receive properly substituted content
-    let port = MockRlmPort::new("LLM analysis complete");
+    let port = MockAlmPort::new("LLM analysis complete");
     let steps = vec![
         {
             let mut s = make_step("read", StepOp::ToolCall, vec![]);
@@ -586,7 +586,7 @@ async fn test_dag_llm_call_with_substitution() {
 #[tokio::test]
 async fn test_dag_multi_gate_cascade() {
     // Two gates in sequence: gate1 -> conditional step -> gate2 -> conditional step
-    let port = MockRlmPort::new("result with WARNING flag");
+    let port = MockAlmPort::new("result with WARNING flag");
     let steps = vec![
         {
             let mut s = make_step("data", StepOp::ToolCall, vec![]);

@@ -8,7 +8,7 @@
 //! 5. `resolve_source(ToolOutput, corr_id)` returns the result
 //! 6. Recovered state matches original: turn_number, working_memory, pending_replies
 //!
-//! No LLM calls — pure EventStore + RlmPort contract test.
+//! No LLM calls — pure EventStore + AlmPort contract test.
 //!
 //! Run:
 //!   cargo test -p sandbox --test harness_recovery_test -- --nocapture
@@ -18,13 +18,13 @@ use ractor::Actor;
 use shared_types::{HarnessCheckpoint, PendingReply, TurnSummary};
 use std::collections::HashMap;
 
+use sandbox::actors::agent_harness::alm::{LlmCallResult, AlmPort, AlmToolExecution};
 use sandbox::actors::event_store::{
     AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg,
 };
-use sandbox::actors::agent_harness::rlm::{LlmCallResult, RlmPort, RlmToolExecution};
 use sandbox::baml_client::types::ContextSourceKind;
 
-// ─── Minimal RlmPort backed by a live EventStore actor ───────────────────────
+// ─── Minimal AlmPort backed by a live EventStore actor ───────────────────────
 
 struct RecoveryTestPort {
     event_store: ractor::ActorRef<EventStoreMsg>,
@@ -33,11 +33,19 @@ struct RecoveryTestPort {
 }
 
 #[async_trait::async_trait]
-impl RlmPort for RecoveryTestPort {
-    fn capabilities_description(&self) -> String { "test".into() }
-    fn model_id(&self) -> &str { "test" }
-    fn run_id(&self) -> &str { &self.run_id }
-    fn actor_id(&self) -> &str { &self.actor_id }
+impl AlmPort for RecoveryTestPort {
+    fn capabilities_description(&self) -> String {
+        "test".into()
+    }
+    fn model_id(&self) -> &str {
+        "test"
+    }
+    fn run_id(&self) -> &str {
+        &self.run_id
+    }
+    fn actor_id(&self) -> &str {
+        &self.actor_id
+    }
 
     async fn resolve_source(
         &self,
@@ -48,8 +56,8 @@ impl RlmPort for RecoveryTestPort {
         if !matches!(kind, ContextSourceKind::ToolOutput) {
             return None;
         }
-        // Poll EventStore with a 2s timeout — same logic as ActorRlmPort
-        for event_prefix in &["subharness.result", "tool.result"] {
+        // Poll EventStore with a 2s timeout — same logic as ActorAlmPort
+        for event_prefix in &["actor_harness.result", "tool.result"] {
             let result = ractor::call_t!(
                 self.event_store,
                 |reply| EventStoreMsg::GetEventsByCorrId {
@@ -75,8 +83,12 @@ impl RlmPort for RecoveryTestPort {
         None
     }
 
-    async fn execute_tool(&self, tool_name: &str, tool_args: &HashMap<String, String>) -> RlmToolExecution {
-        RlmToolExecution {
+    async fn execute_tool(
+        &self,
+        tool_name: &str,
+        tool_args: &HashMap<String, String>,
+    ) -> AlmToolExecution {
+        AlmToolExecution {
             turn: 0,
             tool_name: tool_name.into(),
             tool_args: tool_args.clone(),
@@ -87,8 +99,18 @@ impl RlmPort for RecoveryTestPort {
         }
     }
 
-    async fn call_llm(&self, _prompt: &str, _system: Option<&str>, _hint: Option<&str>) -> LlmCallResult {
-        LlmCallResult { output: String::new(), success: false, error: None, elapsed_ms: 0 }
+    async fn call_llm(
+        &self,
+        _prompt: &str,
+        _system: Option<&str>,
+        _hint: Option<&str>,
+    ) -> LlmCallResult {
+        LlmCallResult {
+            output: String::new(),
+            success: false,
+            error: None,
+            elapsed_ms: 0,
+        }
     }
 
     async fn emit_message(&self, _message: &str) {}
@@ -107,7 +129,7 @@ impl RlmPort for RecoveryTestPort {
         });
     }
 
-    async fn spawn_subharness(&self, _objective: &str, _ctx: serde_json::Value, _corr_id: &str) {}
+    async fn spawn_actor_harness(&self, _objective: &str, _ctx: serde_json::Value, _corr_id: &str) {}
 }
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
@@ -144,7 +166,7 @@ async fn test_checkpoint_write_and_read() {
         objective: "analyse the codebase and write a report".into(),
         pending_replies: vec![PendingReply {
             corr_id: corr_id.clone(),
-            actor_kind: "subharness".into(),
+            actor_kind: "actor_harness".into(),
             objective_summary: "analyse src/actors".into(),
             sent_at: now,
             timeout_at: Some(now + chrono::Duration::seconds(120)),
@@ -202,8 +224,7 @@ async fn test_checkpoint_write_and_read() {
     assert_eq!(recovered.run_id, run_id, "run_id preserved");
     assert_eq!(recovered.turn_number, 2, "turn_number preserved");
     assert_eq!(
-        recovered.working_memory,
-        "I have dispatched two branches. Waiting for results.",
+        recovered.working_memory, "I have dispatched two branches. Waiting for results.",
         "working_memory preserved"
     );
     assert_eq!(recovered.pending_replies.len(), 1, "one pending reply");
@@ -211,9 +232,14 @@ async fn test_checkpoint_write_and_read() {
         recovered.pending_replies[0].corr_id, corr_id,
         "corr_id preserved"
     );
-    assert_eq!(recovered.turn_summaries.len(), 2, "turn summaries preserved");
+    assert_eq!(
+        recovered.turn_summaries.len(),
+        2,
+        "turn summaries preserved"
+    );
 
-    println!("  [RECOVERY] turn:{} wm:'{}' pending:{}",
+    println!(
+        "  [RECOVERY] turn:{} wm:'{}' pending:{}",
         recovered.turn_number,
         &recovered.working_memory[..50.min(recovered.working_memory.len())],
         recovered.pending_replies.len(),
@@ -240,7 +266,7 @@ async fn test_recovery_resolve_source_after_result_lands() {
     assert!(before.is_none(), "no result before subharness completes");
     println!("  [PRE-RESULT] resolve_source returned None (correct)");
 
-    // Step 2: Simulate subharness completing — write subharness.result to EventStore
+    // Step 2: Simulate subharness completing — write actor_harness.result to EventStore
     let result_payload = serde_json::json!({
         "correlation_id": corr_id,
         "corr_id": corr_id,
@@ -252,9 +278,9 @@ async fn test_recovery_resolve_source_after_result_lands() {
     });
     let _ = store.send_message(EventStoreMsg::AppendAsync {
         event: AppendEvent {
-            event_type: "subharness.result".into(),
+            event_type: "actor_harness.result".into(),
             payload: result_payload,
-            actor_id: format!("subharness:{corr_id}"),
+            actor_id: format!("actor_harness:{corr_id}"),
             user_id: "system".into(),
         },
     });
@@ -266,13 +292,19 @@ async fn test_recovery_resolve_source_after_result_lands() {
     let after = port
         .resolve_source(&ContextSourceKind::ToolOutput, &corr_id, None)
         .await;
-    assert!(after.is_some(), "result available after subharness.result event written");
+    assert!(
+        after.is_some(),
+        "result available after actor_harness.result event written"
+    );
     let text = after.unwrap();
     assert!(
         text.contains("Terminal is isolated"),
         "output content preserved: got '{text}'"
     );
-    println!("  [POST-RESULT] resolve_source returned: '{}'", &text[..80.min(text.len())]);
+    println!(
+        "  [POST-RESULT] resolve_source returned: '{}'",
+        &text[..80.min(text.len())]
+    );
 }
 
 /// Write two checkpoints for the same run — GetLatestHarnessCheckpoint returns the newer one.
@@ -298,7 +330,7 @@ async fn test_recovery_latest_checkpoint_wins() {
         objective: "test".into(),
         pending_replies: vec![PendingReply {
             corr_id: "corr-1".into(),
-            actor_kind: "subharness".into(),
+            actor_kind: "actor_harness".into(),
             objective_summary: "branch 1".into(),
             sent_at: now,
             timeout_at: None,
@@ -319,7 +351,7 @@ async fn test_recovery_latest_checkpoint_wins() {
         objective: "test".into(),
         pending_replies: vec![PendingReply {
             corr_id: "corr-3".into(),
-            actor_kind: "subharness".into(),
+            actor_kind: "actor_harness".into(),
             objective_summary: "branch 3".into(),
             sent_at: now,
             timeout_at: None,
@@ -343,14 +375,18 @@ async fn test_recovery_latest_checkpoint_wins() {
     .expect("store ok")
     .expect("event exists");
 
-    let recovered: HarnessCheckpoint =
-        serde_json::from_value(event.payload).expect("deserialize");
+    let recovered: HarnessCheckpoint = serde_json::from_value(event.payload).expect("deserialize");
 
-    assert_eq!(recovered.turn_number, 3, "latest checkpoint (turn 3) returned");
+    assert_eq!(
+        recovered.turn_number, 3,
+        "latest checkpoint (turn 3) returned"
+    );
     assert_eq!(
         recovered.pending_replies[0].corr_id, "corr-3",
         "latest pending corr_id returned"
     );
-    println!("  [LATEST] recovered turn:{} corr:{}",
-        recovered.turn_number, recovered.pending_replies[0].corr_id);
+    println!(
+        "  [LATEST] recovered turn:{} corr:{}",
+        recovered.turn_number, recovered.pending_replies[0].corr_id
+    );
 }

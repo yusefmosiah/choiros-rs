@@ -249,18 +249,18 @@ impl ConductorActor {
         // Prepend top context items to the objective so the model has retrieval-grounded context.
         // 500ms timeout — if memory is slow or unavailable, continue without it.
         let memory_context = if let Some(memory) = &state.memory_actor {
-            let snapshot_result = tokio::time::timeout(
-                std::time::Duration::from_millis(500),
-                async {
-                    ractor::call!(memory, |reply| crate::actors::memory::MemoryMsg::GetContextSnapshot {
-                        run_id: run_id.to_string(),
-                        query: request.objective.clone(),
-                        max_items: 4,
-                        reply,
+            let snapshot_result =
+                tokio::time::timeout(std::time::Duration::from_millis(500), async {
+                    ractor::call!(memory, |reply| {
+                        crate::actors::memory::MemoryMsg::GetContextSnapshot {
+                            run_id: run_id.to_string(),
+                            query: request.objective.clone(),
+                            max_items: 4,
+                            reply,
+                        }
                     })
-                },
-            )
-            .await;
+                })
+                .await;
 
             match snapshot_result {
                 Ok(Ok(snapshot)) if !snapshot.items.is_empty() => {
@@ -294,8 +294,8 @@ impl ConductorActor {
         // On parse failure we fall back to the legacy single-shot BAML path so
         // the conductor remains operational even when the harness output is
         // malformed.
-        let routing_decision =
-            self.run_conductor_harness_turn(
+        let routing_decision = self
+            .run_conductor_harness_turn(
                 state,
                 run_id,
                 &request.objective,
@@ -319,14 +319,18 @@ impl ConductorActor {
                         || !available_capabilities
                             .iter()
                             .any(|c| c.eq_ignore_ascii_case(&normalized))
-                        || selected.iter().any(|c: &String| c.eq_ignore_ascii_case(&normalized))
+                        || selected
+                            .iter()
+                            .any(|c: &String| c.eq_ignore_ascii_case(&normalized))
                     {
                         continue;
                     }
                     selected.push(normalized);
                 }
                 let block = if selected.is_empty() {
-                    decision.block_reason.filter(|s| !s.trim().is_empty())
+                    decision
+                        .block_reason
+                        .filter(|s| !s.trim().is_empty())
                         .or(Some(decision.rationale.clone()))
                 } else {
                     None
@@ -349,11 +353,7 @@ impl ConductorActor {
                 };
                 let conduct_output = state
                     .model_gateway
-                    .conduct_assignments(
-                        Some(run_id),
-                        &enriched_objective,
-                        &available_capabilities,
-                    )
+                    .conduct_assignments(Some(run_id), &enriched_objective, &available_capabilities)
                     .await?;
                 let mut selected = Vec::new();
                 for cap in conduct_output.dispatch_capabilities {
@@ -362,7 +362,9 @@ impl ConductorActor {
                         || !available_capabilities
                             .iter()
                             .any(|c| c.eq_ignore_ascii_case(&normalized))
-                        || selected.iter().any(|c: &String| c.eq_ignore_ascii_case(&normalized))
+                        || selected
+                            .iter()
+                            .any(|c: &String| c.eq_ignore_ascii_case(&normalized))
                     {
                         continue;
                     }
@@ -417,7 +419,8 @@ impl ConductorActor {
         objective: &str,
         available_capabilities: &[String],
         memory_context: Option<String>,
-    ) -> Option<crate::actors::conductor::runtime::conductor_adapter::ConductorRoutingDecision> {
+    ) -> Option<crate::actors::conductor::runtime::conductor_adapter::ConductorRoutingDecision>
+    {
         let model_registry = ModelRegistry::new();
         let trace_emitter = LlmTraceEmitter::new(state.event_store.clone());
         let config = HarnessProfile::Conductor.default_config();

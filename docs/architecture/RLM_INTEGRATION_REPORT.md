@@ -1,4 +1,4 @@
-# RLM Integration with ChoirOS: Unified Technical Specification
+# ALM Integration with ChoirOS: Unified Technical Specification
 
 **Date:** 2026-02-08
 **Status:** Technical Specification
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-This document unifies the Recursive Language Model (RLM) runtime contract, Jido/OTP architectural patterns, and ChoirOS implementation specifics into a coherent technical specification. It provides evidence-backed findings from the current codebase, a correspondence table mapping concepts across frameworks, a unified architecture design, and a phased implementation plan.
+This document unifies the Agentic Language Model (ALM) runtime contract, Jido/OTP architectural patterns, and ChoirOS implementation specifics into a coherent technical specification. It provides evidence-backed findings from the current codebase, a correspondence table mapping concepts across frameworks, a unified architecture design, and a phased implementation plan.
 
 ---
 
@@ -16,7 +16,7 @@ This document unifies the Recursive Language Model (RLM) runtime contract, Jido/
 
 ### 1.1 Runtime Contract
 
-The RLM (Recursive Language Model) runtime defines a structured execution environment for LLM-based agents with the following core principles:
+The ALM (Agentic Language Model) runtime defines a structured execution environment for LLM-based agents with the following core principles:
 
 | Aspect | Definition |
 |--------|------------|
