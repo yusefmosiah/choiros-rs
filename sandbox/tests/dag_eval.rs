@@ -16,7 +16,7 @@
 //!   CHOIR_LIVE_MODEL_IDS=KimiK25,ZaiGLM47 cargo test -p sandbox --test dag_eval -- --nocapture
 
 use sandbox::actors::agent_harness::alm::{
-    LlmCallResult, AlmConfig, AlmHarness, AlmPort, RlmRunResult, AlmToolExecution,
+    LlmCallResult, AlmConfig, AlmHarness, AlmPort, AlmRunResult, AlmToolExecution,
 };
 use sandbox::actors::model_config::{ModelRegistry, ProviderConfig};
 use sandbox::baml_client::types::ContextSourceKind;
@@ -548,7 +548,7 @@ fn report_scenario(
     report: &mut Report,
     model_id: &str,
     scenario_name: &str,
-    result: &RlmRunResult,
+    result: &AlmRunResult,
     llm_log: &[LlmCallLog],
     emit_log: &[String],
     elapsed_ms: u64,
@@ -674,7 +674,7 @@ struct Scenario {
     /// What we expect the model to choose
     expected_mode: &'static str,
     /// Validation function
-    validate: fn(&RlmRunResult) -> (bool, String),
+    validate: fn(&AlmRunResult) -> (bool, String),
 }
 
 fn scenarios() -> Vec<Scenario> {

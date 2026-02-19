@@ -8,8 +8,8 @@
 //! Use `CHOIR_LIVE_MODEL_IDS` to control which models are tested.
 //!
 //! Run:
-//!   cargo test -p sandbox --test rlm_eval_test -- --nocapture
-//!   CHOIR_LIVE_MODEL_IDS=KimiK25,ClaudeBedrockSonnet46 cargo test -p sandbox --test rlm_eval_test -- --nocapture
+//!   cargo test -p sandbox --test alm_eval_test -- --nocapture
+//!   CHOIR_LIVE_MODEL_IDS=KimiK25,ClaudeBedrockSonnet46 cargo test -p sandbox --test alm_eval_test -- --nocapture
 
 use ractor::Actor;
 use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};

@@ -48,7 +48,7 @@ use crate::baml_client::{new_collector, ClientRegistry, B};
 
 /// Result of an RLM harness run.
 #[derive(Debug, Clone)]
-pub struct RlmRunResult {
+pub struct AlmRunResult {
     pub final_working_memory: String,
     pub completion_reason: String,
     pub turns_taken: usize,
@@ -648,11 +648,11 @@ impl<P: AlmPort> AlmHarness<P> {
     /// 3. Execute the next_action (ToolCalls, Program, FanOut, Recurse)
     /// 4. Feed results back into the next turn's context
     /// 5. Repeat until Complete/Block or budget exhausted
-    pub async fn run(&self, objective: String) -> Result<RlmRunResult, String> {
+    pub async fn run(&self, objective: String) -> Result<AlmRunResult, String> {
         self.run_inner(objective).await
     }
 
-    async fn run_inner(&self, objective: String) -> Result<RlmRunResult, String> {
+    async fn run_inner(&self, objective: String) -> Result<AlmRunResult, String> {
         let model_id = self.port.model_id();
         let client_registry = self
             .model_registry
@@ -689,7 +689,7 @@ impl<P: AlmPort> AlmHarness<P> {
                     budget_ms = self.config.timeout_budget_ms,
                     "RLM harness timeout budget exceeded"
                 );
-                return Ok(RlmRunResult {
+                return Ok(AlmRunResult {
                     final_working_memory: working_memory.unwrap_or_default(),
                     completion_reason: format!(
                         "timeout: exceeded {}ms budget after {} turns",
@@ -776,7 +776,7 @@ impl<P: AlmPort> AlmHarness<P> {
                         elapsed_ms: turn_start.elapsed().as_millis() as u64,
                     });
 
-                    return Ok(RlmRunResult {
+                    return Ok(AlmRunResult {
                         final_working_memory: rlm_turn.working_memory,
                         completion_reason: reason,
                         turns_taken: turn,
@@ -801,7 +801,7 @@ impl<P: AlmPort> AlmHarness<P> {
                         elapsed_ms: turn_start.elapsed().as_millis() as u64,
                     });
 
-                    return Ok(RlmRunResult {
+                    return Ok(AlmRunResult {
                         final_working_memory: rlm_turn.working_memory,
                         completion_reason: format!("BLOCKED: {reason}"),
                         turns_taken: turn,
@@ -1026,7 +1026,7 @@ impl<P: AlmPort> AlmHarness<P> {
         }
 
         // Budget exhausted
-        Ok(RlmRunResult {
+        Ok(AlmRunResult {
             final_working_memory: working_memory.unwrap_or_default(),
             completion_reason: format!("budget exhausted after {} turns", self.config.max_turns),
             turns_taken: self.config.max_turns,

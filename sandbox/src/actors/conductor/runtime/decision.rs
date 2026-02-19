@@ -214,10 +214,12 @@ impl ConductorActor {
 
     /// Spawn a `HarnessActor` for a scoped objective.
     ///
-    /// Registers the subharness as a `ConductorCapabilityCall` (capability = "harness")
-    /// so the existing active-call and run-finalization machinery applies.
-    /// The HarnessActor sends `ConductorMsg::HarnessComplete` back directly.
-    pub(crate) async fn spawn_harness_for_run(
+     /// Registers a HarnessActor as a `ConductorCapabilityCall` (capability = "harness")
+     /// so the existing active-call and run-finalization machinery applies.
+     /// The HarnessActor sends `ConductorMsg::HarnessComplete` back directly.
+     /// Called from the `SpawnHarness` NextAction branch (not yet wired to a caller site).
+     #[allow(dead_code)]
+     pub(crate) async fn spawn_harness_for_run(
         &self,
         myself: &ActorRef<ConductorMsg>,
         state: &mut ConductorState,

@@ -4,11 +4,11 @@
 //! linear AgentHarness on identical tasks.
 //!
 //! Run:
-//!   cargo test -p sandbox --test rlm_harness_eval -- --nocapture
-//!   CHOIR_LIVE_MODEL_IDS=KimiK25 cargo test -p sandbox --test rlm_harness_eval -- --nocapture
+//!   cargo test -p sandbox --test alm_harness_eval -- --nocapture
+//!   CHOIR_LIVE_MODEL_IDS=KimiK25 cargo test -p sandbox --test alm_harness_eval -- --nocapture
 
 use sandbox::actors::agent_harness::alm::{
-    LlmCallResult, AlmConfig, AlmHarness, AlmPort, RlmRunResult, AlmToolExecution,
+    LlmCallResult, AlmConfig, AlmHarness, AlmPort, AlmRunResult, AlmToolExecution,
 };
 use sandbox::actors::model_config::{ModelRegistry, ProviderConfig};
 use sandbox::baml_client::types::ContextSourceKind;
@@ -307,7 +307,7 @@ fn eval_models() -> Vec<String> {
     defaults.iter().map(|s| s.to_string()).collect()
 }
 
-fn print_rlm_result(model_id: &str, scenario: &str, result: &RlmRunResult, elapsed_ms: u64) {
+fn print_alm_result(model_id: &str, scenario: &str, result: &AlmRunResult, elapsed_ms: u64) {
     println!(
         "\n  --- {model_id} / {scenario} ({elapsed_ms}ms, {} turns) ---",
         result.turns_taken
@@ -349,7 +349,7 @@ fn truncate(s: &str, max: usize) -> String {
 // ─── Eval scenarios ──────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn rlm_harness_basic_scenarios() {
+async fn alm_harness_basic_scenarios() {
     let _ = dotenvy::dotenv();
     ensure_tls_cert_env();
     let registry = ModelRegistry::new();
@@ -370,7 +370,7 @@ async fn rlm_harness_basic_scenarios() {
         ),
         (
             "multi_step",
-            "Run `uname -s` to get the OS name, then create a file at /tmp/choiros_rlm_eval.txt containing that OS name. Verify the file was written correctly by reading it back.",
+            "Run `uname -s` to get the OS name, then create a file at /tmp/choiros_alm_eval.txt containing that OS name. Verify the file was written correctly by reading it back.",
         ),
         (
             "context_compose",
@@ -408,7 +408,7 @@ async fn rlm_harness_basic_scenarios() {
                     let is_complete = !run_result.completion_reason.starts_with("BLOCKED")
                         && !run_result.completion_reason.starts_with("budget exhausted");
 
-                    print_rlm_result(model_id, name, &run_result, elapsed_ms);
+                    print_alm_result(model_id, name, &run_result, elapsed_ms);
 
                     if is_complete {
                         println!("  RESULT: PASS");

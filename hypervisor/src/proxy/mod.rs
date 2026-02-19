@@ -70,7 +70,7 @@ pub async fn proxy_http(req: Request, target_port: u16) -> Response {
         Ok(resp) => {
             let (parts, body) = resp.into_parts();
             let body = Body::new(
-                body.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+                body.map_err(|e| std::io::Error::other(e.to_string()))
                     .boxed_unsync(),
             );
             Response::from_parts(parts, body)
@@ -110,7 +110,7 @@ pub async fn proxy_ws(ws: WebSocketUpgrade, target_port: u16, path: String) -> R
                 match msg {
                     Ok(axum::extract::ws::Message::Text(t)) => {
                         if server_sink
-                            .send(Message::Text(t.to_string().into()))
+                            .send(Message::Text(t.to_string()))
                             .await
                             .is_err()
                         {
@@ -119,7 +119,7 @@ pub async fn proxy_ws(ws: WebSocketUpgrade, target_port: u16, path: String) -> R
                     }
                     Ok(axum::extract::ws::Message::Binary(b)) => {
                         if server_sink
-                            .send(Message::Binary(b.to_vec().into()))
+                            .send(Message::Binary(b.to_vec()))
                             .await
                             .is_err()
                         {
@@ -128,7 +128,7 @@ pub async fn proxy_ws(ws: WebSocketUpgrade, target_port: u16, path: String) -> R
                     }
                     Ok(axum::extract::ws::Message::Ping(payload)) => {
                         if server_sink
-                            .send(Message::Ping(payload.to_vec().into()))
+                            .send(Message::Ping(payload.to_vec()))
                             .await
                             .is_err()
                         {
@@ -137,7 +137,7 @@ pub async fn proxy_ws(ws: WebSocketUpgrade, target_port: u16, path: String) -> R
                     }
                     Ok(axum::extract::ws::Message::Pong(payload)) => {
                         if server_sink
-                            .send(Message::Pong(payload.to_vec().into()))
+                            .send(Message::Pong(payload.to_vec()))
                             .await
                             .is_err()
                         {
