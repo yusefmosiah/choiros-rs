@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use gloo_timers::future::TimeoutFuture;
 use std::cell::{Cell, RefCell};
@@ -199,6 +200,233 @@ const TRACE_VIEW_STYLES: &str = r#"
     display: none;
 }
 
+.trace-run-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.45rem;
+    margin-top: 0.35rem;
+}
+
+.trace-run-row-left {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.trace-run-status {
+    border-radius: 999px;
+    font-size: 0.62rem;
+    padding: 0.15rem 0.42rem;
+    border: 1px solid #334155;
+    background: #0f172a;
+    color: #cbd5e1;
+}
+
+.trace-run-status--completed {
+    border-color: #22c55e;
+    color: #86efac;
+    background: #052e16;
+}
+
+.trace-run-status--failed {
+    border-color: #ef4444;
+    color: #fca5a5;
+    background: #450a0a;
+}
+
+.trace-run-status--in-progress {
+    border-color: #eab308;
+    color: #fde68a;
+    background: #422006;
+}
+
+.trace-run-sparkline {
+    width: 120px;
+    height: 16px;
+    min-width: 120px;
+}
+
+.trace-delegation-wrap {
+    margin-top: 0.6rem;
+}
+
+.trace-delegation-timeline {
+    display: flex;
+    gap: 0.45rem;
+    overflow-x: auto;
+    padding-bottom: 0.2rem;
+}
+
+.trace-delegation-band {
+    border: 1px solid #1f2a44;
+    background: #0b1222;
+    color: #dbeafe;
+    border-radius: 8px;
+    padding: 0.34rem 0.45rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 220px;
+}
+
+.trace-delegation-band--completed {
+    border-color: #14532d;
+    background: #052e16;
+}
+
+.trace-delegation-band--failed {
+    border-color: #7f1d1d;
+    background: #450a0a;
+}
+
+.trace-delegation-band--blocked {
+    border-color: #854d0e;
+    background: #422006;
+}
+
+.trace-delegation-band--inflight {
+    border-color: #1e40af;
+    background: #172554;
+}
+
+.trace-lifecycle-strip {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.45rem;
+}
+
+.trace-lifecycle-chip {
+    border: 1px solid #334155;
+    border-radius: 7px;
+    background: #111827;
+    color: #e2e8f0;
+    font-size: 0.68rem;
+    padding: 0.18rem 0.35rem;
+}
+
+.trace-lifecycle-chip summary {
+    cursor: pointer;
+    list-style: none;
+}
+
+.trace-lifecycle-chip summary::-webkit-details-marker {
+    display: none;
+}
+
+.trace-lifecycle-chip--started {
+    border-color: #64748b;
+    background: #1e293b;
+}
+
+.trace-lifecycle-chip--progress {
+    border-color: #2563eb;
+    background: #172554;
+}
+
+.trace-lifecycle-chip--completed {
+    border-color: #16a34a;
+    background: #052e16;
+}
+
+.trace-lifecycle-chip--failed {
+    border-color: #dc2626;
+    background: #450a0a;
+}
+
+.trace-lifecycle-chip--finding {
+    border-color: #d97706;
+    background: #422006;
+}
+
+.trace-lifecycle-chip--learning {
+    border-color: #0f766e;
+    background: #042f2e;
+}
+
+.trace-traj-grid {
+    border: 1px solid #1f2a44;
+    border-radius: 8px;
+    background: #0b1222;
+    padding: 0.45rem;
+    overflow: auto;
+    margin-top: 0.6rem;
+}
+
+.trace-traj-grid-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.45rem;
+    margin-bottom: 0.35rem;
+}
+
+.trace-traj-cell--completed {
+    fill: #22c55e;
+}
+
+.trace-traj-cell--failed {
+    fill: #ef4444;
+}
+
+.trace-traj-cell--inflight {
+    fill: #f59e0b;
+}
+
+.trace-traj-cell--blocked {
+    fill: #f97316;
+}
+
+.trace-traj-slow-ring {
+    fill: none;
+    stroke: #ef4444;
+    stroke-width: 1.25;
+}
+
+.trace-duration-bar {
+    height: 3px;
+    border-radius: 2px;
+    background: #22c55e;
+    margin-top: 4px;
+    transition: width 0.2s;
+}
+
+.trace-duration-bar--slow {
+    background: #ef4444;
+}
+
+.trace-token-bar {
+    display: flex;
+    width: 100%;
+    height: 5px;
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 0.35rem;
+}
+
+.trace-token-segment--cached {
+    background: #6366f1;
+}
+
+.trace-token-segment--input {
+    background: #3b82f6;
+}
+
+.trace-token-segment--output {
+    background: #22c55e;
+}
+
+.trace-worker-node {
+    filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.28));
+}
+
+.trace-call-card--selected {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 1px #60a5fa;
+}
+
 @media (max-width: 1024px) {
     .trace-node-panel {
         position: fixed;
@@ -234,6 +462,8 @@ const TRACE_VIEW_STYLES: &str = r#"
 "#;
 const TRACE_PRELOAD_WINDOW: i64 = 5_000;
 const TRACE_PRELOAD_PAGE_LIMIT: i64 = 1_000;
+const TRACE_SLOW_DURATION_MS: i64 = 5_000;
+const TRACE_TRAJECTORY_MAX_COLUMNS: usize = 80;
 
 enum TraceWsEvent {
     Connected,
@@ -328,6 +558,107 @@ struct WriterEnqueueEvent {
     call_id: Option<String>,
 }
 
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+struct ConductorDelegationEvent {
+    seq: i64,
+    event_id: String,
+    event_type: String,
+    timestamp: String,
+    run_id: String,
+    worker_type: Option<String>,
+    worker_objective: Option<String>,
+    success: Option<bool>,
+    result_summary: Option<String>,
+    call_id: Option<String>,
+    capability: Option<String>,
+    error: Option<String>,
+    failure_kind: Option<String>,
+    reason: Option<String>,
+    lane: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+struct ConductorRunEvent {
+    seq: i64,
+    event_id: String,
+    event_type: String,
+    timestamp: String,
+    run_id: String,
+    phase: Option<String>,
+    status: Option<String>,
+    message: Option<String>,
+    error_code: Option<String>,
+    error_message: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+struct WorkerLifecycleEvent {
+    seq: i64,
+    event_id: String,
+    event_type: String,
+    timestamp: String,
+    worker_id: String,
+    task_id: String,
+    phase: String,
+    run_id: Option<String>,
+    objective: Option<String>,
+    model_used: Option<String>,
+    message: Option<String>,
+    summary: Option<String>,
+    status: Option<String>,
+    error: Option<String>,
+    finding_id: Option<String>,
+    claim: Option<String>,
+    confidence: Option<f64>,
+    learning_id: Option<String>,
+    insight: Option<String>,
+    call_id: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq)]
+struct TrajectoryCell {
+    seq: i64,
+    step_index: usize,
+    row_key: String,
+    event_type: String,
+    tool_name: Option<String>,
+    actor_key: Option<String>,
+    status: TrajectoryStatus,
+    duration_ms: Option<i64>,
+    total_tokens: Option<i64>,
+    loop_id: String,
+    item_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TrajectoryStatus {
+    Completed,
+    Failed,
+    Inflight,
+    Blocked,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TrajectoryMode {
+    Status,
+    Duration,
+    Tokens,
+}
+
+#[derive(Clone, Debug)]
+struct DelegationTimelineBand {
+    worker_type: String,
+    worker_objective: Option<String>,
+    status: String,
+    duration_ms: Option<i64>,
+    call_id: Option<String>,
+    loop_id: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 struct RunGraphSummary {
     run_id: String,
@@ -340,21 +671,32 @@ struct RunGraphSummary {
     writer_enqueue_failures: usize,
     actor_count: usize,
     loop_count: usize,
+    worker_count: usize,
+    worker_failures: usize,
+    worker_calls: usize,
+    capability_failures: usize,
+    run_status: String,
+    total_duration_ms: i64,
+    total_tokens: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum GraphNodeKind {
     Prompt,
     Actor,
+    Worker,
     Tools,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 struct GraphNode {
     key: String,
     label: String,
     kind: GraphNodeKind,
     actor_key: Option<String>,
+    worker_id: Option<String>,
+    task_id: Option<String>,
     llm_calls: usize,
     tool_calls: usize,
     inbound_events: usize,
@@ -376,7 +718,17 @@ struct GraphRenderNode {
 }
 
 #[derive(Clone, Debug)]
+struct GraphEdge {
+    from: String,
+    to: String,
+    label: Option<String>,
+    color: String,
+    dashed: bool,
+}
+
+#[derive(Clone, Debug)]
 struct GraphEdgeSegment {
+    edge: GraphEdge,
     x1: f32,
     y1: f32,
     x2: f32,
@@ -794,6 +1146,200 @@ fn parse_writer_enqueue_event(event: &LogsEvent) -> Option<WriterEnqueueEvent> {
     })
 }
 
+fn parse_conductor_delegation_event(event: &LogsEvent) -> Option<ConductorDelegationEvent> {
+    let is_delegation = matches!(
+        event.event_type.as_str(),
+        "conductor.worker.call"
+            | "conductor.worker.result"
+            | "conductor.capability.completed"
+            | "conductor.capability.failed"
+            | "conductor.capability.blocked"
+    );
+    if !is_delegation {
+        return None;
+    }
+    let payload = &event.payload;
+    let data = payload.get("data").unwrap_or(payload);
+    let meta = payload.get("_meta");
+    let run_id = payload_run_id(payload)?;
+
+    Some(ConductorDelegationEvent {
+        seq: event.seq,
+        event_id: event.event_id.clone(),
+        event_type: event.event_type.clone(),
+        timestamp: event.timestamp.clone(),
+        run_id,
+        worker_type: payload
+            .get("worker_type")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string)
+            .or_else(|| {
+                payload
+                    .get("capability")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string)
+            }),
+        worker_objective: payload
+            .get("worker_objective")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        success: payload.get("success").and_then(|v| v.as_bool()),
+        result_summary: payload
+            .get("result_summary")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        call_id: data
+            .get("call_id")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        capability: payload
+            .get("capability")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        error: data
+            .get("error")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        failure_kind: data
+            .get("failure_kind")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        reason: data
+            .get("reason")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        lane: meta
+            .and_then(|m| m.get("lane"))
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+    })
+}
+
+fn parse_conductor_run_event(event: &LogsEvent) -> Option<ConductorRunEvent> {
+    let is_run = matches!(
+        event.event_type.as_str(),
+        "conductor.run.started"
+            | "conductor.task.completed"
+            | "conductor.task.failed"
+            | "conductor.task.progress"
+    );
+    if !is_run {
+        return None;
+    }
+
+    let payload = &event.payload;
+    let run_id = payload_run_id(payload)?;
+    Some(ConductorRunEvent {
+        seq: event.seq,
+        event_id: event.event_id.clone(),
+        event_type: event.event_type.clone(),
+        timestamp: event.timestamp.clone(),
+        run_id,
+        phase: payload
+            .get("phase")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        status: payload
+            .get("status")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        message: payload
+            .get("message")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        error_code: payload
+            .get("error_code")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        error_message: payload
+            .get("error_message")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+    })
+}
+
+fn parse_worker_lifecycle_event(event: &LogsEvent) -> Option<WorkerLifecycleEvent> {
+    let is_lifecycle = matches!(
+        event.event_type.as_str(),
+        "worker.task.started"
+            | "worker.task.progress"
+            | "worker.task.completed"
+            | "worker.task.failed"
+            | "worker.task.finding"
+            | "worker.task.learning"
+    );
+    if !is_lifecycle {
+        return None;
+    }
+    let payload = &event.payload;
+    let task_id = payload.get("task_id").and_then(|v| v.as_str())?.to_string();
+    let worker_id = payload
+        .get("worker_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    Some(WorkerLifecycleEvent {
+        seq: event.seq,
+        event_id: event.event_id.clone(),
+        event_type: event.event_type.clone(),
+        timestamp: event.timestamp.clone(),
+        worker_id,
+        task_id,
+        phase: payload
+            .get("phase")
+            .and_then(|v| v.as_str())
+            .unwrap_or("agent_loop")
+            .to_string(),
+        run_id: payload_run_id(payload),
+        objective: payload
+            .get("objective")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        model_used: payload
+            .get("model_used")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        message: payload
+            .get("message")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        summary: payload
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        status: payload
+            .get("status")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        error: payload
+            .get("error")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        finding_id: payload
+            .get("finding_id")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        claim: payload
+            .get("claim")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        confidence: payload.get("confidence").and_then(|v| v.as_f64()),
+        learning_id: payload
+            .get("learning_id")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        insight: payload
+            .get("insight")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        call_id: payload
+            .get("call_id")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+    })
+}
+
 fn payload_run_id(payload: &serde_json::Value) -> Option<String> {
     payload
         .get("run_id")
@@ -852,6 +1398,9 @@ fn build_run_graph_summaries(
     prompts: &[PromptEvent],
     tools: &[ToolTraceEvent],
     writer_enqueues: &[WriterEnqueueEvent],
+    delegations: &[ConductorDelegationEvent],
+    run_events: &[ConductorRunEvent],
+    worker_lifecycle: &[WorkerLifecycleEvent],
 ) -> Vec<RunGraphSummary> {
     #[derive(Default)]
     struct RunAccumulator {
@@ -864,6 +1413,14 @@ fn build_run_graph_summaries(
         writer_enqueue_failures: usize,
         actor_keys: BTreeSet<String>,
         loop_ids: BTreeSet<String>,
+        worker_ids: BTreeSet<String>,
+        failed_tasks: BTreeSet<String>,
+        worker_calls: usize,
+        capability_failures: usize,
+        run_status: String,
+        run_terminal_seq: i64,
+        total_duration_ms: i64,
+        total_tokens: i64,
     }
 
     let mut by_run: HashMap<String, RunAccumulator> = HashMap::new();
@@ -892,6 +1449,12 @@ fn build_run_graph_summaries(
         if ts > entry.timestamp {
             entry.timestamp = ts;
         }
+        if let Some(duration) = trace.duration_ms() {
+            entry.total_duration_ms = entry.total_duration_ms.saturating_add(duration.max(0));
+        }
+        if let Some(tokens) = trace.total_tokens() {
+            entry.total_tokens = entry.total_tokens.saturating_add(tokens.max(0));
+        }
     }
 
     for tool in tools {
@@ -916,6 +1479,9 @@ fn build_run_graph_summaries(
         if tool.timestamp > entry.timestamp {
             entry.timestamp = tool.timestamp.clone();
         }
+        if let Some(duration) = tool.duration_ms {
+            entry.total_duration_ms = entry.total_duration_ms.saturating_add(duration.max(0));
+        }
     }
 
     for enqueue in writer_enqueues {
@@ -930,6 +1496,60 @@ fn build_run_graph_summaries(
         }
         if enqueue.timestamp > entry.timestamp {
             entry.timestamp = enqueue.timestamp.clone();
+        }
+    }
+
+    for delegation in delegations {
+        let entry = by_run.entry(delegation.run_id.clone()).or_default();
+        if delegation.event_type == "conductor.worker.call" {
+            entry.worker_calls += 1;
+        }
+        if delegation.event_type == "conductor.capability.failed" {
+            entry.capability_failures += 1;
+        }
+        if delegation.timestamp > entry.timestamp {
+            entry.timestamp = delegation.timestamp.clone();
+        }
+    }
+
+    for lifecycle in worker_lifecycle {
+        let Some(run_id) = lifecycle.run_id.as_ref() else {
+            continue;
+        };
+        let entry = by_run.entry(run_id.clone()).or_default();
+        entry.worker_ids.insert(lifecycle.worker_id.clone());
+        entry.loop_ids.insert(lifecycle.task_id.clone());
+        if lifecycle.event_type == "worker.task.failed" {
+            entry.failed_tasks.insert(lifecycle.task_id.clone());
+        }
+        if lifecycle.timestamp > entry.timestamp {
+            entry.timestamp = lifecycle.timestamp.clone();
+        }
+    }
+
+    for run_event in run_events {
+        let entry = by_run.entry(run_event.run_id.clone()).or_default();
+        if run_event.timestamp > entry.timestamp {
+            entry.timestamp = run_event.timestamp.clone();
+        }
+        match run_event.event_type.as_str() {
+            "conductor.task.completed" => {
+                if run_event.seq >= entry.run_terminal_seq {
+                    entry.run_status = "completed".to_string();
+                    entry.run_terminal_seq = run_event.seq;
+                }
+            }
+            "conductor.task.failed" => {
+                if run_event.seq >= entry.run_terminal_seq {
+                    entry.run_status = "failed".to_string();
+                    entry.run_terminal_seq = run_event.seq;
+                }
+            }
+            _ => {
+                if entry.run_status.is_empty() {
+                    entry.run_status = "in-progress".to_string();
+                }
+            }
         }
     }
 
@@ -950,6 +1570,17 @@ fn build_run_graph_summaries(
             writer_enqueue_failures: acc.writer_enqueue_failures,
             actor_count: acc.actor_keys.len(),
             loop_count: acc.loop_ids.len(),
+            worker_count: acc.worker_ids.len(),
+            worker_failures: acc.failed_tasks.len(),
+            worker_calls: acc.worker_calls,
+            capability_failures: acc.capability_failures,
+            run_status: if acc.run_status.is_empty() {
+                "in-progress".to_string()
+            } else {
+                acc.run_status
+            },
+            total_duration_ms: acc.total_duration_ms,
+            total_tokens: acc.total_tokens,
         })
         .collect();
     result.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
@@ -961,6 +1592,7 @@ fn build_graph_nodes_for_run(
     traces: &[TraceGroup],
     tools: &[ToolTraceEvent],
     writer_enqueues: &[WriterEnqueueEvent],
+    worker_lifecycle: &[WorkerLifecycleEvent],
 ) -> Vec<GraphNode> {
     #[derive(Default)]
     struct NodeAccumulator {
@@ -974,7 +1606,16 @@ fn build_graph_nodes_for_run(
         has_started_only: bool,
     }
 
+    #[derive(Default)]
+    struct WorkerAccumulator {
+        task_ids: BTreeSet<String>,
+        has_completed: bool,
+        has_failed: bool,
+        has_inflight: bool,
+    }
+
     let mut actors: HashMap<String, NodeAccumulator> = HashMap::new();
+    let mut workers: HashMap<String, WorkerAccumulator> = HashMap::new();
 
     for trace in traces {
         if trace.run_id() != Some(run_id) {
@@ -1028,6 +1669,19 @@ fn build_graph_nodes_for_run(
         }
     }
 
+    for lifecycle in worker_lifecycle
+        .iter()
+        .filter(|event| event.run_id.as_deref() == Some(run_id))
+    {
+        let entry = workers.entry(lifecycle.worker_id.clone()).or_default();
+        entry.task_ids.insert(lifecycle.task_id.clone());
+        match lifecycle.event_type.as_str() {
+            "worker.task.completed" => entry.has_completed = true,
+            "worker.task.failed" => entry.has_failed = true,
+            _ => entry.has_inflight = true,
+        }
+    }
+
     let mut actor_keys: Vec<String> = actors.keys().cloned().collect();
     actor_keys.sort_by(|a, b| {
         let rank_a = actor_rank(a);
@@ -1040,6 +1694,8 @@ fn build_graph_nodes_for_run(
         label: "User Prompt".to_string(),
         kind: GraphNodeKind::Prompt,
         actor_key: None,
+        worker_id: None,
+        task_id: None,
         llm_calls: 0,
         tool_calls: 0,
         inbound_events: 0,
@@ -1065,9 +1721,40 @@ fn build_graph_nodes_for_run(
                 label: display_actor_label(&actor_key),
                 kind: GraphNodeKind::Actor,
                 actor_key: Some(actor_key),
+                worker_id: None,
+                task_id: None,
                 llm_calls: acc.llm_calls,
                 tool_calls: acc.tool_calls,
                 inbound_events: acc.inbound_events,
+                status: status.to_string(),
+            });
+        }
+    }
+
+    let mut worker_ids: Vec<String> = workers.keys().cloned().collect();
+    worker_ids.sort();
+    for worker_id in worker_ids {
+        if let Some(acc) = workers.get(&worker_id) {
+            let status = if acc.has_failed {
+                "failed"
+            } else if acc.has_completed {
+                "completed"
+            } else if acc.has_inflight {
+                "started"
+            } else {
+                "unknown"
+            };
+            let task_id = acc.task_ids.iter().next().cloned();
+            nodes.push(GraphNode {
+                key: format!("worker:{worker_id}"),
+                label: format!("Worker {}", display_worker_label(&worker_id)),
+                kind: GraphNodeKind::Worker,
+                actor_key: None,
+                worker_id: Some(worker_id),
+                task_id,
+                llm_calls: 0,
+                tool_calls: 0,
+                inbound_events: acc.task_ids.len(),
                 status: status.to_string(),
             });
         }
@@ -1079,6 +1766,8 @@ fn build_graph_nodes_for_run(
             label: "Tools".to_string(),
             kind: GraphNodeKind::Tools,
             actor_key: None,
+            worker_id: None,
+            task_id: None,
             llm_calls: 0,
             tool_calls: any_tool_calls,
             inbound_events: 0,
@@ -1093,7 +1782,11 @@ fn build_graph_nodes_for_run(
     nodes
 }
 
-fn build_graph_edges(nodes: &[GraphNode]) -> Vec<(String, String)> {
+fn build_graph_edges(
+    nodes: &[GraphNode],
+    run_id: &str,
+    delegations: &[ConductorDelegationEvent],
+) -> Vec<GraphEdge> {
     let prompt_key = nodes
         .iter()
         .find(|node| node.kind == GraphNodeKind::Prompt)
@@ -1111,19 +1804,41 @@ fn build_graph_edges(nodes: &[GraphNode]) -> Vec<(String, String)> {
         .iter()
         .filter(|node| node.kind == GraphNodeKind::Actor)
         .collect();
-    let mut edges = BTreeSet::new();
+    let worker_nodes: Vec<&GraphNode> = nodes
+        .iter()
+        .filter(|node| node.kind == GraphNodeKind::Worker)
+        .collect();
+    let mut edges = Vec::<GraphEdge>::new();
 
     if let Some(prompt_key) = prompt_key {
         if let Some(conductor_key) = conductor_key.clone() {
-            edges.insert((prompt_key.clone(), conductor_key.clone()));
+            edges.push(GraphEdge {
+                from: prompt_key.clone(),
+                to: conductor_key.clone(),
+                label: None,
+                color: "#334155".to_string(),
+                dashed: false,
+            });
             for actor in &actor_nodes {
                 if actor.key != conductor_key {
-                    edges.insert((conductor_key.clone(), actor.key.clone()));
+                    edges.push(GraphEdge {
+                        from: conductor_key.clone(),
+                        to: actor.key.clone(),
+                        label: None,
+                        color: "#334155".to_string(),
+                        dashed: false,
+                    });
                 }
             }
         } else {
             for actor in &actor_nodes {
-                edges.insert((prompt_key.clone(), actor.key.clone()));
+                edges.push(GraphEdge {
+                    from: prompt_key.clone(),
+                    to: actor.key.clone(),
+                    label: None,
+                    color: "#334155".to_string(),
+                    dashed: false,
+                });
             }
         }
     }
@@ -1131,24 +1846,108 @@ fn build_graph_edges(nodes: &[GraphNode]) -> Vec<(String, String)> {
     if let Some(tools_key) = tools_key {
         for actor in &actor_nodes {
             if actor.tool_calls > 0 {
-                edges.insert((actor.key.clone(), tools_key.clone()));
+                edges.push(GraphEdge {
+                    from: actor.key.clone(),
+                    to: tools_key.clone(),
+                    label: None,
+                    color: "#334155".to_string(),
+                    dashed: false,
+                });
             }
         }
     }
 
-    edges.into_iter().collect()
+    if let Some(conductor_key) = conductor_key {
+        let mut status_by_worker_type: HashMap<String, String> = HashMap::new();
+        for event in delegations.iter().filter(|event| event.run_id == run_id) {
+            let worker_type = event
+                .worker_type
+                .clone()
+                .or_else(|| event.capability.clone())
+                .unwrap_or_else(|| "worker".to_string());
+            let candidate_status = match event.event_type.as_str() {
+                "conductor.capability.completed" => "completed",
+                "conductor.capability.failed" => "failed",
+                "conductor.capability.blocked" => "blocked",
+                "conductor.worker.call" => "inflight",
+                _ => continue,
+            };
+            status_by_worker_type
+                .entry(worker_type)
+                .and_modify(|current| {
+                    if delegation_status_rank(candidate_status) > delegation_status_rank(current) {
+                        *current = candidate_status.to_string();
+                    }
+                })
+                .or_insert_with(|| candidate_status.to_string());
+        }
+
+        for worker in worker_nodes {
+            let worker_id_lower = worker
+                .worker_id
+                .as_deref()
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            let match_entry = status_by_worker_type.iter().find(|(worker_type, _)| {
+                worker_id_lower.contains(&worker_type.to_ascii_lowercase())
+            });
+            let (edge_label, status) = match_entry
+                .map(|(worker_type, status)| (worker_type.clone(), status.clone()))
+                .unwrap_or_else(|| {
+                    (
+                        worker
+                            .worker_id
+                            .as_ref()
+                            .cloned()
+                            .unwrap_or_else(|| "worker".to_string()),
+                        "inflight".to_string(),
+                    )
+                });
+            let (color, dashed) = match status.as_str() {
+                "completed" => ("#22c55e", false),
+                "failed" => ("#ef4444", false),
+                "blocked" => ("#f59e0b", true),
+                _ => ("#64748b", false),
+            };
+            edges.push(GraphEdge {
+                from: conductor_key.clone(),
+                to: worker.key.clone(),
+                label: Some(edge_label),
+                color: color.to_string(),
+                dashed,
+            });
+        }
+    }
+
+    let mut uniq = BTreeSet::new();
+    edges
+        .into_iter()
+        .filter(|edge| {
+            let key = format!(
+                "{}>{}|{}|{}|{}",
+                edge.from,
+                edge.to,
+                edge.label.clone().unwrap_or_default(),
+                edge.color,
+                edge.dashed
+            );
+            uniq.insert(key)
+        })
+        .collect()
 }
 
 fn build_graph_layout(nodes: &[GraphNode]) -> GraphLayout {
     let mut prompt_col = Vec::new();
     let mut orchestrator_col = Vec::new();
     let mut actor_col = Vec::new();
+    let mut worker_col = Vec::new();
     let mut tools_col = Vec::new();
 
     for node in nodes {
         match node.kind {
             GraphNodeKind::Prompt => prompt_col.push(node.key.clone()),
             GraphNodeKind::Tools => tools_col.push(node.key.clone()),
+            GraphNodeKind::Worker => worker_col.push(node.key.clone()),
             GraphNodeKind::Actor => {
                 if node.actor_key.as_deref() == Some("conductor") {
                     orchestrator_col.push(node.key.clone());
@@ -1164,7 +1963,13 @@ fn build_graph_layout(nodes: &[GraphNode]) -> GraphLayout {
         orchestrator_col.push(first);
     }
 
-    let columns_all = [prompt_col, orchestrator_col, actor_col, tools_col];
+    let columns_all = [
+        prompt_col,
+        orchestrator_col,
+        actor_col,
+        worker_col,
+        tools_col,
+    ];
     let mut columns: Vec<Vec<String>> = columns_all
         .into_iter()
         .filter(|column| !column.is_empty())
@@ -1216,6 +2021,7 @@ fn graph_node_color(node: &GraphNode) -> (&'static str, &'static str, &'static s
     match node.kind {
         GraphNodeKind::Prompt => ("#0f172a", "#475569", "#93c5fd"),
         GraphNodeKind::Tools => ("#111827", "#06b6d4", "#67e8f9"),
+        GraphNodeKind::Worker => ("#082f49", "#38bdf8", "#bae6fd"),
         GraphNodeKind::Actor => match node.actor_key.as_deref().unwrap_or_default() {
             "conductor" => ("#111827", "#3b82f6", "#60a5fa"),
             "researcher" => ("#0b1225", "#22c55e", "#86efac"),
@@ -1316,6 +2122,15 @@ fn display_actor_label(actor_key: &str) -> String {
             .collect::<Vec<String>>()
             .join(" "),
     }
+}
+
+fn display_worker_label(worker_id: &str) -> String {
+    worker_id
+        .split(':')
+        .next_back()
+        .filter(|part| !part.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| worker_id.to_string())
 }
 
 fn pair_tool_events(mut tool_events: Vec<ToolTraceEvent>) -> Vec<ToolTracePair> {
@@ -1458,15 +2273,739 @@ fn format_loop_title(loop_id: &str) -> String {
     }
 }
 
+impl TrajectoryMode {
+    fn label(self) -> &'static str {
+        match self {
+            TrajectoryMode::Status => "Status",
+            TrajectoryMode::Duration => "Duration",
+            TrajectoryMode::Tokens => "Tokens",
+        }
+    }
+}
+
+fn format_duration_short(ms: i64) -> String {
+    if ms >= 1_000 {
+        format!("{:.1}s", ms as f64 / 1_000.0)
+    } else {
+        format!("{ms}ms")
+    }
+}
+
+fn format_tokens_short(tokens: i64) -> String {
+    if tokens >= 1_000_000 {
+        format!("{:.1}M", tokens as f64 / 1_000_000.0)
+    } else if tokens >= 1_000 {
+        format!("{:.1}K", tokens as f64 / 1_000.0)
+    } else {
+        tokens.to_string()
+    }
+}
+
+fn parse_rfc3339_utc(timestamp: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(timestamp)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
+}
+
+fn duration_between_ms(start_ts: &str, end_ts: &str) -> Option<i64> {
+    let start = parse_rfc3339_utc(start_ts)?;
+    let end = parse_rfc3339_utc(end_ts)?;
+    Some((end - start).num_milliseconds().max(0))
+}
+
+fn run_status_class(status: &str) -> &'static str {
+    match status {
+        "completed" => "trace-run-status trace-run-status--completed",
+        "failed" => "trace-run-status trace-run-status--failed",
+        _ => "trace-run-status trace-run-status--in-progress",
+    }
+}
+
+fn lifecycle_chip_class(event_type: &str) -> &'static str {
+    match event_type {
+        "worker.task.started" => "trace-lifecycle-chip trace-lifecycle-chip--started",
+        "worker.task.progress" => "trace-lifecycle-chip trace-lifecycle-chip--progress",
+        "worker.task.completed" => "trace-lifecycle-chip trace-lifecycle-chip--completed",
+        "worker.task.failed" => "trace-lifecycle-chip trace-lifecycle-chip--failed",
+        "worker.task.finding" => "trace-lifecycle-chip trace-lifecycle-chip--finding",
+        "worker.task.learning" => "trace-lifecycle-chip trace-lifecycle-chip--learning",
+        _ => "trace-lifecycle-chip",
+    }
+}
+
+fn lifecycle_label(event: &WorkerLifecycleEvent) -> String {
+    match event.event_type.as_str() {
+        "worker.task.started" => "started".to_string(),
+        "worker.task.progress" => "progress".to_string(),
+        "worker.task.completed" => "completed".to_string(),
+        "worker.task.failed" => "failed".to_string(),
+        "worker.task.finding" => "finding".to_string(),
+        "worker.task.learning" => "learning".to_string(),
+        _ => event.event_type.clone(),
+    }
+}
+
+fn lifecycle_detail(event: &WorkerLifecycleEvent) -> String {
+    event
+        .objective
+        .as_ref()
+        .cloned()
+        .or_else(|| event.message.as_ref().cloned())
+        .or_else(|| event.summary.as_ref().cloned())
+        .or_else(|| event.error.as_ref().cloned())
+        .or_else(|| event.claim.as_ref().cloned())
+        .or_else(|| event.insight.as_ref().cloned())
+        .unwrap_or_else(|| "No details".to_string())
+}
+
+fn worker_summary(
+    task_id: &str,
+    events: &[WorkerLifecycleEvent],
+) -> (&'static str, Option<String>) {
+    let mut task_events: Vec<&WorkerLifecycleEvent> = events
+        .iter()
+        .filter(|event| event.task_id == task_id)
+        .collect();
+    task_events.sort_by_key(|event| event.seq);
+    if let Some(terminal) = task_events.iter().rev().find(|event| {
+        matches!(
+            event.event_type.as_str(),
+            "worker.task.completed" | "worker.task.failed"
+        )
+    }) {
+        let status = if terminal.event_type == "worker.task.failed" {
+            "failed"
+        } else {
+            "completed"
+        };
+        return (status, Some(lifecycle_detail(terminal)));
+    }
+    let latest = task_events.last().map(|event| lifecycle_detail(event));
+    ("running", latest)
+}
+
+fn delegation_band_class(status: &str) -> &'static str {
+    match status {
+        "completed" => "trace-delegation-band trace-delegation-band--completed",
+        "failed" => "trace-delegation-band trace-delegation-band--failed",
+        "blocked" => "trace-delegation-band trace-delegation-band--blocked",
+        _ => "trace-delegation-band trace-delegation-band--inflight",
+    }
+}
+
+fn delegation_status_rank(status: &str) -> usize {
+    match status {
+        "failed" => 4,
+        "blocked" => 3,
+        "inflight" => 2,
+        "completed" => 1,
+        _ => 0,
+    }
+}
+
+fn trajectory_status_rank(status: &TrajectoryStatus) -> usize {
+    match status {
+        TrajectoryStatus::Failed => 4,
+        TrajectoryStatus::Blocked => 3,
+        TrajectoryStatus::Inflight => 2,
+        TrajectoryStatus::Completed => 1,
+    }
+}
+
+fn trajectory_status_class(status: &TrajectoryStatus) -> &'static str {
+    match status {
+        TrajectoryStatus::Completed => "trace-traj-cell--completed",
+        TrajectoryStatus::Failed => "trace-traj-cell--failed",
+        TrajectoryStatus::Inflight => "trace-traj-cell--inflight",
+        TrajectoryStatus::Blocked => "trace-traj-cell--blocked",
+    }
+}
+
+fn loop_id_for_call(call_id: Option<&str>, lifecycle: &[WorkerLifecycleEvent]) -> Option<String> {
+    let call_id = call_id?;
+    lifecycle
+        .iter()
+        .find(|event| event.call_id.as_deref() == Some(call_id))
+        .map(|event| event.task_id.clone())
+}
+
+fn build_delegation_timeline_bands(
+    run_id: &str,
+    delegations: &[ConductorDelegationEvent],
+    lifecycle: &[WorkerLifecycleEvent],
+) -> Vec<DelegationTimelineBand> {
+    let mut calls: Vec<&ConductorDelegationEvent> = delegations
+        .iter()
+        .filter(|event| event.run_id == run_id && event.event_type == "conductor.worker.call")
+        .collect();
+    calls.sort_by_key(|event| event.seq);
+
+    let mut terminals_by_call: HashMap<String, &ConductorDelegationEvent> = HashMap::new();
+    let mut terminals_by_worker: HashMap<String, Vec<&ConductorDelegationEvent>> = HashMap::new();
+    for event in delegations.iter().filter(|event| {
+        event.run_id == run_id
+            && matches!(
+                event.event_type.as_str(),
+                "conductor.capability.completed"
+                    | "conductor.capability.failed"
+                    | "conductor.capability.blocked"
+            )
+    }) {
+        if let Some(call_id) = event.call_id.as_ref() {
+            terminals_by_call
+                .entry(call_id.clone())
+                .and_modify(|current| {
+                    if event.seq > current.seq {
+                        *current = event;
+                    }
+                })
+                .or_insert(event);
+        }
+        if let Some(worker_type) = event.worker_type.as_ref() {
+            terminals_by_worker
+                .entry(worker_type.clone())
+                .or_default()
+                .push(event);
+        }
+    }
+
+    let mut bands = Vec::new();
+    for call in calls {
+        let worker_type = call
+            .worker_type
+            .clone()
+            .unwrap_or_else(|| "worker".to_string());
+        let terminal = call
+            .call_id
+            .as_ref()
+            .and_then(|call_id| terminals_by_call.get(call_id).copied())
+            .or_else(|| {
+                terminals_by_worker.get(&worker_type).and_then(|events| {
+                    events
+                        .iter()
+                        .copied()
+                        .filter(|event| event.seq >= call.seq)
+                        .min_by_key(|event| event.seq)
+                })
+            });
+        let status = match terminal.map(|event| event.event_type.as_str()) {
+            Some("conductor.capability.completed") => "completed",
+            Some("conductor.capability.failed") => "failed",
+            Some("conductor.capability.blocked") => "blocked",
+            _ => "inflight",
+        }
+        .to_string();
+        let duration_ms =
+            terminal.and_then(|event| duration_between_ms(&call.timestamp, &event.timestamp));
+        bands.push(DelegationTimelineBand {
+            worker_type,
+            worker_objective: call.worker_objective.clone(),
+            status,
+            duration_ms,
+            call_id: call.call_id.clone(),
+            loop_id: loop_id_for_call(call.call_id.as_deref(), lifecycle),
+        });
+    }
+
+    bands
+}
+
+fn status_from_tool_pair(pair: &ToolTracePair) -> TrajectoryStatus {
+    match pair.status() {
+        "completed" => TrajectoryStatus::Completed,
+        "failed" => TrajectoryStatus::Failed,
+        "started" => TrajectoryStatus::Inflight,
+        _ => TrajectoryStatus::Inflight,
+    }
+}
+
+fn status_from_trace(trace: &TraceGroup) -> TrajectoryStatus {
+    match trace.status() {
+        "completed" => TrajectoryStatus::Completed,
+        "failed" => TrajectoryStatus::Failed,
+        "started" => TrajectoryStatus::Inflight,
+        _ => TrajectoryStatus::Inflight,
+    }
+}
+
+fn status_from_lifecycle(event: &WorkerLifecycleEvent) -> TrajectoryStatus {
+    match event.event_type.as_str() {
+        "worker.task.completed" => TrajectoryStatus::Completed,
+        "worker.task.failed" => TrajectoryStatus::Failed,
+        "worker.task.finding" | "worker.task.learning" => TrajectoryStatus::Blocked,
+        _ => TrajectoryStatus::Inflight,
+    }
+}
+
+fn build_trajectory_cells(
+    traces: &[TraceGroup],
+    tools: &[ToolTraceEvent],
+    lifecycle: &[WorkerLifecycleEvent],
+    delegations: &[ConductorDelegationEvent],
+    run_id: &str,
+) -> Vec<TrajectoryCell> {
+    #[derive(Clone)]
+    struct RawCell {
+        seq: i64,
+        row_key: String,
+        event_type: String,
+        tool_name: Option<String>,
+        actor_key: Option<String>,
+        status: TrajectoryStatus,
+        duration_ms: Option<i64>,
+        total_tokens: Option<i64>,
+        loop_id: String,
+        item_id: String,
+    }
+
+    let mut raw = Vec::<RawCell>::new();
+    for trace in traces.iter().filter(|trace| trace.run_id() == Some(run_id)) {
+        let loop_id = trace
+            .task_id()
+            .map(ToString::to_string)
+            .or_else(|| trace.call_id().map(|call_id| format!("call:{call_id}")))
+            .unwrap_or_else(|| "direct".to_string());
+        raw.push(RawCell {
+            seq: trace.seq(),
+            row_key: format!("llm:{}", trace.actor_key()),
+            event_type: trace
+                .terminal
+                .as_ref()
+                .map(|event| event.event_type.clone())
+                .unwrap_or_else(|| "llm.call.started".to_string()),
+            tool_name: None,
+            actor_key: Some(trace.actor_key()),
+            status: status_from_trace(trace),
+            duration_ms: trace.duration_ms(),
+            total_tokens: trace.total_tokens(),
+            loop_id,
+            item_id: trace.trace_id.clone(),
+        });
+    }
+
+    let tool_pairs = pair_tool_events(
+        tools
+            .iter()
+            .filter(|tool| tool.run_id.as_deref() == Some(run_id))
+            .cloned()
+            .collect(),
+    );
+    for pair in &tool_pairs {
+        let tool_name = pair.tool_name().to_string();
+        let loop_id = pair
+            .call
+            .as_ref()
+            .and_then(|event| event.task_id.clone())
+            .or_else(|| {
+                pair.call
+                    .as_ref()
+                    .and_then(|event| event.call_id.clone())
+                    .map(|call_id| format!("call:{call_id}"))
+            })
+            .or_else(|| pair.result.as_ref().and_then(|event| event.task_id.clone()))
+            .or_else(|| {
+                pair.result
+                    .as_ref()
+                    .and_then(|event| event.call_id.clone())
+                    .map(|call_id| format!("call:{call_id}"))
+            })
+            .unwrap_or_else(|| "direct".to_string());
+        raw.push(RawCell {
+            seq: pair.seq(),
+            row_key: format!("tool:{tool_name}"),
+            event_type: pair
+                .result
+                .as_ref()
+                .map(|event| event.event_type.clone())
+                .or_else(|| pair.call.as_ref().map(|event| event.event_type.clone()))
+                .unwrap_or_else(|| "worker.tool.call".to_string()),
+            tool_name: Some(tool_name),
+            actor_key: None,
+            status: status_from_tool_pair(pair),
+            duration_ms: pair.duration_ms(),
+            total_tokens: None,
+            loop_id,
+            item_id: pair.tool_trace_id.clone(),
+        });
+    }
+
+    for event in lifecycle
+        .iter()
+        .filter(|event| event.run_id.as_deref() == Some(run_id))
+    {
+        raw.push(RawCell {
+            seq: event.seq,
+            row_key: format!("worker:{}", event.worker_id),
+            event_type: event.event_type.clone(),
+            tool_name: None,
+            actor_key: None,
+            status: status_from_lifecycle(event),
+            duration_ms: None,
+            total_tokens: None,
+            loop_id: event.task_id.clone(),
+            item_id: event.event_id.clone(),
+        });
+    }
+
+    for delegation in delegations
+        .iter()
+        .filter(|event| event.run_id == run_id && event.event_type == "conductor.worker.call")
+    {
+        let worker_type = delegation
+            .worker_type
+            .clone()
+            .unwrap_or_else(|| "worker".to_string());
+        let terminal = delegations.iter().find(|candidate| {
+            candidate.run_id == run_id
+                && matches!(
+                    candidate.event_type.as_str(),
+                    "conductor.capability.completed"
+                        | "conductor.capability.failed"
+                        | "conductor.capability.blocked"
+                )
+                && delegation
+                    .call_id
+                    .as_ref()
+                    .zip(candidate.call_id.as_ref())
+                    .map(|(left, right)| left == right)
+                    .unwrap_or(false)
+        });
+        let status = match terminal.map(|event| event.event_type.as_str()) {
+            Some("conductor.capability.completed") => TrajectoryStatus::Completed,
+            Some("conductor.capability.failed") => TrajectoryStatus::Failed,
+            Some("conductor.capability.blocked") => TrajectoryStatus::Blocked,
+            _ => TrajectoryStatus::Inflight,
+        };
+        let loop_id = loop_id_for_call(delegation.call_id.as_deref(), lifecycle)
+            .unwrap_or_else(|| "direct".to_string());
+        raw.push(RawCell {
+            seq: delegation.seq,
+            row_key: format!("delegation:{worker_type}"),
+            event_type: delegation.event_type.clone(),
+            tool_name: None,
+            actor_key: None,
+            status,
+            duration_ms: terminal
+                .and_then(|event| duration_between_ms(&delegation.timestamp, &event.timestamp)),
+            total_tokens: None,
+            loop_id,
+            item_id: delegation
+                .call_id
+                .clone()
+                .unwrap_or_else(|| delegation.event_id.clone()),
+        });
+    }
+
+    raw.sort_by_key(|cell| cell.seq);
+    raw.into_iter()
+        .enumerate()
+        .map(|(step_index, cell)| TrajectoryCell {
+            seq: cell.seq,
+            step_index,
+            row_key: cell.row_key,
+            event_type: cell.event_type,
+            tool_name: cell.tool_name,
+            actor_key: cell.actor_key,
+            status: cell.status,
+            duration_ms: cell.duration_ms,
+            total_tokens: cell.total_tokens,
+            loop_id: cell.loop_id,
+            item_id: cell.item_id,
+        })
+        .collect()
+}
+
+fn bucket_trajectory_cells(cells: &[TrajectoryCell], max_columns: usize) -> Vec<TrajectoryCell> {
+    let max_step = cells
+        .iter()
+        .map(|cell| cell.step_index)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1);
+    if max_step <= max_columns || max_columns == 0 {
+        return cells.to_vec();
+    }
+    let mut by_bucket: HashMap<(String, usize), TrajectoryCell> = HashMap::new();
+
+    for cell in cells {
+        let bucket_index = cell.step_index.saturating_mul(max_columns) / max_step.max(1);
+        let key = (cell.row_key.clone(), bucket_index);
+        by_bucket
+            .entry(key)
+            .and_modify(|current| {
+                if trajectory_status_rank(&cell.status) > trajectory_status_rank(&current.status) {
+                    current.status = cell.status.clone();
+                }
+                current.duration_ms = current.duration_ms.max(cell.duration_ms);
+                current.total_tokens = current.total_tokens.max(cell.total_tokens);
+                if cell.seq < current.seq {
+                    current.seq = cell.seq;
+                }
+            })
+            .or_insert_with(|| {
+                let mut cloned = cell.clone();
+                cloned.step_index = bucket_index;
+                cloned
+            });
+    }
+
+    let mut out: Vec<TrajectoryCell> = by_bucket.into_values().collect();
+    out.sort_by(|a, b| {
+        a.step_index
+            .cmp(&b.step_index)
+            .then_with(|| a.row_key.cmp(&b.row_key))
+    });
+    out
+}
+
+fn row_sort_key(row_key: &str) -> (usize, String) {
+    if row_key.starts_with("llm:") {
+        (0, row_key.to_string())
+    } else if row_key.starts_with("tool:") {
+        (1, row_key.to_string())
+    } else if row_key.starts_with("worker:") {
+        (2, row_key.to_string())
+    } else if row_key.starts_with("delegation:") {
+        (3, row_key.to_string())
+    } else {
+        (9, row_key.to_string())
+    }
+}
+
+fn sanitize_dom_fragment(value: &str) -> String {
+    let mut out = String::new();
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            out.push('-');
+        }
+    }
+    out.trim_matches('-').to_string()
+}
+
+fn loop_dom_id(loop_id: &str) -> String {
+    format!("trace-loop-{}", sanitize_dom_fragment(loop_id))
+}
+
+fn item_dom_id(item_id: &str) -> String {
+    format!("trace-item-{}", sanitize_dom_fragment(item_id))
+}
+
+fn scroll_to_element_id(id: &str) {
+    if let Some(document) = web_sys::window().and_then(|window| window.document()) {
+        if let Some(element) = document.get_element_by_id(id) {
+            element.scroll_into_view();
+        }
+    }
+}
+
+fn build_run_sparkline(
+    run_id: &str,
+    traces: &[TraceGroup],
+    tools: &[ToolTraceEvent],
+) -> Vec<(f32, f32, String)> {
+    #[derive(Clone)]
+    struct Dot {
+        seq: i64,
+        status: String,
+    }
+
+    let mut dots: Vec<Dot> = traces
+        .iter()
+        .filter(|trace| trace.run_id() == Some(run_id))
+        .map(|trace| Dot {
+            seq: trace.seq(),
+            status: trace.status().to_string(),
+        })
+        .collect();
+    let tool_pairs = pair_tool_events(
+        tools
+            .iter()
+            .filter(|tool| tool.run_id.as_deref() == Some(run_id))
+            .cloned()
+            .collect(),
+    );
+    dots.extend(tool_pairs.iter().map(|pair| Dot {
+        seq: pair.seq(),
+        status: pair.status().to_string(),
+    }));
+    dots.sort_by_key(|dot| dot.seq);
+    dots.truncate(60);
+
+    let width = 120.0;
+    let spacing = if dots.len() > 1 {
+        (width - 8.0) / (dots.len() as f32 - 1.0)
+    } else {
+        0.0
+    };
+    dots.into_iter()
+        .enumerate()
+        .map(|(idx, dot)| {
+            let color = match dot.status.as_str() {
+                "completed" => "#22c55e",
+                "failed" => "#ef4444",
+                "started" => "#f59e0b",
+                _ => "#94a3b8",
+            }
+            .to_string();
+            let x = 4.0 + idx as f32 * spacing;
+            let y = match dot.status.as_str() {
+                "failed" => 11.0,
+                "started" => 8.0,
+                _ => 6.0,
+            };
+            (x, y, color)
+        })
+        .collect()
+}
+
+#[component]
+fn TrajectoryGrid(
+    cells: Vec<TrajectoryCell>,
+    display_mode: TrajectoryMode,
+    on_select: EventHandler<(String, String)>,
+    on_mode_change: EventHandler<TrajectoryMode>,
+) -> Element {
+    let cells = bucket_trajectory_cells(&cells, TRACE_TRAJECTORY_MAX_COLUMNS);
+    let mut rows: Vec<String> = cells
+        .iter()
+        .map(|cell| cell.row_key.clone())
+        .collect::<BTreeSet<String>>()
+        .into_iter()
+        .collect();
+    rows.sort_by_key(|row| row_sort_key(row));
+
+    let row_lookup: HashMap<String, usize> = rows
+        .iter()
+        .enumerate()
+        .map(|(idx, row)| (row.clone(), idx))
+        .collect();
+    let max_step = cells
+        .iter()
+        .map(|cell| cell.step_index)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1);
+
+    let mut max_duration = 1_i64;
+    let mut max_tokens = 1_i64;
+    for cell in &cells {
+        if let Some(duration) = cell.duration_ms {
+            max_duration = max_duration.max(duration.max(1));
+        }
+        if let Some(tokens) = cell.total_tokens {
+            max_tokens = max_tokens.max(tokens.max(1));
+        }
+    }
+
+    let left_pad = 182.0_f32;
+    let top_pad = 22.0_f32;
+    let col_gap = 12.5_f32;
+    let row_gap = 18.0_f32;
+    let width = left_pad + (max_step as f32 * col_gap) + 16.0;
+    let height = top_pad + (rows.len() as f32 * row_gap) + 18.0;
+    let view_box = format!("0 0 {:.1} {:.1}", width.max(420.0), height.max(80.0));
+
+    rsx! {
+        div {
+            class: "trace-traj-grid",
+            div {
+                class: "trace-traj-grid-head",
+                h5 {
+                    class: "trace-loop-title",
+                    "Trajectory Grid"
+                }
+                div {
+                    style: "display:flex;gap:0.32rem;flex-wrap:wrap;",
+                    for mode in [TrajectoryMode::Status, TrajectoryMode::Duration, TrajectoryMode::Tokens] {
+                        button {
+                            class: "trace-pill",
+                            style: if mode == display_mode { "border-color:#60a5fa;color:#dbeafe;" } else { "" },
+                            onclick: move |_| on_mode_change.call(mode),
+                            "{mode.label()}"
+                        }
+                    }
+                }
+            }
+            svg {
+                width: "100%",
+                height: format!("{:.0}", height.max(100.0)),
+                view_box: "{view_box}",
+                for row in &rows {
+                    if let Some(row_idx) = row_lookup.get(row) {
+                        text {
+                            x: "4",
+                            y: format!("{:.1}", top_pad + *row_idx as f32 * row_gap + 4.0),
+                            class: "trace-traj-row-label",
+                            fill: "#93c5fd",
+                            font_size: "10",
+                            "{row}"
+                        }
+                    }
+                }
+                for cell in &cells {
+                    if let Some(row_idx) = row_lookup.get(&cell.row_key) {
+                        {
+                            let x = left_pad + cell.step_index as f32 * col_gap;
+                            let y = top_pad + *row_idx as f32 * row_gap;
+                            let mut radius = 3.8_f32;
+                            if display_mode == TrajectoryMode::Duration {
+                                if let Some(duration) = cell.duration_ms {
+                                    let ratio = (duration.max(1) as f64).ln() / (max_duration as f64).ln().max(1.0);
+                                    radius = (2.6 + (ratio as f32 * 4.8)).clamp(2.2, 7.8);
+                                }
+                            } else if display_mode == TrajectoryMode::Tokens {
+                                if let Some(tokens) = cell.total_tokens {
+                                    let ratio = (tokens.max(1) as f64).ln() / (max_tokens as f64).ln().max(1.0);
+                                    radius = (2.4 + (ratio as f32 * 5.2)).clamp(2.0, 8.1);
+                                }
+                            }
+                            let class = trajectory_status_class(&cell.status);
+                            let loop_id = cell.loop_id.clone();
+                            let item_id = cell.item_id.clone();
+                            rsx! {
+                                circle {
+                                    cx: format!("{:.2}", x),
+                                    cy: format!("{:.2}", y),
+                                    r: format!("{:.2}", radius),
+                                    class: "{class}",
+                                    onclick: move |_| on_select.call((loop_id.clone(), item_id.clone())),
+                                }
+                                if display_mode == TrajectoryMode::Duration
+                                    && cell.duration_ms.unwrap_or_default() > TRACE_SLOW_DURATION_MS
+                                {
+                                    circle {
+                                        cx: format!("{:.2}", x),
+                                        cy: format!("{:.2}", y),
+                                        r: format!("{:.2}", radius + 1.8),
+                                        class: "trace-traj-slow-ring"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 pub fn TraceView(desktop_id: String, window_id: String) -> Element {
     let mut trace_events = use_signal(Vec::<TraceEvent>::new);
     let mut prompt_events = use_signal(Vec::<PromptEvent>::new);
     let mut tool_events = use_signal(Vec::<ToolTraceEvent>::new);
     let mut writer_enqueue_events = use_signal(Vec::<WriterEnqueueEvent>::new);
+    let mut delegation_events = use_signal(Vec::<ConductorDelegationEvent>::new);
+    let mut run_events = use_signal(Vec::<ConductorRunEvent>::new);
+    let mut worker_lifecycle = use_signal(Vec::<WorkerLifecycleEvent>::new);
     let mut since_seq = use_signal(|| 0_i64);
     let mut selected_run_id = use_signal(|| None::<String>);
     let mut selected_actor_key = use_signal(|| None::<String>);
+    let mut selected_loop_id = use_signal(|| None::<String>);
+    let mut selected_item_id = use_signal(|| None::<String>);
+    let mut trajectory_mode = use_signal(|| TrajectoryMode::Status);
     let mut run_sidebar_open = use_signal(|| false);
     let mut node_sheet_open = use_signal(|| false);
     let mut connected = use_signal(|| false);
@@ -1537,6 +3076,9 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                 let mut parsed_prompts = Vec::<PromptEvent>::new();
                 let mut parsed_tools = Vec::<ToolTraceEvent>::new();
                 let mut parsed_writer_enqueues = Vec::<WriterEnqueueEvent>::new();
+                let mut parsed_delegations = Vec::<ConductorDelegationEvent>::new();
+                let mut parsed_run_events = Vec::<ConductorRunEvent>::new();
+                let mut parsed_worker_lifecycle = Vec::<WorkerLifecycleEvent>::new();
 
                 for event in fetched_events {
                     max_seq = max_seq.max(event.seq);
@@ -1552,6 +3094,15 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                     if let Some(writer_enqueue_event) = parse_writer_enqueue_event(&event) {
                         parsed_writer_enqueues.push(writer_enqueue_event);
                     }
+                    if let Some(delegation_event) = parse_conductor_delegation_event(&event) {
+                        parsed_delegations.push(delegation_event);
+                    }
+                    if let Some(run_event) = parse_conductor_run_event(&event) {
+                        parsed_run_events.push(run_event);
+                    }
+                    if let Some(lifecycle_event) = parse_worker_lifecycle_event(&event) {
+                        parsed_worker_lifecycle.push(lifecycle_event);
+                    }
                 }
 
                 parsed_traces.sort_by_key(|event| event.seq);
@@ -1562,11 +3113,20 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                 parsed_tools.dedup_by(|a, b| a.event_id == b.event_id);
                 parsed_writer_enqueues.sort_by_key(|event| event.seq);
                 parsed_writer_enqueues.dedup_by(|a, b| a.event_id == b.event_id);
+                parsed_delegations.sort_by_key(|event| event.seq);
+                parsed_delegations.dedup_by(|a, b| a.event_id == b.event_id);
+                parsed_run_events.sort_by_key(|event| event.seq);
+                parsed_run_events.dedup_by(|a, b| a.event_id == b.event_id);
+                parsed_worker_lifecycle.sort_by_key(|event| event.seq);
+                parsed_worker_lifecycle.dedup_by(|a, b| a.event_id == b.event_id);
 
                 trace_events.set(parsed_traces);
                 prompt_events.set(parsed_prompts);
                 tool_events.set(parsed_tools);
                 writer_enqueue_events.set(parsed_writer_enqueues);
+                delegation_events.set(parsed_delegations);
+                run_events.set(parsed_run_events);
+                worker_lifecycle.set(parsed_worker_lifecycle);
                 since_seq.set(max_seq);
 
                 preload_ready.set(true);
@@ -1710,6 +3270,45 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                                 list.drain(0..trim);
                                             }
                                         }
+
+                                        if let Some(delegation_event) =
+                                            parse_conductor_delegation_event(&logs_event)
+                                        {
+                                            let mut list = delegation_events.write();
+                                            list.push(delegation_event);
+                                            list.sort_by_key(|event| event.seq);
+                                            list.dedup_by(|a, b| a.event_id == b.event_id);
+                                            if list.len() > 2_000 {
+                                                let trim = list.len() - 2_000;
+                                                list.drain(0..trim);
+                                            }
+                                        }
+
+                                        if let Some(run_event) =
+                                            parse_conductor_run_event(&logs_event)
+                                        {
+                                            let mut list = run_events.write();
+                                            list.push(run_event);
+                                            list.sort_by_key(|event| event.seq);
+                                            list.dedup_by(|a, b| a.event_id == b.event_id);
+                                            if list.len() > 1_500 {
+                                                let trim = list.len() - 1_500;
+                                                list.drain(0..trim);
+                                            }
+                                        }
+
+                                        if let Some(lifecycle_event) =
+                                            parse_worker_lifecycle_event(&logs_event)
+                                        {
+                                            let mut list = worker_lifecycle.write();
+                                            list.push(lifecycle_event);
+                                            list.sort_by_key(|event| event.seq);
+                                            list.dedup_by(|a, b| a.event_id == b.event_id);
+                                            if list.len() > 3_000 {
+                                                let trim = list.len() - 3_000;
+                                                list.drain(0..trim);
+                                            }
+                                        }
                                     }
                                     _ => {}
                                 }
@@ -1795,6 +3394,9 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
     let prompt_snapshot = prompt_events.read().clone();
     let tool_snapshot = tool_events.read().clone();
     let writer_enqueue_snapshot = writer_enqueue_events.read().clone();
+    let delegation_snapshot = delegation_events.read().clone();
+    let run_event_snapshot = run_events.read().clone();
+    let lifecycle_snapshot = worker_lifecycle.read().clone();
 
     let traces_all = group_traces(&trace_snapshot);
     let run_summaries = build_run_graph_summaries(
@@ -1802,6 +3404,9 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
         &prompt_snapshot,
         &tool_snapshot,
         &writer_enqueue_snapshot,
+        &delegation_snapshot,
+        &run_event_snapshot,
+        &lifecycle_snapshot,
     );
 
     let active_run_id = selected_run_id()
@@ -1830,6 +3435,42 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
         .as_ref()
         .and_then(|run_id| run_summaries.iter().find(|run| run.run_id == *run_id))
         .cloned();
+    let delegations_for_run: Vec<ConductorDelegationEvent> =
+        if let Some(run_id) = active_run_id.as_deref() {
+            delegation_snapshot
+                .iter()
+                .filter(|event| event.run_id == run_id)
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
+    let lifecycle_for_run: Vec<WorkerLifecycleEvent> =
+        if let Some(run_id) = active_run_id.as_deref() {
+            lifecycle_snapshot
+                .iter()
+                .filter(|event| event.run_id.as_deref() == Some(run_id))
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
+    let delegation_bands = if let Some(run_id) = active_run_id.as_deref() {
+        build_delegation_timeline_bands(run_id, &delegations_for_run, &lifecycle_for_run)
+    } else {
+        Vec::new()
+    };
+    let trajectory_cells_for_run = if let Some(run_id) = active_run_id.as_deref() {
+        build_trajectory_cells(
+            &traces_for_run,
+            &tools_for_run,
+            &lifecycle_for_run,
+            &delegations_for_run,
+            run_id,
+        )
+    } else {
+        Vec::new()
+    };
 
     let graph_nodes = if let Some(run_id) = active_run_id.as_deref() {
         build_graph_nodes_for_run(
@@ -1837,11 +3478,16 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
             &traces_for_run,
             &tools_for_run,
             &writer_enqueue_snapshot,
+            &lifecycle_for_run,
         )
     } else {
         Vec::new()
     };
-    let graph_edges = build_graph_edges(&graph_nodes);
+    let graph_edges = if let Some(run_id) = active_run_id.as_deref() {
+        build_graph_edges(&graph_nodes, run_id, &delegations_for_run)
+    } else {
+        Vec::new()
+    };
     let graph_layout = build_graph_layout(&graph_nodes);
 
     let actor_nodes: Vec<GraphNode> = graph_nodes
@@ -1883,10 +3529,11 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
         .collect();
     let graph_edge_segments: Vec<GraphEdgeSegment> = graph_edges
         .iter()
-        .filter_map(|(from, to)| {
-            let from_pos = graph_layout.positions.get(from)?;
-            let to_pos = graph_layout.positions.get(to)?;
+        .filter_map(|edge| {
+            let from_pos = graph_layout.positions.get(&edge.from)?;
+            let to_pos = graph_layout.positions.get(&edge.to)?;
             Some(GraphEdgeSegment {
+                edge: edge.clone(),
                 x1: from_pos.0 + 188.0,
                 y1: from_pos.1 + 33.0,
                 x2: to_pos.0,
@@ -1973,15 +3620,17 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                             for run in &run_summaries {
                                 button {
                                     class: if active_run_id.as_deref() == Some(run.run_id.as_str()) {
-                                        "thread-item active"
+                                        "thread-item trace-run-toggle active"
                                     } else {
-                                        "thread-item"
+                                        "thread-item trace-run-toggle"
                                     },
                                     onclick: {
                                         let run_id = run.run_id.clone();
                                         move |_| {
                                             selected_run_id.set(Some(run_id.clone()));
                                             selected_actor_key.set(None);
+                                            selected_loop_id.set(None);
+                                            selected_item_id.set(None);
                                             node_sheet_open.set(false);
                                             run_sidebar_open.set(false);
                                         }
@@ -1993,6 +3642,33 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                     div {
                                         class: "thread-preview",
                                         "{run.llm_calls} llm | {run.tool_calls} tools | {run.actor_count} actors"
+                                    }
+                                    div {
+                                        class: "trace-run-row",
+                                        div {
+                                            class: "trace-run-row-left",
+                                            span {
+                                                class: "{run_status_class(&run.run_status)}",
+                                                "{run.run_status}"
+                                            }
+                                            span { class: "trace-pill", "{run.worker_calls} worker calls" }
+                                        }
+                                        svg {
+                                            class: "trace-run-sparkline",
+                                            view_box: "0 0 120 16",
+                                            for (x, y, color) in build_run_sparkline(
+                                                &run.run_id,
+                                                &traces_all,
+                                                &tool_snapshot
+                                            ) {
+                                                circle {
+                                                    cx: format!("{:.1}", x),
+                                                    cy: format!("{:.1}", y),
+                                                    r: "2.5",
+                                                    fill: "{color}"
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -2011,13 +3687,22 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                     }
                                     div {
                                         class: "trace-graph-metrics",
+                                        span { class: "{run_status_class(&run.run_status)}", "{run.run_status}" }
                                         span { class: "trace-pill", "{run.llm_calls} llm calls" }
                                         span { class: "trace-pill", "{run.tool_calls} tool calls" }
                                         span { class: "trace-pill", "{run.tool_failures} tool failures" }
+                                        span { class: "trace-pill", "{run.worker_count} workers" }
+                                        span { class: "trace-pill", "{run.worker_failures} worker failures" }
+                                        span { class: "trace-pill", "{run.worker_calls} worker calls" }
+                                        if run.capability_failures > 0 {
+                                            span { class: "trace-pill", "{run.capability_failures} capability failures" }
+                                        }
                                         span { class: "trace-pill", "{run.writer_enqueues} writer enqueues" }
                                         if run.writer_enqueue_failures > 0 {
                                             span { class: "trace-pill", "{run.writer_enqueue_failures} enqueue failures" }
                                         }
+                                        span { class: "trace-pill", "{format_duration_short(run.total_duration_ms)}" }
+                                        span { class: "trace-pill", "{format_tokens_short(run.total_tokens)} tok" }
                                         span { class: "trace-pill", "{run.loop_count} loops" }
                                     }
                                 }
@@ -2033,8 +3718,19 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                                 y1: format!("{:.1}", segment.y1),
                                                 x2: format!("{:.1}", segment.x2),
                                                 y2: format!("{:.1}", segment.y2),
-                                                stroke: "#334155",
-                                                stroke_width: "2"
+                                                stroke: "{segment.edge.color}",
+                                                stroke_width: "2",
+                                                stroke_dasharray: if segment.edge.dashed { "6,4" } else { "none" }
+                                            }
+                                            if let Some(label) = segment.edge.label.as_ref() {
+                                                text {
+                                                    x: format!("{:.1}", (segment.x1 + segment.x2) / 2.0),
+                                                    y: format!("{:.1}", ((segment.y1 + segment.y2) / 2.0) - 4.0),
+                                                    text_anchor: "middle",
+                                                    fill: "#cbd5e1",
+                                                    font_size: "9.2",
+                                                    "{label}"
+                                                }
                                             }
                                         }
                                         for render in &graph_render_nodes {
@@ -2071,6 +3767,8 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                                         onclick: move |_| {
                                                             if let Some(actor_key) = actor_key_for_click.clone() {
                                                                 selected_actor_key.set(Some(actor_key));
+                                                                selected_loop_id.set(None);
+                                                                selected_item_id.set(None);
                                                                 node_sheet_open.set(true);
                                                             }
                                                         },
@@ -2079,6 +3777,7 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                                             y: format!("{:.1}", render.y),
                                                             width: "188",
                                                             height: "66",
+                                                            class: if render.node.kind == GraphNodeKind::Worker { "trace-worker-node" } else { "" },
                                                             rx: "8",
                                                             fill: "{fill}",
                                                             stroke: "{stroke_color}",
@@ -2112,6 +3811,60 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                         }
                                     }
                                 }
+                                if !delegation_bands.is_empty() {
+                                    div {
+                                        class: "trace-delegation-wrap",
+                                        h5 {
+                                            class: "trace-loop-title",
+                                            "Delegation Timeline"
+                                        }
+                                        div {
+                                            class: "trace-delegation-timeline",
+                                            for band in &delegation_bands {
+                                                button {
+                                                    class: "{delegation_band_class(&band.status)}",
+                                                    title: band.worker_objective.clone().unwrap_or_default(),
+                                                    onclick: {
+                                                        let loop_id = band.loop_id.clone();
+                                                        let call_id = band.call_id.clone();
+                                                        move |_| {
+                                                            if let Some(loop_id) = loop_id.clone() {
+                                                                let dom_id = loop_dom_id(&loop_id);
+                                                                selected_loop_id.set(Some(loop_id));
+                                                                scroll_to_element_id(&dom_id);
+                                                            } else if let Some(call_id) = call_id.clone() {
+                                                                let fallback = format!("call:{call_id}");
+                                                                selected_loop_id.set(Some(fallback.clone()));
+                                                                scroll_to_element_id(&loop_dom_id(&fallback));
+                                                            }
+                                                        }
+                                                    },
+                                                    span { "{band.worker_type}" }
+                                                    span { class: "trace-pill", "{band.status}" }
+                                                    if let Some(duration_ms) = band.duration_ms {
+                                                        span { class: "trace-pill", "{duration_ms}ms" }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                if !trajectory_cells_for_run.is_empty() {
+                                    TrajectoryGrid {
+                                        cells: trajectory_cells_for_run.clone(),
+                                        display_mode: trajectory_mode(),
+                                        on_mode_change: move |next_mode| trajectory_mode.set(next_mode),
+                                        on_select: move |payload: (String, String)| {
+                                            let (loop_id, item_id) = payload;
+                                            let dom_loop_id = loop_dom_id(&loop_id);
+                                            let dom_item_id = item_dom_id(&item_id);
+                                            selected_loop_id.set(Some(loop_id.clone()));
+                                            selected_item_id.set(Some(item_id.clone()));
+                                            scroll_to_element_id(&dom_loop_id);
+                                            scroll_to_element_id(&dom_item_id);
+                                        }
+                                    }
+                                }
                                 if !actor_nodes.is_empty() {
                                     div {
                                         class: "trace-node-chip-row",
@@ -2127,6 +3880,8 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                                         let actor_key = actor_key.clone();
                                                         move |_| {
                                                             selected_actor_key.set(Some(actor_key.clone()));
+                                                            selected_loop_id.set(None);
+                                                            selected_item_id.set(None);
                                                             node_sheet_open.set(true);
                                                         }
                                                     },
@@ -2168,8 +3923,37 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                     }
                                 } else {
                                     for (index, group) in loop_groups.iter().enumerate() {
+                                        {
+                                            let group_loop_id = group.loop_id.clone();
+                                            let selected = selected_loop_id()
+                                                .as_ref()
+                                                .map(|loop_id| loop_id == &group_loop_id)
+                                                .unwrap_or(false);
+                                            let group_dom_id = loop_dom_id(&group_loop_id);
+                                            let lifecycle_for_group: Vec<WorkerLifecycleEvent> = lifecycle_for_run
+                                                .iter()
+                                                .filter(|event| {
+                                                    if group_loop_id.starts_with("call:") {
+                                                        let expected_call = group_loop_id.trim_start_matches("call:");
+                                                        event.call_id.as_deref() == Some(expected_call)
+                                                    } else {
+                                                        event.task_id == group_loop_id
+                                                    }
+                                                })
+                                                .cloned()
+                                                .collect();
+                                            let (worker_state, worker_state_message) = worker_summary(
+                                                &group_loop_id,
+                                                &lifecycle_for_run,
+                                            );
+                                            rsx! {
                                         div {
-                                            class: "trace-loop-group",
+                                            id: "{group_dom_id}",
+                                            class: if selected {
+                                                "trace-loop-group trace-call-card--selected"
+                                            } else {
+                                                "trace-loop-group"
+                                            },
                                             div {
                                                 class: "trace-loop-head",
                                                 h5 {
@@ -2179,6 +3963,34 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                                 span {
                                                     class: "trace-pill",
                                                     "{group.sequence.len()} events"
+                                                }
+                                                span {
+                                                    class: "trace-pill",
+                                                    "{worker_state}"
+                                                }
+                                                if let Some(message) = worker_state_message.as_ref() {
+                                                    span {
+                                                        class: "trace-pill",
+                                                        style: "max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;",
+                                                        "{message}"
+                                                    }
+                                                }
+                                            }
+                                            if !lifecycle_for_group.is_empty() {
+                                                div {
+                                                    class: "trace-lifecycle-strip",
+                                                    for event in &lifecycle_for_group {
+                                                        details {
+                                                            class: "{lifecycle_chip_class(&event.event_type)}",
+                                                            summary {
+                                                                "{lifecycle_label(event)}: {event.phase}"
+                                                            }
+                                                            p {
+                                                                class: "tool-meta",
+                                                                "{lifecycle_detail(event)}"
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
                                             if let Some(system_context) = group
@@ -2203,7 +4015,12 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                                 match item {
                                                     LoopSequenceItem::Llm(trace) => rsx! {
                                                         div {
-                                                            class: "trace-call-card",
+                                                            id: "{item_dom_id(&trace.trace_id)}",
+                                                            class: if selected_item_id().as_deref() == Some(trace.trace_id.as_str()) {
+                                                                "trace-call-card trace-call-card--selected"
+                                                            } else {
+                                                                "trace-call-card"
+                                                            },
                                                             div {
                                                                 class: "trace-call-top",
                                                                 h6 {
@@ -2236,6 +4053,68 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                                                         span {
                                                                             class: "trace-pill",
                                                                             "{tokens} tok"
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                            if let Some(duration) = trace.duration_ms() {
+                                                                {
+                                                                    let loop_max = group
+                                                                        .sequence
+                                                                        .iter()
+                                                                        .filter_map(|item| match item {
+                                                                            LoopSequenceItem::Llm(current) => current.duration_ms(),
+                                                                            LoopSequenceItem::Tool(current) => current.duration_ms(),
+                                                                        })
+                                                                        .max()
+                                                                        .unwrap_or(1)
+                                                                        .max(1);
+                                                                    let width_pct = ((duration.max(0) as f64 / loop_max as f64) * 100.0).clamp(2.0, 100.0);
+                                                                    rsx! {
+                                                                        div {
+                                                                            class: if duration > TRACE_SLOW_DURATION_MS {
+                                                                                "trace-duration-bar trace-duration-bar--slow"
+                                                                            } else {
+                                                                                "trace-duration-bar"
+                                                                            },
+                                                                            style: format!("width:{width_pct:.2}%;")
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                            if let Some(total_tokens) = trace.total_tokens() {
+                                                                {
+                                                                    let loop_total_tokens = group
+                                                                        .traces
+                                                                        .iter()
+                                                                        .filter_map(|current| current.total_tokens())
+                                                                        .sum::<i64>()
+                                                                        .max(1);
+                                                                    let cached = trace.cached_input_tokens().unwrap_or(0).max(0);
+                                                                    let input = trace.input_tokens().unwrap_or(0).max(0);
+                                                                    let output = trace.output_tokens().unwrap_or(0).max(0);
+                                                                    let cached_pct = (cached as f64 / loop_total_tokens as f64 * 100.0).clamp(0.0, 100.0);
+                                                                    let input_pct = (input as f64 / loop_total_tokens as f64 * 100.0).clamp(0.0, 100.0);
+                                                                    let output_pct = (output as f64 / loop_total_tokens as f64 * 100.0).clamp(0.0, 100.0);
+                                                                    rsx! {
+                                                                        div {
+                                                                            class: "trace-token-bar",
+                                                                            div {
+                                                                                class: "trace-token-segment--cached",
+                                                                                style: format!("width:{cached_pct:.2}%;")
+                                                                            }
+                                                                            div {
+                                                                                class: "trace-token-segment--input",
+                                                                                style: format!("width:{input_pct:.2}%;")
+                                                                            }
+                                                                            div {
+                                                                                class: "trace-token-segment--output",
+                                                                                style: format!("width:{output_pct:.2}%;")
+                                                                            }
+                                                                        }
+                                                                        div {
+                                                                            style: "font-size:0.66rem;color:#94a3b8;margin-top:0.22rem;",
+                                                                            "{format_tokens_short(input)} in / {format_tokens_short(output)} out / {format_tokens_short(cached)} cached / {format_tokens_short(total_tokens)} total"
                                                                         }
                                                                     }
                                                                 }
@@ -2361,7 +4240,12 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                                     },
                                                     LoopSequenceItem::Tool(tool_pair) => rsx! {
                                                         div {
-                                                            class: "trace-call-card",
+                                                            id: "{item_dom_id(&tool_pair.tool_trace_id)}",
+                                                            class: if selected_item_id().as_deref() == Some(tool_pair.tool_trace_id.as_str()) {
+                                                                "trace-call-card trace-call-card--selected"
+                                                            } else {
+                                                                "trace-call-card"
+                                                            },
                                                             div {
                                                                 class: "trace-call-top",
                                                                 h6 {
@@ -2373,6 +4257,31 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                                                     span { class: "trace-pill", "{tool_pair.status()}" }
                                                                     if let Some(duration) = tool_pair.duration_ms() {
                                                                         span { class: "trace-pill", "{duration}ms" }
+                                                                    }
+                                                                }
+                                                            }
+                                                            if let Some(duration) = tool_pair.duration_ms() {
+                                                                {
+                                                                    let loop_max = group
+                                                                        .sequence
+                                                                        .iter()
+                                                                        .filter_map(|item| match item {
+                                                                            LoopSequenceItem::Llm(current) => current.duration_ms(),
+                                                                            LoopSequenceItem::Tool(current) => current.duration_ms(),
+                                                                        })
+                                                                        .max()
+                                                                        .unwrap_or(1)
+                                                                        .max(1);
+                                                                    let width_pct = ((duration.max(0) as f64 / loop_max as f64) * 100.0).clamp(2.0, 100.0);
+                                                                    rsx! {
+                                                                        div {
+                                                                            class: if duration > TRACE_SLOW_DURATION_MS {
+                                                                                "trace-duration-bar trace-duration-bar--slow"
+                                                                            } else {
+                                                                                "trace-duration-bar"
+                                                                            },
+                                                                            style: format!("width:{width_pct:.2}%;")
+                                                                        }
                                                                     }
                                                                 }
                                                             }
@@ -2428,6 +4337,8 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                                 }
                                             }
                                         }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -2445,6 +4356,191 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                 "Desktop: {desktop_id} | Window: {window_id}"
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_trace(seq: i64, run_id: &str, trace_id: &str, status: &str) -> TraceGroup {
+        let started = TraceEvent {
+            seq,
+            event_id: format!("{trace_id}-started"),
+            trace_id: trace_id.to_string(),
+            timestamp: "2026-02-20T10:00:00Z".to_string(),
+            event_type: "llm.call.started".to_string(),
+            role: "conductor".to_string(),
+            function_name: "respond".to_string(),
+            model_used: "test-model".to_string(),
+            provider: Some("test".to_string()),
+            actor_id: "conductor:1".to_string(),
+            run_id: Some(run_id.to_string()),
+            task_id: Some("task-a".to_string()),
+            call_id: Some("call-a".to_string()),
+            system_context: None,
+            input: None,
+            input_summary: None,
+            output: None,
+            output_summary: None,
+            duration_ms: None,
+            error_code: None,
+            error_message: None,
+            failure_kind: None,
+            input_tokens: Some(12),
+            output_tokens: Some(6),
+            cached_input_tokens: Some(2),
+            total_tokens: Some(18),
+        };
+        let terminal_type = if status == "failed" {
+            "llm.call.failed"
+        } else {
+            "llm.call.completed"
+        };
+        let terminal = TraceEvent {
+            seq: seq + 1,
+            event_id: format!("{trace_id}-terminal"),
+            trace_id: trace_id.to_string(),
+            timestamp: "2026-02-20T10:00:01Z".to_string(),
+            event_type: terminal_type.to_string(),
+            role: "conductor".to_string(),
+            function_name: "respond".to_string(),
+            model_used: "test-model".to_string(),
+            provider: Some("test".to_string()),
+            actor_id: "conductor:1".to_string(),
+            run_id: Some(run_id.to_string()),
+            task_id: Some("task-a".to_string()),
+            call_id: Some("call-a".to_string()),
+            system_context: None,
+            input: None,
+            input_summary: None,
+            output: None,
+            output_summary: None,
+            duration_ms: Some(420),
+            error_code: None,
+            error_message: None,
+            failure_kind: None,
+            input_tokens: Some(12),
+            output_tokens: Some(6),
+            cached_input_tokens: Some(2),
+            total_tokens: Some(18),
+        };
+        TraceGroup {
+            trace_id: trace_id.to_string(),
+            started: Some(started),
+            terminal: Some(terminal),
+        }
+    }
+
+    fn make_tool_event(
+        seq: i64,
+        event_type: &str,
+        run_id: &str,
+        tool_trace_id: &str,
+        success: Option<bool>,
+    ) -> ToolTraceEvent {
+        ToolTraceEvent {
+            seq,
+            event_id: format!("{tool_trace_id}:{seq}"),
+            event_type: event_type.to_string(),
+            tool_trace_id: tool_trace_id.to_string(),
+            timestamp: "2026-02-20T10:00:00Z".to_string(),
+            role: "terminal".to_string(),
+            actor_id: "terminal:1".to_string(),
+            tool_name: "file_read".to_string(),
+            run_id: Some(run_id.to_string()),
+            task_id: Some("task-a".to_string()),
+            call_id: Some("call-a".to_string()),
+            success,
+            duration_ms: Some(210),
+            reasoning: None,
+            tool_args: None,
+            output: None,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn test_trajectory_cells_build_correctly() {
+        let run_id = "run-trajectory";
+        let traces = vec![
+            make_trace(10, run_id, "trace-1", "completed"),
+            make_trace(30, run_id, "trace-2", "completed"),
+            make_trace(50, run_id, "trace-3", "completed"),
+        ];
+        let tools = vec![
+            make_tool_event(15, "worker.tool.call", run_id, "tool-1", None),
+            make_tool_event(16, "worker.tool.result", run_id, "tool-1", Some(true)),
+            make_tool_event(40, "worker.tool.call", run_id, "tool-2", None),
+            make_tool_event(41, "worker.tool.result", run_id, "tool-2", Some(false)),
+        ];
+
+        let cells = build_trajectory_cells(&traces, &tools, &[], &[], run_id);
+        assert!(!cells.is_empty(), "expected trajectory cells");
+        assert!(
+            cells
+                .windows(2)
+                .all(|window| window[0].step_index < window[1].step_index),
+            "step_index should be strictly increasing"
+        );
+        assert!(
+            cells.iter().any(|cell| cell.row_key.starts_with("llm:")),
+            "missing llm row"
+        );
+        assert!(
+            cells.iter().any(|cell| cell.row_key.starts_with("tool:")),
+            "missing tool row"
+        );
+        assert!(
+            cells
+                .iter()
+                .any(|cell| cell.status == TrajectoryStatus::Failed
+                    && cell.row_key.starts_with("tool:")),
+            "missing failed tool cell"
+        );
+    }
+
+    #[test]
+    fn test_trajectory_cells_long_run_bucketing() {
+        let cells: Vec<TrajectoryCell> = (0..120)
+            .map(|idx| TrajectoryCell {
+                seq: idx as i64,
+                step_index: idx,
+                row_key: "tool:file_read".to_string(),
+                event_type: "worker.tool.result".to_string(),
+                tool_name: Some("file_read".to_string()),
+                actor_key: None,
+                status: if idx == 17 {
+                    TrajectoryStatus::Failed
+                } else {
+                    TrajectoryStatus::Completed
+                },
+                duration_ms: Some(100 + idx as i64),
+                total_tokens: None,
+                loop_id: "task-a".to_string(),
+                item_id: format!("item-{idx}"),
+            })
+            .collect();
+
+        let bucketed = bucket_trajectory_cells(&cells, 80);
+        let max_column = bucketed
+            .iter()
+            .map(|cell| cell.step_index)
+            .max()
+            .unwrap_or(0);
+
+        assert_eq!(cells.len(), 120);
+        assert!(
+            max_column < 80,
+            "bucketed columns should fit within 80, got {}",
+            max_column + 1
+        );
+        assert!(
+            bucketed
+                .iter()
+                .any(|cell| cell.status == TrajectoryStatus::Failed),
+            "failed status should survive bucketing"
+        );
     }
 }
 

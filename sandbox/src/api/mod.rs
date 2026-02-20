@@ -48,6 +48,10 @@ pub fn router() -> Router<ApiState> {
             "/api/runs/{run_id}/timeline",
             get(run_observability::get_run_timeline),
         )
+        .route(
+            "/conductor/runs/{run_id}/timeline",
+            get(run_observability::get_run_timeline),
+        )
         // User preference routes
         .route(
             "/user/{user_id}/preferences",
