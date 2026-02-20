@@ -8,7 +8,7 @@
 
 ## Narrative Summary (1-minute read)
 
-ChoirOS logs contain highly sensitive data: user prompts, AI responses, bash commands, file paths, and tool execution arguments. The current implementation stores this data unencrypted in SQLite/libsql with no redaction, access control, or integrity verification. This presents significant security, compliance, and operational risks.
+ChoirOS logs contain highly sensitive data: user prompts, AI responses, bash commands, file paths, and tool execution arguments. The current implementation stores this data unencrypted in SQLite/sqlx with no redaction, access control, or integrity verification. This presents significant security, compliance, and operational risks.
 
 **Critical findings:**
 - Tool arguments (including bash commands) are stored in plaintext
@@ -47,7 +47,7 @@ This report analyzes the current ChoirOS logging architecture and provides a sec
 
 ### 1.1 Event Storage Model
 
-**EventStoreActor** (`sandbox/src/actors/event_store.rs`) stores events in SQLite/libsql:
+**EventStoreActor** (`sandbox/src/actors/event_store.rs`) stores events in SQLite/sqlx:
 
 ```sql
 CREATE TABLE events (
@@ -1107,29 +1107,30 @@ PRAGMA cipher_integrity_check;
 ```
 
 ```rust
-// Integration with libsql
+// Integration with sqlx + SQLCipher-enabled SQLite
 pub async fn open_encrypted_database(
     path: &str,
     master_key: &[u8],
-) -> Result<Connection, libsql::Error> {
+) -> Result<sqlx::SqlitePool, sqlx::Error> {
     // Derive encryption key from master key
     use sha2::{Sha256, Digest};
     let mut hasher = Sha256::new();
     hasher.update(master_key);
     let derived_key = format!("{:x}", hasher.finalize());
-    
-    let db = libsql::Builder::new_local(path)
-        .encryption_key(&derived_key)
-        .build()
-        .await?;
-    
-    let conn = db.connect()?;
-    
+
+    // Assumes SQLite is built with SQLCipher support.
+    let pool = sqlx::SqlitePool::connect(&format!("sqlite:{path}")).await?;
+
     // Enable encryption pragmas
-    conn.execute("PRAGMA key = ?", [derived_key]).await?;
-    conn.execute("PRAGMA cipher_memory_security = ON", ()).await?;
-    
-    Ok(conn)
+    sqlx::query("PRAGMA key = ?")
+        .bind(&derived_key)
+        .execute(&pool)
+        .await?;
+    sqlx::query("PRAGMA cipher_memory_security = ON")
+        .execute(&pool)
+        .await?;
+
+    Ok(pool)
 }
 ```
 
@@ -1721,7 +1722,7 @@ The ChoirOS logging system currently stores sensitive data without adequate secu
 3. **Medium-term (P2):** Secure replay, retention policies, GDPR APIs
 4. **Long-term (P3):** ML-based PII detection, key management, monitoring
 
-The proposed architecture leverages existing ChoirOS infrastructure (EventStoreActor, SQLite/libsql) while adding security layers in a modular, testable manner. All recommendations can be implemented incrementally without disrupting existing functionality.
+The proposed architecture leverages existing ChoirOS infrastructure (EventStoreActor, SQLite/sqlx) while adding security layers in a modular, testable manner. All recommendations can be implemented incrementally without disrupting existing functionality.
 
 ---
 
@@ -1806,7 +1807,7 @@ mod benchmarks {
 - **Ed25519:** `ed25519-dalek` for digital signatures
 - **SHA-2:** `sha2` crate for hashing
 - **Argon2:** `argon2` crate for password hashing
-- **SQLCipher:** `libsql` with encryption support
+- **SQLCipher:** `sqlx` with a SQLCipher-enabled SQLite build
 
 ---
 

@@ -997,7 +997,7 @@ Commits in window (16):
 
 ### Backend (sandbox) ✅
 - **Server:** Running on localhost:8080
-- **Database:** libsql/SQLite with event sourcing
+- **Database:** SQLite via sqlx with event sourcing
 - **Actors:** EventStoreActor, ChatActor, DesktopActor, ActorManager, ChatAgent
 - **API Endpoints:** Health, chat, desktop, websocket
 - **WebSocket:** Connection works and stays alive

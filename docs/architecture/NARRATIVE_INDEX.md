@@ -66,7 +66,8 @@ Immediate app pattern: human UX first, then headless API, then app-agent harness
      vector memory (sqlite-vec) → NixOS → global vector → Marginalia v2), all Gate 0
      questions resolved, `.qwy` format spec, citation infrastructure, actor topology
      target state, nine identified codebase seams with file/line references (seam 9:
-     libsql → sqlx migration, urgent, unblocks Phase 6 Nix cross-compilation).
+     libsql → sqlx migration, completed on 2026-02-18, unblocking Phase 6 Nix
+     cross-compilation).
 
 0. `/Users/wiz/choiros-rs/docs/architecture/2026-02-17-rlm-actor-network-concept.md`
    - Recursive Language Models in actor networks: RLM as default execution mode, model-composed context, self-prompting, and the microVM security boundary.

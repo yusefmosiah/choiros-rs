@@ -432,7 +432,7 @@ pub struct StateIndexArguments {
 /// State for StateIndexActor
 pub struct StateIndexState {
     args: StateIndexArguments,
-    conn: libsql::Connection,
+    conn: sqlx::SqlitePool,
 
     /// In-memory cache of active frame stacks (bounded, LRU eviction)
     active_stacks: LruCache<String, FrameStack>,
@@ -783,7 +783,7 @@ impl Actor for ChatAgent {
 
 | Question | Risk Level | Mitigation |
 |----------|------------|------------|
-| How to distribute StateIndex across nodes? | High | Start with single-node; design for future clustering via libsql replication |
+| How to distribute StateIndex across nodes? | High | Start with single-node; design for future clustering via SQLite replication/log-shipping |
 | Frame consistency across distributed actors? | Medium | Use EventStore as single source of truth; frames are projections |
 | Cross-node frame references? | Low | Use ULID-based FrameIds that are globally unique |
 

@@ -17,7 +17,7 @@
 4. **y-sweet** (Rust) or **Hocuspocus** (TypeScript) as WebSocket sync server
 5. Integration: Embed TipTap in Dioxus webview via custom protocol, sync deltas to Rust backend via IPC
 6. Comments/suggestions anchored using Yjs relative positions for conflict-free persistence
-7. Revision snapshots via Yjs `encodeStateAsUpdate()` stored in SQLite/libsql
+7. Revision snapshots via Yjs `encodeStateAsUpdate()` stored in SQLite/sqlx
 8. Estimated PoC time: 2-3 weeks for basic collab + 2 weeks for track changes
 9. **Fallback:** Lexical + Yjs if TipTap Pro licensing becomes problematic
 10. **No-go criteria:** If track changes UX requires >40 hours custom work, evaluate CKEditor commercial license
@@ -84,7 +84,7 @@
 │  │           │                    │                                    │    │
 │  │           ▼                    ▼                                    │    │
 │  │  ┌─────────────────────────────────────────────────────────────┐    │    │
-│  │  │  SQLite/libsql (persistence)                                │    │    │
+│  │  │  SQLite/sqlx (persistence)                                │    │    │
 │  │  │  - Document snapshots (Yjs updates)                         │    │    │
 │  │  │  - Suggestion metadata                                      │    │    │
 │  │  │  - Revision history                                         │    │    │

@@ -38,7 +38,7 @@ Watcher actors are the observability backbone of ChoirOS, monitoring event strea
 - Subscriber registration per topic with stats tracking
 
 **EventStoreActor** (`sandbox/src/actors/event_store.rs`):
-- Append-only event log with SQLite (libsql)
+- Append-only event log with SQLite (sqlx)
 - Sequence-numbered events (strict ordering)
 - Scope isolation: `session_id`, `thread_id` columns prevent cross-instance bleed
 - Query by actor, scope, or sequence range

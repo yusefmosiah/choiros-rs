@@ -11,7 +11,7 @@ Human-first docs entrypoint: [`docs/architecture/NARRATIVE_INDEX.md`](docs/archi
 **Working:**
 - Supervision-tree runtime (`ApplicationSupervisor -> SessionSupervisor -> per-type supervisors`)
 - Actors: EventStore, EventBus, Desktop, Terminal, Researcher, Conductor, Writer, RunWriter
-- Event sourcing with libsql/SQLite persistence
+- Event sourcing with SQLite via sqlx persistence
 - WebSocket streaming for desktop, terminal, writer, and telemetry events
 - Dioxus 0.7 frontend with DesktopShell, PromptBar, WorkspaceCanvas
 - Model providers: AWS Bedrock (Claude), Z.ai (GLM), Kimi
@@ -71,7 +71,7 @@ ApplicationSupervisor
 |-----------|-----------|
 | Frontend | Dioxus 0.7 (WASM) |
 | Backend | Axum + Ractor |
-| Database | SQLite via libsql |
+| Database | SQLite via sqlx |
 | LLM | BAML (multi-provider) |
 
 ## Project Structure

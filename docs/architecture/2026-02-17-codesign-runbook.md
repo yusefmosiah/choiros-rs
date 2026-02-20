@@ -100,14 +100,15 @@ infrastructure. The actual dependency order:
 
 1. Hypervisor as a Rust/Axum process — works on Mac today, no Nix required.
 2. Nix packaging — only needed for reproducible builds and EC2 deployment.
-   Blocked on seam 0.9 (libsql → sqlx) for cross-compilation.
+   Seam 0.9 (libsql → sqlx) was closed on 2026-02-18, removing the
+   cross-compilation blocker.
 
 **Revised Phase 6 sequence:**
 
 ```
 6a. Hypervisor process (DONE — 2026-02-18)
 6b. Home manager (Nix dev shell on Mac)
-6c. sandbox/flake.nix (depends on seam 0.9)
+6c. sandbox/flake.nix
 6d. frontend/flake.nix
 6e. hypervisor/flake.nix + sandbox-as-NixOS-container (Podman)
 6f. EC2 NixOS deployment
@@ -670,17 +671,15 @@ Seams to fix (in dependency order):
 - Emit `EventType::UserInput` at writer prompt enqueue (`WriterSource::User`)
 - Gate: event store contains `user_input` events for both surfaces under test
 
-**0.9 libsql → sqlx migration (URGENT — unblocks Phase 6 Nix/cross-compilation)**
-- Replace `libsql` dependency with `sqlx` (already in workspace) in `sandbox/Cargo.toml`
-- Remove manual `run_migrations()` with `PRAGMA table_info` introspection in
-  `actors/event_store.rs`; replace with `sqlx::migrate!()` macro
-- Add proper migration files for `session_id` and `thread_id` columns (currently only
-  added via in-code workarounds, not tracked in `migrations/`)
-- Enable `RETURNING` clause in `handle_append` (currently commented out due to libsql
-  limitation)
-- Enable sqlx compile-time query checking (`SQLX_OFFLINE` mode for CI)
-- Gate: `cargo test -p sandbox --test '*'` passes; no `libsql` dependency remains;
-  `sqlx migrate run` succeeds against a fresh database
+**0.9 libsql → sqlx migration (DONE — 2026-02-18)**
+- `libsql` dependency replaced with `sqlx` in `sandbox/Cargo.toml`
+- Manual `run_migrations()`/`PRAGMA table_info` logic removed from
+  `actors/event_store.rs`; `sqlx::migrate!()` is used
+- Proper migration files added for `session_id` and `thread_id`
+- `RETURNING` clause enabled in `handle_append`
+- sqlx compile-time query checking wired via `SQLX_OFFLINE` (including CI env)
+- Gate outcome: targeted sandbox tests pass; no runtime `libsql` dependency remains;
+  `sqlx migrate run` succeeds against fresh databases
 
 **Phase 0 Gate:**
 - All existing integration tests pass
@@ -1055,7 +1054,7 @@ For each seam: file and line number of the problem, target state.
 | 6 | CapabilityWorkerOutput closed | `conductor/protocol.rs:100-103` | Open for extension |
 | 7 | Blocking ractor::call! in workers | `conductor/workers.rs:27,56,71,91` | Fire-and-forget |
 | 8 | EventType::UserInput never emitted | `actors/event_bus.rs:131` | Emit at all entry points |
-| 9 | libsql bundled C fork (no RETURNING, no proper migrations, blocks cross-compilation) | `sandbox/Cargo.toml:25`, `actors/event_store.rs` | sqlx + `sqlx::migrate!()` |
+| 9 | Legacy libsql constraints (no RETURNING, manual migration workarounds, blocked cross-compilation) | `sandbox/Cargo.toml:25`, `actors/event_store.rs` | sqlx + `sqlx::migrate!()` (completed 2026-02-18) |
 
 ---
 

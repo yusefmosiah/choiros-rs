@@ -9,7 +9,7 @@
 ## Executive Summary
 
 ChoirOS requires a multi-layered testing strategy that accounts for its unique architecture:
-- **Backend:** Rust + Axum + SQLite (libsql) with Event Sourcing
+- **Backend:** Rust + Axum + SQLite (sqlx) with Event Sourcing
 - **Frontend:** Dioxus (WASM) + Rust compiled to WebAssembly
 - **Architecture:** Actor-based state management (DesktopActor, ChatActor)
 - **Communication:** HTTP REST API with CORS
@@ -721,7 +721,7 @@ async def test_desktop_accessibility(page):
 **Areas to Cover:**
 - [ ] API authentication (when added)
 - [ ] CORS configuration (verify allow‑list denies unknown origins and permits known origins)
-- [ ] SQL injection (via libsql parameterized queries ✅)
+- [ ] SQL injection (via sqlx parameterized queries ✅)
 - [ ] XSS prevention
 - [ ] WASM sandbox boundaries
 

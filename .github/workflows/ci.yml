@@ -9,6 +9,8 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  SQLX_OFFLINE: "true"
+  DATABASE_URL: "sqlite:./data/events.db"
 
 jobs:
   # Backend unit and integration tests

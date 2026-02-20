@@ -205,7 +205,7 @@ impl Sandbox {
 ```
 
 **Actors (all in one process):**
-- `EventStoreActor` - libsql event log
+- `EventStoreActor` - sqlx-backed SQLite event log
 - `ChatActor` - Chat app logic
 - `ChatAgent` - BAML-powered AI agent with tool execution
 - `DesktopActor` - Window state management

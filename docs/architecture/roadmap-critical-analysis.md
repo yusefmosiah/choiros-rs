@@ -89,7 +89,7 @@ The roadmap correctly identifies critical dependencies (B→F→C→D→G→H) b
 |-----------|--------|----------|
 | Supervision tree | ✅ Complete | `sandbox/src/supervisor/mod.rs:59-340` implements 3-tier hierarchy |
 | Actor lifecycle (GetOrCreate) | ✅ Complete | `app_state.rs:54-100` with linked supervision |
-| EventStore persistence | ✅ Complete | `event_store.rs` with SQLite/libsql backend |
+| EventStore persistence | ✅ Complete | `event_store.rs` with SQLite/sqlx backend |
 | EventBus integration | ❌ Orphaned | Event bus exists but never spawned in supervision tree |
 | Correlation ID propagation | ❌ Unused | `correlation_id` field defined but never propagated |
 | Supervisor health monitoring | ❌ Missing | No metrics, restart counting, or thresholds |
@@ -222,7 +222,7 @@ The roadmap correctly identifies critical dependencies (B→F→C→D→G→H) b
 
 | Deliverable | Status | Evidence |
 |-------------|--------|----------|
-| Canonical events in libsql | ✅ Complete | EventStore using SQLite/libsql |
+| Canonical events in sqlx-backed SQLite | ✅ Complete | EventStore using SQLite/sqlx |
 | Derived memory layers | ❌ Missing | No memory blocks, archival memory, or summarization |
 | API: brief_context + expand(handle) | ❌ Missing | No context broker API exists |
 | Relevance test | ❌ Missing | No retrieval or relevance testing |
@@ -262,7 +262,7 @@ The roadmap correctly identifies critical dependencies (B→F→C→D→G→H) b
 - ✅ **Memory blocks pattern** for always-visible context - need to implement
 - ✅ **Sliding window compaction** with summary + handles - need to implement
 - ✅ **Vector search** for archival memory - need to implement
-- ✅ **SQLite/libsql over JSONL** - current choice correct, keep it
+- ✅ **SQLite/sqlx over JSONL** - current choice correct, keep it
 
 **Recommendation:** Phase D requires building three new components:
 1. MemoryBrokerActor (core memory blocks)
@@ -280,7 +280,7 @@ The roadmap correctly identifies critical dependencies (B→F→C→D→G→H) b
 | Deliverable | Status | Evidence |
 |-------------|--------|----------|
 | SandboxFS interface | ❌ Missing | No filesystem abstraction layer |
-| SQLite/libsql-backed storage | ❌ Missing | Hypervisor is stub implementation |
+| SQLite/sqlx-backed storage | ❌ Missing | Hypervisor is stub implementation |
 | Versioned snapshots | ❌ Missing | No snapshot mechanism |
 | Restart/rehydrate test | ❌ Missing | No rehydration exists |
 
@@ -356,7 +356,7 @@ The roadmap correctly identifies the pattern but assumes infrastructure exists. 
 - ✅ Memory blocks pattern (persona, human, scratchpad) - roadmap mentions "summary + handles" but not memory blocks
 - ✅ Sliding window compaction - roadmap mentions but not implemented
 - ✅ Vector search for archival memory - roadmap mentions "relevant handles" but not semantic search
-- ✅ SQLite/libsql over JSONL - current choice correct
+- ✅ SQLite/sqlx over JSONL - current choice correct
 
 **Gaps:**
 - ❌ No MemoryBrokerActor
@@ -680,4 +680,4 @@ The roadmap correctly identifies critical dependencies (B→F→C→D→G→H) a
 - Ractor - Supervision trees, message priority
 - Letta (MemGPT) - Memory blocks, archival memory, compaction
 - Docker OverlayFS - Layered filesystems
-- SQLite/libsql - Event storage best practices
+- SQLite/sqlx - Event storage best practices

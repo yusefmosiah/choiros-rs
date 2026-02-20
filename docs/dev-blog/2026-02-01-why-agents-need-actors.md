@@ -169,7 +169,7 @@ actor.try_send(msg)?;    // May fail if mailbox full
 
 Our current ChoirOS implementation has pieces:
 
-**✅ Event sourcing** - EventStoreActor with libsql  
+**✅ Event sourcing** - EventStoreActor with sqlx-backed SQLite  
 **✅ Actor system** - Actix with ChatActor, DesktopActor, etc.  
 **✅ State isolation** - Each actor owns its SQLite state  
 **❌ Broadcast bus** - Events are stored, not published  

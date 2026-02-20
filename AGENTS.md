@@ -46,22 +46,15 @@
 
 ## Current High-Priority Development Targets
 
-1. **libsql → sqlx migration (URGENT — Phase 0 seam #9, unblocks Phase 6 Nix)**
-   - Replace `libsql` with `sqlx` in `sandbox/Cargo.toml`
-   - Replace manual `run_migrations()` + `PRAGMA table_info` in `actors/event_store.rs`
-     with `sqlx::migrate!()` macro
-   - Add proper migration files for `session_id` and `thread_id` columns
-   - Enable `RETURNING` clause in `handle_append` (currently commented out)
-   - Enable sqlx compile-time query checking (`SQLX_OFFLINE` mode for CI)
-2. Typed worker event schema for actor-call rendering (`spawned/progress/complete/failed`).
-3. Terminal loop event enrichment (`tool_call`, `tool_result`, durations, retry/error metadata).
-4. Direct worker/app-to-conductor request-message contract (typed envelopes,
+1. Typed worker event schema for actor-call rendering (`spawned/progress/complete/failed`).
+2. Terminal loop event enrichment (`tool_call`, `tool_result`, durations, retry/error metadata).
+3. Direct worker/app-to-conductor request-message contract (typed envelopes,
    minimal request kinds, and correlation metadata).
-5. Ordered websocket integration tests for scoped multi-instance streams.
-6. Writer app-agent harness completion and contract hardening.
-7. Tracing app rollout sequence: human UX first, then headless API, then app-agent harness.
-8. Conductor wake-context hardening with bounded system agent-tree snapshots.
-9. Harness simplification: one while-loop runtime model and `adapter -> worker_port`
+4. Ordered websocket integration tests for scoped multi-instance streams.
+5. Writer app-agent harness completion and contract hardening.
+6. Tracing app rollout sequence: human UX first, then headless API, then app-agent harness.
+7. Conductor wake-context hardening with bounded system agent-tree snapshots.
+8. Harness simplification: one while-loop runtime model and `adapter -> worker_port`
    execution-boundary narrowing.
 
 ## Naming Reconciliation (Authoritative)
@@ -327,7 +320,7 @@ cargo test -p sandbox --features supervision_refactor --test supervision_test --
 
 - **Async**: tokio, futures
 - **Web**: axum, tower, tower-http, dioxus (frontend)
-- **Database**: sqlx (SQLite) — libsql is being removed (see priority #1 above)
+- **Database**: sqlx (SQLite)
 - **Serialization**: serde, serde_json
 - **IDs**: uuid, ulid
 - **Errors**: thiserror, anyhow

@@ -134,13 +134,13 @@ Active milestones:
 2. **Milestone B**: Prompt bar routing to Conductor
 3. **Milestone C**: Writer auto-open in markdown preview mode
 
-Blocking prerequisite (Phase 0, seam 9):
-- **libsql → sqlx migration** must complete before Phase 6 (Nix/cross-compilation).
+Completed prerequisite (Phase 0, seam 9):
+- **libsql → sqlx migration** completed on 2026-02-18 before Phase 6
+  (Nix/cross-compilation).
   Tracked in `docs/architecture/2026-02-17-codesign-runbook.md` as seam 0.9.
-  Unlocks: crane builds, `nix build .#sandbox`, SQLX_OFFLINE CI mode, `RETURNING` clause,
-  proper `sqlx migrate run` (replaces manual `PRAGMA table_info` workaround).
-
-Everything else is parked unless it unblocks this lane.
+  Unlocked: crane builds, `nix build .#sandbox`, SQLX_OFFLINE CI mode, `RETURNING`
+  clause, and proper `sqlx migrate run` (replacing manual `PRAGMA table_info`
+  workarounds).
 
 ## Core Architecture Principles
 

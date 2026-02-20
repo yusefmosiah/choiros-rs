@@ -8,7 +8,7 @@
 
 ## Narrative Summary (1-minute read)
 
-ChoirOS needs an event storage strategy that supports real-time WebSocket streaming, historical replay, and run comparison workflows. The current SQLite (libsql) EventStoreActor provides a solid foundation but lacks strategies for high-volume scaling, retention, and partitioning.
+ChoirOS needs an event storage strategy that supports real-time WebSocket streaming, historical replay, and run comparison workflows. The current SQLite (sqlx) EventStoreActor provides a solid foundation but lacks strategies for high-volume scaling, retention, and partitioning.
 
 **Recommendation:** Start with SQLite-only (enhanced with WAL mode and connection pooling), plan a phased evolution toward JSONL-based cold storage for archiving. Use a hybrid approach where "hot" events (last 30 days) stay in SQLite for fast queries, while older events are compressed and archived to JSONL files.
 

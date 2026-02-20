@@ -1,277 +1,69 @@
-# CLAUDE.md - ChoirOS + Claude Flow Integration
+# AGENTS.md - ChoirOS Development Guide
 
-## Narrative Summary (1-minute read)
+## Current Architecture Snapshot (2026-02-07)
 
-**ChoirOS** is a supervision-tree-first runtime built in Rust (ractor + tokio). **Claude Flow** is a multi-agent swarm orchestration layer with self-learning memory (AgentDB + HNSW). Together: ChoirOS provides durable execution with actor isolation; Claude Flow provides intelligent coordination with pattern memory.
+- Runtime is supervision-tree-first:
+  - `ApplicationSupervisor -> SessionSupervisor -> {ConductorSupervisor, TerminalSupervisor, DesktopSupervisor}`
+- `bash` tool execution is delegated through TerminalActor paths (no direct Conductor tool execution).
+- Terminal work emits worker lifecycle + progress telemetry and streams as websocket `actor_call` chunks.
+- Scope isolation (`session_id`, `thread_id`) is required for human/tool event retrieval to prevent cross-instance bleed.
+- EventBus/EventStore are the observability backbone for worker/task tracing.
+- Model policy defaults (current):
+  - Human Interface: `ClaudeBedrockSonnet45`
+  - Conductor: `ClaudeBedrockOpus46`
+  - Summarizer: `ZaiGLM47Flash`
 
-**When building ChoirOS:**
-1. Use **ChoirOS patterns** for actor lifecycle, message passing, and failure domains
-2. Use **Claude Flow patterns** for complex multi-file changes, research tasks, and accumulating institutional knowledge
-3. The **sandbox** (ChoirOS) owns runtime state; **Claude Flow** owns coordination memory
+## Execution Direction (2026-02-09)
 
----
+- Primary orchestration path is `Prompt Bar -> Conductor`.
+- Living-document UX surfaces should remain thin and hand off multi-step planning to conductor.
+- Build reliability through skills and typed contracts, not app-specific special-case logic.
 
-## What Changed (2026-02-16)
+## Model-Led Control Flow (Hard Rule)
 
-- Integrated Claude Flow V3 for swarm coordination and AgentDB memory
-- ChoirOS remains the authoritative runtime (Rust actors, supervision trees)
-- Claude Flow provides learned routing and pattern retrieval atop ChoirOS
-- New: `npx @claude-flow/cli@latest` commands for memory, swarms, skills
-- New: 60+ specialized agents available via MCP
+- Default to model-managed control flow for multi-step orchestration.
+- Do not encode brittle, step-by-step deterministic workflows where model planning is expected.
+- Conductor treats workers and app agents as logical subagents via actor messaging.
+- Conductor turns must be non-blocking and finite: never poll child agents and never wait in
+  blocking loops for child completion.
+- Keep deterministic logic only for safety and operability rails:
+  identity/routing, capability boundaries, budgets/timeouts/cancellation,
+  idempotency/loop prevention, and audit/trace persistence.
+- Natural-language messages carry objectives/context; control authority must be expressed
+  through typed actor message metadata.
+- Conductor is orchestration-only and does not execute tools directly.
+- Tool schemas are defined once in shared contracts and granted per agent/worker.
+- Default worker profile grants Terminal and Researcher file tools (`file_read`, `file_write`,
+  `file_edit`) as a permanent baseline.
+- Writer remains canonical for living-document/revision mutation authority.
+- Every conductor wake should include a bounded system agent-tree state digest
+  (roles, leases, status, last signal timestamps, and correlation handles).
+- Phrase matching is allowed only for input normalization or UI text shaping, never as
+  orchestration authority.
+- ANTIPATTERN: deterministic fallbacks that hide routing/prompt/contract errors.
+- Fail fast instead: if wiring is wrong, let the run fail loudly, capture telemetry, and fix
+  the real defect. Do not add "backup paths" to mask broken orchestration.
 
----
+## Current High-Priority Development Targets
 
-## Architecture: Two-Layer Stack
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  CLAUDE FLOW (Orchestration Layer)                          │
-│  - Swarm coordination (queen-led hierarchical)              │
-│  - AgentDB memory with HNSW (150x faster retrieval)         │
-│  - SONA router (learned task-to-agent mapping)              │
-│  - 60+ agent types (coder, reviewer, researcher, etc.)      │
-├─────────────────────────────────────────────────────────────┤
-│  CHOIROS (Runtime Layer)                                    │
-│  - Supervision trees: Application → Session → {Conductor,   │
-│    Terminal, Desktop, Writer}                               │
-│  - Actor model: ractor + tokio, message-passing concurrency │
-│  - Scope isolation: session_id, thread_id for event routing │
-│  - EventBus/EventStore: observability backbone              │
-│  - WASM boundary: Dioxus frontend ←→ Rust backend           │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Responsibilities by Layer
-
-| Concern | ChoirOS (Runtime) | Claude Flow (Orchestration) |
-|---------|------------------|----------------------------|
-| **Process lifecycle** | Supervisors restart failed actors | Swarms spawn agents for tasks |
-| **State management** | Actor-local state + EventStore | AgentDB patterns + HNSW index |
-| **Execution** | TerminalActor runs bash commands | Agents suggest/plan changes |
-| **Failure handling** | Let-it-crash, supervisor restart | Drift detection, consensus |
-| **Learning** | Event sourcing for replay | SONA router, LoRA adapters |
-| **Scope** | session_id/thread_id isolation | Namespace-scoped memory |
-
----
-
-## ChoirOS: Core Runtime Patterns
-
-### Supervision Tree (Authoritative)
-
-```
-ApplicationSupervisor
-└── SessionSupervisor
-    ├── ConductorSupervisor
-    │   └── ConductorActor (orchestrates workers)
-    ├── TerminalSupervisor
-    │   └── TerminalActor (bash execution, telemetry)
-    ├── DesktopSupervisor
-    │   └── DesktopActor (Dioxus WebSocket)
-    └── WriterSupervisor
-        └── WriterActor (living-document authority)
-```
-
-### Model-Led Control Flow (Hard Rule)
-
-- **Default to model-managed control flow** for multi-step orchestration
-- **Do not encode brittle workflows** where model planning is expected
-- **Conductor turns are non-blocking**: never poll child agents, never wait in loops
-- **Deterministic logic only for safety rails**: identity/routing, capabilities, budgets/timeouts, cancellation, audit/trace
-- **Natural-language messages carry objectives**; control authority via typed actor metadata
-
-### Execution Boundaries
-
-- **Conductor** = orchestration-only, no direct tool execution
-- **TerminalActor** = exclusive bash execution path
-- **Writer** = canonical authority for living-document mutations
-- **EventBus/EventStore** = observability backbone for worker/task tracing
-
-### Scope Isolation (Critical)
-
-```rust
-// Always include for event retrieval
-session_id: String,  // Prevents cross-session bleed
-thread_id: String,   // Prevents cross-instance bleed
-```
-
----
-
-## Claude Flow: Swarm & Memory Patterns
-
-### When to Use Swarms vs ChoirOS Actors
-
-| Scenario | Use | Why |
-|----------|-----|-----|
-| Multi-file refactor across modules | **Swarm** (5-8 agents) | Parallel exploration, consensus on approach |
-| Research spike (new dependency, API) | **Swarm** (researcher agents) | Breadth-first information gathering |
-| Implement single actor | **ChoirOS** (1 agent via Task) | Direct execution, deterministic result |
-| Debug failing test | **ChoirOS** (terminal + conductor) | Tight feedback loop, precise control |
-| Accumulate patterns over time | **AgentDB** | HNSW retrieval, EWC++ isolation |
-
-### 3-Tier Model Routing (Claude Flow)
-
-| Tier | Handler | Latency | Cost | Use Cases |
-|------|---------|---------|------|-----------|
-| **1** | Agent Booster (WASM) | <1ms | $0 | Simple transforms (var→const, add types) |
-| **2** | Haiku | ~500ms | $0.0002 | Simple tasks, low complexity (<30%) |
-| **3** | Sonnet/Opus | 2-5s | $0.003-0.015 | Complex reasoning, architecture (>30%) |
-
-### Memory Commands (AgentDB)
-
-```bash
-# Store a pattern (success/failure tracked)
-npx @claude-flow/cli@latest memory store \
-  --key "actor-impl-pattern" \
-  --value "Use Actor::pre_start for init, handle in main loop" \
-  --namespace choir-patterns \
-  --tags "rust,ractor,boilerplate"
-
-# Retrieve similar patterns
-npx @claude-flow/cli@latest memory search \
-  --query "how to implement new actor" \
-  --namespace choir-patterns \
-  --limit 5
-
-# Check what's learned
-npx @claude-flow/cli@latest memory list --namespace choir-patterns
-```
-
-### Swarm Initialization
-
-```bash
-# Initialize for complex multi-file work
-npx @claude-flow/cli@latest swarm init \
-  --topology hierarchical \
-  --max-agents 8 \
-  --strategy specialized \
-  --namespace choir-session-$(date +%s)
-```
-
----
-
-## Integration: ChoirOS + Claude Flow
-
-### Pattern 1: Swarm Plans, ChoirOS Executes
-
-```rust
-// 1. Claude Flow swarm analyzes codebase, proposes refactor plan
-// 2. Plan handed to ChoirOS Conductor as structured task
-// 3. Conductor spawns workers (TerminalActor, FileEdit tools)
-// 4. Outcomes logged to EventStore AND AgentDB
-
-ConductorMsg::WakeWithRequest { request } => {
-    // Query AgentDB for similar past refactors
-    let patterns = claude_flow_memory_search(
-        &request.description,
-        "choir-refactors"
-    ).await?;
-
-    if patterns.iter().any(|p| p.success_rate > 0.9) {
-        // High confidence: delegate to workers
-        spawn_terminal_workers(patterns[0].steps.clone()).await?;
-    } else {
-        // Low confidence: conductor-led with checkpoints
-        plan_and_execute_with_checkpoints(request).await?;
-    }
-}
-```
-
-### Pattern 2: Terminal Outcomes → AgentDB
-
-```rust
-// TerminalActor logs command outcomes
-TerminalMsg::CommandComplete { command, exit_code, output } => {
-    let outcome = Outcome {
-        success: exit_code == 0,
-        duration_ms: elapsed.as_millis() as u32,
-        output_hash: hash(&output),
-    };
-
-    // ChoirOS: EventStore for replay/debugging
-    event_store.send(Event::TerminalOutcome { ... }).await?;
-
-    // Claude Flow: AgentDB for pattern learning
-    claude_flow_memory_record(
-        &command.to_string(),
-        Action::TerminalCommand(command),
-        outcome,
-    ).await?; // Fire-and-forget
-}
-```
-
-### Pattern 3: Session Isolation
-
-```rust
-// ChoirOS: session_id for actor/event isolation
-// Claude Flow: namespace for memory isolation
-
-let session_id = generate_session_id();
-let namespace = format!("choir-session-{}", session_id);
-
-// All AgentDB ops for this session use namespace
-// EWC++ ensures learning here doesn't leak to other sessions
-```
-
----
-
-## Development Workflow
-
-### Quick Commands
-
-```bash
-# ChoirOS (Rust backend)
-just dev-sandbox          # Run backend API server
-just test-integration     # Run integration tests
-cargo test -p sandbox --test desktop_api_test
-
-# Claude Flow (Node.js tooling)
-npx @claude-flow/cli@latest daemon start
-npx @claude-flow/cli@latest memory init
-npx @claude-flow/cli@latest doctor --fix
-
-# Combined: Start dev environment with memory
-just dev-sandbox &
-npx @claude-flow/cli@latest daemon start
-```
-
-### Code Style (ChoirOS - Rust)
-
-**Formatting:** `cargo fmt` (enforced in CI), max 100 chars, 4 spaces
-**Naming:** `PascalCase` types, `snake_case` functions, `SCREAMING_SNAKE_CASE` consts
-**Error Handling:** `thiserror` for custom errors, `anyhow` for app-level propagation
-**Async:** `tokio` + `ractor::Actor` pattern
-
-See original ChoirOS guidelines (imports order, documentation patterns, etc.) preserved below.
-
----
-
-## Current High-Priority Targets
-
-1. Typed worker event schema for actor-call rendering (`spawned/progress/complete/failed`)
-2. Terminal loop event enrichment (`tool_call`, `tool_result`, durations, retry/error metadata)
-3. Direct worker/app-to-conductor request-message contract
-4. **NEW:** Claude Flow memory integration (pattern retrieval in Conductor)
-5. **NEW:** Accumulate ChoirOS patterns in AgentDB (actor boilerplate, test patterns)
-6. Ordered websocket integration tests for scoped multi-instance streams
-7. Writer app-agent harness completion
-8. Conductor wake-context hardening with bounded system agent-tree snapshots
-
----
+1. Typed worker event schema for actor-call rendering (`spawned/progress/complete/failed`).
+2. Terminal loop event enrichment (`tool_call`, `tool_result`, durations, retry/error metadata).
+3. Direct worker/app-to-conductor request-message contract (typed envelopes,
+   minimal request kinds, and correlation metadata).
+4. Ordered websocket integration tests for scoped multi-instance streams.
+5. Writer app-agent harness completion and contract hardening.
+6. Tracing app rollout sequence: human UX first, then headless API, then app-agent harness.
+7. Conductor wake-context hardening with bounded system agent-tree snapshots.
+8. Harness simplification: one while-loop runtime model and `adapter -> worker_port`
+   execution-boundary narrowing.
 
 ## Naming Reconciliation (Authoritative)
 
-| Term | Meaning |
-|------|---------|
-| `Logging` | Event capture/persistence/transport only |
-| `Watcher` | Optional recurring-event detection/alerting actor; not core run-step authority |
-| `Summarizer` | Human-readable compression over event batches/windows |
-| `Agent` (ChoirOS) | ractor Actor - isolated process with message inbox |
-| `Agent` (Claude Flow) | LLM-powered worker in a swarm |
-| `Session` | ChoirOS session (supervision tree scope) = Claude Flow namespace |
-| `Pattern` | AgentDB stored reasoning trace with success rate |
-| `Expert` | LoRA adapter specialized for task type |
+- `Logging`: Event capture/persistence/transport only.
+- `Watcher`: Optional recurring-event detection/alerting actor; not core run-step authority.
+- `Summarizer`: Human-readable compression over event batches/windows.
 
----
+Do not overload these terms in docs/code reviews.
 
 ## Documentation Readability Rule
 
@@ -282,13 +74,51 @@ For major architecture/roadmap docs, include these top sections:
 - `What Changed`
 - `What To Do Next`
 
-Primary human-first index: `docs/architecture/NARRATIVE_INDEX.md`
+If a document is long and lacks this summary block, it is incomplete.
 
----
+Primary human-first index:
+- `docs/architecture/NARRATIVE_INDEX.md`
 
-## Original ChoirOS Guidelines (Preserved)
+## Quick Commands
 
-### Code Style Guidelines (Rust)
+```bash
+# Development
+just dev-sandbox     # Run backend API server
+just dev-ui          # Run frontend dev server (port 3000)
+just dev-hypervisor  # Run hypervisor component
+
+# Building
+just build           # Build all packages in release mode
+just build-sandbox   # Build frontend + backend for production
+
+# Testing
+just test            # Run all tests across workspace
+just test-unit       # Run unit tests only (--lib)
+just test-integration # Run integration tests (--test '*')
+cargo test -p sandbox --test desktop_api_test  # Run single test file
+cargo test -p sandbox test_name_pattern       # Run specific test
+
+# Code Quality
+just check           # Check formatting + clippy
+just fix             # Auto-fix formatting and clippy issues
+cargo fmt --check    # Check formatting only
+cargo clippy --workspace -- -D warnings  # Run clippy
+
+# Database
+just migrate         # Run SQLx migrations
+just new-migration NAME  # Create new migration
+
+# Docker
+just docker-build    # Build Docker image
+just docker-run      # Run Docker container
+
+# Deployment
+just deploy-ec2      # Deploy to EC2 instance
+```
+
+## Code Style Guidelines
+
+### Rust Standards
 
 **Formatting:**
 - Use `cargo fmt` (enforced in CI)
@@ -314,7 +144,32 @@ use crate::actors::{ChatActor, EventStoreActor, TerminalActor};
 use shared_types::{ActorId, Event};
 ```
 
+**Naming Conventions:**
+- Types (structs, enums, traits): `PascalCase` - `ChatActor`, `EventStore`
+- Functions, variables, modules: `snake_case` - `get_actor`, `event_store`
+- Constants, statics: `SCREAMING_SNAKE_CASE` - `MAX_EVENTS`, `DEFAULT_TIMEOUT`
+- Acronyms: Treat as words - `ActorId`, `HttpRequest` (not `ActorID`, `HTTPRequest`)
+
+**Documentation:**
+```rust
+//! Module-level documentation starts with //!
+
+/// Struct/function documentation with triple slash
+/// 
+/// # Examples
+/// ```
+/// let id = ActorId::new();
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActorId(pub String);
+```
+
 **Error Handling:**
+- Use `thiserror` for custom error types
+- Use `anyhow` for application-level error propagation
+- Prefer `Result<T, E>` over panics
+- Log errors with context using `tracing::error!`
+
 ```rust
 use thiserror::Error;
 
@@ -327,48 +182,248 @@ pub enum ActorError {
 }
 ```
 
-### Project Structure
+**Types & Generics:**
+- Prefer explicit types over `impl Trait` in public APIs
+- Use `Option<T>` and `Result<T, E>` consistently
+- Leverage workspace dependencies from `Cargo.toml`
+
+**Async/Await:**
+- Use `tokio` runtime (configured in workspace)
+- Prefer `async fn` over raw futures
+- Use `ractor::Actor` pattern for concurrent stateful components
+
+## Project Structure
 
 ```
 choiros-rs/
 ├── Cargo.toml           # Workspace definition
 ├── Justfile             # Task runner commands
-├── sandbox/             # Backend API + actors (ChoirOS runtime)
+├── sandbox/             # Backend API + actors
 │   ├── src/
-│   │   ├── actors/      # Ractor actors (conductor, terminal, events)
+│   │   ├── main.rs      # Server entry point
+│   │   ├── actors/      # Ractor actors (conductor, desktop, events, terminal, workers)
 │   │   ├── api/         # HTTP/WebSocket endpoints
-│   │   └── tools/       # Agent tool system
+│   │   ├── tools/       # Agent tool system
+│   │   └── baml_client/ # LLM integration
 │   └── tests/           # Integration tests
 ├── dioxus-desktop/      # Dioxus 0.7 frontend (WASM)
 ├── shared-types/        # Common types (ActorId, Event, etc.)
 ├── hypervisor/          # VM management component
-├── .claude/             # Claude Flow V3 (generated)
-│   ├── skills/          # 29 installed skills
-│   ├── agents/          # 99 agent definitions
-│   └── settings.json    # Hook configurations
-└── .claude-flow/        # Claude Flow runtime
-    ├── config.yaml
-    ├── data/            # AgentDB + HNSW
-    └── sessions/
+└── skills/              # In-repo AI agent skills
+    ├── multi-terminal/  # Tmux session management
+    └── session-handoff/ # Context preservation
 ```
 
----
+## In-Repo Skills
 
-## Claude Flow V3 CLI Reference
+**multi-terminal/** - Terminal session management  
+- Location: `skills/multi-terminal/`
+- Purpose: Orchestrate multiple processes (servers, tests, logs)
+- Usage: `python skills/multi-terminal/scripts/terminal_session.py`
+- Key API: `TerminalSession("name")`, `add_window()`, `capture_output()`
 
-| Command | Description |
-|---------|-------------|
-| `npx @claude-flow/cli@latest init --wizard` | Initialize project |
-| `npx @claude-flow/cli@latest daemon start` | Start background workers |
-| `npx @claude-flow/cli@latest memory search --query "..."` | Retrieve patterns |
-| `npx @claude-flow/cli@latest memory store --key "..." --value "..."` | Store pattern |
-| `npx @claude-flow/cli@latest swarm init --topology hierarchical` | Start swarm |
-| `npx @claude-flow/cli@latest doctor --fix` | Diagnose and repair |
+**session-handoff/** - Context preservation
+- Location: `skills/session-handoff/`
+- Purpose: Create handoff docs for multi-session agent workflows
+- Usage: `python skills/session-handoff/scripts/create_handoff.py task-name`
+- Creates: `docs/handoffs/YYYY-MM-DD-task-name.md`
 
----
+## E2E Testing (Raw Playwright + agent-browser)
 
-## Support
+Primary rule:
+- Raw Playwright is the canonical E2E harness for ChoirOS.
+- `agent-browser` is for fast exploratory debugging and repro steps, not canonical regression
+  coverage.
 
-- **ChoirOS Runtime**: Rust docs, `cargo doc --open`, architecture in `docs/architecture/`
-- **Claude Flow**: https://github.com/ruvnet/claude-flow
-- **Integration Issues**: Tag with `choir-integration` in GitHub issues
+Why:
+- Raw Playwright gives deterministic specs, assertions, retries, CI-friendly exit codes,
+  and first-class trace/video artifacts per test.
+- `agent-browser` is excellent for quick interactive diagnosis, but it is an abstraction layer
+  over Playwright CLI flows.
+
+Raw Playwright workflow (canonical):
+```bash
+# from repo root
+cd tests/playwright
+npx playwright test --config=playwright.config.ts
+```
+
+Expected artifacts (gitignored):
+- `tests/artifacts/playwright/test-results/**/trace.zip`
+- `tests/artifacts/playwright/test-results/**/video.webm`
+- `tests/artifacts/playwright/html-report/index.html`
+
+**agent-browser** - CLI-based browser automation (installed globally)
+- Purpose: Screenshot testing, web automation, E2E validation
+- Install: `npx skills add vercel-labs/agent-browser@agent-browser -g`
+- Key Commands:
+  - `agent-browser open <url>` - Navigate to page
+  - `agent-browser snapshot -i` - Get interactive elements with refs
+  - `agent-browser click @e1` - Click element by ref
+  - `agent-browser screenshot` - Take screenshot
+  - `agent-browser --json` - JSON output for programmatic use
+
+**Example E2E Test Flow:**
+```bash
+# 1. Start services (in separate terminals or tmux)
+just dev-sandbox    # Backend on port 8080
+just dev-ui         # Frontend on port 3000
+
+# 2. Run E2E test with agent-browser
+agent-browser open http://localhost:3000
+agent-browser screenshot tests/screenshots/initial.png
+agent-browser snapshot -i
+# Use refs from snapshot to interact
+agent-browser click @e1
+agent-browser fill @e2 "test message"
+agent-browser click @e3
+agent-browser wait --text "AI response"
+agent-browser screenshot tests/screenshots/result.png
+```
+
+## Testing Guidelines
+
+**Unit Tests:**
+- Place in `src/` files or `tests/` directory
+- Use `cargo test --lib` for fast feedback
+- Mock external dependencies (DB, network)
+
+**Integration Tests:**
+- Place in `tests/*.rs` files
+- Use Axum router + `tower::ServiceExt::oneshot`
+- Use temp directories for isolated databases
+- Example pattern: `tests/desktop_api_test.rs`
+- For websocket conductor/living-document flows, prefer `tokio_tungstenite` integration tests over manual curl loops.
+- Assert `actor_call` chunks for delegated terminal tasks when validating multi-agent observability.
+- Keep tests provider-agnostic: do not hardcode assumptions to a single external weather/API service.
+
+**Running Single Tests:**
+```bash
+# Preferred wrapper (blocks broad filtered runs)
+./scripts/sandbox-test.sh --test desktop_api_test
+./scripts/sandbox-test.sh --test desktop_api_test test_create_desktop
+./scripts/sandbox-test.sh --lib conductor
+
+# Run websocket integration suite (exact binary)
+cargo test -p sandbox --test <exact_integration_binary> -- --nocapture
+
+# Run supervision delegation suite
+cargo test -p sandbox --features supervision_refactor --test supervision_test -- --nocapture
+
+# Important: NEVER use broad filtered runs like this:
+# cargo test -p sandbox <filter>
+# They spin through many test binaries and are slow/noisy.
+# Always select exact target binaries and avoid broad filtered runs.
+```
+
+## Key Dependencies
+
+- **Async**: tokio, futures
+- **Web**: axum, tower, tower-http, dioxus (frontend)
+- **Database**: sqlx (SQLite)
+- **Serialization**: serde, serde_json
+- **IDs**: uuid, ulid
+- **Errors**: thiserror, anyhow
+- **Tracing**: tracing, tracing-subscriber
+- **LLM**: baml
+- **Dev Tools**: cargo-watch (auto-rebuild), multitail (log monitoring)
+
+## Task Concurrency
+
+**CRITICAL: This section defines the automatic computer architecture.**
+
+### Core Principles
+
+1. **Supervisors NEVER spawn blocking task() calls**
+   - Supervisors coordinate; they don't execute
+   - A supervisor waiting on a task blocks the entire workflow
+
+2. **Supervisors coordinate, workers execute**
+   - Supervisors: Plan, delegate, aggregate results
+   - Workers: Perform actual work, report back
+
+3. **Use OpenCode subagent tasks for parallel work (interim)**
+   - Fire-and-forget async execution via OpenCode SDK
+   - Workers run independently without blocking supervisor
+   - Note: Native actor messaging coming to ChoirOS (TerminalActor, EventBus)
+
+4. **Tool call budgets:**
+   - Supervisor: 50 calls (coordination only)
+   - Worker: 200 calls (execution work)
+   - Async Run: Unlimited (true parallelism)
+
+### Correct vs Wrong Patterns
+
+**WRONG: Supervisor blocks on worker task**
+```python
+# DON'T DO THIS - blocks supervisor
+result = task("Analyze file", prompt="...")  # Blocking!
+```
+
+**CORRECT: Supervisor delegates via async run**
+```python
+# DO THIS - non-blocking coordination
+run_async(
+    agent="file-analyzer",
+    prompt="Analyze file: " + filepath,
+    on_complete="handle_analysis_result"
+)
+# Supervisor continues immediately, doesn't wait
+```
+
+**WRONG: Sequential blocking in loop**
+```python
+# DON'T DO THIS - serial blocking
+results = []
+for file in files:
+    result = task(f"Process {file}", ...)  # Blocks each iteration
+    results.append(result)
+```
+
+**CORRECT: Parallel async execution**
+```python
+# DO THIS - parallel execution
+for file in files:
+    run_async(
+        agent="file-processor",
+        prompt=f"Process: {file}",
+        on_complete="collect_result"
+    )
+# All files processed in parallel, supervisor moves on
+```
+
+**WRONG: Worker trying to coordinate**
+```python
+# DON'T DO THIS - workers shouldn't spawn sub-workers
+# In worker context:
+result = task("Sub-task", ...)  # Wrong! Workers execute, don't delegate
+```
+
+**CORRECT: Worker completes its work**
+```python
+# DO THIS - worker does its assigned work
+analysis = perform_analysis(data)
+return {"status": "complete", "result": analysis}
+```
+
+### Architecture Summary
+
+```
+Supervisor (50 calls)
+    ├── run_async(worker1) ──┐
+    ├── run_async(worker2) ──┼── Parallel execution
+    ├── run_async(worker3) ──┘
+    └── Continue coordinating...
+
+Worker (200 calls)
+    └── Execute task → Return result
+```
+
+**Remember:** Blocking is the enemy of scalability. Use async runs for true parallelism.
+
+## CI/CD Notes
+
+- All PRs require: formatting check, clippy, tests
+- Backend tests run with `cargo test -p sandbox`
+- Frontend builds with `dx build` in `dioxus-desktop/`
+- E2E tests run on main branch pushes only

@@ -10,7 +10,7 @@ runbook covers three phases:
    sandbox instances in isolation using Apple Virtualization.framework
 3. **EC2** — NixOS host running the sandbox in rootless Podman containers
 
-The sandbox (Rust/axum/ractor/libsql/baml) is the primary workload. The
+The sandbox (Rust/axum/ractor/sqlx/baml) is the primary workload. The
 dioxus-desktop frontend (WASM, built with `dx`) and hypervisor (thin Rust router,
 not yet built out) each get their own Nix flake derivations.
 
@@ -32,7 +32,7 @@ Before writing any Nix, understand what we're building:
 
 ```
 Workspace: choiros-rs/
-├── sandbox/          axum + ractor + libsql + baml + portable-pty
+├── sandbox/          axum + ractor + sqlx + baml + portable-pty
 │                     runtime deps: SQLite DB file, .env secrets, static/ dir
 │                     build deps: cargo, sqlx-cli (for migrations), baml codegen
 ├── shared-types/     serde + ts-rs (generates TypeScript bindings)
@@ -49,7 +49,7 @@ Key build-time requirements:
 - `dx` (dioxus CLI 0.7.3) for the frontend — in nixpkgs-unstable as `dioxus-cli`
 - `wasm32-unknown-unknown` target for dioxus-desktop
 - `just` task runner
-- `libsql` links against sqlite3 at build time (needs `libsqlite3` or bundled)
+- SQLite tooling/libs should be available for sqlite-linked crates and local tools
 
 ### baml: library vs CLI distinction
 
@@ -289,7 +289,7 @@ once created):
             # Native deps for sandbox crates
             pkg-config
             openssl
-            sqlite          # for libsql (sqlite3 header)
+            sqlite          # sqlite headers/libs for local tooling
             libiconv        # macOS only — required by some crates
 
             # Build tools
@@ -636,7 +636,7 @@ via nixpkgs's `pkgsCross` with `callPackage` splicing (which automatically route
 `nativeBuildInputs` to the build host and `buildInputs` to the target).
 
 **Alternative:** configure a Linux Nix remote builder (see note at end of this section).
-If cross-compilation proves painful (particularly for libsql's C build script), the
+If cross-compilation proves painful (particularly for C/FFI crates), the
 remote builder is a clean escape hatch.
 
 #### SQLX offline mode (required for Nix builds)
@@ -725,7 +725,7 @@ let
 
         buildInputs = [
           openssl             # linked into sandbox binary
-          sqlite              # libsql uses sqlite3 headers
+          sqlite              # sqlite headers/libs for target builds
         ];
 
         # Build only the sandbox crate from the workspace
@@ -828,7 +828,7 @@ restarts.
 #### Remote builder as escape hatch
 
 Cross-compiling from macOS to Linux can break on crates with complex C build scripts
-(libsql bundles a C sqlite fork; portable-pty uses OS pty headers). If you hit linker
+(for crates like portable-pty/OpenSSL with platform-specific C/FFI requirements). If you hit linker
 errors or C compilation failures, configure a Linux Nix remote builder instead:
 
 ```bash
@@ -860,10 +860,10 @@ nix.distributedBuilds = true;
 
 #### Known gotchas
 
-- **libsql C deps**: libsql bundles a sqlite C fork. In cross builds, `stdenv.cc`
-  becomes the cross C compiler automatically via `callPackage`. If you get C
-  compilation errors, add `pkgs.pkgsBuildHost.stdenv.cc` to `nativeBuildInputs`
-  explicitly.
+- **Cross C/FFI deps**: crates such as `portable-pty` and OpenSSL may require
+  target-specific headers/toolchains. In cross builds, `stdenv.cc` becomes the
+  cross C compiler automatically via `callPackage`. If you get C compilation
+  errors, add `pkgs.pkgsBuildHost.stdenv.cc` to `nativeBuildInputs` explicitly.
 - **`.sqlx/` not committed**: `cargo build` will fail with "offline mode requires
   .sqlx/ data". Run `cargo sqlx prepare` and commit the directory.
 - **`portable-pty` on cross**: build succeeds (it's C FFI headers), but verify no
@@ -1005,9 +1005,9 @@ Do not rush this. Keep Homebrew until nix-darwin is stable on your machine.
 
 - **baml-cli Nix derivation**: write `nix/baml-cli.nix` when next bumping baml
   versions or adding CI codegen. Template is in Phase 1.4 above.
-- **libsql cross-compilation**: libsql bundles a C sqlite fork. The `callPackage`
-  cross build should handle it, but this is unverified. If it fails, fall back to
-  the remote builder approach (Phase 3.3).
+- **Cross-compilation validation**: verify target builds for C/FFI crates
+  (`portable-pty`, OpenSSL). If cross builds fail, fall back to the remote
+  builder approach (Phase 3.3).
 - **`.sqlx/` offline data**: must be committed before the crane build works. Run
   `cargo sqlx prepare --workspace` from the sandbox directory with a running DB,
   commit `.sqlx/`, and keep it in sync when queries change.
