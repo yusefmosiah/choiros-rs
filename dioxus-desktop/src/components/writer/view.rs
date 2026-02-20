@@ -1,223 +1,67 @@
-//! Writer App Component
-//!
-//! Document editor with revision-based optimistic concurrency control.
-//! Supports both edit and preview modes for markdown files.
-//! Supports live patch apply from writer.run.* websocket events.
+//! Main WriterView component
 
 use dioxus::prelude::*;
 use gloo_timers::future::TimeoutFuture;
 
-use crate::api::files_api::{list_directory, DirectoryEntry};
+use crate::api::files_api::list_directory;
 use crate::api::{
-    writer_open, writer_preview, writer_prompt, writer_save, writer_save_version, writer_version,
-    writer_versions, WriterOverlay,
+    writer_open, writer_prompt, writer_save, writer_save_version, writer_version, writer_versions,
+    WriterOverlay,
 };
-use crate::desktop::state::{LiveChangeset, ACTIVE_WRITER_RUNS};
+use crate::desktop::state::ACTIVE_WRITER_RUNS;
 use shared_types::{ChangesetImpact, PatchOp, WriterRunStatusKind};
 
-/// Save state for the document
-#[derive(Debug, Clone, PartialEq)]
-pub enum SaveState {
-    /// No unsaved changes
-    Clean,
-    /// Has unsaved changes
-    Dirty,
-    /// Save in progress
-    Saving,
-    /// Recently saved (show success briefly)
-    Saved,
-    /// Conflict detected with server state
-    Conflict {
-        current_revision: u64,
-        current_content: String,
-    },
-    /// Error state with message
-    Error(String),
-}
-
-/// View mode for markdown files
-#[derive(Debug, Clone, PartialEq)]
-pub enum ViewMode {
-    Edit,
-    Preview,
-}
-
-/// Dialog state for file operations
-#[derive(Debug, Clone)]
-pub enum DialogState {
-    None,
-    OpenFile {
-        current_path: String,
-        entries: Vec<DirectoryEntry>,
-    },
-    SaveAs {
-        current_path: String,
-        entries: Vec<DirectoryEntry>,
-        filename: String,
-    },
-}
-
-fn build_diff_ops(base: &str, edited: &str) -> Vec<PatchOp> {
-    if base == edited {
-        return Vec::new();
-    }
-    vec![
-        PatchOp::Delete {
-            pos: 0,
-            len: base.chars().count() as u64,
-        },
-        PatchOp::Insert {
-            pos: 0,
-            text: edited.to_string(),
-        },
-    ]
-}
-
-fn extract_run_id_from_document_path(path: &str) -> Option<String> {
-    let mut parts = path.split('/');
-    match (
-        parts.next(),
-        parts.next(),
-        parts.next(),
-        parts.next(),
-        parts.next(),
-    ) {
-        (Some("conductor"), Some("runs"), Some(run_id), Some("draft.md"), None) => {
-            Some(run_id.to_string())
-        }
-        _ => None,
-    }
-}
-
-fn overlay_note_lines(overlay: &WriterOverlay) -> Vec<String> {
-    let mut lines = Vec::new();
-    lines.push(format!("> [{}/{}]", overlay.author, overlay.kind));
-    for op in &overlay.diff_ops {
-        match op {
-            PatchOp::Insert { text, .. } => {
-                if !text.trim().is_empty() {
-                    lines.push(format!("> + {}", text.trim()));
-                }
-            }
-            PatchOp::Delete { len, .. } => {
-                lines.push(format!("> - remove {} chars", len));
-            }
-            PatchOp::Replace { len, text, .. } => {
-                if text.trim().is_empty() {
-                    lines.push(format!("> ~ rewrite {} chars", len));
-                } else {
-                    lines.push(format!("> ~ rewrite {} chars -> {}", len, text.trim()));
-                }
-            }
-            PatchOp::Retain { .. } => {}
-        }
-    }
-    lines
-}
-
-const INLINE_OVERLAY_MARKER: &str = "\n\n--- pending suggestions ---\n";
-
-fn compose_editor_text(base: &str, overlays: &[WriterOverlay]) -> String {
-    if overlays.is_empty() {
-        return base.to_string();
-    }
-    let mut out = String::from(base);
-    out.push_str(INLINE_OVERLAY_MARKER);
-    for overlay in overlays {
-        for line in overlay_note_lines(overlay) {
-            out.push_str(&line);
-            out.push('\n');
-        }
-    }
-    out
-}
-
-fn strip_inline_overlay_block(text: &str) -> String {
-    if let Some(index) = text.find(INLINE_OVERLAY_MARKER) {
-        return text[..index].to_string();
-    }
-    text.to_string()
-}
-
-fn normalize_version_ids(mut ids: Vec<u64>) -> Vec<u64> {
-    ids.sort_unstable();
-    ids.dedup();
-    ids
-}
-
-fn selected_version_index(ids: &[u64], selected_version_id: Option<u64>) -> Option<usize> {
-    if ids.is_empty() {
-        return None;
-    }
-    selected_version_id
-        .and_then(|id| ids.iter().position(|v| *v == id))
-        .or(Some(ids.len() - 1))
-}
-
-fn reconcile_selected_version_id(ids: &[u64], selected_version_id: Option<u64>) -> Option<u64> {
-    selected_version_index(ids, selected_version_id).and_then(|idx| ids.get(idx).copied())
-}
-
-/// Apply patch operations to content
-fn apply_patch_ops(content: &str, ops: &[PatchOp]) -> String {
-    let mut chars: Vec<char> = content.chars().collect();
-
-    for op in ops {
-        match op {
-            PatchOp::Insert { pos, text } => {
-                let pos = (*pos as usize).min(chars.len());
-                let insert_chars: Vec<char> = text.chars().collect();
-                chars.splice(pos..pos, insert_chars);
-            }
-            PatchOp::Delete { pos, len } => {
-                let pos = (*pos as usize).min(chars.len());
-                let end = (pos + *len as usize).min(chars.len());
-                chars.drain(pos..end);
-            }
-            PatchOp::Replace { pos, len, text } => {
-                let pos = (*pos as usize).min(chars.len());
-                let end = (pos + *len as usize).min(chars.len());
-                let replace_chars: Vec<char> = text.chars().collect();
-                chars.splice(pos..end, replace_chars);
-            }
-            PatchOp::Retain { .. } => {}
-        }
-    }
-
-    chars.into_iter().collect()
-}
-
-/// Check if there's a revision gap (missed patches)
-fn has_revision_gap(current_revision: u64, patch_revision: u64) -> bool {
-    patch_revision > current_revision + 1
-}
-
-/// Writer component props
-#[derive(Debug, Clone, PartialEq)]
-pub struct WriterProps {
-    pub desktop_id: String,
-    pub window_id: String,
-    pub initial_path: String,
-}
-
-/// Check if file is markdown based on mime type or extension
-fn is_markdown(mime: &str, path: &str) -> bool {
-    mime == "text/markdown" || path.ends_with(".md") || path.ends_with(".markdown")
-}
-
-impl WriterProps {
-    pub fn new(desktop_id: String, window_id: String, initial_path: String) -> Self {
-        Self {
-            desktop_id,
-            window_id,
-            initial_path,
-        }
-    }
-}
+use super::dialogs::render_dialog;
+use super::logic::*;
+use super::styles::*;
+use super::types::*;
 
 #[component]
 pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -> Element {
     let _ = (&desktop_id, &window_id);
+
+    // Top-level navigation mode
+    let mut writer_view_mode = use_signal(|| {
+        if initial_path.is_empty() {
+            WriterViewMode::Overview
+        } else {
+            WriterViewMode::Editor
+        }
+    });
+
+    // Overview state
+    let mut overview_entries = use_signal(Vec::<crate::api::files_api::DirectoryEntry>::new);
+    let mut overview_loaded = use_signal(|| false);
+
+    // Load overview entries when in Overview mode
+    {
+        use_effect(move || {
+            if writer_view_mode() != WriterViewMode::Overview {
+                return;
+            }
+            if overview_loaded() {
+                return;
+            }
+            overview_loaded.set(true);
+            spawn(async move {
+                match list_directory("").await {
+                    Ok(response) => {
+                        let filtered: Vec<_> = response
+                            .entries
+                            .into_iter()
+                            .filter(|e| {
+                                e.is_dir || (e.is_file && e.name.ends_with(".md"))
+                            })
+                            .collect();
+                        overview_entries.set(filtered);
+                    }
+                    Err(_) => {
+                        overview_entries.set(Vec::new());
+                    }
+                }
+            });
+        });
+    }
 
     // Core state
     let mut content = use_signal(|| String::new());
@@ -355,6 +199,7 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
     // Watch for writer run events and apply patches
     {
         let path_for_effect = path;
+        let loading_for_effect = loading;
         let mut content_for_effect = content;
         let mut revision_for_effect = revision;
         let mut last_applied_revision_for_effect = last_applied_revision;
@@ -370,6 +215,14 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
 
         use_effect(move || {
             let current_path = path_for_effect();
+            // Don't process run events until the document has finished loading.
+            // Effects fire immediately on mount; if ACTIVE_WRITER_RUNS already has a
+            // run at revision N while the document open call is still in-flight, the
+            // revision gap check would falsely fire (0 -> N) before we know the real
+            // document revision.
+            if loading_for_effect() {
+                return;
+            }
             let runs = ACTIVE_WRITER_RUNS.read();
 
             if let Some(run_state) = runs.get(&current_path) {
@@ -384,7 +237,15 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                 // Check for new run starting
                 if active_run_id_for_effect.read().as_ref() != Some(&run_id) {
                     active_run_id_for_effect.set(Some(run_id.clone()));
-                    last_applied_revision_for_effect.set(run_last_applied);
+                    // Use the higher of: the revision we loaded the document at, or
+                    // the run's tracked last_applied_revision. This prevents the component
+                    // from treating a freshly-opened document (e.g. revision 9) as a gap
+                    // when the global run state still shows last_applied_revision=0 because
+                    // progress events arrived before the document was opened.
+                    let local_rev = last_applied_revision_for_effect();
+                    if run_last_applied > local_rev {
+                        last_applied_revision_for_effect.set(run_last_applied);
+                    }
                 }
 
                 run_status_for_effect.set(Some(status));
@@ -918,39 +779,170 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
     let current_editor_text = compose_editor_text(&current_content, &current_selected_overlays);
 
     rsx! {
+        style { {WRITER_STYLES} }
         div {
             style: "display: flex; flex-direction: column; height: 100%; background: var(--window-bg); color: var(--text-primary); overflow: hidden;",
+
+            // Overview mode: document list grid
+            if writer_view_mode() == WriterViewMode::Overview {
+                // Overview toolbar
+                div {
+                    style: "display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: var(--titlebar-bg); border-bottom: 1px solid var(--border-color); flex-shrink: 0;",
+                    span { style: "font-size: 0.875rem; color: var(--text-secondary); font-weight: 500;", "Documents" }
+                    button {
+                        style: "background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary); cursor: pointer; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem;",
+                        onclick: move |_| show_save_as_dialog.call(()),
+                        "New Document"
+                    }
+                }
+
+                // Overview grid
+                div {
+                    class: "writer-overview-grid",
+                    {
+                        // Cards from ACTIVE_WRITER_RUNS (paths not already in directory listing)
+                        let active_paths: Vec<String> = {
+                            let runs = ACTIVE_WRITER_RUNS.read();
+                            runs.keys().cloned().collect()
+                        };
+                        let dir_paths: std::collections::HashSet<String> = overview_entries
+                            .read()
+                            .iter()
+                            .map(|e| e.path.clone())
+                            .collect();
+                        let extra_paths: Vec<String> = active_paths
+                            .into_iter()
+                            .filter(|p| !dir_paths.contains(p))
+                            .collect();
+
+                        rsx! {
+                            // Cards from directory listing
+                            for entry in overview_entries.read().iter().cloned() {
+                                {
+                                    let entry_path = entry.path.clone();
+                                    let entry_name = entry.name.clone();
+                                    let run_status: Option<String> = {
+                                        let runs = ACTIVE_WRITER_RUNS.read();
+                                        runs.get(&entry_path).map(|r| format!("{:?}", r.status).to_lowercase())
+                                    };
+                                    rsx! {
+                                        div {
+                                            class: "writer-doc-card",
+                                            onclick: {
+                                                let ep = entry_path.clone();
+                                                move |_| {
+                                                    path.set(ep.clone());
+                                                    loaded_path.set(None);
+                                                    writer_view_mode.set(WriterViewMode::Editor);
+                                                }
+                                            },
+                                            div { class: "writer-doc-card-title", "{entry_name}" }
+                                            div { class: "writer-doc-card-path", "{entry_path}" }
+                                            div { class: "writer-doc-card-footer",
+                                                if let Some(status) = run_status {
+                                                    span {
+                                                        class: "writer-status-chip writer-status--running",
+                                                        style: "font-size: 0.65rem;",
+                                                        "{status}"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            // Extra cards from ACTIVE_WRITER_RUNS not in directory
+                            for ep in extra_paths {
+                                {
+                                    let ep2 = ep.clone();
+                                    let display_name = ep.rsplit('/').next().unwrap_or(&ep).to_string();
+                                    let run_status: Option<String> = {
+                                        let runs = ACTIVE_WRITER_RUNS.read();
+                                        runs.get(&ep).map(|r| format!("{:?}", r.status).to_lowercase())
+                                    };
+                                    rsx! {
+                                        div {
+                                            class: "writer-doc-card",
+                                            onclick: move |_| {
+                                                path.set(ep2.clone());
+                                                loaded_path.set(None);
+                                                writer_view_mode.set(WriterViewMode::Editor);
+                                            },
+                                            div { class: "writer-doc-card-title", "{display_name}" }
+                                            div { class: "writer-doc-card-path", "{ep}" }
+                                            div { class: "writer-doc-card-footer",
+                                                if let Some(status) = run_status {
+                                                    span {
+                                                        class: "writer-status-chip writer-status--running",
+                                                        style: "font-size: 0.65rem;",
+                                                        "{status}"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Dialog overlays (Save As / New Document)
+                {render_dialog(
+                    dialog,
+                    path,
+                    content,
+                    revision,
+                    mime,
+                    readonly,
+                    save_state,
+                    view_mode,
+                    preview_html,
+                    loading,
+                    loaded_path,
+                )}
+            } else {
+
+            // ── Editor mode ──────────────────────────────────────────────────
 
             // Toolbar
             div {
                 style: "display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: var(--titlebar-bg); border-bottom: 1px solid var(--border-color); flex-shrink: 0;",
 
-                // Left: File info
+                // Left: Back button + File info
                 div {
                     style: "display: flex; align-items: center; gap: 0.5rem;",
+                    button {
+                        class: "writer-back-btn",
+                        onclick: move |_| {
+                            overview_loaded.set(false);
+                            writer_view_mode.set(WriterViewMode::Overview);
+                        },
+                        "← Documents"
+                    }
                     span { style: "font-size: 0.875rem; color: var(--text-secondary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;",
                         "{current_path}"
                     }
                     if current_readonly {
-                        span { style: "font-size: 0.75rem; color: var(--warning-bg); padding: 0.125rem 0.375rem; background: rgba(245, 158, 11, 0.1); border-radius: 0.25rem;",
+                        span { class: "writer-readonly-badge",
                             "Read-only"
                         }
                     }
                     // Live run status indicator
                     if let Some(status) = current_run_status {
                         {
-                            let (status_text, status_color) = match status {
-                                WriterRunStatusKind::Initializing => ("Initializing...", "#94a3b8"),
-                                WriterRunStatusKind::Running => ("Running...", "#3b82f6"),
-                                WriterRunStatusKind::WaitingForWorker => ("Waiting...", "#f59e0b"),
-                                WriterRunStatusKind::Completing => ("Completing...", "#10b981"),
-                                WriterRunStatusKind::Completed => ("Completed", "#10b981"),
-                                WriterRunStatusKind::Failed => ("Failed", "#ef4444"),
-                                WriterRunStatusKind::Blocked => ("Blocked", "#ef4444"),
+                            let (status_text, status_class) = match status {
+                                WriterRunStatusKind::Initializing => ("Initializing...", "writer-status--initializing"),
+                                WriterRunStatusKind::Running => ("Running...", "writer-status--running"),
+                                WriterRunStatusKind::WaitingForWorker => ("Waiting...", "writer-status--waiting"),
+                                WriterRunStatusKind::Completing => ("Completing...", "writer-status--completing"),
+                                WriterRunStatusKind::Completed => ("Completed", "writer-status--completed"),
+                                WriterRunStatusKind::Failed => ("Failed", "writer-status--failed"),
+                                WriterRunStatusKind::Blocked => ("Blocked", "writer-status--blocked"),
                             };
                             rsx! {
                                 span {
-                                    style: "font-size: 0.75rem; color: {status_color}; padding: 0.125rem 0.375rem; background: rgba(255, 255, 255, 0.05); border-radius: 0.25rem; display: flex; align-items: center; gap: 0.25rem;",
+                                    class: "writer-status-chip {status_class}",
                                     if status != WriterRunStatusKind::Completed
                                         && status != WriterRunStatusKind::Failed
                                         && status != WriterRunStatusKind::Blocked
@@ -996,20 +988,20 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                         }
                         // Provenance badge: show VersionSource of the currently displayed version
                         if !current_version_source.is_empty() {
-                            span {
-                                style: {
-                                    let (bg, color) = match current_version_source.as_str() {
-                                        "writer" => ("rgba(99,102,241,0.15)", "#818cf8"),
-                                        "user_save" => ("rgba(34,197,94,0.15)", "#4ade80"),
-                                        _ => ("rgba(156,163,175,0.15)", "#9ca3af"),
-                                    };
-                                    format!("font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 0.25rem; background: {bg}; color: {color}; white-space: nowrap;")
-                                },
-                                {
-                                    match current_version_source.as_str() {
-                                        "writer" => "AI",
-                                        "user_save" => "User",
-                                        _ => "System",
+                            {
+                                let provenance_class = match current_version_source.as_str() {
+                                    "writer" => "writer-provenance--ai",
+                                    "user_save" => "writer-provenance--user",
+                                    _ => "writer-provenance--system",
+                                };
+                                let provenance_label = match current_version_source.as_str() {
+                                    "writer" => "AI",
+                                    "user_save" => "User",
+                                    _ => "System",
+                                };
+                                rsx! {
+                                    span { class: "writer-provenance-badge {provenance_class}",
+                                        "{provenance_label}"
                                     }
                                 }
                             }
@@ -1104,8 +1096,7 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
             }
 
             if current_new_version_available {
-                div {
-                    style: "padding: 0.6rem 1rem; background: rgba(59, 130, 246, 0.12); color: var(--text-primary); font-size: 0.85rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between;",
+                div { class: "writer-new-version-banner",
                     span { "New version available while you were editing." }
                     button {
                         style: "background: transparent; border: 1px solid var(--border-color); color: var(--text-primary); cursor: pointer; padding: 0.25rem 0.6rem; border-radius: 0.3rem; font-size: 0.8rem;",
@@ -1155,26 +1146,25 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
 
             // Changeset summary panel (1.4 patch stream live view + Marginalia v1 observation)
             if !current_changesets.is_empty() {
-                div {
-                    style: "padding: 0.4rem 1rem; background: rgba(99,102,241,0.06); border-bottom: 1px solid var(--border-color); font-size: 0.78rem; color: var(--text-secondary); max-height: 5rem; overflow-y: auto;",
+                div { class: "writer-changeset-panel",
                     for changeset in &current_changesets {
                         div {
                             key: "{changeset.patch_id}",
                             style: "display: flex; gap: 0.5rem; align-items: baseline; padding: 0.1rem 0;",
-                            span {
-                                style: {
-                                    let (bg, color) = match changeset.impact {
-                                        ChangesetImpact::High => ("rgba(239,68,68,0.15)", "#f87171"),
-                                        ChangesetImpact::Medium => ("rgba(251,191,36,0.15)", "#fbbf24"),
-                                        ChangesetImpact::Low => ("rgba(34,197,94,0.12)", "#4ade80"),
-                                    };
-                                    format!("font-size: 0.65rem; padding: 0.05rem 0.3rem; border-radius: 0.2rem; background: {bg}; color: {color}; flex-shrink: 0;")
-                                },
-                                {
-                                    match changeset.impact {
-                                        ChangesetImpact::High => "HIGH",
-                                        ChangesetImpact::Medium => "MED",
-                                        ChangesetImpact::Low => "LOW",
+                            {
+                                let impact_class = match changeset.impact {
+                                    ChangesetImpact::High => "writer-impact--high",
+                                    ChangesetImpact::Medium => "writer-impact--medium",
+                                    ChangesetImpact::Low => "writer-impact--low",
+                                };
+                                let impact_label = match changeset.impact {
+                                    ChangesetImpact::High => "HIGH",
+                                    ChangesetImpact::Medium => "MED",
+                                    ChangesetImpact::Low => "LOW",
+                                };
+                                rsx! {
+                                    span { class: "writer-impact-badge {impact_class}",
+                                        "{impact_label}"
                                     }
                                 }
                             }
@@ -1228,340 +1218,8 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                 loading,
                 loaded_path,
             )}
+
+            } // end else (Editor mode)
         }
-    }
-}
-
-/// Render dialog overlays
-fn render_dialog(
-    mut dialog: Signal<DialogState>,
-    mut path: Signal<String>,
-    mut content: Signal<String>,
-    mut revision: Signal<u64>,
-    mut mime: Signal<String>,
-    mut readonly: Signal<bool>,
-    mut save_state: Signal<SaveState>,
-    mut view_mode: Signal<ViewMode>,
-    mut preview_html: Signal<String>,
-    mut loading: Signal<bool>,
-    mut loaded_path: Signal<Option<String>>,
-) -> Element {
-    let current_dialog = dialog();
-
-    match current_dialog {
-        DialogState::None => rsx! {},
-        DialogState::OpenFile {
-            current_path,
-            entries,
-        } => rsx! {
-            FileBrowserDialog {
-                title: "Open File",
-                current_path,
-                entries,
-                show_filename_input: false,
-                filename: String::new(),
-                on_navigate: move |new_path: String| {
-                    spawn(async move {
-                        match list_directory(&new_path).await {
-                            Ok(response) => {
-                                dialog.set(DialogState::OpenFile {
-                                    current_path: response.path,
-                                    entries: response.entries,
-                                });
-                            }
-                            Err(_) => {}
-                        }
-                    });
-                },
-                on_select: move |selected_path: String| {
-                    dialog.set(DialogState::None);
-                    spawn(async move {
-                        loading.set(true);
-                        match writer_open(&selected_path).await {
-                            Ok(response) => {
-                                let is_md = is_markdown(&response.mime, &response.path);
-                                path.set(response.path);
-                                content.set(response.content);
-                                revision.set(response.revision);
-                                mime.set(response.mime);
-                                readonly.set(response.readonly);
-                                save_state.set(SaveState::Clean);
-                                view_mode.set(ViewMode::Edit);
-                                loading.set(false);
-
-                                if is_md {
-                                    let content_clone = content();
-                                    let _ = update_preview(content_clone, &mime(), &path(), &mut preview_html).await;
-                                }
-                                loaded_path.set(Some(path()));
-                            }
-                            Err(e) => {
-                                save_state.set(SaveState::Error(e));
-                                loading.set(false);
-                            }
-                        }
-                    });
-                },
-                on_cancel: move || dialog.set(DialogState::None),
-            }
-        },
-        DialogState::SaveAs {
-            current_path,
-            entries,
-            filename,
-        } => rsx! {
-            FileBrowserDialog {
-                title: "Save As",
-                current_path,
-                entries,
-                show_filename_input: true,
-                filename: filename.clone(),
-                on_navigate: move |new_path: String| {
-                    let current_filename = filename.clone();
-                    spawn(async move {
-                        match list_directory(&new_path).await {
-                            Ok(response) => {
-                                dialog.set(DialogState::SaveAs {
-                                    current_path: response.path,
-                                    entries: response.entries,
-                                    filename: current_filename,
-                                });
-                            }
-                            Err(_) => {}
-                        }
-                    });
-                },
-                on_select: move |selected_path: String| {
-                    dialog.set(DialogState::None);
-                    spawn(async move {
-                        save_state.set(SaveState::Saving);
-                        match writer_save(&selected_path, 0, &content()).await {
-                            Ok(response) => {
-                                path.set(selected_path);
-                                revision.set(response.revision);
-                                save_state.set(SaveState::Saved);
-                                TimeoutFuture::new(2000).await;
-                                save_state.set(SaveState::Clean);
-                            }
-                            Err(e) => {
-                                save_state.set(SaveState::Error(e));
-                            }
-                        }
-                    });
-                },
-                on_cancel: move || dialog.set(DialogState::None),
-            }
-        },
-    }
-}
-
-/// File browser dialog component
-#[component]
-fn FileBrowserDialog(
-    title: String,
-    current_path: String,
-    entries: Vec<DirectoryEntry>,
-    show_filename_input: bool,
-    filename: String,
-    on_navigate: Callback<String>,
-    on_select: Callback<String>,
-    on_cancel: Callback<()>,
-) -> Element {
-    let mut current_filename = use_signal(|| filename);
-
-    let get_file_icon = |entry: &DirectoryEntry| -> &'static str {
-        if entry.is_dir {
-            "📁"
-        } else if entry.name.ends_with(".rs") {
-            "🦀"
-        } else if entry.name.ends_with(".md") {
-            "📝"
-        } else if entry.name.ends_with(".toml")
-            || entry.name.ends_with(".yaml")
-            || entry.name.ends_with(".yml")
-            || entry.name.ends_with(".json")
-        {
-            "⚙️"
-        } else if entry.name.ends_with(".txt") {
-            "📄"
-        } else if entry.name.ends_with(".sh") {
-            "🖥️"
-        } else {
-            "📃"
-        }
-    };
-
-    let navigate_up = {
-        let current = current_path.clone();
-        let on_navigate = on_navigate.clone();
-        move |_| {
-            if current.is_empty() {
-                return;
-            }
-            let parent = current
-                .rsplit_once('/')
-                .map(|(p, _)| p.to_string())
-                .unwrap_or_default();
-            on_navigate.call(parent);
-        }
-    };
-
-    rsx! {
-        div {
-            style: "position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); display: flex; align-items: center; justify-content: center; z-index: 1000;",
-            onclick: move |_| on_cancel.call(()),
-            div {
-                style: "background: var(--window-bg); border: 1px solid var(--border-color); border-radius: 0.5rem; padding: 1.5rem; min-width: 480px; max-width: 90vw; max-height: 80vh; display: flex; flex-direction: column;",
-                onclick: move |e| e.stop_propagation(),
-                h3 { style: "margin: 0 0 1rem 0; font-size: 1.125rem; color: var(--text-primary);", "{title}" }
-
-                // Current path and navigation
-                div {
-                    style: "display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;",
-                    button {
-                        style: "background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary); cursor: pointer; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem;",
-                        onclick: navigate_up,
-                        "↑ Up"
-                    }
-                    span { style: "font-size: 0.875rem; color: var(--text-secondary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;",
-                        if current_path.is_empty() { "Home" } else { "{current_path}" }
-                    }
-                }
-
-                // File list
-                div {
-                    style: "flex: 1; overflow: auto; max-height: 300px; border: 1px solid var(--border-color); border-radius: 0.375rem; margin-bottom: 1rem;",
-                    if entries.is_empty() {
-                        div {
-                            style: "padding: 1rem; text-align: center; color: var(--text-muted); font-size: 0.875rem;",
-                            "This folder is empty"
-                        }
-                    } else {
-                        for entry in entries.clone() {
-                            div {
-                                key: "{entry.path}",
-                                style: if entry.is_dir {
-                                    "display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; cursor: pointer; hover:background: var(--hover-bg); font-size: 0.875rem; color: var(--text-primary); border-bottom: 1px solid var(--border-color);"
-                                } else {
-                                    "display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; cursor: pointer; hover:background: var(--hover-bg); font-size: 0.875rem; color: var(--text-primary); border-bottom: 1px solid var(--border-color); opacity: 0.7;"
-                                },
-                                onclick: move |_| {
-                                    if entry.is_dir {
-                                        on_navigate.call(entry.path.clone());
-                                    } else {
-                                        on_select.call(entry.path.clone());
-                                    }
-                                },
-                                div { "{get_file_icon(&entry)}" }
-                                div { "{entry.name}" }
-                            }
-                        }
-                    }
-                }
-
-                // Filename input (for Save As)
-                if show_filename_input {
-                    div {
-                        style: "margin-bottom: 1rem;",
-                        input {
-                            style: "width: 100%; padding: 0.5rem 0.75rem; background: var(--input-bg); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 0.375rem; font-size: 0.875rem; box-sizing: border-box;",
-                            value: "{current_filename()}",
-                            placeholder: "Filename",
-                            oninput: move |e: FormEvent| {
-                                current_filename.set(e.value());
-                            }
-                        }
-                    }
-                }
-
-                // Buttons
-                div {
-                    style: "display: flex; justify-content: flex-end; gap: 0.5rem;",
-                    button {
-                        style: "background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary); cursor: pointer; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem;",
-                        onclick: move |_| on_cancel.call(()),
-                        "Cancel"
-                    }
-                    if show_filename_input {
-                        button {
-                            style: "background: var(--accent-bg); border: none; color: var(--accent-text); cursor: pointer; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem;",
-                            onclick: move |_| {
-                                let full_path = if current_path.is_empty() {
-                                    current_filename()
-                                } else {
-                                    format!("{}/{}", current_path, current_filename())
-                                };
-                                on_select.call(full_path);
-                            },
-                            "Save"
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Update the preview HTML
-async fn update_preview(
-    content: String,
-    mime: &str,
-    path: &str,
-    preview_html: &mut Signal<String>,
-) {
-    if !is_markdown(mime, path) {
-        preview_html.set(format!("<pre>{}</pre>", html_escape(&content)));
-        return;
-    }
-
-    match writer_preview(Some(&content), Some(path)).await {
-        Ok(response) => {
-            preview_html.set(response.html);
-        }
-        Err(e) => {
-            dioxus_logger::tracing::error!("Preview failed: {}", e);
-            preview_html.set(format!("<pre>Error rendering preview: {}</pre>", e));
-        }
-    }
-}
-
-/// Simple HTML escape for non-markdown files
-fn html_escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#x27;")
-}
-
-/// Render save status indicator
-fn render_save_status(save_state: &SaveState, on_dismiss_saved: EventHandler<()>) -> Element {
-    match save_state {
-        SaveState::Clean => rsx! {
-            span { style: "font-size: 0.875rem; color: var(--text-secondary);", "" }
-        },
-        SaveState::Dirty => rsx! {
-            span { style: "font-size: 0.875rem; color: var(--warning-bg);", "Modified" }
-        },
-        SaveState::Saving => rsx! {
-            span { style: "font-size: 0.875rem; color: var(--accent-bg);", "Saving..." }
-        },
-        SaveState::Saved => rsx! {
-            div {
-                style: "display: flex; align-items: center; gap: 0.5rem;",
-                span { style: "font-size: 0.875rem; color: var(--success-bg);", "Saved" }
-                button {
-                    style: "background: transparent; border: none; color: var(--text-secondary); cursor: pointer; font-size: 0.75rem;",
-                    onclick: move |_| on_dismiss_saved.call(()),
-                    "Dismiss"
-                }
-            }
-        },
-        SaveState::Conflict { .. } => rsx! {
-            span { style: "font-size: 0.875rem; color: var(--danger-text); font-weight: bold;", "CONFLICT!" }
-        },
-        SaveState::Error(_) => rsx! {
-            span { style: "font-size: 0.875rem; color: var(--danger-text);", "Error" }
-        },
     }
 }
