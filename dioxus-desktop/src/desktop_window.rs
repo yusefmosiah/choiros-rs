@@ -1038,7 +1038,7 @@ pub fn FloatingWindow(
                     style: if is_mobile {
                         "display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0.5rem; background: var(--titlebar-bg, #111827); border-bottom: 1px solid var(--border-color, #374151); cursor: grab; user-select: none; touch-action: none;"
                     } else {
-                        "display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: var(--titlebar-bg, #111827); border-bottom: 1px solid var(--border-color, #374151); cursor: grab; user-select: none; touch-action: none;"
+                        "display: flex; align-items: center; justify-content: space-between; padding: 0.35rem 0.75rem; background: var(--titlebar-bg, #111827); border-bottom: 1px solid var(--border-color, #374151); cursor: grab; user-select: none; touch-action: none;"
                     },
                     onkeydown: move |e| {
                         if e.key() == Key::Enter || e.key() == Key::Character(" ".to_string()) {

@@ -54,7 +54,7 @@ pub const CHAT_STYLES: &str = r#"
 
 .thread-sidebar {
     width: 260px;
-    background: #0b1222;
+    background: var(--bg-primary, #0b1222);
     border-right: 1px solid var(--border-color, #334155);
     display: flex;
     flex-direction: column;
@@ -87,8 +87,8 @@ pub const CHAT_STYLES: &str = r#"
     left: 0.35rem;
     z-index: 30;
     border-radius: 999px;
-    background: color-mix(in srgb, #0b1222 82%, transparent);
-    border: 1px solid #1f2a44;
+    background: color-mix(in srgb, var(--bg-primary, #0b1222) 82%, transparent);
+    border: 1px solid var(--border-color, #1f2a44);
     padding: 0.35rem 0.45rem;
 }
 
@@ -103,9 +103,9 @@ pub const CHAT_STYLES: &str = r#"
 }
 
 .thread-new-button {
-    background: #1e293b;
-    border: 1px solid #334155;
-    color: #cbd5e1;
+    background: var(--bg-secondary, #1e293b);
+    border: 1px solid var(--border-color, #334155);
+    color: var(--text-secondary, #cbd5e1);
     font-size: 0.72rem;
     border-radius: 0.35rem;
     padding: 0.15rem 0.35rem;
@@ -142,9 +142,9 @@ pub const CHAT_STYLES: &str = r#"
 }
 
 .thread-run-button {
-    background: #1e293b;
-    border: 1px solid #334155;
-    color: #cbd5e1;
+    background: var(--bg-secondary, #1e293b);
+    border: 1px solid var(--border-color, #334155);
+    color: var(--text-secondary, #cbd5e1);
     font-size: 0.68rem;
     border-radius: 0.35rem;
     padding: 0.2rem 0.35rem;
@@ -156,19 +156,19 @@ pub const CHAT_STYLES: &str = r#"
 
 .thread-run-button:hover {
     opacity: 1;
-    border-color: #4b6587;
-    background: #24324a;
+    border-color: color-mix(in srgb, var(--border-color) 60%, var(--accent-bg) 40%);
+    background: color-mix(in srgb, var(--bg-secondary) 80%, var(--accent-bg) 20%);
 }
 
 .thread-item:hover {
-    background: #111b32;
-    border-color: #23395d;
+    background: var(--hover-bg, rgba(255,255,255,0.08));
+    border-color: color-mix(in srgb, var(--border-color) 70%, var(--accent-bg) 30%);
 }
 
 .thread-item.active {
-    background: #13213d;
-    border-color: #2f4f7a;
-    color: #dbeafe;
+    background: color-mix(in srgb, var(--bg-primary) 75%, var(--accent-bg) 25%);
+    border-color: color-mix(in srgb, var(--border-color) 50%, var(--accent-bg) 50%);
+    color: var(--text-primary);
 }
 
 .thread-title {
@@ -182,7 +182,7 @@ pub const CHAT_STYLES: &str = r#"
 .thread-preview {
     font-size: 0.72rem;
     margin-top: 0.2rem;
-    color: #94a3b8;
+    color: var(--text-secondary, #94a3b8);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -362,23 +362,23 @@ pub const CHAT_STYLES: &str = r#"
 }
 
 .system-bubble {
-    background: #111827;
-    color: #e5e7eb;
-    border: 1px solid #374151;
+    background: var(--bg-secondary, #111827);
+    color: var(--text-primary, #e5e7eb);
+    border: 1px solid var(--border-color, #374151);
     border-bottom-left-radius: 0.25rem;
 }
 
 .tool-details {
     width: 100%;
-    background: #111827;
-    border: 1px solid #374151;
+    background: var(--bg-secondary, #111827);
+    border: 1px solid var(--border-color, #374151);
     border-radius: 0.75rem;
     padding: 0.5rem 0.75rem;
 }
 
 .tool-summary {
     cursor: pointer;
-    color: #93c5fd;
+    color: color-mix(in srgb, var(--accent-bg) 70%, var(--text-primary) 30%);
     font-weight: 600;
     display: flex;
     align-items: center;
@@ -395,7 +395,7 @@ pub const CHAT_STYLES: &str = r#"
 
 .tool-activity-toggle {
     background: transparent;
-    color: #93c5fd;
+    color: color-mix(in srgb, var(--accent-bg) 70%, var(--text-primary) 30%);
     border: none;
     font-weight: 600;
     font-size: 1rem;
@@ -404,9 +404,9 @@ pub const CHAT_STYLES: &str = r#"
 }
 
 .tool-action-button {
-    background: #1f2937;
-    color: #cbd5e1;
-    border: 1px solid #475569;
+    background: var(--bg-secondary, #1f2937);
+    color: var(--text-secondary, #cbd5e1);
+    border: 1px solid var(--border-color, #475569);
     border-radius: 0.4rem;
     font-size: 0.75rem;
     padding: 0.1rem 0.45rem;
@@ -419,14 +419,14 @@ pub const CHAT_STYLES: &str = r#"
 
 .tool-label {
     margin: 0.25rem 0;
-    color: #cbd5e1;
+    color: var(--text-secondary, #cbd5e1);
     font-size: 0.8rem;
     font-weight: 600;
 }
 
 .tool-meta {
     margin: 0 0 0.5rem 0;
-    color: #cbd5e1;
+    color: var(--text-secondary, #cbd5e1);
     font-size: 0.8rem;
 }
 
@@ -435,7 +435,7 @@ pub const CHAT_STYLES: &str = r#"
     white-space: pre-wrap;
     word-break: break-word;
     background: #030712;
-    border: 1px solid #374151;
+    border: 1px solid var(--border-color, #374151);
     border-radius: 0.5rem;
     padding: 0.5rem;
     color: #e2e8f0;

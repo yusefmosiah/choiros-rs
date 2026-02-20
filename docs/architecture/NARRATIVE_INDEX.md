@@ -1,6 +1,6 @@
 # ChoirOS Narrative Index (Read This First)
 
-Date: 2026-02-18
+Date: 2026-02-20
 Purpose: Human-readable map of the architecture docs, in plain language.
 
 ## 60-Second Story
@@ -17,8 +17,12 @@ Conductor treats workers/apps as logical subagents, but turns are non-blocking a
 Current reset priority: simplify runtime authority, enforce headless verification, and make live run observability trustworthy.
 Immediate app pattern: human UX first, then headless API, then app-agent harness. Tracing follows this sequence next.
 
-## Latest Checkpoint (2026-02-18)
+## Latest Checkpoint (2026-02-20)
 
+- Tracing UX upgraded: light/dark mode fixed, title bar reduced (51px→32px),
+  multi-run overview added as root view, `trace.rs` split into 8-module package.
+  See `2026-02-20-tracing-writer-ux-upgrade.md`.
+- Next session target: apply the same UX pattern to Writer (`writer.rs`, 1,567 lines).
 - Phase 4 is partial: items 4.1, 4.2, 4.4, and 4.5 are complete.
 - Phase 4 item 4.3 is still open: conductor wake still runs the BAML
   `ConductorBootstrap` path instead of an ALM harness turn with
