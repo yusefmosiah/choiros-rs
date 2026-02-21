@@ -102,7 +102,12 @@ jobs:
           SCRIPT_B64="$(base64 -w0 <<'EOF'
           set -euo pipefail
           RELEASE_SHA="${DEPLOY_SHA}"
-          WORKDIR='/opt/choiros/workspace'
+          WORKDIR='/opt/choiros/deploy-repo'
+          REPO_URL='https://github.com/yusefmosiah/choiros-rs.git'
+          if [ ! -d "$WORKDIR/.git" ]; then
+            rm -rf "$WORKDIR"
+            git clone "$REPO_URL" "$WORKDIR"
+          fi
           cd "$WORKDIR"
           git fetch origin
           git checkout -f "$RELEASE_SHA"
