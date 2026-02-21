@@ -104,6 +104,9 @@ jobs:
           RELEASE_SHA="${DEPLOY_SHA}"
           WORKDIR='/opt/choiros/deploy-repo'
           REPO_URL='https://github.com/yusefmosiah/choiros-rs.git'
+          SANDBOX_OUT="$WORKDIR/result-sandbox"
+          HYPERVISOR_OUT="$WORKDIR/result-hypervisor"
+          DESKTOP_OUT="$WORKDIR/result-desktop"
           if [ ! -d "$WORKDIR/.git" ]; then
             rm -rf "$WORKDIR"
             git clone "$REPO_URL" "$WORKDIR"
@@ -112,17 +115,20 @@ jobs:
           git fetch origin
           git checkout -f "$RELEASE_SHA"
 
-          nix --extra-experimental-features nix-command --extra-experimental-features flakes build ./sandbox#sandbox
-          nix --extra-experimental-features nix-command --extra-experimental-features flakes build ./hypervisor#hypervisor
-          nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./dioxus-desktop --command bash -lc 'cd dioxus-desktop && dx build --release'
+          rm -f "$SANDBOX_OUT" "$HYPERVISOR_OUT" "$DESKTOP_OUT"
+          nix --extra-experimental-features nix-command --extra-experimental-features flakes build ./sandbox#sandbox --out-link "$SANDBOX_OUT"
+          nix --extra-experimental-features nix-command --extra-experimental-features flakes build ./hypervisor#hypervisor --out-link "$HYPERVISOR_OUT"
+          nix --extra-experimental-features nix-command --extra-experimental-features flakes build ./dioxus-desktop#desktop --out-link "$DESKTOP_OUT"
 
-          install -m 0755 ./sandbox/result/bin/sandbox /opt/choiros/bin/sandbox
-          install -m 0755 ./hypervisor/result/bin/hypervisor /opt/choiros/bin/hypervisor
-          install -m 0755 ./dioxus-desktop/result/bin/sandbox-ui /opt/choiros/bin/sandbox-ui
+          install -m 0755 "$SANDBOX_OUT/bin/sandbox" /opt/choiros/bin/sandbox
+          install -m 0755 "$HYPERVISOR_OUT/bin/hypervisor" /opt/choiros/bin/hypervisor
+          install -m 0755 "$DESKTOP_OUT/bin/sandbox-ui" /opt/choiros/bin/sandbox-ui
 
           systemctl restart container@sandbox-live container@sandbox-dev hypervisor
           sleep 3
-          curl -fsS http://127.0.0.1:9090/health >/dev/null
+          curl -fsS http://127.0.0.1:9090/login >/dev/null
+          curl -fsS http://127.0.0.1:8080/health >/dev/null
+          curl -fsS http://127.0.0.1:8081/health >/dev/null
           echo "Deploy OK for $RELEASE_SHA"
           EOF
           )"
@@ -165,6 +171,11 @@ jobs:
 
           if [ "${STATUS:-}" != "Success" ]; then
             echo "SSM command did not reach Success within timeout window (last status: ${STATUS:-unknown})"
+            aws ssm get-command-invocation \
+              --region "${AWS_REGION}" \
+              --command-id "${COMMAND_ID}" \
+              --instance-id "${DEPLOY_INSTANCE_ID}" \
+              --output json || true
             exit 1
           fi
 

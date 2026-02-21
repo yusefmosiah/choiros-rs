@@ -456,6 +456,14 @@ pub async fn recovery_page() -> impl IntoResponse {
     serve_index_html()
 }
 
+pub async fn root_page(session: Session) -> impl IntoResponse {
+    if sess::get_user_id(&session).await.is_some() {
+        serve_index_html()
+    } else {
+        Redirect::to("/login").into_response()
+    }
+}
+
 fn serve_index_html() -> axum::response::Response {
     let dist = crate::config::frontend_dist_from_env();
     let index_path = format!("{dist}/index.html");

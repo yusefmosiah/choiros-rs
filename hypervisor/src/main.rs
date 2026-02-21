@@ -93,6 +93,7 @@ async fn main() -> anyhow::Result<()> {
         // Auth pages — serve the Dioxus index.html; the WASM router handles
         // /login, /register, /recovery client-side.
         // Falls through to the ServeDir nest below when the dist exists.
+        .route("/", get(auth::handlers::root_page))
         .route("/login", get(auth::handlers::login_page))
         .route("/register", get(auth::handlers::register_page))
         .route("/recovery", get(auth::handlers::recovery_page))

@@ -24,6 +24,7 @@ pub async fn require_auth(
     if path.starts_with("/auth/")
         || path.starts_with("/assets/")
         || path.starts_with("/wasm/")
+        || path == "/"
         || path == "/login"
         || path == "/register"
         || path == "/recovery"
