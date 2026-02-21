@@ -66,7 +66,7 @@ async function authMe(page: Page): Promise<MeResponse> {
 }
 
 /** Register a new user via the passkey modal and return the session. */
-async function registerAndLogin(page: Page): Promise<{ username: string }> {
+async function registerAndLogin(page: Page): Promise<{ username: string; userId: string }> {
   const username = uniqueUsername();
   await addVirtualAuthenticator(page);
 
@@ -88,7 +88,7 @@ async function registerAndLogin(page: Page): Promise<{ username: string }> {
   const me = await authMe(page);
   expect(me.authenticated).toBe(true);
 
-  return { username };
+  return { username, userId: me.user_id! };
 }
 
 /** Start the live sandbox for the current user and wait up to 35s for it to be running. */
@@ -103,7 +103,9 @@ async function ensureSandboxRunning(page: Page): Promise<void> {
     const res = await page.request.get("/admin/sandboxes");
     if (res.ok()) {
       const snapshots = (await res.json()) as SandboxSnapshot[];
-      if (snapshots.some((s) => s.role === "live" && s.status === "running")) return;
+      if (snapshots.some((s) => s.user_id === userId && s.role === "live" && s.status === "running")) {
+        return;
+      }
     }
     await page.waitForTimeout(1000);
   }
@@ -112,12 +114,12 @@ async function ensureSandboxRunning(page: Page): Promise<void> {
 
 test.describe.serial("proxy integration", () => {
   test("sandbox is auto-spawned after first authenticated request", async ({ page }) => {
-    await registerAndLogin(page);
+    const me = await registerAndLogin(page);
     await ensureSandboxRunning(page);
 
     const res = await page.request.get("/admin/sandboxes");
     const snapshots = (await res.json()) as SandboxSnapshot[];
-    const live = snapshots.find((s) => s.role === "live");
+    const live = snapshots.find((s) => s.user_id === me.userId && s.role === "live");
     expect(live?.status).toBe("running");
   });
 
