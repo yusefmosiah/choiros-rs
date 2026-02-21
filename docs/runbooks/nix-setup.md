@@ -773,9 +773,12 @@ Do not rush this. Keep Homebrew until nix-darwin is stable on your machine.
 
 - **baml-cli Nix derivation**: write `nix/baml-cli.nix` when next bumping baml
   versions or adding CI codegen. Template is in Phase 1.4 above.
-- **Sandbox artifact delivery into containers**: choose one path for `/opt/choiros/bin/sandbox`
-  (remote `nix build`, rsync, or host-native flake package build) and make it the
-  only supported path.
+- **Sandbox artifact delivery into containers**: CI/CD now builds cache-backed flake
+  outputs and deploys staged tarballs to `/opt/choiros/bin/*`. Keep this as the
+  only supported artifact path.
+- **Rollback discipline**: tie runtime rollback to NixOS generations first
+  (`sudo nixos-rebuild switch --rollback`) and use artifact backups under
+  `/opt/choiros/backups/<github-sha>/` only when a binary-only revert is needed.
 - **`.sqlx/` offline data**: keep committed and in sync; required for reliable host-side
   flake builds of the sandbox binary.
 - **EC2 NixOS config as flake output**: the EC2 `configuration.nix` should move into

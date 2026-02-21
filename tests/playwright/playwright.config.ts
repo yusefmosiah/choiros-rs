@@ -1,5 +1,8 @@
 import { defineConfig } from "@playwright/test";
 
+const hypervisorBaseUrl =
+  process.env.PLAYWRIGHT_HYPERVISOR_BASE_URL ?? "http://localhost:9090";
+
 export default defineConfig({
   testDir: ".",
   testMatch: ["*.spec.ts"],
@@ -17,7 +20,7 @@ export default defineConfig({
       name: "hypervisor",
       testMatch: ["bios-auth.spec.ts", "proxy-integration.spec.ts"],
       use: {
-        baseURL: "http://localhost:9090",
+        baseURL: hypervisorBaseUrl,
         trace: "on",
         video: "on",
         screenshot: "only-on-failure",

@@ -2,7 +2,7 @@
 
 Date: 2026-02-21  
 Owner: auth/runtime  
-Status: resolved (auth UX fix shipped to production); CI/CD follow-up pending
+Status: resolved (auth UX fix shipped to production); CI/CD + cache-backed deploy scaffolded
 
 ## Narrative Summary (1-minute read)
 
@@ -29,12 +29,12 @@ to remove manual artifact sync steps.
 
 ## What To Do Next
 
-1. Wire CI workflow to build `sandbox`, `hypervisor`, and `dioxus-desktop` artifacts
-   from cache-backed flake outputs.
-2. Add deploy job that updates EC2 runtime artifacts declaratively (prefer host-side
-   Nix build or pull-from-cache over ad hoc rsync).
-3. Keep Playwright domain-mode auth/proxy smoke as release-gate evidence.
-4. Add rollback-safe deploy docs covering generation rollback + artifact rollback.
+1. Configure repo secrets/vars used by the new workflow:
+   - required: `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, optional `EC2_SSH_PORT`
+   - optional repo var `PLAYWRIGHT_HYPERVISOR_BASE_URL`
+2. Keep Playwright domain-mode auth/proxy smoke as release-gate evidence.
+3. Move EC2 host config into repo flake outputs so deploy can switch generations
+   declaratively from git SHA instead of mutable host config.
 
 ## Verification Notes
 
@@ -48,3 +48,14 @@ to remove manual artifact sync steps.
 - Keep RP origin/domain unchanged unless root-cause proves WebAuthn config defect.
 - Do not introduce deterministic orchestration fallbacks in conductor/runtime paths.
 - Preserve current NixOS container substrate and hypervisor reverse-proxy topology.
+
+## Rollback Notes (Generation-Tied)
+
+- Check host generations:
+  `sudo nix-env --list-generations --profile /nix/var/nix/profiles/system`
+- Roll back NixOS generation:
+  `sudo nixos-rebuild switch --rollback`
+- Reconcile services after rollback:
+  `sudo systemctl restart container@sandbox-live container@sandbox-dev hypervisor`
+- Artifact-level fallback remains available at:
+  `/opt/choiros/backups/<github-sha>/`

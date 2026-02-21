@@ -1,11 +1,22 @@
-name: Nix CI (Draft)
+name: Nix CI/CD
 
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
   id-token: write
+
+concurrency:
+  group: nix-ci-cd-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PLAYWRIGHT_HYPERVISOR_BASE_URL: ${{ vars.PLAYWRIGHT_HYPERVISOR_BASE_URL || 'https://os.choir-ip.com' }}
 
 jobs:
   nix-build:
@@ -32,24 +43,170 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/determinate-nix-action@v3
 
-      - name: Configure FlakeHub Cache
+      - name: Configure FlakeHub cache
         uses: DeterminateSystems/flakehub-cache-action@v1
 
-      - name: Check flake presence
-        id: flake
+      - name: Build flake package
+        run: nix build "./${{ matrix.path }}#${{ matrix.attr }}" --print-build-logs
+
+  playwright-domain-smoke:
+    name: Playwright domain smoke
+    runs-on: ubuntu-latest
+    needs: [nix-build]
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Playwright dependencies
+        run: npm ci
+        working-directory: tests/playwright
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: tests/playwright
+
+      - name: Run domain smoke suite
+        run: >-
+          npx playwright test
+          --project hypervisor
+          bios-auth.spec.ts
+          proxy-integration.spec.ts
+        working-directory: tests/playwright
+        env:
+          PLAYWRIGHT_HYPERVISOR_BASE_URL: ${{ env.PLAYWRIGHT_HYPERVISOR_BASE_URL }}
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-domain-smoke
+          path: tests/artifacts/playwright/
+          retention-days: 7
+
+  deploy-ec2:
+    name: Deploy EC2 from cached flake outputs
+    runs-on: ubuntu-latest
+    needs: [playwright-domain-smoke]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    environment: production
+    env:
+      DEPLOY_HOST: ${{ secrets.EC2_HOST }}
+      DEPLOY_USER: ${{ secrets.EC2_USER }}
+      DEPLOY_KEY: ${{ secrets.EC2_SSH_KEY }}
+      DEPLOY_PORT: ${{ secrets.EC2_SSH_PORT || '22' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/determinate-nix-action@v3
+
+      - name: Configure FlakeHub cache
+        uses: DeterminateSystems/flakehub-cache-action@v1
+
+      - name: Build deploy artifacts from cache-backed outputs
         run: |
-          if [ -f "${{ matrix.path }}/flake.nix" ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          sandbox_out="$(nix build --print-out-paths ./sandbox#sandbox)"
+          hypervisor_out="$(nix build --print-out-paths ./hypervisor#hypervisor)"
+          desktop_out="$(nix build --print-out-paths ./dioxus-desktop#desktop)"
+
+          install -d .deploy
+          tar -C "$sandbox_out/bin" -czf .deploy/sandbox.tgz sandbox
+          tar -C "$hypervisor_out/bin" -czf .deploy/hypervisor.tgz hypervisor
+          tar -C "$desktop_out/bin" -czf .deploy/sandbox-ui.tgz sandbox-ui
+
+      - name: Build web assets (Dioxus release)
+        run: |
+          set -euo pipefail
+          nix develop ./dioxus-desktop --command dx build --release
+
+          web_public_dir="dioxus-desktop/target/dx/sandbox-ui/release/web/public"
+          if [ ! -d "$web_public_dir" ]; then
+            echo "Expected web asset directory missing: $web_public_dir"
+            exit 1
           fi
 
-      - name: Build flake package
-        if: steps.flake.outputs.present == 'true'
-        run: |
-          nix build "./${{ matrix.path }}#${{ matrix.attr }}" --print-build-logs
+          tar -C "$web_public_dir" -czf .deploy/sandbox-ui-web.tgz .
 
-      - name: Skip missing flake
-        if: steps.flake.outputs.present != 'true'
+      - name: Prepare SSH
         run: |
-          echo "${{ matrix.path }}/flake.nix not present yet; draft workflow skip."
+          set -euo pipefail
+          if [ -z "${DEPLOY_HOST}" ] || [ -z "${DEPLOY_USER}" ] || [ -z "${DEPLOY_KEY}" ]; then
+            echo "Missing deploy secrets. Set EC2_HOST, EC2_USER, EC2_SSH_KEY (and optional EC2_SSH_PORT)."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "${DEPLOY_KEY}" > ~/.ssh/choiros_ec2
+          chmod 600 ~/.ssh/choiros_ec2
+          ssh-keyscan -p "${DEPLOY_PORT}" "${DEPLOY_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Upload artifacts to EC2
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/choiros_ec2 -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" "mkdir -p /tmp/choiros-deploy/${{ github.sha }}"
+          scp -i ~/.ssh/choiros_ec2 -P "${DEPLOY_PORT}" .deploy/*.tgz "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/choiros-deploy/${{ github.sha }}/"
+
+      - name: Activate artifacts on EC2
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/choiros_ec2 -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" '
+            set -euo pipefail
+            RELEASE_SHA="${{ github.sha }}"
+            RELEASE_DIR="/opt/choiros/releases/${RELEASE_SHA}"
+            BACKUP_DIR="/opt/choiros/backups/${RELEASE_SHA}"
+            STAGE_DIR="/tmp/choiros-deploy/${RELEASE_SHA}"
+
+            sudo mkdir -p "$RELEASE_DIR" "$BACKUP_DIR" /opt/choiros/bin
+
+            for bin in sandbox hypervisor sandbox-ui; do
+              if [ -x "/opt/choiros/bin/$bin" ]; then
+                sudo cp -a "/opt/choiros/bin/$bin" "$BACKUP_DIR/$bin"
+              fi
+            done
+
+            WEB_PUBLIC_DIR="/opt/choiros/workspace/dioxus-desktop/target/dx/sandbox-ui/release/web/public"
+            if [ -d "$WEB_PUBLIC_DIR" ]; then
+              sudo mkdir -p "$BACKUP_DIR/web-public"
+              sudo cp -a "$WEB_PUBLIC_DIR/." "$BACKUP_DIR/web-public/"
+            fi
+
+            sudo tar -xzf "$STAGE_DIR/sandbox.tgz" -C "$RELEASE_DIR"
+            sudo tar -xzf "$STAGE_DIR/hypervisor.tgz" -C "$RELEASE_DIR"
+            sudo tar -xzf "$STAGE_DIR/sandbox-ui.tgz" -C "$RELEASE_DIR"
+            sudo mkdir -p "$RELEASE_DIR/web-public"
+            sudo tar -xzf "$STAGE_DIR/sandbox-ui-web.tgz" -C "$RELEASE_DIR/web-public"
+
+            sudo install -m 0755 "$RELEASE_DIR/sandbox" /opt/choiros/bin/sandbox
+            sudo install -m 0755 "$RELEASE_DIR/hypervisor" /opt/choiros/bin/hypervisor
+            sudo install -m 0755 "$RELEASE_DIR/sandbox-ui" /opt/choiros/bin/sandbox-ui
+
+            sudo mkdir -p "$WEB_PUBLIC_DIR"
+            sudo rm -rf "$WEB_PUBLIC_DIR"/*
+            sudo cp -a "$RELEASE_DIR/web-public/." "$WEB_PUBLIC_DIR/"
+
+            sudo systemctl restart container@sandbox-live container@sandbox-dev hypervisor
+            sleep 3
+            curl -fsS http://127.0.0.1:9090/health > /dev/null
+            echo "Deploy OK for ${RELEASE_SHA}"
+            echo "Recent NixOS generations:"
+            sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | tail -n 5
+          '
+
+      - name: Publish rollback notes
+        run: |
+          {
+            echo "## Rollback quick path"
+            echo
+            echo "- EC2 host rollback: \\`sudo nixos-rebuild switch --rollback\\`"
+            echo "- EC2 host generation list: \\`sudo nix-env --list-generations --profile /nix/var/nix/profiles/system\\`"
+            echo "- Artifact backup path: \\`/opt/choiros/backups/${{ github.sha }}\\`"
+            echo "- Binary release path: \\`/opt/choiros/releases/${{ github.sha }}\\`"
+            echo "- Service restart after rollback: \\`sudo systemctl restart container@sandbox-live container@sandbox-dev hypervisor\\`"
+          } >> "$GITHUB_STEP_SUMMARY"
