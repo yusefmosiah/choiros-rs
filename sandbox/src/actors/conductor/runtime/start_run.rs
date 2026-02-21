@@ -1,12 +1,14 @@
 use ractor::{ActorProcessingErr, ActorRef};
 use shared_types::ConductorExecuteRequest;
 
-use crate::actors::agent_harness::{AgentHarness, HarnessProfile, ObjectiveStatus};
+use crate::actors::agent_harness::{AgentHarness, HarnessProfile, ObjectiveStatus, ToolExecution};
 use crate::actors::conductor::actor::{ConductorActor, ConductorState};
 use crate::actors::conductor::{
     events,
     protocol::{ConductorError, ConductorMsg},
-    runtime::conductor_adapter::{parse_routing_decision, ConductorHarnessAdapter},
+    runtime::conductor_adapter::{
+        parse_routing_decision, ConductorHarnessAdapter, ConductorRoutingDecision,
+    },
 };
 use crate::actors::model_config::ModelRegistry;
 use crate::actors::writer::{WriterMsg, WriterSource};
@@ -419,8 +421,7 @@ impl ConductorActor {
         objective: &str,
         available_capabilities: &[String],
         memory_context: Option<String>,
-    ) -> Option<crate::actors::conductor::runtime::conductor_adapter::ConductorRoutingDecision>
-    {
+    ) -> Option<ConductorRoutingDecision> {
         let model_registry = ModelRegistry::new();
         let trace_emitter = LlmTraceEmitter::new(state.event_store.clone());
         let config = HarnessProfile::Conductor.default_config();
@@ -446,7 +447,9 @@ impl ConductorActor {
             .await
         {
             Ok(result) if result.objective_status == ObjectiveStatus::Complete => {
-                let decision = parse_routing_decision(&result.summary);
+                let decision = parse_routing_decision(&result.summary).or_else(|| {
+                    parse_routing_decision_from_finished_tool_executions(&result.tool_executions)
+                });
                 if decision.is_none() {
                     tracing::warn!(
                         run_id = %run_id,
@@ -477,9 +480,29 @@ impl ConductorActor {
     }
 }
 
+fn parse_routing_decision_from_finished_tool_executions(
+    tool_executions: &[ToolExecution],
+) -> Option<ConductorRoutingDecision> {
+    tool_executions.iter().rev().find_map(|execution| {
+        if execution.tool_name != "finished" || !execution.success {
+            return None;
+        }
+
+        let value: serde_json::Value = serde_json::from_str(&execution.output).ok()?;
+        let summary = value.get("summary")?.as_str()?.trim();
+        if summary.is_empty() {
+            return None;
+        }
+
+        parse_routing_decision(summary)
+    })
+}
+
 #[cfg(test)]
 mod tests {
+    use super::parse_routing_decision_from_finished_tool_executions;
     use super::ConductorActor;
+    use crate::actors::agent_harness::ToolExecution;
 
     #[test]
     fn test_objective_with_capability_contract_immediate_response() {
@@ -516,5 +539,51 @@ mod tests {
         let objective =
             actor.objective_with_capability_contract("ImMeDiAtE_ReSpOnSe", "Summarize".into());
         assert!(objective.contains("Capability Contract (immediate_response)"));
+    }
+
+    #[test]
+    fn test_parse_routing_decision_from_finished_tool_executions() {
+        let tool_executions = vec![ToolExecution {
+            tool_name: "finished".to_string(),
+            success: true,
+            output: serde_json::json!({
+                "status": "finished",
+                "summary": "{\"dispatch_capabilities\":[\"immediate_response\"],\"rationale\":\"simple greeting\",\"confidence\":1.0,\"block_reason\":null}"
+            })
+            .to_string(),
+            error: None,
+            execution_time_ms: 0,
+        }];
+
+        let decision = parse_routing_decision_from_finished_tool_executions(&tool_executions)
+            .expect("routing decision should parse from finished summary");
+        assert_eq!(decision.dispatch_capabilities, vec!["immediate_response"]);
+    }
+
+    #[test]
+    fn test_parse_routing_decision_from_finished_tool_executions_ignores_invalid_entries() {
+        let tool_executions = vec![
+            ToolExecution {
+                tool_name: "file_read".to_string(),
+                success: true,
+                output: "{}".to_string(),
+                error: None,
+                execution_time_ms: 0,
+            },
+            ToolExecution {
+                tool_name: "finished".to_string(),
+                success: true,
+                output: serde_json::json!({
+                    "status": "finished",
+                    "summary": "not-json"
+                })
+                .to_string(),
+                error: None,
+                execution_time_ms: 0,
+            },
+        ];
+
+        let decision = parse_routing_decision_from_finished_tool_executions(&tool_executions);
+        assert!(decision.is_none());
     }
 }

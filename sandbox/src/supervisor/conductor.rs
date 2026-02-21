@@ -2,7 +2,7 @@
 
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort, SupervisionEvent};
 use std::collections::HashMap;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::actors::conductor::{ConductorActor, ConductorArguments, ConductorMsg};
 use crate::actors::event_store::EventStoreMsg;
@@ -11,6 +11,12 @@ use crate::supervisor::writer::WriterSupervisorMsg;
 
 #[derive(Debug, Default)]
 pub struct ConductorSupervisor;
+
+fn lookup_running_conductor(actor_name: &str) -> Option<ActorRef<ConductorMsg>> {
+    let cell = ractor::registry::where_is(actor_name.to_string())?;
+    let actor_ref: ActorRef<ConductorMsg> = cell.into();
+    (actor_ref.get_status() == ractor::ActorStatus::Running).then_some(actor_ref)
+}
 
 pub struct ConductorSupervisorState {
     pub conductors: HashMap<String, ActorRef<ConductorMsg>>,
@@ -106,13 +112,10 @@ impl Actor for ConductorSupervisor {
                 }
 
                 let actor_name = format!("conductor:{conductor_id}");
-                if let Some(cell) = ractor::registry::where_is(actor_name.clone()) {
-                    let actor_ref: ActorRef<ConductorMsg> = cell.into();
-                    if actor_ref.get_status() == ractor::ActorStatus::Running {
-                        state.conductors.insert(conductor_id, actor_ref.clone());
-                        let _ = reply.send(Ok(actor_ref));
-                        return Ok(());
-                    }
+                if let Some(actor_ref) = lookup_running_conductor(&actor_name) {
+                    state.conductors.insert(conductor_id, actor_ref.clone());
+                    let _ = reply.send(Ok(actor_ref));
+                    return Ok(());
                 }
 
                 let args = ConductorArguments {
@@ -121,8 +124,13 @@ impl Actor for ConductorSupervisor {
                     memory_actor: state.memory_actor.clone(),
                 };
 
-                match Actor::spawn_linked(Some(actor_name), ConductorActor, args, myself.get_cell())
-                    .await
+                match Actor::spawn_linked(
+                    Some(actor_name.clone()),
+                    ConductorActor,
+                    args,
+                    myself.get_cell(),
+                )
+                .await
                 {
                     Ok((actor_ref, _)) => {
                         info!(
@@ -135,6 +143,18 @@ impl Actor for ConductorSupervisor {
                         let _ = reply.send(Ok(actor_ref));
                     }
                     Err(e) => {
+                        if let Some(actor_ref) = lookup_running_conductor(&actor_name) {
+                            debug!(
+                                error = %e,
+                                conductor_id = %conductor_id,
+                                user_id = %user_id,
+                                actor_id = %actor_ref.get_id(),
+                                "Conductor spawn raced with an existing actor; reusing running actor"
+                            );
+                            state.conductors.insert(conductor_id, actor_ref.clone());
+                            let _ = reply.send(Ok(actor_ref));
+                            return Ok(());
+                        }
                         error!(
                             error = %e,
                             conductor_id = %conductor_id,

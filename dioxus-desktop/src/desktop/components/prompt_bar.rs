@@ -4,7 +4,9 @@ use shared_types::{
     ConductorToastPayload, EventImportance, WindowState, WriterWindowProps,
 };
 
-use crate::api::{execute_conductor, open_window};
+use crate::api::{
+    conductor_get_run_state, conductor_get_run_status, execute_conductor, open_window,
+};
 use crate::desktop::apps::get_app_icon;
 
 // ============================================================================
@@ -338,29 +340,50 @@ fn failure_from_error(error: Option<ConductorError>) -> (String, String) {
     })
 }
 
-fn toast_style_for_tone(tone: shared_types::ConductorToastTone) -> &'static str {
-    match tone {
-        shared_types::ConductorToastTone::Info => {
-            "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; background: #60a5fa; color: #0b1020; border: 1px solid #3b82f6; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 600; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;"
-        }
-        shared_types::ConductorToastTone::Success => {
-            "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; background: #34d399; color: #042f2e; border: 1px solid #10b981; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 600; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;"
-        }
-        shared_types::ConductorToastTone::Warning => {
-            "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; background: #fbbf24; color: #111827; border: 1px solid #f59e0b; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 600; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;"
-        }
-        shared_types::ConductorToastTone::Error => {
-            "position: absolute; right: 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; background: #f87171; color: #111827; border: 1px solid #ef4444; border-radius: var(--radius-sm, 4px); font-size: 0.75rem; font-weight: 600; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;"
-        }
+fn run_state_requires_writer(run: &shared_types::ConductorRunState) -> bool {
+    run.agenda
+        .iter()
+        .any(|item| !item.capability.eq_ignore_ascii_case("immediate_response"))
+}
+
+fn writer_props_for_run_document(document_path: &str, run_id: &str) -> WriterWindowProps {
+    WriterWindowProps {
+        x: 100,
+        y: 100,
+        width: 900,
+        height: 680,
+        path: document_path.to_string(),
+        preview_mode: false,
+        run_id: Some(run_id.to_string()),
     }
 }
 
-fn toast_icon_for_tone(tone: shared_types::ConductorToastTone) -> &'static str {
+fn writer_props_for_report(report_path: &str, run_id: &str) -> WriterWindowProps {
+    WriterWindowProps {
+        x: 100,
+        y: 100,
+        width: 900,
+        height: 680,
+        path: report_path.to_string(),
+        preview_mode: true,
+        run_id: Some(run_id.to_string()),
+    }
+}
+
+fn toast_style_for_tone(tone: shared_types::ConductorToastTone) -> &'static str {
     match tone {
-        shared_types::ConductorToastTone::Info => "i",
-        shared_types::ConductorToastTone::Success => "✓",
-        shared_types::ConductorToastTone::Warning => "!",
-        shared_types::ConductorToastTone::Error => "⚠",
+        shared_types::ConductorToastTone::Info => {
+            "position: absolute; right: 0.375rem; top: 0.375rem; bottom: 0.375rem; display: flex; align-items: center; padding: 0 0.75rem; background: #60a5fa; color: #0b1020; border: 1px solid #3b82f6; border-radius: var(--radius-md, 8px); font-size: 0.75rem; font-weight: 600; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;"
+        }
+        shared_types::ConductorToastTone::Success => {
+            "position: absolute; right: 0.375rem; top: 0.375rem; bottom: 0.375rem; display: flex; align-items: center; padding: 0 0.75rem; background: #34d399; color: #042f2e; border: 1px solid #10b981; border-radius: var(--radius-md, 8px); font-size: 0.75rem; font-weight: 600; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;"
+        }
+        shared_types::ConductorToastTone::Warning => {
+            "position: absolute; right: 0.375rem; top: 0.375rem; bottom: 0.375rem; display: flex; align-items: center; padding: 0 0.75rem; background: #fbbf24; color: #111827; border: 1px solid #f59e0b; border-radius: var(--radius-md, 8px); font-size: 0.75rem; font-weight: 600; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;"
+        }
+        shared_types::ConductorToastTone::Error => {
+            "position: absolute; right: 0.375rem; top: 0.375rem; bottom: 0.375rem; display: flex; align-items: center; padding: 0 0.75rem; background: #f87171; color: #111827; border: 1px solid #ef4444; border-radius: var(--radius-md, 8px); font-size: 0.75rem; font-weight: 600; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;"
+        }
     }
 }
 
@@ -429,19 +452,119 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
     ) {
         match classify_run_status(response.status) {
             TaskLifecycleDecision::Running => {
-                state.set(ConductorSubmissionState::OpeningWriter {
-                    run_id: response.run_id.clone(),
-                });
-
-                if let Err(e) = open_writer_window(&desktop_id, response.writer_window_props).await
-                {
-                    state.set(ConductorSubmissionState::Failed {
-                        code: "WINDOW_OPEN_FAILED".to_string(),
-                        message: e,
+                if response.writer_window_props.is_some() {
+                    state.set(ConductorSubmissionState::OpeningWriter {
+                        run_id: response.run_id.clone(),
                     });
+
+                    if let Err(e) =
+                        open_writer_window(&desktop_id, response.writer_window_props).await
+                    {
+                        state.set(ConductorSubmissionState::Failed {
+                            code: "WINDOW_OPEN_FAILED".to_string(),
+                            message: e,
+                        });
+                    } else {
+                        state.set(ConductorSubmissionState::Success {
+                            run_id: response.run_id,
+                        });
+                    }
                 } else {
-                    state.set(ConductorSubmissionState::Success {
-                        run_id: response.run_id,
+                    state.set(ConductorSubmissionState::Submitting);
+                    let run_id = response.run_id.clone();
+                    let mut opened_writer = false;
+
+                    for _ in 0..80 {
+                        match conductor_get_run_status(&run_id).await {
+                            Ok(run_status) => match classify_run_status(run_status.status) {
+                                TaskLifecycleDecision::Completed => {
+                                    if let Some(toast) = run_status.toast {
+                                        state.set(ConductorSubmissionState::ToastReady {
+                                            run_id: run_id.clone(),
+                                            toast,
+                                        });
+                                        return;
+                                    }
+
+                                    let writer_props = run_status
+                                        .report_path
+                                        .as_deref()
+                                        .map(|path| writer_props_for_report(path, &run_id))
+                                        .or_else(|| {
+                                            (!run_status.document_path.trim().is_empty()).then(
+                                                || {
+                                                    writer_props_for_run_document(
+                                                        &run_status.document_path,
+                                                        &run_id,
+                                                    )
+                                                },
+                                            )
+                                        });
+
+                                    state.set(ConductorSubmissionState::OpeningWriter {
+                                        run_id: run_id.clone(),
+                                    });
+                                    if let Err(e) =
+                                        open_writer_window(&desktop_id, writer_props).await
+                                    {
+                                        state.set(ConductorSubmissionState::Failed {
+                                            code: "WINDOW_OPEN_FAILED".to_string(),
+                                            message: e,
+                                        });
+                                    } else {
+                                        state.set(ConductorSubmissionState::Success {
+                                            run_id: run_id.clone(),
+                                        });
+                                    }
+                                    return;
+                                }
+                                TaskLifecycleDecision::Failed => {
+                                    let (code, message) = failure_from_error(run_status.error);
+                                    state.set(ConductorSubmissionState::Failed { code, message });
+                                    return;
+                                }
+                                TaskLifecycleDecision::Running => {}
+                            },
+                            Err(_) => {}
+                        }
+
+                        if !opened_writer {
+                            match conductor_get_run_state(&run_id).await {
+                                Ok(run_state) if run_state_requires_writer(&run_state) => {
+                                    state.set(ConductorSubmissionState::OpeningWriter {
+                                        run_id: run_id.clone(),
+                                    });
+                                    let props = Some(writer_props_for_run_document(
+                                        &run_state.document_path,
+                                        &run_id,
+                                    ));
+                                    if let Err(e) = open_writer_window(&desktop_id, props).await {
+                                        state.set(ConductorSubmissionState::Failed {
+                                            code: "WINDOW_OPEN_FAILED".to_string(),
+                                            message: e,
+                                        });
+                                    } else {
+                                        state.set(ConductorSubmissionState::Success {
+                                            run_id: run_id.clone(),
+                                        });
+                                        opened_writer = true;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        if opened_writer {
+                            return;
+                        }
+
+                        gloo_timers::future::TimeoutFuture::new(250).await;
+                    }
+
+                    state.set(ConductorSubmissionState::Failed {
+                        code: "RUN_STATUS_TIMEOUT".to_string(),
+                        message: "Run accepted but did not produce toast or writer state in time"
+                            .to_string(),
                     });
                 }
             }
@@ -623,8 +746,7 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
                                             }
                                         });
                                     },
-                                    span { "{toast_icon_for_tone(toast.tone)}" }
-                                    span { "{toast.title}: {toast.message}" }
+                                    span { "{toast.message}" }
                                 }
                             }
 
@@ -760,8 +882,7 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
                                     }
                                 });
                             },
-                            span { "{toast_icon_for_tone(toast.tone)}" }
-                            span { "{toast.title}: {toast.message}" }
+                            span { "{toast.message}" }
                         }
                     }
 
@@ -896,6 +1017,70 @@ mod tests {
         }));
         assert_eq!(code, "EXEC_FAIL");
         assert_eq!(message, "Typed failure");
+    }
+
+    #[test]
+    fn run_state_requires_writer_is_false_for_immediate_only_agenda() {
+        let now = chrono::Utc::now();
+        let run = shared_types::ConductorRunState {
+            run_id: "run-1".to_string(),
+            objective: "hi".to_string(),
+            status: ConductorRunStatus::Running,
+            created_at: now,
+            updated_at: now,
+            completed_at: None,
+            agenda: vec![shared_types::ConductorAgendaItem {
+                item_id: "item-1".to_string(),
+                capability: "immediate_response".to_string(),
+                objective: "hi".to_string(),
+                priority: 0,
+                depends_on: vec![],
+                status: shared_types::AgendaItemStatus::Ready,
+                created_at: now,
+                started_at: None,
+                completed_at: None,
+            }],
+            active_calls: vec![],
+            artifacts: vec![],
+            decision_log: vec![],
+            document_path: "conductor/runs/run-1/draft.md".to_string(),
+            output_mode: ConductorOutputMode::Auto,
+            desktop_id: "desktop-1".to_string(),
+        };
+
+        assert!(!run_state_requires_writer(&run));
+    }
+
+    #[test]
+    fn run_state_requires_writer_is_true_for_writer_capability() {
+        let now = chrono::Utc::now();
+        let run = shared_types::ConductorRunState {
+            run_id: "run-2".to_string(),
+            objective: "summarize".to_string(),
+            status: ConductorRunStatus::Running,
+            created_at: now,
+            updated_at: now,
+            completed_at: None,
+            agenda: vec![shared_types::ConductorAgendaItem {
+                item_id: "item-1".to_string(),
+                capability: "writer".to_string(),
+                objective: "summarize".to_string(),
+                priority: 0,
+                depends_on: vec![],
+                status: shared_types::AgendaItemStatus::Ready,
+                created_at: now,
+                started_at: None,
+                completed_at: None,
+            }],
+            active_calls: vec![],
+            artifacts: vec![],
+            decision_log: vec![],
+            document_path: "conductor/runs/run-2/draft.md".to_string(),
+            output_mode: ConductorOutputMode::Auto,
+            desktop_id: "desktop-1".to_string(),
+        };
+
+        assert!(run_state_requires_writer(&run));
     }
 }
 

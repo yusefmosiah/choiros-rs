@@ -3,8 +3,8 @@ use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use shared_types::{
     AppDefinition, ChatMessage, ConductorExecuteRequest, ConductorExecuteResponse,
-    ConductorOutputMode, ConductorRunStatusResponse, DesktopState, Sender, ViewerRevision,
-    WindowState,
+    ConductorOutputMode, ConductorRunState, ConductorRunStatusResponse, DesktopState, Sender,
+    ViewerRevision, WindowState,
 };
 use std::sync::OnceLock;
 
@@ -1592,6 +1592,21 @@ pub async fn conductor_get_run_status(run_id: &str) -> Result<ConductorRunStatus
     }
     response
         .json::<ConductorRunStatusResponse>()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))
+}
+
+pub async fn conductor_get_run_state(run_id: &str) -> Result<ConductorRunState, String> {
+    let url = format!("{}/conductor/runs/{}/state", api_base(), run_id);
+    let response = Request::get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+    if !response.ok() {
+        return Err(describe_http_error(response).await);
+    }
+    response
+        .json::<ConductorRunState>()
         .await
         .map_err(|e| format!("Failed to parse JSON: {e}"))
 }

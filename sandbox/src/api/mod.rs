@@ -143,6 +143,10 @@ pub fn router() -> Router<ApiState> {
         .route("/conductor/execute", post(conductor::execute_task))
         .route("/conductor/runs", get(conductor::list_runs))
         .route("/conductor/runs/{run_id}", get(conductor::get_run_status))
+        .route(
+            "/conductor/runs/{run_id}/state",
+            get(conductor::get_run_state),
+        )
 }
 
 /// Health check endpoint

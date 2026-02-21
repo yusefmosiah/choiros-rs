@@ -182,14 +182,13 @@ impl ConductorActor {
             objective,
         };
 
-        match Actor::spawn_linked(
+        match Actor::spawn(
             Some(format!(
                 "conductor-capability-call:{}:{}",
                 run_id_owned, call_id_owned
             )),
             CapabilityCallActor,
             args,
-            myself.get_cell(),
         )
         .await
         {
@@ -271,11 +270,10 @@ impl ConductorActor {
         let call_id_owned = call_id.clone();
         let objective = item.objective.clone();
 
-        match Actor::spawn_linked(
+        match Actor::spawn(
             Some(format!("harness:{}:{}", run_id_owned, call_id_owned)),
             HarnessActor,
             args,
-            myself.get_cell(),
         )
         .await
         {

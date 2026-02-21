@@ -221,8 +221,18 @@ fn run_state_to_execute_response(run: ConductorRunState) -> ConductorExecuteResp
     let toast = toast_from_run(&run, report_path.as_deref());
     let error = run_error_for_status(run.status);
     let (document_path, writer_window_props) = match run.status {
+        ConductorRunStatus::Running => {
+            let path = run.document_path.clone();
+            // Freshly accepted runs have no seeded agenda yet; avoid opening Writer
+            // until planning has selected non-trivial capabilities.
+            let props = if run.agenda.is_empty() && run.active_calls.is_empty() {
+                None
+            } else {
+                Some(writer_window_props_for_run_document(&path, &run_id))
+            };
+            (Some(path), props)
+        }
         ConductorRunStatus::Initializing
-        | ConductorRunStatus::Running
         | ConductorRunStatus::WaitingForCalls
         | ConductorRunStatus::Completing => {
             let path = run.document_path.clone();
@@ -700,6 +710,83 @@ pub async fn get_run_status(
     }
 }
 
+/// GET /conductor/runs/:run_id/state - Get full run state (agenda/calls/artifacts included)
+pub async fn get_run_state(
+    State(state): State<ApiState>,
+    Path(run_id): Path<String>,
+) -> impl IntoResponse {
+    if run_id.trim().is_empty() {
+        let body = Json(RunStatusErrorResponse {
+            run_id,
+            error: conductor_error(
+                ConductorErrorCode::InvalidRequest,
+                "Run ID cannot be empty",
+                Some(shared_types::FailureKind::Validation),
+            ),
+        });
+        return (StatusCode::BAD_REQUEST, body).into_response();
+    }
+
+    let conductor = match state.app_state.ensure_conductor().await {
+        Ok(actor) => actor,
+        Err(e) => {
+            let body = Json(RunStatusErrorResponse {
+                run_id,
+                error: conductor_error(
+                    ConductorErrorCode::ActorNotAvailable,
+                    format!("Failed to ensure conductor actor: {e}"),
+                    Some(shared_types::FailureKind::Unknown),
+                ),
+            });
+            return (StatusCode::SERVICE_UNAVAILABLE, body).into_response();
+        }
+    };
+
+    let mut result: Result<Option<ConductorRunState>, _> =
+        ractor::call!(conductor, |reply| ConductorMsg::GetRunState {
+            run_id: run_id.clone(),
+            reply,
+        });
+
+    if let Err(err) = &result {
+        let err_text = err.to_string();
+        if should_retry_conductor_rpc(&err_text) {
+            if let Ok(refreshed) = state.app_state.ensure_conductor().await {
+                result = ractor::call!(refreshed, |reply| ConductorMsg::GetRunState {
+                    run_id: run_id.clone(),
+                    reply,
+                });
+            }
+        }
+    }
+
+    match result {
+        Ok(Some(run_state)) => (StatusCode::OK, Json(run_state)).into_response(),
+        Ok(None) => {
+            let body = Json(RunStatusErrorResponse {
+                run_id,
+                error: conductor_error(
+                    ConductorErrorCode::RunNotFound,
+                    "Run not found",
+                    Some(shared_types::FailureKind::Unknown),
+                ),
+            });
+            (StatusCode::NOT_FOUND, body).into_response()
+        }
+        Err(e) => {
+            let body = Json(RunStatusErrorResponse {
+                run_id,
+                error: conductor_error(
+                    ConductorErrorCode::ActorNotAvailable,
+                    format!("Conductor RPC failed: {e}"),
+                    Some(shared_types::FailureKind::Unknown),
+                ),
+            });
+            (StatusCode::SERVICE_UNAVAILABLE, body).into_response()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -778,6 +865,34 @@ mod tests {
         assert_eq!(props.path, "conductor/runs/run_123/draft.md");
         assert!(!props.preview_mode);
         assert_eq!(props.run_id.as_deref(), Some("run_123"));
+    }
+
+    #[test]
+    fn test_run_state_to_execute_response_running_without_agenda_defers_writer_open() {
+        let now = Utc::now();
+        let run = ConductorRunState {
+            run_id: "run_456".to_string(),
+            status: ConductorRunStatus::Running,
+            objective: "hi".to_string(),
+            desktop_id: "desktop-1".to_string(),
+            output_mode: ConductorOutputMode::Auto,
+            created_at: now,
+            updated_at: now,
+            completed_at: None,
+            agenda: vec![],
+            active_calls: vec![],
+            artifacts: vec![],
+            decision_log: vec![],
+            document_path: "conductor/runs/run_456/draft.md".to_string(),
+        };
+
+        let response = run_state_to_execute_response(run);
+        assert_eq!(response.status, ConductorRunStatus::Running);
+        assert_eq!(
+            response.document_path.as_deref(),
+            Some("conductor/runs/run_456/draft.md")
+        );
+        assert!(response.writer_window_props.is_none());
     }
 
     #[test]
