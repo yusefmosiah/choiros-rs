@@ -265,16 +265,38 @@ impl Embedder {
             return Embedder::Stub;
         }
 
-        match fastembed::TextEmbedding::try_new(
-            fastembed::InitOptions::new(fastembed::EmbeddingModel::AllMiniLML6V2)
-                .with_show_download_progress(false),
-        ) {
-            Ok(te) => {
+        // `ort` with `ort-load-dynamic` panics (rather than returning Err) when
+        // `libonnxruntime.so` is not discoverable via ORT_DYLIB_PATH or
+        // LD_LIBRARY_PATH.  catch_unwind prevents that panic from tearing down
+        // the entire supervision tree; we fall back to the hash-based stub
+        // embedder instead.
+        let result = std::panic::catch_unwind(|| {
+            fastembed::TextEmbedding::try_new(
+                fastembed::InitOptions::new(fastembed::EmbeddingModel::AllMiniLML6V2)
+                    .with_show_download_progress(false),
+            )
+        });
+
+        match result {
+            Ok(Ok(te)) => {
                 tracing::info!("MemoryActor: AllMiniLML6V2 loaded");
                 Embedder::Real(Mutex::new(te))
             }
-            Err(e) => {
-                tracing::warn!("MemoryActor: model unavailable ({e}), falling back to stub");
+            Ok(Err(e)) => {
+                tracing::warn!(
+                    "MemoryActor: model unavailable ({e}), falling back to stub"
+                );
+                Embedder::Stub
+            }
+            Err(panic_payload) => {
+                let msg = panic_payload
+                    .downcast_ref::<String>()
+                    .map(|s| s.as_str())
+                    .or_else(|| panic_payload.downcast_ref::<&str>().copied())
+                    .unwrap_or("unknown panic");
+                tracing::warn!(
+                    "MemoryActor: ONNX runtime init panicked ({msg}), falling back to stub"
+                );
                 Embedder::Stub
             }
         }
