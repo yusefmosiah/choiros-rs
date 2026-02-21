@@ -1,0 +1,29 @@
+name: Publish flake to FlakeHub
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/determinate-nix-action@v3
+
+      - name: Publish to FlakeHub
+        uses: DeterminateSystems/flakehub-push@main
+        with:
+          name: choir/choiros-rs
+          repository: yusefmosiah/choiros-rs
+          visibility: public
+          rolling: true

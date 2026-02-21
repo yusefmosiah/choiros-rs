@@ -70,6 +70,31 @@ CHOIROS_SSH_KEY_PATH=~/.ssh/choiros-production.pem \
 nix run .#standup-grind
 ```
 
+## Grind-First DevOps Flow
+
+1. Develop and validate on grind (`/opt/choiros/workspace`) first.
+2. Run `just grind-check` from local (or equivalent commands on grind).
+3. Commit and push from grind using SSH remote (`git@github.com:yusefmosiah/choiros-rs.git`).
+4. Pull locally to stay in sync after push.
+5. Let GitHub Actions perform Nix build matrix and deploy.
+
+## FlakeHub Cache + Releases
+
+- CI uses FlakeHub Cache via `.github/workflows/nix-ci-draft.yml`.
+- Cache is configured explicitly for flake name `choir/choiros-rs`.
+- FlakeHub "No available releases" is expected until a publish workflow runs.
+- Manual publish workflow is available at `.github/workflows/flakehub-publish.yml`.
+
+For workstation/server cache pulls, authenticate with Determinate Nix:
+
+```bash
+# Use a token from https://flakehub.com/user/settings?editview=tokens
+determinate-nixd login token --token-file /path/to/flakehub-token.txt
+```
+
+Note: FlakeHub Cache write access comes from trusted CI providers (like GitHub Actions),
+not ad-hoc pushes from laptops/servers.
+
 ## Architecture
 
 ```
