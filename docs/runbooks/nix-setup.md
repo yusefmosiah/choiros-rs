@@ -8,7 +8,7 @@ runbook covers three phases:
 1. **Mac** — nix-darwin + home-manager, replacing Homebrew for tooling
 2. **Mac: local VMs** — microvm.nix (vfkit backend) running NixOS, for running
    sandbox instances in isolation using Apple Virtualization.framework
-3. **EC2** — NixOS host running the sandbox in rootless Podman containers
+3. **EC2** — NixOS host running the sandbox in native NixOS containers
 
 The sandbox (Rust/axum/ractor/sqlx/baml) is the primary workload. The
 dioxus-desktop frontend (WASM, built with `dx`) and hypervisor (thin Rust router,
@@ -520,7 +520,7 @@ Do not mount `.env` via virtiofs (it has live API keys). Options:
 
 ---
 
-## Phase 3: NixOS on EC2 + rootless Podman
+## Phase 3: NixOS on EC2 + native NixOS containers
 
 ### 3.1 Launch a NixOS EC2 instance
 
@@ -545,7 +545,7 @@ aws ec2 run-instances \
 ssh root@<ec2-ip>   # NixOS AMI default user is root
 ```
 
-### 3.2 NixOS configuration for EC2
+### 3.2 NixOS host configuration for EC2
 
 Push your NixOS config to the instance via nixos-rebuild or nixos-anywhere.
 The EC2 instance's `/etc/nixos/configuration.nix`:
@@ -558,34 +558,18 @@ The EC2 instance's `/etc/nixos/configuration.nix`:
   boot.loader.grub.device = "/dev/xvda";
 
   networking.hostName = "choiros-sandbox";
-  networking.firewall.allowedTCPPorts = [ 22 8080 ];
+  networking.firewall.allowedTCPPorts = [ 22 8080 8081 9090 ];
 
-  # Rootless Podman — no root daemon
-  virtualisation.podman = {
-    enable = true;
-    dockerCompat = true;
-    defaultNetwork.settings.dns_enabled = true;
-  };
+  # Native NixOS container support (systemd-nspawn)
+  boot.enableContainers = true;
+  virtualisation.containers.enable = true;
 
-  # Required for rootless user namespaces
-  security.unprivilegedUsernsClone = true;
-
-  # Service user for running the sandbox container
-  users.users.chorus = {
-    isNormalUser = true;
-    uid = 1001;
-    # Rootless Podman needs sub-uid/gid ranges
-    subUidRanges = [{ startUid = 100000; count = 65536; }];
-    subGidRanges = [{ startGid = 100000; count = 65536; }];
-    openssh.authorizedKeys.keys = [
-      "ssh-ed25519 AAAA... your-public-key"
-    ];
-  };
-
-  # Workspace and data directories
+  # Host directories for sandbox state and code
   systemd.tmpfiles.rules = [
-    "d /opt/choiros/workspace 0755 chorus chorus -"
-    "d /opt/choiros/data      0750 chorus chorus -"
+    "d /opt/choiros/workspace 0755 root root -"
+    "d /opt/choiros/data      0750 root root -"
+    "d /opt/choiros/data/live 0750 root root -"
+    "d /opt/choiros/data/dev  0750 root root -"
   ];
 
   # SSH
@@ -609,316 +593,100 @@ nix run github:nix-community/nixos-anywhere -- \
 
 ### 3.3 Container image for the sandbox (crane + dockerTools)
 
-We use **crane** (not a Dockerfile) to build the image. This gives us:
-- Fully reproducible, content-addressed output — same inputs always produce same image
-- No Docker daemon required to build
-- `buildLayeredImage` deduplicates Nix store paths into separate layers, so shared
-  deps (openssl, libc) are cached across pushes and don't bloat each image
-- Image contains only the binary's closure — no base OS, no apt, typically 30-80 MB
-  vs 200+ MB for a Debian-based Dockerfile
+This section is deprecated for the current AWS path.
 
-#### How crane's two-derivation model works
+For this phase, prefer native NixOS containers (`containers.<name>`) instead of OCI
+images managed by Podman. Keep OCI image work only as a fallback bridge.
 
-crane splits the build into two Nix derivations:
-1. `buildDepsOnly` — strips source to stubs, compiles only `Cargo.lock` dependencies,
-   stores result as `cargoArtifacts` in the Nix store
-2. `buildPackage` — inherits `cargoArtifacts`, compiles only your actual source
+### 3.4 Define live/dev sandboxes as NixOS containers
 
-This means changing `src/main.rs` only rebuilds derivation 2. Changing `Cargo.lock`
-rebuilds derivation 1 (deps) and derivation 2 inherits the new artifacts. With Cachix,
-the `cargoArtifacts` derivation can be shared across machines and CI — no team member
-rebuilds deps another has already built.
-
-#### Cross-compilation: aarch64-darwin → x86_64-linux
-
-Building the EC2 image on your Mac requires cross-compilation. Crane supports this
-via nixpkgs's `pkgsCross` with `callPackage` splicing (which automatically routes
-`nativeBuildInputs` to the build host and `buildInputs` to the target).
-
-**Alternative:** configure a Linux Nix remote builder (see note at end of this section).
-If cross-compilation proves painful (particularly for C/FFI crates), the
-remote builder is a clean escape hatch.
-
-#### SQLX offline mode (required for Nix builds)
-
-Nix builds have no network access and no persistent state. SQLx normally connects to
-a live DB to verify queries at compile time. You must use offline mode:
-
-```bash
-# In your development environment (with a running DB):
-cd sandbox
-cargo sqlx prepare --workspace
-# Commits .sqlx/ directory containing query metadata
-git add .sqlx
-git commit -m "update sqlx offline data"
-```
-
-Then in the flake, set `SQLX_OFFLINE = "true"` and include `.sqlx/` in the source
-fileset. The `.sqlx/` directory must be kept in sync with your SQL queries.
-
-#### `nix/crane-image.nix`
-
-Create this file in the repo:
+In the same EC2 `configuration.nix`, add:
 
 ```nix
-# nix/crane-image.nix
-# Builds the sandbox binary and OCI image using crane + dockerTools.
-# Intended for cross-compilation from aarch64-darwin to x86_64-linux.
-#
-# Usage:
-#   nix build .#sandbox-image
-#   docker load < result
-#   skopeo copy docker-archive:result docker://your-registry/sandbox:latest
-
-{
-  nixpkgs,
-  crane,
-  rust-overlay,
-  system,           # local (build) system, e.g. "aarch64-darwin"
-  crossSystem,      # target system, e.g. "x86_64-linux"
-}:
-
-let
-  pkgs = import nixpkgs {
-    localSystem = system;
-    inherit crossSystem;
-    overlays = [ (import rust-overlay) ];
+containers.sandbox-live = {
+  autoStart = true;
+  privateNetwork = true;
+  hostAddress = "10.233.1.1";
+  localAddress = "10.233.1.2";
+  forwardPorts = [{ protocol = "tcp"; hostPort = 8080; containerPort = 8080; }];
+  privateUsers = "pick";
+  bindMounts = {
+    "/workspace" = { hostPath = "/opt/choiros/workspace"; isReadOnly = true; };
+    "/data" = { hostPath = "/opt/choiros/data/live"; isReadOnly = false; };
   };
-
-  craneLib = (crane.mkLib pkgs).overrideToolchain (p:
-    p.rust-bin.stable."1.88.0".default.override {
-      targets = [ "x86_64-unknown-linux-gnu" ];
-    }
-  );
-
-  inherit (pkgs) lib;
-
-  # Source: include Rust files + non-Rust assets needed at build/runtime
-  src = lib.fileset.toSource {
-    root = ../.;
-    fileset = lib.fileset.unions [
-      (craneLib.fileset.commonCargoSources ../.)
-      ../sandbox/migrations    # SQL migration files
-      ../sandbox/static        # static assets served by axum
-      ../.sqlx                 # SQLx offline query metadata (must be committed)
-    ];
-  };
-
-  # callPackage performs "splicing": nativeBuildInputs go to build host (Mac),
-  # buildInputs go to target (Linux). Required for correct cross-compilation.
-  crateExpression = {
-    openssl,
-    sqlite,
-    pkg-config,
-    lib,
-    stdenv,
-  }:
-    let
-      commonArgs = {
-        inherit src;
-        strictDeps = true;
-        doCheck = false;    # cannot run x86_64 tests on aarch64 host
-
-        nativeBuildInputs = [
-          pkg-config          # runs on build host, finds target headers
-        ];
-
-        buildInputs = [
-          openssl             # linked into sandbox binary
-          sqlite              # sqlite headers/libs for target builds
-        ];
-
-        # Build only the sandbox crate from the workspace
-        cargoExtraArgs = "--package sandbox --locked";
-
-        # SQLx: no live DB at build time
-        SQLX_OFFLINE = "true";
-
-        # Prevent openssl-sys from trying to build openssl from source
-        OPENSSL_NO_VENDOR = "1";
+  config = { pkgs, ... }: {
+    services.openssh.enable = false;
+    networking.firewall.allowedTCPPorts = [ 8080 ];
+    systemd.services.sandbox = {
+      wantedBy = [ "multi-user.target" ];
+      after = [ "network.target" ];
+      serviceConfig = {
+        ExecStart = "/opt/choiros/bin/sandbox";
+        Restart = "always";
+        RestartSec = 2;
       };
-
-      cargoArtifacts = craneLib.buildDepsOnly commonArgs;
-    in
-      craneLib.buildPackage (commonArgs // { inherit cargoArtifacts; });
-
-  sandbox-bin = pkgs.callPackage crateExpression {};
-
-in {
-  # The binary derivation (for nix build .#sandbox-bin)
-  inherit sandbox-bin;
-
-  # OCI image (for nix build .#sandbox-image)
-  sandbox-image = pkgs.dockerTools.buildLayeredImage {
-    name = "sandbox";
-    tag = "latest";
-
-    contents = [
-      sandbox-bin
-      pkgs.cacert    # TLS root certificates for outbound HTTPS (LLM API calls)
-    ];
-
-    # Copy non-Nix-store assets into image filesystem
-    extraCommands = ''
-      mkdir -p app/migrations app/static
-      cp -r ${../sandbox/migrations}/. app/migrations/
-      cp -r ${../sandbox/static}/. app/static/
-    '';
-
-    config = {
-      Cmd        = [ "${sandbox-bin}/bin/sandbox" ];
-      WorkingDir = "/app";
-      ExposedPorts = { "8080/tcp" = {}; };
-      Env = [
-        "RUST_LOG=info"
-        # DATABASE_URL, API keys, etc. injected at runtime via --env-file
-      ];
+      environment = {
+        PORT = "8080";
+        DATABASE_URL = "sqlite:/data/events.db";
+        SQLX_OFFLINE = "true";
+      };
     };
+    system.stateVersion = "25.11";
   };
-}
-```
+};
 
-Wire it into the repo-level `flake.nix` outputs:
-
-```nix
-let
-  craneOutputs = import ./nix/crane-image.nix {
-    inherit nixpkgs crane rust-overlay;
-    system = "aarch64-darwin";   # your Mac
-    crossSystem = "x86_64-linux"; # EC2 target
+containers.sandbox-dev = {
+  autoStart = true;
+  privateNetwork = true;
+  hostAddress = "10.233.2.1";
+  localAddress = "10.233.2.2";
+  forwardPorts = [{ protocol = "tcp"; hostPort = 8081; containerPort = 8080; }];
+  privateUsers = "pick";
+  bindMounts = {
+    "/workspace" = { hostPath = "/opt/choiros/workspace"; isReadOnly = true; };
+    "/data" = { hostPath = "/opt/choiros/data/dev"; isReadOnly = false; };
   };
-in {
-  packages.sandbox-bin   = craneOutputs.sandbox-bin;
-  packages.sandbox-image = craneOutputs.sandbox-image;
-}
-```
-
-#### Build and deploy
-
-```bash
-# Build the OCI image (cross-compiles on your Mac)
-nix build .#sandbox-image
-
-# Load into local Docker/Podman for testing
-docker load < result
-
-# Push to a registry
-skopeo copy \
-  docker-archive:$(nix build .#sandbox-image --print-out-paths --no-link) \
-  docker://your-registry/sandbox:latest
-
-# On EC2: pull and run
-podman pull your-registry/sandbox:latest
-podman run --rm -it \
-  --name choiros-sandbox \
-  --security-opt no-new-privileges \
-  --cap-drop ALL \
-  --cap-add NET_BIND_SERVICE \
-  -p 8080:8080 \
-  -v /opt/choiros/data:/app/data:z \
-  --env-file /opt/choiros/.env \
-  your-registry/sandbox:latest
-```
-
-Note: the workspace bind-mount (`-v workspace:/workspace`) from the earlier draft is
-removed. The crane image bundles migrations and static assets directly. The data
-directory (SQLite DB) is still a bind mount since it must persist across container
-restarts.
-
-#### Remote builder as escape hatch
-
-Cross-compiling from macOS to Linux can break on crates with complex C build scripts
-(for crates like portable-pty/OpenSSL with platform-specific C/FFI requirements). If you hit linker
-errors or C compilation failures, configure a Linux Nix remote builder instead:
-
-```bash
-# Add to ~/.config/nix/nix.conf (or managed by nix-darwin):
-# builders = ssh://chorus@<ec2-ip> x86_64-linux
-
-# Then build natively on Linux:
-nix build .#sandbox-image --system x86_64-linux
-# Nix SSHes to the builder, builds there, copies result back
-```
-
-The remote builder produces identical output to local cross-compilation — same
-content-addressed derivations — but avoids the cross-compilation complexity entirely.
-Add the EC2 instance as a Nix builder in your nix-darwin config:
-
-```nix
-# In configuration.nix:
-nix.buildMachines = [{
-  hostName = "<ec2-ip>";
-  system = "x86_64-linux";
-  sshUser = "chorus";
-  sshKey = "/Users/wiz/.ssh/your-key";
-  maxJobs = 4;
-  speedFactor = 2;
-  supportedFeatures = [ "nixos-test" "benchmark" "big-parallel" "kvm" ];
-}];
-nix.distributedBuilds = true;
-```
-
-#### Known gotchas
-
-- **Cross C/FFI deps**: crates such as `portable-pty` and OpenSSL may require
-  target-specific headers/toolchains. In cross builds, `stdenv.cc` becomes the
-  cross C compiler automatically via `callPackage`. If you get C compilation
-  errors, add `pkgs.pkgsBuildHost.stdenv.cc` to `nativeBuildInputs` explicitly.
-- **`.sqlx/` not committed**: `cargo build` will fail with "offline mode requires
-  .sqlx/ data". Run `cargo sqlx prepare` and commit the directory.
-- **`portable-pty` on cross**: build succeeds (it's C FFI headers), but verify no
-  linker errors. If you see missing symbols, add `pkgs.libc.dev` to `buildInputs`.
-- **`doCheck = false`**: required for cross builds. Tests are x86_64 binaries and
-  cannot run on aarch64. Run tests separately in the default (native) devShell.
-
-### 3.4 Run the sandbox container
-
-```bash
-# On EC2 as the chorus user (rootless)
-podman run --rm -it \
-  --name choiros-sandbox \
-  --security-opt no-new-privileges \
-  --cap-drop ALL \
-  --cap-add NET_BIND_SERVICE \
-  -p 8080:8080 \
-  -v /opt/choiros/workspace:/workspace:z,ro \
-  -v /opt/choiros/data:/data:z \
-  --env-file /opt/choiros/.env \
-  choiros-sandbox:latest
-```
-
-The `:z` flag on bind mounts relabels SELinux context (needed for rootless Podman).
-`--cap-drop ALL` + `--cap-add NET_BIND_SERVICE` is the minimal capability set.
-
-**Secrets:** Put your `.env` at `/opt/choiros/.env` on the EC2 host, chmod 600,
-owned by the chorus user. It is never baked into the image or a Nix config.
-
-### 3.5 Declare as a systemd service (optional)
-
-In the NixOS EC2 config, add:
-
-```nix
-virtualisation.oci-containers = {
-  backend = "podman";
-  containers.choiros-sandbox = {
-    image = "choiros-sandbox:latest";
-    autoStart = true;
-    ports = [ "8080:8080" ];
-    volumes = [
-      "/opt/choiros/workspace:/workspace:z,ro"
-      "/opt/choiros/data:/data:z"
-    ];
-    environmentFiles = [ "/opt/choiros/.env" ];
-    extraOptions = [
-      "--security-opt=no-new-privileges"
-      "--cap-drop=ALL"
-      "--cap-add=NET_BIND_SERVICE"
-    ];
+  config = { pkgs, ... }: {
+    services.openssh.enable = false;
+    networking.firewall.allowedTCPPorts = [ 8080 ];
+    systemd.services.sandbox = {
+      wantedBy = [ "multi-user.target" ];
+      after = [ "network.target" ];
+      serviceConfig = {
+        ExecStart = "/opt/choiros/bin/sandbox";
+        Restart = "always";
+        RestartSec = 2;
+      };
+      environment = {
+        PORT = "8080";
+        DATABASE_URL = "sqlite:/data/events.db";
+        SQLX_OFFLINE = "true";
+      };
+    };
+    system.stateVersion = "25.11";
   };
 };
 ```
 
-`nixos-rebuild switch` will create a `podman-choiros-sandbox.service` unit.
+Apply and verify:
+
+```bash
+nixos-rebuild switch
+nixos-container list
+systemctl status container@sandbox-live
+systemctl status container@sandbox-dev
+curl http://127.0.0.1:8080/health
+curl http://127.0.0.1:8081/health
+```
+
+### 3.5 Operations notes
+
+- Keep `privateUsers = "pick"` enabled for safer UID/GID isolation.
+- Do not expose `8080/8081/9090` to `0.0.0.0/0`; restrict to operator CIDR or private
+  network.
+- Keep user/API secrets brokered by hypervisor; never mount platform secrets into
+  containers.
+- Rollback uses host generations: `nixos-rebuild switch --rollback`.
 
 ---
 
@@ -1005,12 +773,11 @@ Do not rush this. Keep Homebrew until nix-darwin is stable on your machine.
 
 - **baml-cli Nix derivation**: write `nix/baml-cli.nix` when next bumping baml
   versions or adding CI codegen. Template is in Phase 1.4 above.
-- **Cross-compilation validation**: verify target builds for C/FFI crates
-  (`portable-pty`, OpenSSL). If cross builds fail, fall back to the remote
-  builder approach (Phase 3.3).
-- **`.sqlx/` offline data**: must be committed before the crane build works. Run
-  `cargo sqlx prepare --workspace` from the sandbox directory with a running DB,
-  commit `.sqlx/`, and keep it in sync when queries change.
+- **Sandbox artifact delivery into containers**: choose one path for `/opt/choiros/bin/sandbox`
+  (remote `nix build`, rsync, or host-native flake package build) and make it the
+  only supported path.
+- **`.sqlx/` offline data**: keep committed and in sync; required for reliable host-side
+  flake builds of the sandbox binary.
 - **EC2 NixOS config as flake output**: the EC2 `configuration.nix` should move into
   the repo as a `nixosConfigurations.choiros-ec2` output in `flake.nix` (or a
   dedicated `nix/ec2/flake.nix`), so `nixos-rebuild` and `nixos-anywhere` can target
@@ -1018,7 +785,6 @@ Do not rush this. Keep Homebrew until nix-darwin is stable on your machine.
 - **Secret management upgrade**: current approach is a plaintext `.env` file on the
   EC2 host. Upgrade path: `sops-nix` or `agenix` for declarative encrypted secrets
   that are decrypted at activation time, never stored plaintext.
-- **Phase 3 → metal upgrade**: swap `t3.large` for `c6i.metal` + add
-  `microvm.nixosModules.host` to the NixOS EC2 config. The crane image and Podman
-  setup are replaced by microvm.nix virtiofs shares. No changes to the sandbox
-  binary itself.
+- **Phase 3 → stronger isolation**: migrate from NixOS containers to microVMs
+  (`microvm.nix`/Firecracker-class boundary) when threat model or tenant density
+  requires stronger kernel isolation.

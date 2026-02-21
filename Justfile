@@ -109,11 +109,19 @@ new-hypervisor-migration NAME:
 # Docker
 # Build Docker image for choir-sandbox
 docker-build:
-    docker build -t choir-sandbox:latest ./sandbox
+    docker build -t choir-sandbox:latest -f sandbox/Dockerfile .
 
 # Run Docker container with port mapping and volume
 docker-run:
     docker run -p 8080:8080 -v ./data:/data choir-sandbox:latest
+
+# Build sandbox image with Podman
+podman-build:
+    podman build -t choir-sandbox:latest -f sandbox/Dockerfile .
+
+# Run sandbox image with Podman
+podman-run:
+    podman run --rm -it --name choir-sandbox -p 8080:8080 -v ./data:/data:Z choir-sandbox:latest
 
 # Deployment
 # Deploy to EC2 instance at 3.83.131.245 (push code + build)

@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fs,
     process::Stdio,
     sync::Arc,
     time::{Duration, Instant},
@@ -12,6 +13,8 @@ use tokio::{
     time::sleep,
 };
 use tracing::{error, info, warn};
+
+use crate::config::SandboxRuntime;
 
 /// The role of a sandbox instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -44,13 +47,23 @@ pub struct SandboxEntry {
     pub port: u16,
     pub status: SandboxStatus,
     pub last_activity: Instant,
-    pub child: Option<Child>,
+    pub handle: Option<SandboxHandle>,
+}
+
+pub enum SandboxHandle {
+    Process(Child),
+    Podman { container_name: String },
 }
 
 /// Per-user sandbox registry.  
 /// Currently single-user; keyed by user_id for future multi-user expansion.
 pub struct SandboxRegistry {
     binary: String,
+    runtime: SandboxRuntime,
+    podman_binary: String,
+    container_image: String,
+    data_root: String,
+    env_file: Option<String>,
     idle_timeout: Duration,
     /// user_id → role → entry
     entries: Mutex<HashMap<String, HashMap<SandboxRole, SandboxEntry>>>,
@@ -59,9 +72,24 @@ pub struct SandboxRegistry {
 }
 
 impl SandboxRegistry {
-    pub fn new(binary: String, live_port: u16, dev_port: u16, idle_timeout: Duration) -> Arc<Self> {
+    pub fn new(
+        binary: String,
+        runtime: SandboxRuntime,
+        podman_binary: String,
+        container_image: String,
+        data_root: String,
+        env_file: Option<String>,
+        live_port: u16,
+        dev_port: u16,
+        idle_timeout: Duration,
+    ) -> Arc<Self> {
         Arc::new(Self {
             binary,
+            runtime,
+            podman_binary,
+            container_image,
+            data_root,
+            env_file,
             idle_timeout,
             entries: Mutex::new(HashMap::new()),
             live_port,
@@ -94,8 +122,28 @@ impl SandboxRegistry {
         }
 
         let port = self.port_for(role);
-        let child = match self.spawn_process(role, port).await {
-            Ok(c) => c,
+
+        // If something is already listening on the expected port, adopt it as
+        // the running sandbox endpoint instead of spawning a new child.
+        // This supports externally managed runtimes (for example, NixOS
+        // containers started by the host) while keeping the same routing model.
+        if TcpStream::connect(format!("127.0.0.1:{port}")).await.is_ok() {
+            user_map.insert(
+                role,
+                SandboxEntry {
+                    role,
+                    port,
+                    status: SandboxStatus::Running,
+                    last_activity: Instant::now(),
+                    handle: None,
+                },
+            );
+            info!(user_id, %role, port, "sandbox adopted from existing listener");
+            return Ok(port);
+        }
+
+        let handle = match self.spawn_instance(user_id, role, port).await {
+            Ok(h) => h,
             Err(e) => {
                 // Record the failure so callers see Failed instead of Stopped.
                 user_map.insert(
@@ -105,7 +153,7 @@ impl SandboxRegistry {
                         port,
                         status: SandboxStatus::Failed,
                         last_activity: Instant::now(),
-                        child: None,
+                        handle: None,
                     },
                 );
                 return Err(e);
@@ -119,7 +167,7 @@ impl SandboxRegistry {
                 port,
                 status: SandboxStatus::Running,
                 last_activity: Instant::now(),
-                child: Some(child),
+                handle: Some(handle),
             },
         );
 
@@ -132,11 +180,8 @@ impl SandboxRegistry {
         let mut entries = self.entries.lock().await;
         if let Some(user_map) = entries.get_mut(user_id) {
             if let Some(entry) = user_map.get_mut(&role) {
-                if let Some(child) = entry.child.as_mut() {
-                    child.kill().await.ok();
-                }
+                self.stop_handle(user_id, role, &mut entry.handle).await;
                 entry.status = SandboxStatus::Stopped;
-                entry.child = None;
                 info!(user_id, %role, "sandbox stopped");
             }
         }
@@ -206,14 +251,26 @@ impl SandboxRegistry {
                         && entry.last_activity.elapsed() >= self.idle_timeout
                     {
                         warn!(user_id, %role, "sandbox idle timeout — stopping");
-                        if let Some(child) = entry.child.as_mut() {
-                            child.kill().await.ok();
-                        }
+                        self.stop_handle(user_id, *role, &mut entry.handle).await;
                         entry.status = SandboxStatus::Stopped;
-                        entry.child = None;
                     }
                 }
             }
+        }
+    }
+
+    async fn spawn_instance(
+        &self,
+        user_id: &str,
+        role: SandboxRole,
+        port: u16,
+    ) -> anyhow::Result<SandboxHandle> {
+        match self.runtime {
+            SandboxRuntime::Process => self
+                .spawn_process(role, port)
+                .await
+                .map(SandboxHandle::Process),
+            SandboxRuntime::Podman => self.spawn_podman(user_id, role, port).await,
         }
     }
 
@@ -251,6 +308,153 @@ impl SandboxRegistry {
 
         Ok(child)
     }
+
+    async fn spawn_podman(
+        &self,
+        user_id: &str,
+        role: SandboxRole,
+        port: u16,
+    ) -> anyhow::Result<SandboxHandle> {
+        let container_name = self.container_name(user_id, role);
+        let data_dir = format!("{}/{}/{}", self.data_root, sanitize_label(user_id), role);
+        fs::create_dir_all(&data_dir)
+            .map_err(|e| anyhow::anyhow!("failed to create sandbox data dir {data_dir}: {e}"))?;
+
+        let _ = Command::new(&self.podman_binary)
+            .args(["rm", "-f", &container_name])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await;
+
+        let mut cmd = Command::new(&self.podman_binary);
+        cmd.args([
+            "run",
+            "-d",
+            "--rm",
+            "--name",
+            &container_name,
+            "-p",
+            &format!("{port}:8080"),
+            "-v",
+            &format!("{data_dir}:/data:Z"),
+            "-e",
+            "PORT=8080",
+            "-e",
+            &format!("DATABASE_URL=sqlite:/data/sandbox_{role}.db"),
+            "-e",
+            "SQLX_OFFLINE=true",
+        ]);
+        if let Some(env_file) = self.env_file.as_deref() {
+            cmd.args(["--env-file", env_file]);
+        }
+        cmd.arg(&self.container_image);
+
+        let output = cmd.output().await.map_err(|e| {
+            anyhow::anyhow!(
+                "failed to launch podman container {container_name} with {}: {e}",
+                self.podman_binary
+            )
+        })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            error!(
+                %role,
+                port,
+                container_name = %container_name,
+                image = %self.container_image,
+                stdout = %stdout.trim(),
+                stderr = %stderr.trim(),
+                "podman run failed"
+            );
+            return Err(anyhow::anyhow!(
+                "podman run failed for {container_name}: {}",
+                stderr.trim()
+            ));
+        }
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            if tokio::time::Instant::now() >= deadline {
+                error!(%role, port, container_name = %container_name, "sandbox did not become ready within 30s");
+                return Err(anyhow::anyhow!("sandbox readiness timeout on port {port}"));
+            }
+            match TcpStream::connect(format!("127.0.0.1:{port}")).await {
+                Ok(_) => {
+                    info!(%role, port, container_name = %container_name, "sandbox port is ready");
+                    break;
+                }
+                Err(_) => sleep(Duration::from_millis(100)).await,
+            }
+        }
+
+        Ok(SandboxHandle::Podman { container_name })
+    }
+
+    async fn stop_handle(
+        &self,
+        user_id: &str,
+        role: SandboxRole,
+        handle: &mut Option<SandboxHandle>,
+    ) {
+        let Some(handle) = handle.take() else {
+            return;
+        };
+
+        match handle {
+            SandboxHandle::Process(mut child) => {
+                if let Err(e) = child.kill().await {
+                    warn!(user_id, %role, "failed to kill sandbox process: {e}");
+                }
+            }
+            SandboxHandle::Podman { container_name } => {
+                match Command::new(&self.podman_binary)
+                    .args(["stop", "-t", "5", &container_name])
+                    .output()
+                    .await
+                {
+                    Ok(output) if output.status.success() => {
+                        info!(user_id, %role, container_name = %container_name, "podman sandbox stopped");
+                    }
+                    Ok(output) => {
+                        warn!(
+                            user_id,
+                            %role,
+                            container_name = %container_name,
+                            stderr = %String::from_utf8_lossy(&output.stderr).trim(),
+                            "podman stop returned non-zero status"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            user_id,
+                            %role,
+                            container_name = %container_name,
+                            "failed to invoke podman stop: {e}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    fn container_name(&self, user_id: &str, role: SandboxRole) -> String {
+        format!("choiros-sandbox-{}-{role}", sanitize_label(user_id))
+    }
+}
+
+fn sanitize_label(raw: &str) -> String {
+    raw.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect()
 }
 
 #[derive(Debug, serde::Serialize)]

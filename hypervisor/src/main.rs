@@ -61,6 +61,11 @@ async fn main() -> anyhow::Result<()> {
     // Sandbox registry
     let sandbox_registry = sandbox::SandboxRegistry::new(
         config.sandbox_binary.clone(),
+        config.sandbox_runtime,
+        config.sandbox_podman_binary.clone(),
+        config.sandbox_container_image.clone(),
+        config.sandbox_data_root.clone(),
+        config.sandbox_env_file.clone(),
         config.sandbox_live_port,
         config.sandbox_dev_port,
         config.sandbox_idle_timeout,

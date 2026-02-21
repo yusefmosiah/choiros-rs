@@ -21,40 +21,48 @@ Each phase can be run as a GitHub issue. Do not advance phases without gate evid
 2. Execute in order; attach evidence before closing each issue.
 3. Stop phase progression if gate criteria are not met.
 
+## Current Blocker (2026-02-21)
+
+- Deployment and public HTTPS routing are live, but auth onboarding has an active
+  regression in production hostname mode (register path presenting login UX).
+- Treat this as a Phase 5 gate blocker until reproduced and fixed with evidence.
+
 ## Global Definition of Done (Bootstrap)
 
 - [ ] One user can run `live` and `dev` sandboxes concurrently behind hypervisor.
 - [ ] Hypervisor can route/swap between live/dev for rollback.
 - [ ] Prior known-good config/image can be restored in bounded time.
 
-## Phase 1 Issue: Local Podman Smoke
+## Phase 1 Issue: NixOS Container Substrate Smoke
 
 ### Outcome
 
-Hypervisor manages sandbox containers locally with the same contract intended for AWS.
+Host runs `live` and `dev` sandbox instances as native NixOS containers with the
+same contract intended for production.
 
 ### Gate
 
-- [ ] Hypervisor starts/stops/restarts sandbox container locally.
+- [ ] `containers.sandbox-live` and `containers.sandbox-dev` start/restart cleanly.
 - [ ] Auth + proxy path works through hypervisor.
 - [ ] WebSocket task flow works end-to-end.
 
 ### Tasks
 
-- [ ] Add/verify sandbox OCI image build path.
-- [ ] Wire hypervisor local container runtime command path.
-- [ ] Validate env, volume mounts, and ports for live/dev roles.
+- [ ] Enable host container module options (`boot.enableContainers`, `virtualisation.containers.enable`).
+- [ ] Define `containers.sandbox-live` and `containers.sandbox-dev` networking and mounts.
+- [ ] Validate env, mounts, and ports for live/dev roles.
 - [ ] Capture one successful end-to-end user task.
 
 ### Evidence
 
-- [ ] `podman ps` lifecycle output attached.
+- [ ] `nixos-container list` and `systemctl status container@sandbox-live` outputs attached.
+- [ ] `systemctl status container@sandbox-dev` output attached.
 - [ ] Hypervisor logs for spawn/stop transitions attached.
 - [ ] E2E smoke result attached.
 
 ### Rollback
 
-- [ ] Document and verify fallback to direct-process sandbox mode.
+- [ ] Document and verify fallback to previous NixOS generation.
 
 ## Phase 2 Issue: CI + FlakeHub Cache
 

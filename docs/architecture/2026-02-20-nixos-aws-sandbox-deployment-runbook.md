@@ -6,17 +6,17 @@ Owner: ChoirOS runtime and deployment
 
 ## Narrative Summary (1-minute read)
 
-This runbook defines the shortest safe path from current local flake-based development to
+This runbook defines the shortest safe path from current flake-based development to
 an MVP deployment on AWS where a NixOS host runs the Hypervisor and manages Sandbox
-instances as containers.
+instances as native NixOS containers.
 
 The plan intentionally prioritizes delivery speed and cost control over hard sandbox
 security. We accept that container isolation is not a complete defense against prompt
 injection-driven escape for MVP, and we keep the architecture forward-compatible with
 future hardening.
 
-The sequence is: local Podman smoke test, CI + FlakeHub cache, NixOS host module,
-single-node EC2 rollout, validation, and rollback playbook.
+The sequence is: CI + FlakeHub cache, NixOS host module, NixOS-container runtime
+definition (`live` + `dev`), single-node EC2 rollout, validation, and rollback playbook.
 
 ## What Changed
 
@@ -27,14 +27,23 @@ single-node EC2 rollout, validation, and rollback playbook.
 
 ## What To Do Next
 
-1. Finish local Podman smoke path (Phase 1 gate).
-2. Enable draft Nix CI workflow with FlakeHub cache (Phase 2 gate).
-3. Implement `hypervisor/flake.nix` NixOS module + EC2 host target (Phase 3/4 gates).
+1. Enable draft Nix CI workflow with FlakeHub cache (Phase 2 gate).
+2. Implement `hypervisor/flake.nix` NixOS module + EC2 host target (Phase 3/4 gates).
+3. Define native NixOS containers for `live` and `dev` sandbox targets.
 4. Deploy single EC2 NixOS node, then run end-to-end validation (Phase 5 gate).
+
+## Current Execution Snapshot (2026-02-21)
+
+- EC2 NixOS host is live with native containers for `sandbox-live` and `sandbox-dev`.
+- Hypervisor is running as host service and fronted by Caddy TLS.
+- Public domain is `os.choir-ip.com`; apex `choir-ip.com` redirects to subdomain.
+- WebAuthn RP config in production currently targets `os.choir-ip.com`.
+- Public HTTPS Playwright smoke for `bios-auth` and `proxy-integration` is passing.
+- Current open defect: onboarding flow behavior mismatch (register route shows login UX).
 
 ## Scope and Constraints
 
-- Goal: deploy MVP to AWS with NixOS host, Hypervisor process, Sandbox container runtime.
+- Goal: deploy MVP to AWS with NixOS host, Hypervisor process, Sandbox NixOS-container runtime.
 - Non-goal: strong sandbox hardening in this phase.
 - Cost posture: minimal infra footprint, fast iteration.
 - Security posture: platform secrets remain hypervisor-only; user secrets are brokered.
@@ -94,27 +103,27 @@ Internet
        -> Hypervisor (systemd service, port 9090)
             -> Auth/session boundary
             -> User secrets broker
-            -> Podman-managed sandbox containers (live/dev)
+            -> NixOS containers (live/dev)
                  -> Sandbox API (8080/8081 internal mapping)
 ```
 
 ## Phase Plan and Gates
 
-### Phase 1: Local container smoke (Podman)
+### Phase 1: NixOS container substrate smoke
 
-Objective: verify hypervisor can manage sandbox as container locally using the same
-runtime contract planned for AWS.
+Objective: verify `live` and `dev` sandbox instances run as native NixOS containers
+under a single NixOS host contract.
 
 Tasks:
 
-1. Add container image build for sandbox (OCI image from Nix output or Dockerfile bridge).
-2. Run sandbox container with explicit env + volume mount for data.
-3. Wire hypervisor spawn path to Podman command for local live/dev lifecycle.
-4. Confirm reverse proxy + websocket behavior still works.
+1. Enable host container support (`boot.enableContainers`, `virtualisation.containers.enable`).
+2. Define `containers.sandbox-live` and `containers.sandbox-dev` with private networking.
+3. Map host-facing ports for admin validation (`9090`, `8080`, `8081`) and tighten SG policy.
+4. Confirm reverse proxy + websocket behavior still works through hypervisor.
 
 Gate:
 
-- Hypervisor can start/stop/restart sandbox container locally.
+- Host can start/stop/restart both NixOS sandbox containers declaratively.
 - Login flow and one end-to-end task succeed through hypervisor proxy.
 
 ### Phase 2: CI and binary cache
@@ -141,7 +150,7 @@ Tasks:
 
 1. Add `nixosModules.default` in `hypervisor/flake.nix`.
 2. Define systemd unit for hypervisor binary.
-3. Define Podman service/unit spec for sandbox container lifecycle contract.
+3. Define NixOS container service spec for sandbox lifecycle contract.
 4. Add host firewall and service dependencies.
 5. Externalize env vars and secret file references.
 
@@ -193,7 +202,7 @@ Gate:
 ## Rollback and Recovery
 
 1. Keep previous generation available (`nixos-rebuild` generation rollback).
-2. Keep previous container image/tag pinned and runnable.
+2. Keep previous known-good container config in prior NixOS generations.
 3. Maintain DB snapshot backup cadence for auth/user-secret store.
 4. If rollout fails: revert generation, restart services, validate login + proxy.
 
