@@ -16,7 +16,7 @@
 //!   CHOIR_LIVE_MODEL_IDS=KimiK25,ZaiGLM47 cargo test -p sandbox --test dag_eval -- --nocapture
 
 use sandbox::actors::agent_harness::alm::{
-    LlmCallResult, AlmConfig, AlmHarness, AlmPort, AlmRunResult, AlmToolExecution,
+    AlmConfig, AlmHarness, AlmPort, AlmRunResult, AlmToolExecution, LlmCallResult,
 };
 use sandbox::actors::model_config::{ModelRegistry, ProviderConfig};
 use sandbox::baml_client::types::ContextSourceKind;

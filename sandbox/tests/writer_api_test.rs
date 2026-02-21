@@ -732,3 +732,109 @@ async fn test_mime_type_detection() {
         cleanup_writer_artifacts(&app, file).await;
     }
 }
+
+#[tokio::test]
+async fn test_overlay_dismiss_marks_overlay_rejected() {
+    let (app, _temp_dir) = setup_test_app().await;
+    let run_id = format!(
+        "test-overlay-dismiss-{}",
+        TEST_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    let doc_path = format!("conductor/runs/{run_id}/draft.md");
+
+    let ensure_req = json!({
+        "path": &doc_path,
+        "objective": "Overlay dismiss API test",
+        "desktop_id": "default-desktop"
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/writer/ensure")
+        .header("content-type", "application/json")
+        .body(Body::from(ensure_req.to_string()))
+        .unwrap();
+    let (status, _body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let save_version_req = json!({
+        "path": &doc_path,
+        "content": "Base version content",
+        "parent_version_id": 0
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/writer/save-version")
+        .header("content-type", "application/json")
+        .body(Body::from(save_version_req.to_string()))
+        .unwrap();
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let base_version_id = body["version"]["version_id"]
+        .as_u64()
+        .expect("version_id missing from save-version response");
+
+    let prompt_req = json!({
+        "path": &doc_path,
+        "base_version_id": base_version_id,
+        "prompt_diff": [{ "op": "insert", "pos": 0, "text": "Suggest a concise intro.\\n" }]
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/writer/prompt")
+        .header("content-type", "application/json")
+        .body(Body::from(prompt_req.to_string()))
+        .unwrap();
+    let (status, _body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/writer/version?path={}&version_id={}",
+            doc_path.replace('/', "%2F"),
+            base_version_id
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let overlay_id = body["overlays"][0]["overlay_id"]
+        .as_str()
+        .expect("overlay_id missing")
+        .to_string();
+
+    let dismiss_req = json!({
+        "path": &doc_path,
+        "overlay_id": overlay_id,
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/writer/overlay/dismiss")
+        .header("content-type", "application/json")
+        .body(Body::from(dismiss_req.to_string()))
+        .unwrap();
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["dismissed"], true);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/writer/version?path={}&version_id={}",
+            doc_path.replace('/', "%2F"),
+            base_version_id
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = json_response(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let overlays = body["overlays"]
+        .as_array()
+        .expect("overlays should be an array");
+    assert!(
+        !overlays
+            .iter()
+            .any(|item| item["overlay_id"].as_str() == Some(overlay_id.as_str())),
+        "dismissed overlay still present in pending overlays"
+    );
+}

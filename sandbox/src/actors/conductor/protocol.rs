@@ -27,6 +27,10 @@ pub enum ConductorMsg {
         run_id: String,
         reply: RpcReplyPort<Option<ConductorRunState>>,
     },
+    /// List all runs, sorted by created_at descending.
+    ListRuns {
+        reply: RpcReplyPort<Vec<ConductorRunState>>,
+    },
     /// Receive a result from a run-scoped capability call
     CapabilityCallFinished {
         run_id: String,

@@ -164,14 +164,12 @@ impl HarnessAdapter {
         });
 
         // Fire-and-forget to conductor
-        let _ = self
-            .conductor
-            .send_message(ConductorMsg::HarnessProgress {
-                correlation_id: self.correlation_id.clone(),
-                kind: mode.to_string(),
-                content: content.to_string(),
-                metadata: payload,
-            });
+        let _ = self.conductor.send_message(ConductorMsg::HarnessProgress {
+            correlation_id: self.correlation_id.clone(),
+            kind: mode.to_string(),
+            content: content.to_string(),
+            metadata: payload,
+        });
 
         // Also persist to event store for observability
         self.emit_event(

@@ -31,13 +31,6 @@ pub enum WriterViewMode {
     Editor,
 }
 
-/// View mode for markdown files
-#[derive(Debug, Clone, PartialEq)]
-pub enum ViewMode {
-    Edit,
-    Preview,
-}
-
 /// Dialog state for file operations
 #[derive(Debug, Clone)]
 pub enum DialogState {

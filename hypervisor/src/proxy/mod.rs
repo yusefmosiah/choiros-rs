@@ -118,11 +118,7 @@ pub async fn proxy_ws(ws: WebSocketUpgrade, target_port: u16, path: String) -> R
                         }
                     }
                     Ok(axum::extract::ws::Message::Binary(b)) => {
-                        if server_sink
-                            .send(Message::Binary(b.to_vec()))
-                            .await
-                            .is_err()
-                        {
+                        if server_sink.send(Message::Binary(b.to_vec())).await.is_err() {
                             break;
                         }
                     }

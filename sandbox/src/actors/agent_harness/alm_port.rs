@@ -38,11 +38,11 @@ use ractor::{Actor, ActorRef};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::actors::agent_harness::alm::{LlmCallResult, AlmPort, AlmToolExecution};
+use crate::actors::agent_harness::alm::{AlmPort, AlmToolExecution, LlmCallResult};
 use crate::actors::conductor::protocol::{ConductorMsg, HarnessMsg};
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
-use crate::actors::model_config::ModelRegistry;
 use crate::actors::harness_actor::{HarnessActor, HarnessArguments};
+use crate::actors::model_config::ModelRegistry;
 use crate::actors::terminal::TerminalMsg;
 use crate::baml_client::types::ContextSourceKind;
 use crate::baml_client::{new_collector, B};

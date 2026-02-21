@@ -118,6 +118,12 @@ pub enum WriterMsg {
         status: Option<OverlayStatus>,
         reply: RpcReplyPort<Result<Vec<Overlay>, WriterError>>,
     },
+    /// Dismiss a pending overlay for a registered run.
+    DismissWriterDocumentOverlay {
+        run_id: String,
+        overlay_id: String,
+        reply: RpcReplyPort<Result<(), WriterError>>,
+    },
     /// Create a canonical document version for a registered run.
     CreateWriterDocumentVersion {
         run_id: String,
@@ -520,6 +526,14 @@ impl Actor for WriterActor {
                 let result =
                     Self::list_writer_document_overlays(state, run_id, base_version_id, status)
                         .await;
+                let _ = reply.send(result);
+            }
+            WriterMsg::DismissWriterDocumentOverlay {
+                run_id,
+                overlay_id,
+                reply,
+            } => {
+                let result = Self::dismiss_writer_document_overlay(state, run_id, overlay_id).await;
                 let _ = reply.send(result);
             }
             WriterMsg::CreateWriterDocumentVersion {
@@ -1174,6 +1188,19 @@ impl WriterActor {
     ) -> Result<Vec<Overlay>, WriterError> {
         Self::ensure_run_document_loaded(state, &run_id).await?;
         Ok(Self::resolve_run_document(state, &run_id)?.list_overlays(base_version_id, status))
+    }
+
+    async fn dismiss_writer_document_overlay(
+        state: &mut WriterState,
+        run_id: String,
+        overlay_id: String,
+    ) -> Result<(), WriterError> {
+        Self::ensure_run_document_loaded(state, &run_id).await?;
+        let run_doc = Self::resolve_run_document_mut(state, &run_id)?;
+        run_doc
+            .dismiss_overlay(&run_id, &overlay_id)
+            .await
+            .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))
     }
 
     async fn create_writer_document_version(

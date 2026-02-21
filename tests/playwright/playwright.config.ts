@@ -35,6 +35,7 @@ export default defineConfig({
         "trace-viewer-phase2.spec.ts",
         "trace-viewer-phase3.spec.ts",
         "trace-viewer-phase4.spec.ts",
+        "writer-persistence-marginalia.spec.ts",
         "weather-delegation.e2e.spec.ts",
       ],
       use: {

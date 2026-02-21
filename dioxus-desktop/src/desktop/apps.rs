@@ -7,8 +7,8 @@ pub fn core_apps() -> Vec<AppDefinition> {
             name: "Writer".to_string(),
             icon: "📝".to_string(),
             component_code: "WriterApp".to_string(),
-            default_width: 800,
-            default_height: 600,
+            default_width: 1100,
+            default_height: 720,
         },
         AppDefinition {
             id: "terminal".to_string(),

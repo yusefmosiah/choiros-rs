@@ -906,9 +906,7 @@ impl<P: AlmPort> AlmHarness<P> {
                                 .map(|s| serde_json::json!({ "seed": s }))
                                 .unwrap_or(serde_json::Value::Null);
                             // Fire-and-forget: port sends HarnessMsg::Execute and returns immediately
-                            self.port
-                                .spawn_harness(&b.objective, ctx, &corr_id)
-                                .await;
+                            self.port.spawn_harness(&b.objective, ctx, &corr_id).await;
                             pending_corr_ids.push(corr_id.clone());
                             pending_replies.push(shared_types::PendingReply {
                                 corr_id: corr_id.clone(),

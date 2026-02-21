@@ -18,7 +18,7 @@ use ractor::Actor;
 use shared_types::{HarnessCheckpoint, PendingReply, TurnSummary};
 use std::collections::HashMap;
 
-use sandbox::actors::agent_harness::alm::{LlmCallResult, AlmPort, AlmToolExecution};
+use sandbox::actors::agent_harness::alm::{AlmPort, AlmToolExecution, LlmCallResult};
 use sandbox::actors::event_store::{
     AppendEvent, EventStoreActor, EventStoreArguments, EventStoreMsg,
 };

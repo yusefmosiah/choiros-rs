@@ -6,10 +6,10 @@ pub mod event_bus;
 mod event_bus_test;
 pub mod event_relay;
 pub mod event_store;
+pub mod harness_actor;
 pub mod memory;
 pub mod model_config;
 pub mod researcher;
-pub mod harness_actor;
 pub mod terminal;
 pub mod writer;
 

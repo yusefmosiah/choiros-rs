@@ -1,12 +1,118 @@
-//! Writer styles, preview helpers, and save-status rendering
+//! Writer styles and save-status rendering
 
 use dioxus::prelude::*;
-use crate::api::writer_preview;
+
 use super::types::SaveState;
-use super::logic::is_markdown;
 
 pub const WRITER_STYLES: &str = r#"
-/* ── Writer status chip ── */
+/* ── Toolbar layout ── */
+.writer-toolbar {
+    display: flex;
+    align-items: center;
+    padding: 0.3rem 0.6rem;
+    background: var(--titlebar-bg);
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+    gap: 0.25rem;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.writer-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.writer-toolbar-center {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+.writer-toolbar-spacer {
+    flex: 1;
+    min-width: 0.25rem;
+}
+
+.writer-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-shrink: 0;
+}
+
+.writer-toolbar-secondary {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-shrink: 1;
+}
+
+@media (max-width: 520px) {
+    .writer-toolbar-secondary {
+        display: none;
+    }
+    .writer-toolbar-center {
+        display: none;
+    }
+}
+
+.writer-toolbar-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0.25rem 0.55rem;
+    border-radius: 0.375rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.writer-toolbar-btn:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--border-color) 60%, var(--accent-bg) 40%);
+    color: var(--text-primary);
+}
+
+.writer-toolbar-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.writer-toolbar-btn-accent {
+    background: var(--accent-bg);
+    border: none;
+    color: var(--accent-text);
+    cursor: pointer;
+    padding: 0.25rem 0.55rem;
+    border-radius: 0.375rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+    font-weight: 500;
+}
+
+.writer-toolbar-btn-accent:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.writer-path-label {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 1;
+}
+
 .writer-status-chip {
     font-size: 0.75rem;
     padding: 0.125rem 0.375rem;
@@ -25,7 +131,6 @@ pub const WRITER_STYLES: &str = r#"
 .writer-status--failed        { color: var(--danger-bg); }
 .writer-status--blocked       { color: var(--danger-bg); }
 
-/* ── Read-only badge ── */
 .writer-readonly-badge {
     font-size: 0.75rem;
     color: var(--warning-bg);
@@ -34,7 +139,6 @@ pub const WRITER_STYLES: &str = r#"
     border-radius: 0.25rem;
 }
 
-/* ── Provenance / version source badge ── */
 .writer-provenance-badge {
     font-size: 0.7rem;
     padding: 0.1rem 0.4rem;
@@ -57,17 +161,6 @@ pub const WRITER_STYLES: &str = r#"
     color: var(--text-muted);
 }
 
-:root[data-theme="light"] .writer-provenance--ai {
-    background: color-mix(in srgb, #6366f1 12%, transparent);
-    color: #4f46e5;
-}
-
-:root[data-theme="light"] .writer-provenance--user {
-    background: color-mix(in srgb, var(--success-bg) 12%, transparent);
-    color: var(--success-bg);
-}
-
-/* ── New-version banner ── */
 .writer-new-version-banner {
     padding: 0.6rem 1rem;
     background: color-mix(in srgb, var(--accent-bg) 12%, transparent);
@@ -79,22 +172,6 @@ pub const WRITER_STYLES: &str = r#"
     justify-content: space-between;
 }
 
-/* ── Changeset panel ── */
-.writer-changeset-panel {
-    padding: 0.4rem 1rem;
-    background: color-mix(in srgb, #6366f1 6%, transparent);
-    border-bottom: 1px solid var(--border-color);
-    font-size: 0.78rem;
-    color: var(--text-secondary);
-    max-height: 5rem;
-    overflow-y: auto;
-}
-
-:root[data-theme="light"] .writer-changeset-panel {
-    background: color-mix(in srgb, #6366f1 8%, var(--bg-secondary) 92%);
-}
-
-/* ── Changeset impact badges ── */
 .writer-impact-badge {
     font-size: 0.65rem;
     padding: 0.05rem 0.3rem;
@@ -102,13 +179,9 @@ pub const WRITER_STYLES: &str = r#"
     flex-shrink: 0;
 }
 
-.writer-impact--high   { background: color-mix(in srgb, var(--danger-bg)  15%, transparent); color: #f87171; }
+.writer-impact--high   { background: color-mix(in srgb, var(--danger-bg) 15%, transparent); color: #f87171; }
 .writer-impact--medium { background: color-mix(in srgb, var(--warning-bg) 15%, transparent); color: #fbbf24; }
 .writer-impact--low    { background: color-mix(in srgb, var(--success-bg) 12%, transparent); color: var(--success-bg); }
-
-:root[data-theme="light"] .writer-impact--high   { color: var(--danger-text); }
-:root[data-theme="light"] .writer-impact--medium { color: var(--warning-bg); }
-:root[data-theme="light"] .writer-impact--low    { color: var(--success-bg); }
 
 /* ── Overview grid ── */
 .writer-overview-grid {
@@ -147,19 +220,18 @@ pub const WRITER_STYLES: &str = r#"
     text-overflow: ellipsis;
 }
 
-.writer-doc-card-path {
-    font-size: 0.7rem;
-    color: var(--text-secondary);
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-}
-
 .writer-doc-card-footer {
     display: flex;
     align-items: center;
     gap: 0.4rem;
     margin-top: 0.1rem;
+    flex-wrap: wrap;
+}
+
+.writer-doc-card-meta {
+    font-size: 0.65rem;
+    color: var(--text-muted, var(--text-secondary));
+    opacity: 0.8;
 }
 
 .writer-back-btn {
@@ -176,39 +248,220 @@ pub const WRITER_STYLES: &str = r#"
     border-color: color-mix(in srgb, var(--border-color) 60%, var(--accent-bg) 40%);
     color: var(--text-primary);
 }
+
+/* ── Marginalia layout ── */
+.writer-layout {
+    display: grid;
+    grid-template-columns: 180px 1fr 180px;
+    grid-template-rows: 1fr;
+    flex: 1;
+    overflow: hidden;
+}
+
+.writer-margin {
+    overflow-y: auto;
+    padding: 0.5rem;
+    background: color-mix(in srgb, var(--bg-secondary) 95%, transparent);
+    border-right: 1px solid var(--border-color);
+}
+
+.writer-margin-right {
+    border-right: none;
+    border-left: 1px solid var(--border-color);
+}
+
+.writer-margin-empty {
+    font-size: 0.74rem;
+    color: var(--text-secondary);
+    opacity: 0.8;
+    padding: 0.5rem;
+}
+
+.writer-margin-card {
+    border-left: 2px solid var(--accent-bg);
+    padding: 0.4rem 0.5rem;
+    margin-bottom: 0.4rem;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    position: relative;
+    background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+}
+
+.writer-margin-card::after {
+    content: "";
+    position: absolute;
+    right: -16px;
+    width: 16px;
+    height: 1px;
+    background: var(--border-color);
+    top: 50%;
+}
+
+.writer-margin-card-actions {
+    display: flex;
+    gap: 0.35rem;
+    margin-top: 0.35rem;
+}
+
+.writer-margin-card-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: 0.25rem;
+    padding: 0.1rem 0.35rem;
+    font-size: 0.68rem;
+}
+
+.writer-margin-card-btn:hover {
+    color: var(--text-primary);
+}
+
+.writer-prose-column {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+    position: relative;
+}
+
+.writer-prose-container {
+    flex: 1;
+    overflow: auto;
+    position: relative;
+    padding: 0.8rem;
+}
+
+.writer-prose-body {
+    max-width: 680px;
+    min-height: calc(100% - 1rem);
+    margin: 0 auto;
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    background: var(--window-bg);
+    color: var(--text-primary);
+    line-height: 1.65;
+    font-size: 0.95rem;
+    outline: none;
+}
+
+.writer-prose-body:focus {
+    border-color: color-mix(in srgb, var(--accent-bg) 50%, var(--border-color) 50%);
+}
+
+.writer-prose-body h1,
+.writer-prose-body h2,
+.writer-prose-body h3 {
+    margin: 0.35rem 0 0.7rem;
+    line-height: 1.2;
+}
+
+.writer-prose-body p {
+    margin: 0.35rem 0 0.8rem;
+}
+
+.writer-note-toggle {
+    position: absolute;
+    top: 0.8rem;
+    right: 0.8rem;
+    z-index: 11;
+    border: 1px solid var(--border-color);
+    background: color-mix(in srgb, var(--bg-secondary) 90%, transparent);
+    color: var(--text-secondary);
+    border-radius: 999px;
+    padding: 0.18rem 0.45rem;
+    font-size: 0.72rem;
+    cursor: pointer;
+    display: none;
+}
+
+.writer-bubble {
+    position: absolute;
+    right: 4px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--accent-bg) 40%, transparent);
+    border: none;
+    font-size: 10px;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    z-index: 10;
+    display: none;
+}
+
+.writer-prose-container:focus-within .writer-bubble {
+    opacity: 0.15;
+}
+
+.writer-bottom-sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 90;
+}
+
+.writer-bottom-sheet {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-height: 60vh;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+    border-radius: 12px 12px 0 0;
+    padding: 1rem;
+    overflow-y: auto;
+    z-index: 100;
+}
+
+@media (max-width: 900px) {
+    .writer-layout {
+        grid-template-columns: 0 1fr 180px;
+    }
+    .writer-margin-left {
+        overflow: hidden;
+        width: 0;
+        padding: 0;
+        border-right: none;
+    }
+    .writer-margin-right {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 180px;
+        transform: translateX(100%);
+        transition: transform 0.2s ease;
+        z-index: 20;
+        background: var(--bg-secondary);
+    }
+    .writer-margin-right.is-open {
+        transform: translateX(0%);
+    }
+    .writer-note-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.2rem;
+    }
+}
+
+@media (max-width: 640px) {
+    .writer-layout {
+        grid-template-columns: 0 1fr 0;
+    }
+    .writer-margin-right {
+        display: none;
+    }
+    .writer-note-toggle {
+        display: none;
+    }
+    .writer-bubble {
+        display: block;
+    }
+}
 "#;
-
-/// Update the preview HTML
-pub async fn update_preview(
-    content: String,
-    mime: &str,
-    path: &str,
-    preview_html: &mut Signal<String>,
-) {
-    if !is_markdown(mime, path) {
-        preview_html.set(format!("<pre>{}</pre>", html_escape(&content)));
-        return;
-    }
-
-    match writer_preview(Some(&content), Some(path)).await {
-        Ok(response) => {
-            preview_html.set(response.html);
-        }
-        Err(e) => {
-            dioxus_logger::tracing::error!("Preview failed: {}", e);
-            preview_html.set(format!("<pre>Error rendering preview: {}</pre>", e));
-        }
-    }
-}
-
-/// Simple HTML escape for non-markdown files
-pub fn html_escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#x27;")
-}
 
 /// Render save status indicator
 pub fn render_save_status(save_state: &SaveState, on_dismiss_saved: EventHandler<()>) -> Element {

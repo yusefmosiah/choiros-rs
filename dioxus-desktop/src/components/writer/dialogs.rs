@@ -1,8 +1,6 @@
 //! Writer dialog functions and components
 
-use super::logic::is_markdown;
-use super::styles::update_preview;
-use super::types::{DialogState, SaveState, ViewMode};
+use super::types::{DialogState, SaveState};
 use crate::api::files_api::{list_directory, DirectoryEntry};
 use crate::api::{writer_open, writer_save};
 use dioxus::prelude::*;
@@ -17,8 +15,6 @@ pub fn render_dialog(
     mut mime: Signal<String>,
     mut readonly: Signal<bool>,
     mut save_state: Signal<SaveState>,
-    mut view_mode: Signal<ViewMode>,
-    mut preview_html: Signal<String>,
     mut loading: Signal<bool>,
     mut loaded_path: Signal<Option<String>>,
 ) -> Element {
@@ -55,20 +51,13 @@ pub fn render_dialog(
                         loading.set(true);
                         match writer_open(&selected_path).await {
                             Ok(response) => {
-                                let is_md = is_markdown(&response.mime, &response.path);
                                 path.set(response.path);
                                 content.set(response.content);
                                 revision.set(response.revision);
                                 mime.set(response.mime);
                                 readonly.set(response.readonly);
                                 save_state.set(SaveState::Clean);
-                                view_mode.set(ViewMode::Edit);
                                 loading.set(false);
-
-                                if is_md {
-                                    let content_clone = content();
-                                    let _ = update_preview(content_clone, &mime(), &path(), &mut preview_html).await;
-                                }
                                 loaded_path.set(Some(path()));
                             }
                             Err(e) => {

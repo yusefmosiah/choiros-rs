@@ -138,8 +138,10 @@ pub fn router() -> Router<ApiState> {
         .route("/writer/prompt", post(writer::prompt_document))
         .route("/writer/versions", get(writer::list_versions))
         .route("/writer/version", get(writer::get_version))
+        .route("/writer/overlay/dismiss", post(writer::dismiss_overlay))
         // Conductor API routes
         .route("/conductor/execute", post(conductor::execute_task))
+        .route("/conductor/runs", get(conductor::list_runs))
         .route("/conductor/runs/{run_id}", get(conductor::get_run_status))
 }
 

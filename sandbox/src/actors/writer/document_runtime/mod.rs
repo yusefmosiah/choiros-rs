@@ -197,6 +197,27 @@ impl WriterDocumentRuntime {
         Ok(overlay)
     }
 
+    pub async fn dismiss_overlay(
+        &mut self,
+        run_id: &str,
+        overlay_id: &str,
+    ) -> Result<(), WriterDocumentError> {
+        self.ensure_run_id(run_id)?;
+        let overlay = self
+            .state
+            .document
+            .get_overlay_mut(overlay_id)
+            .ok_or_else(|| WriterDocumentError::OverlayNotFound(overlay_id.to_string()))?;
+        overlay.status = OverlayStatus::Rejected;
+        self.persist_document().await?;
+        self.emit_progress_event(
+            "overlay_dismissed",
+            format!("Dismissed overlay {overlay_id}"),
+        )
+        .await;
+        Ok(())
+    }
+
     pub async fn apply_patch(
         &mut self,
         run_id: &str,

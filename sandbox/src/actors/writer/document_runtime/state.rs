@@ -43,6 +43,7 @@ pub enum OverlayStatus {
     Superseded,
     Applied,
     Discarded,
+    Rejected,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

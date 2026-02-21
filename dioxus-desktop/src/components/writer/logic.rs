@@ -61,30 +61,6 @@ pub fn overlay_note_lines(overlay: &WriterOverlay) -> Vec<String> {
     lines
 }
 
-pub const INLINE_OVERLAY_MARKER: &str = "\n\n--- pending suggestions ---\n";
-
-pub fn compose_editor_text(base: &str, overlays: &[WriterOverlay]) -> String {
-    if overlays.is_empty() {
-        return base.to_string();
-    }
-    let mut out = String::from(base);
-    out.push_str(INLINE_OVERLAY_MARKER);
-    for overlay in overlays {
-        for line in overlay_note_lines(overlay) {
-            out.push_str(&line);
-            out.push('\n');
-        }
-    }
-    out
-}
-
-pub fn strip_inline_overlay_block(text: &str) -> String {
-    if let Some(index) = text.find(INLINE_OVERLAY_MARKER) {
-        return text[..index].to_string();
-    }
-    text.to_string()
-}
-
 pub fn normalize_version_ids(mut ids: Vec<u64>) -> Vec<u64> {
     ids.sort_unstable();
     ids.dedup();
@@ -141,4 +117,23 @@ pub fn has_revision_gap(current_revision: u64, patch_revision: u64) -> bool {
 /// Check if file is markdown based on mime type or extension
 pub fn is_markdown(mime: &str, path: &str) -> bool {
     mime == "text/markdown" || path.ends_with(".md") || path.ends_with(".markdown")
+}
+
+/// Format a modified_at string (ISO 8601 or similar) into a compact human-readable form.
+/// Returns an empty string if the input is blank or unparseable.
+pub fn format_modified_date(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    // ISO 8601 like "2026-02-20T14:32:10Z" or "2026-02-20 14:32:10 UTC"
+    // Take up to the minute: "YYYY-MM-DD HH:MM"
+    let normalized = trimmed.replace('T', " ");
+    let date_time = normalized.trim_end_matches('Z').trim();
+    // Take first 16 chars: "YYYY-MM-DD HH:MM"
+    if date_time.len() >= 16 {
+        date_time[..16].to_string()
+    } else {
+        date_time.to_string()
+    }
 }

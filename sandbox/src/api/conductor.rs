@@ -593,6 +593,33 @@ pub async fn execute_task(
     }
 }
 
+/// GET /conductor/runs - List all runs sorted by most recently created
+pub async fn list_runs(State(state): State<ApiState>) -> impl IntoResponse {
+    let conductor = match state.app_state.ensure_conductor().await {
+        Ok(actor) => actor,
+        Err(e) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({ "error": format!("Conductor unavailable: {e}") })),
+            )
+                .into_response();
+        }
+    };
+
+    match ractor::call!(conductor, |reply| ConductorMsg::ListRuns { reply }) {
+        Ok(runs) => {
+            let responses: Vec<ConductorRunStatusResponse> =
+                runs.into_iter().map(run_state_to_status_response).collect();
+            (StatusCode::OK, Json(responses)).into_response()
+        }
+        Err(e) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": format!("Conductor RPC failed: {e}") })),
+        )
+            .into_response(),
+    }
+}
+
 /// GET /conductor/runs/:run_id - Get current run state
 pub async fn get_run_status(
     State(state): State<ApiState>,

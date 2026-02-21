@@ -91,6 +91,11 @@ impl Actor for ConductorActor {
             ConductorMsg::GetRunState { run_id, reply } => {
                 let _ = reply.send(state.tasks.get_run(&run_id).cloned());
             }
+            ConductorMsg::ListRuns { reply } => {
+                let mut runs: Vec<_> = state.tasks.get_all_runs().values().cloned().collect();
+                runs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                let _ = reply.send(runs);
+            }
             ConductorMsg::CapabilityCallFinished {
                 run_id,
                 call_id,

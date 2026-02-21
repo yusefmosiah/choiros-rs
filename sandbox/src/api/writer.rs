@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 use tokio::fs;
 
+use crate::actors::conductor::registry::lookup_writer_actor_for_run;
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::writer::{
     DocumentVersion, Overlay, OverlayStatus, VersionSource, WriterError, WriterMsg,
@@ -28,6 +29,7 @@ fn sandbox_root() -> PathBuf {
 pub enum WriterErrorCode {
     PathTraversal,
     NotFound,
+    RunNotFound,
     IsDirectory,
     InvalidRevision,
     Conflict,
@@ -40,6 +42,7 @@ impl WriterErrorCode {
         match self {
             WriterErrorCode::PathTraversal => "PATH_TRAVERSAL",
             WriterErrorCode::NotFound => "NOT_FOUND",
+            WriterErrorCode::RunNotFound => "RUN_NOT_FOUND",
             WriterErrorCode::IsDirectory => "IS_DIRECTORY",
             WriterErrorCode::InvalidRevision => "INVALID_REVISION",
             WriterErrorCode::Conflict => "CONFLICT",
@@ -52,6 +55,7 @@ impl WriterErrorCode {
         match self {
             WriterErrorCode::PathTraversal => StatusCode::FORBIDDEN,
             WriterErrorCode::NotFound => StatusCode::NOT_FOUND,
+            WriterErrorCode::RunNotFound => StatusCode::NOT_FOUND,
             WriterErrorCode::IsDirectory => StatusCode::BAD_REQUEST,
             WriterErrorCode::InvalidRevision => StatusCode::BAD_REQUEST,
             WriterErrorCode::Conflict => StatusCode::CONFLICT,
@@ -536,6 +540,17 @@ pub struct GetVersionResponse {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct DismissOverlayRequest {
+    pub path: String,
+    pub overlay_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DismissOverlayResponse {
+    pub dismissed: bool,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct SaveVersionRequest {
     pub path: String,
     pub content: String,
@@ -891,6 +906,55 @@ pub async fn get_version(
         }),
     )
         .into_response()
+}
+
+/// Dismiss a pending overlay on a run document.
+pub async fn dismiss_overlay(
+    State(_state): State<ApiState>,
+    Json(req): Json<DismissOverlayRequest>,
+) -> impl IntoResponse {
+    let run_id = match extract_run_id_from_document_path(req.path.trim()) {
+        Some(run_id) => run_id,
+        None => {
+            return writer_error(
+                WriterErrorCode::InvalidRevision,
+                "Dismiss requires a run document path: conductor/runs/{run_id}/draft.md",
+            )
+            .into_response();
+        }
+    };
+    if req.overlay_id.trim().is_empty() {
+        return writer_error(
+            WriterErrorCode::InvalidRevision,
+            "overlay_id cannot be empty",
+        )
+        .into_response();
+    }
+
+    let Some(writer_actor) = lookup_writer_actor_for_run(&run_id) else {
+        return writer_error(
+            WriterErrorCode::RunNotFound,
+            format!("No live writer run actor for run_id: {run_id}"),
+        )
+        .into_response();
+    };
+
+    let result = ractor::call!(writer_actor, |reply| {
+        WriterMsg::DismissWriterDocumentOverlay {
+            run_id: run_id.clone(),
+            overlay_id: req.overlay_id.clone(),
+            reply,
+        }
+    });
+    match result {
+        Ok(Ok(())) => (
+            StatusCode::OK,
+            Json(DismissOverlayResponse { dismissed: true }),
+        )
+            .into_response(),
+        Ok(Err(err)) => map_writer_actor_error(err),
+        Err(err) => writer_error(WriterErrorCode::WriteError, err.to_string()).into_response(),
+    }
 }
 
 /// Save current editor content as a new user-sourced run version.

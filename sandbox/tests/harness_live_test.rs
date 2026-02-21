@@ -148,10 +148,7 @@ async fn test_subharness_actor_spawns_successfully() {
         "actor must have an ID"
     );
 
-    println!(
-        "  [SPAWN] HarnessActor spawned, id: {}",
-        actor_ref.get_id()
-    );
+    println!("  [SPAWN] HarnessActor spawned, id: {}", actor_ref.get_id());
 }
 
 /// Two `HarnessActors` can be spawned concurrently with different corr_ids.

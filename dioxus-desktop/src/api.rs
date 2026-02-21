@@ -3,7 +3,8 @@ use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use shared_types::{
     AppDefinition, ChatMessage, ConductorExecuteRequest, ConductorExecuteResponse,
-    ConductorOutputMode, DesktopState, Sender, ViewerRevision, WindowState,
+    ConductorOutputMode, ConductorRunStatusResponse, DesktopState, Sender, ViewerRevision,
+    WindowState,
 };
 use std::sync::OnceLock;
 
@@ -1277,6 +1278,11 @@ pub struct SaveVersionResponse {
     pub saved: bool,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct DismissOverlayResponse {
+    pub dismissed: bool,
+}
+
 /// Writer error detail
 #[derive(Debug, Clone, Deserialize)]
 pub struct WriterErrorDetail {
@@ -1524,12 +1530,72 @@ pub async fn writer_save_version(
         .map_err(|e| format!("Failed to parse JSON: {e}"))
 }
 
+pub async fn writer_dismiss_overlay(
+    path: &str,
+    overlay_id: &str,
+) -> Result<DismissOverlayResponse, String> {
+    let url = format!("{}/writer/overlay/dismiss", api_base());
+    let request = serde_json::json!({
+        "path": path,
+        "overlay_id": overlay_id
+    });
+    let response = Request::post(&url)
+        .json(&request)
+        .map_err(|e| format!("Failed to serialize request: {e}"))?
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+    if !response.ok() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        if let Ok(err) = serde_json::from_str::<WriterErrorResponse>(&body) {
+            return Err(format!("{}: {}", err.error.code, err.error.message));
+        }
+        return Err(format!("HTTP error: {status}"));
+    }
+    response
+        .json::<DismissOverlayResponse>()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))
+}
+
 // ============================================================================
 // Conductor API Functions
 // ============================================================================
 
 /// Execute a Conductor run
 ///
+/// GET /conductor/runs — list all runs sorted by most recently created
+pub async fn conductor_list_runs() -> Result<Vec<ConductorRunStatusResponse>, String> {
+    let url = format!("{}/conductor/runs", api_base());
+    let response = Request::get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+    if !response.ok() {
+        return Err(describe_http_error(response).await);
+    }
+    response
+        .json::<Vec<ConductorRunStatusResponse>>()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))
+}
+
+pub async fn conductor_get_run_status(run_id: &str) -> Result<ConductorRunStatusResponse, String> {
+    let url = format!("{}/conductor/runs/{}", api_base(), run_id);
+    let response = Request::get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+    if !response.ok() {
+        return Err(describe_http_error(response).await);
+    }
+    response
+        .json::<ConductorRunStatusResponse>()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))
+}
+
 /// POST /conductor/execute
 /// Returns a run_id that can be used to poll for run status
 pub async fn execute_conductor(

@@ -39,11 +39,9 @@ impl SqliteSessionStore {
         .execute(&self.pool)
         .await?;
 
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions (expiry_date)",
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions (expiry_date)")
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
@@ -113,13 +111,14 @@ impl SessionStore for SqliteSessionStore {
         let id = session_id.to_string();
         let now = OffsetDateTime::now_utc().unix_timestamp();
 
-        let row: Option<(String, i64)> =
-            sqlx::query_as("SELECT data, expiry_date FROM sessions WHERE id = ? AND expiry_date > ?")
-                .bind(&id)
-                .bind(now)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| session_store::Error::Backend(e.to_string()))?;
+        let row: Option<(String, i64)> = sqlx::query_as(
+            "SELECT data, expiry_date FROM sessions WHERE id = ? AND expiry_date > ?",
+        )
+        .bind(&id)
+        .bind(now)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| session_store::Error::Backend(e.to_string()))?;
 
         match row {
             None => Ok(None),
@@ -149,10 +148,7 @@ impl SessionStore for SqliteSessionStore {
 }
 
 /// Background task: delete expired sessions every `period`.
-pub async fn run_expired_session_cleanup(
-    store: SqliteSessionStore,
-    period: std::time::Duration,
-) {
+pub async fn run_expired_session_cleanup(store: SqliteSessionStore, period: std::time::Duration) {
     let mut interval = tokio::time::interval(period);
     interval.tick().await; // first tick is immediate; skip it
     loop {
