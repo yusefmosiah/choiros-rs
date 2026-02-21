@@ -99,9 +99,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          SCRIPT_B64="$(base64 -w0 <<EOF
+          SCRIPT_B64="$(base64 -w0 <<'EOF'
           set -euo pipefail
-          RELEASE_SHA='${DEPLOY_SHA}'
+          RELEASE_SHA="${DEPLOY_SHA}"
           WORKDIR='/opt/choiros/workspace'
           cd "$WORKDIR"
           git fetch origin
@@ -127,7 +127,7 @@ jobs:
             --instance-ids "${DEPLOY_INSTANCE_ID}" \
             --document-name 'AWS-RunShellScript' \
             --comment "choiros deploy ${DEPLOY_SHA}" \
-            --parameters commands="echo ${SCRIPT_B64} | base64 -d | bash" \
+            --parameters commands="echo ${SCRIPT_B64} | base64 -d | DEPLOY_SHA='${DEPLOY_SHA}' bash" \
             --query 'Command.CommandId' \
             --output text)"
 
