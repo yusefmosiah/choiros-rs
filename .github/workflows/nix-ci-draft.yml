@@ -165,9 +165,31 @@ jobs:
             done
           }
 
+          wait_container_port() {
+            local container_name="$1"
+            local port="$2"
+            local timeout_secs="$3"
+            local started_at
+            started_at="$(date +%s)"
+
+            while true; do
+              if nixos-container run "$container_name" -- sh -lc "ss -ltn '( sport = :${port} )' | grep -q LISTEN"; then
+                return 0
+              fi
+
+              if [ $(( $(date +%s) - started_at )) -ge "$timeout_secs" ]; then
+                echo "Timed out waiting for ${container_name} to listen on ${port}"
+                dump_runtime_diagnostics
+                return 1
+              fi
+
+              sleep 2
+            done
+          }
+
           wait_http http://127.0.0.1:9090/login 120
-          wait_http http://127.0.0.1:8080/health 120
-          wait_http http://127.0.0.1:8081/health 120
+          wait_container_port sandbox-live 8080 120
+          wait_container_port sandbox-dev 8080 120
           echo "Deploy OK for $RELEASE_SHA"
           EOF
           )"
