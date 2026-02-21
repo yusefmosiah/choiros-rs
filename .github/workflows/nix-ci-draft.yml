@@ -120,9 +120,25 @@ jobs:
           nix --extra-experimental-features nix-command --extra-experimental-features flakes build ./hypervisor#hypervisor --out-link "$HYPERVISOR_OUT"
           nix --extra-experimental-features nix-command --extra-experimental-features flakes build ./dioxus-desktop#desktop --out-link "$DESKTOP_OUT"
 
-          install -m 0755 "$SANDBOX_OUT/bin/sandbox" /opt/choiros/bin/sandbox
+          install -m 0755 "$SANDBOX_OUT/bin/sandbox" /opt/choiros/bin/sandbox-real
           install -m 0755 "$HYPERVISOR_OUT/bin/hypervisor" /opt/choiros/bin/hypervisor
           install -m 0755 "$DESKTOP_OUT/bin/sandbox-ui" /opt/choiros/bin/sandbox-ui
+
+          ONNX_STORE_PATH="$(nix-store -q --references "$SANDBOX_OUT/bin/sandbox" | grep 'onnxruntime' | head -n 1)"
+          if [ -z "$ONNX_STORE_PATH" ]; then
+            echo "Failed to determine onnxruntime path from sandbox closure"
+            exit 1
+          fi
+          ONNX_DYLIB_PATH="$ONNX_STORE_PATH/lib/libonnxruntime.so"
+
+          cat >/opt/choiros/bin/sandbox <<EOF_WRAPPER
+          #!/usr/bin/env bash
+          set -euo pipefail
+          export ORT_DYLIB_PATH="$ONNX_DYLIB_PATH"
+          export LD_LIBRARY_PATH="$ONNX_STORE_PATH/lib:\${LD_LIBRARY_PATH:-}"
+          exec /opt/choiros/bin/sandbox-real "\$@"
+          EOF_WRAPPER
+          chmod 0755 /opt/choiros/bin/sandbox
 
           systemctl restart container@sandbox-live container@sandbox-dev hypervisor
 
