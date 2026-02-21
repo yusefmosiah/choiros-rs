@@ -127,21 +127,21 @@ jobs:
           systemctl restart container@sandbox-live container@sandbox-dev hypervisor
 
           dump_runtime_diagnostics() {
-            echo "===== deploy diagnostics: host ====="
-            systemctl status hypervisor --no-pager -l || true
-            systemctl status container@sandbox-live --no-pager -l || true
-            systemctl status container@sandbox-dev --no-pager -l || true
-            journalctl -u hypervisor -n 200 --no-pager || true
-            journalctl -u container@sandbox-live -n 200 --no-pager || true
-            journalctl -u container@sandbox-dev -n 200 --no-pager || true
-            ss -ltnp || true
-
+            echo "===== deploy diagnostics: sandbox containers ====="
             for container_name in sandbox-live sandbox-dev; do
               echo "===== deploy diagnostics: ${container_name} ====="
+              nixos-container run "$container_name" -- systemctl show sandbox --property=ActiveState,SubState,ExecMainCode,ExecMainStatus || true
               nixos-container run "$container_name" -- systemctl status sandbox --no-pager -l || true
-              nixos-container run "$container_name" -- journalctl -u sandbox -n 200 --no-pager || true
-              nixos-container run "$container_name" -- ss -ltnp || true
+              nixos-container run "$container_name" -- journalctl -u sandbox --since '-15 min' -n 120 --no-pager || true
+              nixos-container run "$container_name" -- ss -ltnp '( sport = :8080 )' || true
             done
+
+            echo "===== deploy diagnostics: host ====="
+            ss -ltnp '( sport = :9090 or sport = :8080 or sport = :8081 )' || true
+            systemctl status hypervisor --no-pager -l || true
+            journalctl -u hypervisor --since '-15 min' -n 120 --no-pager || true
+            systemctl status container@sandbox-live --no-pager -l || true
+            systemctl status container@sandbox-dev --no-pager -l || true
           }
 
           wait_http() {
