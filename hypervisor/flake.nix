@@ -26,6 +26,7 @@
           filter = path: type:
             (craneLib.filterCargoSources path type)
             || (builtins.baseNameOf path) == "Cargo.lock"
+            || (pkgs.lib.hasPrefix (toString ../. + "/hypervisor/migrations/") (toString path))
             || (pkgs.lib.hasPrefix (toString ../. + "/hypervisor/.sqlx/") (toString path));
         };
 
