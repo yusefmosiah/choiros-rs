@@ -127,7 +127,10 @@ impl SandboxRegistry {
         // the running sandbox endpoint instead of spawning a new child.
         // This supports externally managed runtimes (for example, NixOS
         // containers started by the host) while keeping the same routing model.
-        if TcpStream::connect(format!("127.0.0.1:{port}")).await.is_ok() {
+        if TcpStream::connect(format!("127.0.0.1:{port}"))
+            .await
+            .is_ok()
+        {
             user_map.insert(
                 role,
                 SandboxEntry {

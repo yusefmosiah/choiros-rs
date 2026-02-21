@@ -43,6 +43,13 @@ tests/playwright/playwright-report/
 tests/playwright/test-results/
 tests/playwright/tests/artifacts/
 tests/playwright/artifacts/
+tests/screenshots/
+tests/e2e/screenshots/
+
+# Local screenshot dumps
+screenshots/
+test-screenshots/
+*-screenshot.png
 
 # FastEmbed model cache
 **/.fastembed_cache/

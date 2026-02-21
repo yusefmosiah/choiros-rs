@@ -105,9 +105,16 @@ cargo test -p sandbox --test desktop_api_test -- --nocapture
 # Supervision tests
 cargo test -p sandbox --features supervision_refactor --test supervision_test -- --nocapture
 
+# Canonical browser E2E (Playwright)
+cd tests/playwright
+npx playwright test --config=playwright.config.ts
+
 # All tests
 cargo test -p sandbox
 ```
+
+Legacy chat/dev-browser test docs were archived to:
+- `docs/archive/testing/legacy-chat/`
 
 ## Key Principles
 

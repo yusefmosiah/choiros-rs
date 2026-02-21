@@ -46,9 +46,6 @@ impl AsRef<Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolC
 
 impl Default for Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall {
     fn default() -> Self {
-        
-           
-            Self::BashToolCall(Default::default())
-        
+        Self::BashToolCall(Default::default())
     }
 }
