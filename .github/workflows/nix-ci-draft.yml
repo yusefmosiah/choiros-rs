@@ -125,10 +125,33 @@ jobs:
           install -m 0755 "$DESKTOP_OUT/bin/sandbox-ui" /opt/choiros/bin/sandbox-ui
 
           systemctl restart container@sandbox-live container@sandbox-dev hypervisor
-          sleep 3
-          curl -fsS http://127.0.0.1:9090/login >/dev/null
-          curl -fsS http://127.0.0.1:8080/health >/dev/null
-          curl -fsS http://127.0.0.1:8081/health >/dev/null
+
+          wait_http() {
+            local url="$1"
+            local timeout_secs="$2"
+            local started_at
+            started_at="$(date +%s)"
+
+            while true; do
+              if curl -fsS "$url" >/dev/null; then
+                return 0
+              fi
+
+              if [ $(( $(date +%s) - started_at )) -ge "$timeout_secs" ]; then
+                echo "Timed out waiting for $url"
+                systemctl status hypervisor --no-pager -l || true
+                systemctl status container@sandbox-live --no-pager -l || true
+                systemctl status container@sandbox-dev --no-pager -l || true
+                return 1
+              fi
+
+              sleep 2
+            done
+          }
+
+          wait_http http://127.0.0.1:9090/login 120
+          wait_http http://127.0.0.1:8080/health 120
+          wait_http http://127.0.0.1:8081/health 120
           echo "Deploy OK for $RELEASE_SHA"
           EOF
           )"
