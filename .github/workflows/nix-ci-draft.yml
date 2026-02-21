@@ -1,0 +1,55 @@
+name: Nix CI (Draft)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  nix-build:
+    name: Build ${{ matrix.name }} flake
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: sandbox
+            path: sandbox
+            attr: sandbox
+          - name: desktop
+            path: dioxus-desktop
+            attr: desktop
+          - name: hypervisor
+            path: hypervisor
+            attr: hypervisor
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/determinate-nix-action@v3
+
+      - name: Configure FlakeHub Cache
+        uses: DeterminateSystems/flakehub-cache-action@v1
+
+      - name: Check flake presence
+        id: flake
+        run: |
+          if [ -f "${{ matrix.path }}/flake.nix" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build flake package
+        if: steps.flake.outputs.present == 'true'
+        run: |
+          nix build "./${{ matrix.path }}#${{ matrix.attr }}" --print-build-logs
+
+      - name: Skip missing flake
+        if: steps.flake.outputs.present != 'true'
+        run: |
+          echo "${{ matrix.path }}/flake.nix not present yet; draft workflow skip."
