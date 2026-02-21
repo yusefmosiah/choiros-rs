@@ -44,6 +44,8 @@ jobs:
         uses: DeterminateSystems/flakehub-cache-action@v3
         with:
           flakehub-flake-name: choir/choiros-rs
+        env:
+          FLAKEHUB_AUTH_TOKEN: ${{ secrets.FLAKEHUB_AUTH_TOKEN }}
 
       - name: Build flake package
         run: nix build "./${{ matrix.path }}#${{ matrix.attr }}" --print-build-logs
@@ -70,6 +72,8 @@ jobs:
         uses: DeterminateSystems/flakehub-cache-action@v3
         with:
           flakehub-flake-name: choir/choiros-rs
+        env:
+          FLAKEHUB_AUTH_TOKEN: ${{ secrets.FLAKEHUB_AUTH_TOKEN }}
 
       - name: Build deploy artifacts from cache-backed outputs
         run: |
@@ -86,7 +90,7 @@ jobs:
       - name: Build web assets (Dioxus release)
         run: |
           set -euo pipefail
-          nix develop ./dioxus-desktop --command dx build --release
+          nix develop ./dioxus-desktop --command bash -lc 'cd dioxus-desktop && dx build --release'
 
           web_public_dir="dioxus-desktop/target/dx/sandbox-ui/release/web/public"
           if [ ! -d "$web_public_dir" ]; then
