@@ -23,7 +23,7 @@
 
         craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
         src = pkgs.lib.cleanSourceWith {
-          src = ./.;
+          src = ../.;
           filter = path: type:
             (craneLib.filterCargoSources path type)
             || (builtins.baseNameOf path) == "Cargo.lock";
@@ -32,21 +32,21 @@
         commonArgs = {
           inherit src;
           strictDeps = true;
-          cargoExtraArgs = "-p sandbox-ui";
+          cargoExtraArgs = "--manifest-path dioxus-desktop/Cargo.toml";
         };
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
       in {
         packages.desktop = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
-          cargoExtraArgs = "-p sandbox-ui --bin sandbox-ui";
+          cargoExtraArgs = "--manifest-path dioxus-desktop/Cargo.toml --bin sandbox-ui";
         });
 
         packages.default = self.packages.${system}.desktop;
 
         checks.desktop-clippy = craneLib.cargoClippy (commonArgs // {
           inherit cargoArtifacts;
-          cargoClippyExtraArgs = "-p sandbox-ui --all-targets -- -D warnings";
+          cargoClippyExtraArgs = "--manifest-path dioxus-desktop/Cargo.toml --all-targets -- -D warnings";
         });
 
         devShells.default = pkgs.mkShell {

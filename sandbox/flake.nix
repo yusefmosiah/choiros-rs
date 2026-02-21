@@ -33,6 +33,8 @@
           pname = "sandbox";
           version = "0.1.0";
           strictDeps = true;
+          nativeBuildInputs = with pkgs; [ pkg-config ];
+          buildInputs = with pkgs; [ openssl ];
           cargoExtraArgs = "-p sandbox";
         };
 
