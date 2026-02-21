@@ -72,6 +72,8 @@ async fn test_health_check() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["status"], "healthy");
     assert_eq!(body["service"], "choiros-sandbox");
+    assert!(body["instance_role"].is_string());
+    assert!(body["hostname"].is_string());
 }
 
 #[tokio::test]

@@ -151,12 +151,23 @@ pub fn router() -> Router<ApiState> {
 
 /// Health check endpoint
 pub async fn health_check(State(_state): State<ApiState>) -> impl IntoResponse {
+    let instance_role = std::env::var("CHOIROS_INSTANCE_ROLE")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    let hostname = std::env::var("HOSTNAME")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+
     (
         StatusCode::OK,
         Json(json!({
-        "status": "healthy",
-        "service": "choiros-sandbox",
-        "version": "0.1.0"
+            "status": "healthy",
+            "service": "choiros-sandbox",
+            "version": "0.1.0",
+            "instance_role": instance_role,
+            "hostname": hostname
         })),
     )
 }

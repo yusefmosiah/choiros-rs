@@ -25,7 +25,9 @@
           src = ../.;
           filter = path: type:
             (craneLib.filterCargoSources path type)
-            || (builtins.baseNameOf path) == "Cargo.lock";
+            || (builtins.baseNameOf path) == "Cargo.lock"
+            || (pkgs.lib.hasPrefix (toString ../. + "/sandbox/.sqlx/") (toString path))
+            || (pkgs.lib.hasPrefix (toString ../. + "/sandbox/migrations/") (toString path));
         };
 
         commonArgs = {
@@ -33,9 +35,11 @@
           pname = "sandbox";
           version = "0.1.0";
           strictDeps = true;
-          nativeBuildInputs = with pkgs; [ pkg-config ];
-          buildInputs = with pkgs; [ openssl ];
+          nativeBuildInputs = with pkgs; [ pkg-config protobuf ];
+          buildInputs = with pkgs; [ openssl onnxruntime ];
           cargoExtraArgs = "-p sandbox";
+          ORT_DYLIB_PATH = "${pkgs.onnxruntime}/lib/libonnxruntime${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
+          SQLX_OFFLINE = "true";
         };
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
@@ -58,9 +62,12 @@
             just
             sqlx-cli
             pkg-config
+            protobuf
             openssl
+            onnxruntime
           ];
           SQLX_OFFLINE = "true";
+          ORT_DYLIB_PATH = "${pkgs.onnxruntime}/lib/libonnxruntime${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
         };
       });
 }

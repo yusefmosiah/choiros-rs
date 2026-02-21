@@ -22,31 +22,51 @@
         };
 
         craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
-        src = pkgs.lib.cleanSourceWith {
-          src = ../.;
-          filter = path: type:
-            (craneLib.filterCargoSources path type)
-            || (builtins.baseNameOf path) == "Cargo.lock";
-        };
+        src = pkgs.lib.cleanSource ./.;
 
         commonArgs = {
           inherit src;
           strictDeps = true;
-          cargoExtraArgs = "--manifest-path dioxus-desktop/Cargo.toml";
+          cargoLock = ./Cargo.lock;
+          postPatch = ''
+            cp -r ${../shared-types} ./shared-types
+            chmod -R u+w ./shared-types
+            substituteInPlace Cargo.toml --replace-fail "../shared-types" "./shared-types"
+            cat > shared-types/Cargo.toml <<'EOF'
+[package]
+name = "shared-types"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.76"
+authors = ["ChoirOS Team"]
+license = "MIT"
+description = "Shared types between frontend and backend"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.11", features = ["v4", "serde"] }
+ulid = { version = "1.1", features = ["serde"] }
+ts-rs = { version = "12.0", features = ["chrono-impl"] }
+
+[dev-dependencies]
+EOF
+          '';
         };
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
       in {
         packages.desktop = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
-          cargoExtraArgs = "--manifest-path dioxus-desktop/Cargo.toml --bin sandbox-ui";
+          cargoExtraArgs = "--bin sandbox-ui";
         });
 
         packages.default = self.packages.${system}.desktop;
 
         checks.desktop-clippy = craneLib.cargoClippy (commonArgs // {
           inherit cargoArtifacts;
-          cargoClippyExtraArgs = "--manifest-path dioxus-desktop/Cargo.toml --all-targets -- -D warnings";
+          cargoClippyExtraArgs = "--all-targets -- -D warnings";
         });
 
         devShells.default = pkgs.mkShell {
