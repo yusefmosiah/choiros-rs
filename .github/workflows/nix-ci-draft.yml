@@ -51,19 +51,25 @@ jobs:
         run: nix build "./${{ matrix.path }}#${{ matrix.attr }}" --print-build-logs
 
   deploy-ec2:
-    name: Deploy EC2 from cached flake outputs
+    name: Deploy EC2 via AWS SSM
     runs-on: ubuntu-latest
     needs: [nix-build]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     environment: production
     env:
-      DEPLOY_HOST: ${{ secrets.EC2_HOST }}
-      DEPLOY_USER: ${{ secrets.EC2_USER }}
-      DEPLOY_KEY: ${{ secrets.EC2_SSH_KEY }}
-      DEPLOY_PORT: ${{ secrets.EC2_SSH_PORT || '22' }}
+      AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+      DEPLOY_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
+      DEPLOY_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Install Nix
         uses: DeterminateSystems/determinate-nix-action@v3
@@ -75,111 +81,76 @@ jobs:
         env:
           FLAKEHUB_AUTH_TOKEN: ${{ secrets.FLAKEHUB_AUTH_TOKEN }}
 
-      - name: Build deploy artifacts from cache-backed outputs
+      - name: Validate SSM target
         run: |
           set -euo pipefail
-          sandbox_out="$(nix build --print-out-paths ./sandbox#sandbox)"
-          hypervisor_out="$(nix build --print-out-paths ./hypervisor#hypervisor)"
-          desktop_out="$(nix build --print-out-paths ./dioxus-desktop#desktop)"
-
-          install -d .deploy
-          tar -C "$sandbox_out/bin" -czf .deploy/sandbox.tgz sandbox
-          tar -C "$hypervisor_out/bin" -czf .deploy/hypervisor.tgz hypervisor
-          tar -C "$desktop_out/bin" -czf .deploy/sandbox-ui.tgz sandbox-ui
-
-      - name: Build web assets (Dioxus release)
-        run: |
-          set -euo pipefail
-          nix develop ./dioxus-desktop --command bash -lc 'cd dioxus-desktop && dx build --release'
-
-          web_public_dir="dioxus-desktop/target/dx/sandbox-ui/release/web/public"
-          if [ ! -d "$web_public_dir" ]; then
-            echo "Expected web asset directory missing: $web_public_dir"
+          if [ -z "${DEPLOY_INSTANCE_ID}" ]; then
+            echo "Missing EC2_INSTANCE_ID secret"
             exit 1
           fi
 
-          tar -C "$web_public_dir" -czf .deploy/sandbox-ui-web.tgz .
+          aws ssm describe-instance-information \
+            --region "${AWS_REGION}" \
+            --filters "Key=InstanceIds,Values=${DEPLOY_INSTANCE_ID}" \
+            --query 'InstanceInformationList[0].PingStatus' \
+            --output text | grep -q '^Online$'
 
-      - name: Prepare SSH
+      - name: Deploy via SSM
         run: |
           set -euo pipefail
-          if [ -z "${DEPLOY_HOST}" ] || [ -z "${DEPLOY_USER}" ] || [ -z "${DEPLOY_KEY}" ]; then
-            echo "Missing deploy secrets. Set EC2_HOST, EC2_USER, EC2_SSH_KEY (and optional EC2_SSH_PORT)."
-            exit 1
-          fi
-          mkdir -p ~/.ssh
-          printf '%s\n' "${DEPLOY_KEY}" > ~/.ssh/choiros_ec2
-          chmod 600 ~/.ssh/choiros_ec2
-          touch ~/.ssh/known_hosts
-          ssh-keyscan -T 10 -p "${DEPLOY_PORT}" "${DEPLOY_HOST}" >> ~/.ssh/known_hosts || true
-          ssh -i ~/.ssh/choiros_ec2 \
-            -o BatchMode=yes \
-            -o ConnectTimeout=15 \
-            -o StrictHostKeyChecking=accept-new \
-            -p "${DEPLOY_PORT}" \
-            "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            "echo ssh-ok"
 
-      - name: Upload artifacts to EC2
-        run: |
+          SCRIPT_B64="$(base64 -w0 <<EOF
           set -euo pipefail
-          ssh -i ~/.ssh/choiros_ec2 -o StrictHostKeyChecking=accept-new -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" "mkdir -p /tmp/choiros-deploy/${{ github.sha }}"
-          scp -i ~/.ssh/choiros_ec2 -o StrictHostKeyChecking=accept-new -P "${DEPLOY_PORT}" .deploy/*.tgz "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/choiros-deploy/${{ github.sha }}/"
+          RELEASE_SHA='${DEPLOY_SHA}'
+          WORKDIR='/opt/choiros/workspace'
+          cd "$WORKDIR"
+          git fetch origin
+          git checkout -f "$RELEASE_SHA"
 
-      - name: Activate artifacts on EC2
-        run: |
-          set -euo pipefail
-          ssh -i ~/.ssh/choiros_ec2 -o StrictHostKeyChecking=accept-new -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" '
-            set -euo pipefail
-            RELEASE_SHA="${{ github.sha }}"
-            RELEASE_DIR="/opt/choiros/releases/${RELEASE_SHA}"
-            BACKUP_DIR="/opt/choiros/backups/${RELEASE_SHA}"
-            STAGE_DIR="/tmp/choiros-deploy/${RELEASE_SHA}"
+          nix --extra-experimental-features nix-command --extra-experimental-features flakes build ./sandbox#sandbox
+          nix --extra-experimental-features nix-command --extra-experimental-features flakes build ./hypervisor#hypervisor
+          nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./dioxus-desktop --command bash -lc 'cd dioxus-desktop && dx build --release'
 
-            sudo mkdir -p "$RELEASE_DIR" "$BACKUP_DIR" /opt/choiros/bin
+          install -m 0755 ./sandbox/result/bin/sandbox /opt/choiros/bin/sandbox
+          install -m 0755 ./hypervisor/result/bin/hypervisor /opt/choiros/bin/hypervisor
+          install -m 0755 ./dioxus-desktop/result/bin/sandbox-ui /opt/choiros/bin/sandbox-ui
 
-            for bin in sandbox hypervisor sandbox-ui; do
-              if [ -x "/opt/choiros/bin/$bin" ]; then
-                sudo cp -a "/opt/choiros/bin/$bin" "$BACKUP_DIR/$bin"
-              fi
-            done
+          systemctl restart container@sandbox-live container@sandbox-dev hypervisor
+          sleep 3
+          curl -fsS http://127.0.0.1:9090/health >/dev/null
+          echo "Deploy OK for $RELEASE_SHA"
+          EOF
+          )"
 
-            WEB_PUBLIC_DIR="/opt/choiros/workspace/dioxus-desktop/target/dx/sandbox-ui/release/web/public"
-            if [ -d "$WEB_PUBLIC_DIR" ]; then
-              sudo mkdir -p "$BACKUP_DIR/web-public"
-              sudo cp -a "$WEB_PUBLIC_DIR/." "$BACKUP_DIR/web-public/"
-            fi
+          COMMAND_ID="$(aws ssm send-command \
+            --region "${AWS_REGION}" \
+            --instance-ids "${DEPLOY_INSTANCE_ID}" \
+            --document-name 'AWS-RunShellScript' \
+            --comment "choiros deploy ${DEPLOY_SHA}" \
+            --parameters commands="echo ${SCRIPT_B64} | base64 -d | bash" \
+            --query 'Command.CommandId' \
+            --output text)"
 
-            sudo tar -xzf "$STAGE_DIR/sandbox.tgz" -C "$RELEASE_DIR"
-            sudo tar -xzf "$STAGE_DIR/hypervisor.tgz" -C "$RELEASE_DIR"
-            sudo tar -xzf "$STAGE_DIR/sandbox-ui.tgz" -C "$RELEASE_DIR"
-            sudo mkdir -p "$RELEASE_DIR/web-public"
-            sudo tar -xzf "$STAGE_DIR/sandbox-ui-web.tgz" -C "$RELEASE_DIR/web-public"
+          aws ssm wait command-executed \
+            --region "${AWS_REGION}" \
+            --command-id "${COMMAND_ID}" \
+            --instance-id "${DEPLOY_INSTANCE_ID}"
 
-            sudo install -m 0755 "$RELEASE_DIR/sandbox" /opt/choiros/bin/sandbox
-            sudo install -m 0755 "$RELEASE_DIR/hypervisor" /opt/choiros/bin/hypervisor
-            sudo install -m 0755 "$RELEASE_DIR/sandbox-ui" /opt/choiros/bin/sandbox-ui
-
-            sudo mkdir -p "$WEB_PUBLIC_DIR"
-            sudo rm -rf "$WEB_PUBLIC_DIR"/*
-            sudo cp -a "$RELEASE_DIR/web-public/." "$WEB_PUBLIC_DIR/"
-
-            sudo systemctl restart container@sandbox-live container@sandbox-dev hypervisor
-            sleep 3
-            curl -fsS http://127.0.0.1:9090/health > /dev/null
-            echo "Deploy OK for ${RELEASE_SHA}"
-            echo "Recent NixOS generations:"
-            sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | tail -n 5
-          '
+          aws ssm get-command-invocation \
+            --region "${AWS_REGION}" \
+            --command-id "${COMMAND_ID}" \
+            --instance-id "${DEPLOY_INSTANCE_ID}" \
+            --query '{Status:Status,StdOut:StandardOutputContent,StdErr:StandardErrorContent}' \
+            --output json
 
       - name: Publish rollback notes
         run: |
           {
             echo "## Rollback quick path"
             echo
-            echo "- EC2 host rollback: \\`sudo nixos-rebuild switch --rollback\\`"
-            echo "- EC2 host generation list: \\`sudo nix-env --list-generations --profile /nix/var/nix/profiles/system\\`"
-            echo "- Artifact backup path: \\`/opt/choiros/backups/${{ github.sha }}\\`"
-            echo "- Binary release path: \\`/opt/choiros/releases/${{ github.sha }}\\`"
-            echo "- Service restart after rollback: \\`sudo systemctl restart container@sandbox-live container@sandbox-dev hypervisor\\`"
+            echo "- EC2 host rollback: \`sudo nixos-rebuild switch --rollback\`"
+            echo "- EC2 host generation list: \`sudo nix-env --list-generations --profile /nix/var/nix/profiles/system\`"
+            echo "- Release commit: \`${{ github.sha }}\`"
+            echo "- Repo path on host: \`/opt/choiros/workspace\`"
+            echo "- Service restart after rollback: \`sudo systemctl restart container@sandbox-live container@sandbox-dev hypervisor\`"
           } >> "$GITHUB_STEP_SUMMARY"
