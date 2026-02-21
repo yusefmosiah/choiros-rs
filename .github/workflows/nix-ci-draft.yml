@@ -127,7 +127,7 @@ jobs:
             --instance-ids "${DEPLOY_INSTANCE_ID}" \
             --document-name 'AWS-RunShellScript' \
             --comment "choiros deploy ${DEPLOY_SHA}" \
-            --parameters commands="echo ${SCRIPT_B64} | base64 -d | DEPLOY_SHA='${DEPLOY_SHA}' bash" \
+            --parameters "$(jq -cn --arg cmd "echo ${SCRIPT_B64} | base64 -d | DEPLOY_SHA='${DEPLOY_SHA}' bash" '{commands: [$cmd]}')" \
             --query 'Command.CommandId' \
             --output text)"
 
