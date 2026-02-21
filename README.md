@@ -141,6 +141,7 @@ choiros-rs/
 
 - **Entry point:** `docs/architecture/NARRATIVE_INDEX.md`
 - **Dev guide:** `AGENTS.md`
+- **Platform secrets runbook:** `docs/runbooks/platform-secrets-sops-nix.md`
 - **Active handoffs:** `docs/handoffs/` (7 files)
 - **Architecture specs:** `docs/architecture/` (47 files)
 

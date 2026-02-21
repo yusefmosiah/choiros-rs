@@ -4,9 +4,10 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    sops-nix.url = "github:Mic92/sops-nix";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, sops-nix }:
     let
       systems = [ "aarch64-darwin" "x86_64-linux" ];
     in
@@ -107,6 +108,11 @@
           });
         };
       }))
+    // {
+      nixosModules = {
+        choiros-platform-secrets = import ./nix/modules/choiros-platform-secrets.nix;
+      };
+    }
     // {
       choiros.aws = {
         region = "us-east-1";
