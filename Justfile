@@ -129,6 +129,11 @@ deploy-ec2:
     rsync -avz --delete ./ ubuntu@3.83.131.245:~/choiros-rs/
     ssh ubuntu@3.83.131.245 'cd ~/choiros-rs && just build-sandbox'
 
+# Grind host
+# Run canonical pre-push checks directly on grind.
+grind-check:
+    ssh -i "$HOME/.ssh/choiros-grind.pem" -o StrictHostKeyChecking=accept-new root@18.212.170.200 'set -e; cd /opt/choiros/workspace; git status --short --branch; nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./hypervisor --command cargo check -p hypervisor; nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./sandbox --command cargo check -p sandbox; git status --short --branch'
+
 # System Monitor
 # View actor network as ASCII diagram
 monitor:
