@@ -2,7 +2,7 @@
 
 Date: 2026-02-21  
 Owner: runtime/deploy  
-Status: in progress (native containers + public domain/TLS live; auth onboarding fix pending)
+Status: in progress (native containers + public domain/TLS live; auth onboarding fixed)
 
 ## Narrative Summary (1-minute read)
 
@@ -71,20 +71,17 @@ Current host state:
 - Playwright `hypervisor` project passed against public HTTPS domain:
   - `tests/playwright/bios-auth.spec.ts`
   - `tests/playwright/proxy-integration.spec.ts`
-  - Result: 11/11 tests passed.
+  - Result: 12/12 tests passed after auth UX update.
 
 ## Immediate Next Steps
 
-1. Investigate auth onboarding regression in deployed app flow (register route
-   presenting login behavior).
-2. Add targeted Playwright coverage that distinguishes login vs register UX in
-   production hostname mode.
-3. Validate hypervisor route/swap behavior against live/dev targets.
-4. Decide and codify the canonical binary delivery strategy for
+1. Validate hypervisor route/swap behavior against live/dev targets.
+2. Decide and codify the canonical binary delivery strategy for
    `/opt/choiros/bin/sandbox` (host-native flake build preferred).
-5. Revisit user namespace hardening (`privateUsers = "pick"`) with an idmapped
+3. Revisit user namespace hardening (`privateUsers = "pick"`) with an idmapped
    mount plan that preserves `/data` write permissions.
-6. Tighten SG and host firewall to least privilege (operator CIDRs/private access).
+4. Tighten SG and host firewall to least privilege (operator CIDRs/private access).
+5. Implement CI/CD with cache-backed Nix builds and production deployment automation.
 
 ## Notes
 

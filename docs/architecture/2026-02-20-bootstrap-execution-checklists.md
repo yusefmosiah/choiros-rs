@@ -23,9 +23,10 @@ Each phase can be run as a GitHub issue. Do not advance phases without gate evid
 
 ## Current Blocker (2026-02-21)
 
-- Deployment and public HTTPS routing are live, but auth onboarding has an active
-  regression in production hostname mode (register path presenting login UX).
-- Treat this as a Phase 5 gate blocker until reproduced and fixed with evidence.
+- Deployment, public HTTPS routing, and auth onboarding UX are now validated on
+  production hostname mode.
+- Remaining blocker for reliable iteration is CI/CD automation with cache-backed
+  builds and reproducible deploy steps.
 
 ## Global Definition of Done (Bootstrap)
 

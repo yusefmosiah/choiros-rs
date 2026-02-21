@@ -60,6 +60,11 @@ async function openAuthModal(page: Page, path: "/" | "/login" | "/register"): Pr
   await expect(page.getByTestId("auth-input")).toBeVisible({ timeout: 60_000 });
 }
 
+async function expectAuthMode(page: Page, label: "Log in" | "Sign up"): Promise<void> {
+  await expect(page.getByTestId("auth-mode-label")).toHaveText(label);
+  await expect(page.locator("span", { hasText: "email:" }).first()).toBeVisible();
+}
+
 async function submitUsername(page: Page, username: string): Promise<void> {
   const input = page.getByTestId("auth-input");
   await expect(input).toBeVisible({ timeout: 60_000 });
@@ -104,27 +109,28 @@ async function loginViaModal(page: Page, username: string): Promise<void> {
 }
 
 test.describe("WASM auth modal", () => {
-  test("/login boots with auth modal and single input", async ({ page }) => {
+  test("/login boots in login mode with email input", async ({ page }) => {
     await openAuthModal(page, "/login");
-    await expect(page.locator("span", { hasText: "login:" }).first()).toBeVisible();
+    await expectAuthMode(page, "Log in");
 
     const me = await authMe(page);
     expect(me.authenticated).toBe(false);
   });
 
-  test("/register boots with auth modal and single input", async ({ page }) => {
+  test("/register boots in signup mode with email input", async ({ page }) => {
     await openAuthModal(page, "/register");
-    await expect(page.locator("span", { hasText: "login:" }).first()).toBeVisible();
+    await expectAuthMode(page, "Sign up");
 
     const me = await authMe(page);
     expect(me.authenticated).toBe(false);
   });
 
-  test("unknown user from modal auto-registers with passkey and logs in", async ({ page }) => {
+  test("signup creates account and authenticates", async ({ page }) => {
     await addVirtualAuthenticator(page);
-    const username = uniqueUsername();
+    const username = `${uniqueUsername()}@example.com`;
 
     await openAuthModal(page, "/register");
+    await expectAuthMode(page, "Sign up");
     const finish = await registerViaModal(page, username);
 
     expect(finish.is_first_passkey).toBe(true);
@@ -137,9 +143,10 @@ test.describe("WASM auth modal", () => {
 
   test("register then logout then login succeeds in same browser context", async ({ page }) => {
     await addVirtualAuthenticator(page);
-    const username = uniqueUsername();
+    const username = `${uniqueUsername()}@example.com`;
 
     await openAuthModal(page, "/register");
+    await expectAuthMode(page, "Sign up");
     await registerViaModal(page, username);
 
     const logout = await page.request.post("/auth/logout");
@@ -150,6 +157,7 @@ test.describe("WASM auth modal", () => {
     expect(me.authenticated).toBe(false);
 
     await openAuthModal(page, "/login");
+    await expectAuthMode(page, "Log in");
     await loginViaModal(page, username);
 
     me = await authMe(page);
@@ -159,7 +167,7 @@ test.describe("WASM auth modal", () => {
 
   test("logout clears authenticated session", async ({ page }) => {
     await addVirtualAuthenticator(page);
-    const username = uniqueUsername();
+    const username = `${uniqueUsername()}@example.com`;
 
     await openAuthModal(page, "/register");
     await registerViaModal(page, username);
@@ -172,9 +180,21 @@ test.describe("WASM auth modal", () => {
     expect(me.authenticated).toBe(false);
   });
 
+  test("login mode does not auto-register unknown email", async ({ page }) => {
+    await openAuthModal(page, "/login");
+    await expectAuthMode(page, "Log in");
+
+    await submitUsername(page, `unknown_${Date.now()}@example.com`);
+    await expect(page.getByTestId("auth-error")).toContainText("no account found");
+
+    const me = await authMe(page);
+    expect(me.authenticated).toBe(false);
+    await expect(page.getByTestId("auth-modal")).toBeVisible();
+  });
+
   test("valid recovery code is accepted once", async ({ page }) => {
     await addVirtualAuthenticator(page);
-    const username = uniqueUsername();
+    const username = `${uniqueUsername()}@example.com`;
 
     await openAuthModal(page, "/register");
     const finish = await registerViaModal(page, username);

@@ -16,6 +16,7 @@ pub mod passkey;
 use dioxus::prelude::*;
 use gloo_net::http::Request;
 use serde::Deserialize;
+use wasm_bindgen::JsValue;
 use wasm_bindgen::JsCast;
 
 // ── Auth state ────────────────────────────────────────────────────────────────
@@ -85,6 +86,81 @@ struct HistoryLine {
     value: String,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum AuthIntent {
+    Login,
+    Register,
+}
+
+impl AuthIntent {
+    fn path(self) -> &'static str {
+        match self {
+            AuthIntent::Login => "/login",
+            AuthIntent::Register => "/register",
+        }
+    }
+
+    fn mode_label(self) -> &'static str {
+        match self {
+            AuthIntent::Login => "Log in",
+            AuthIntent::Register => "Sign up",
+        }
+    }
+
+    fn helper_copy(self) -> &'static str {
+        match self {
+            AuthIntent::Login => "Enter your email and complete your passkey login.",
+            AuthIntent::Register => "Create an account with your email and a new passkey.",
+        }
+    }
+
+    fn switch_label(self) -> &'static str {
+        match self {
+            AuthIntent::Login => "Need an account? Sign up",
+            AuthIntent::Register => "Already have an account? Log in",
+        }
+    }
+
+    fn switched(self) -> Self {
+        match self {
+            AuthIntent::Login => AuthIntent::Register,
+            AuthIntent::Register => AuthIntent::Login,
+        }
+    }
+}
+
+fn auth_intent_from_url() -> AuthIntent {
+    let Some(window) = web_sys::window() else {
+        return AuthIntent::Login;
+    };
+    let Ok(pathname) = window.location().pathname() else {
+        return AuthIntent::Login;
+    };
+    if pathname == "/register" {
+        AuthIntent::Register
+    } else {
+        AuthIntent::Login
+    }
+}
+
+fn set_auth_path(intent: AuthIntent) {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Ok(history) = window.history() else {
+        return;
+    };
+    let _ = history.replace_state_with_url(&JsValue::NULL, "", Some(intent.path()));
+}
+
+fn is_valid_email(value: &str) -> bool {
+    let candidate = value.trim();
+    let Some((local, domain)) = candidate.split_once('@') else {
+        return false;
+    };
+    !local.is_empty() && domain.contains('.') && !domain.starts_with('.') && !domain.ends_with('.')
+}
+
 // ── AuthModal ─────────────────────────────────────────────────────────────────
 
 /// Renders over the desktop when auth is required.
@@ -102,8 +178,9 @@ pub fn AuthModal() -> Element {
     let mut history = use_signal(Vec::<HistoryLine>::new);
     // current input value
     let mut input_value = use_signal(String::new);
+    let mut intent = use_signal(auth_intent_from_url);
     // which step we're on
-    let mut step = use_signal(|| Step::Username);
+    let mut step = use_signal(|| Step::Email);
     // error to show on the current line
     let mut error = use_signal(|| None::<String>);
     // are we waiting for the passkey dialog / network?
@@ -131,10 +208,14 @@ pub fn AuthModal() -> Element {
 
             let current_step = step.read().clone();
             match current_step {
-                Step::Username => {
-                    // commit the username line, move to passkey
+                Step::Email => {
+                    if !is_valid_email(&val) {
+                        error.set(Some("enter a valid email address".to_string()));
+                        return;
+                    }
+                    // commit the email line, move to passkey
                     history.write().push(HistoryLine {
-                        prompt: "login:",
+                        prompt: "email:",
                         value: val.clone(),
                     });
                     input_value.set(String::new());
@@ -156,15 +237,16 @@ pub fn AuthModal() -> Element {
             let username = username.clone();
             use_effect(move || {
                 let username = username.clone();
+                let flow = *intent.read();
                 spawn(async move {
-                    run_passkey_ceremony(username, busy, error, history, step, auth).await;
+                    run_passkey_ceremony(username, flow, busy, error, history, step, auth).await;
                 });
             });
         }
     }
 
     let current_prompt = match &*step.read() {
-        Step::Username => "login:",
+        Step::Email => "email:",
         Step::Passkey(_) => "",
     };
 
@@ -203,6 +285,47 @@ pub fn AuthModal() -> Element {
                 // stop click-through on the terminal content
                 onclick: move |e| e.stop_propagation(),
 
+                div {
+                    style: "display:flex; gap: 1rem; align-items: baseline; margin-bottom: 0.35rem;",
+                    strong {
+                        "data-testid": "auth-mode-label",
+                        style: "font-size: 15px; letter-spacing: 0.01em; color: #f8fafc;",
+                        "{intent.read().mode_label()}"
+                    }
+                    span {
+                        style: "font-size: 12px; color: #94a3b8;",
+                        "{intent.read().helper_copy()}"
+                    }
+                }
+
+                button {
+                    "data-testid": "auth-mode-switch",
+                    r#type: "button",
+                    style: "
+                        align-self: flex-start;
+                        margin-bottom: 0.85rem;
+                        background: transparent;
+                        border: none;
+                        color: #93c5fd;
+                        cursor: pointer;
+                        font: inherit;
+                        padding: 0;
+                    ",
+                    onclick: move |_| {
+                        if *busy.read() {
+                            return;
+                        }
+                        let next_intent = intent.read().switched();
+                        intent.set(next_intent);
+                        set_auth_path(next_intent);
+                        history.set(Vec::new());
+                        input_value.set(String::new());
+                        error.set(None);
+                        step.set(Step::Email);
+                    },
+                    "{intent.read().switch_label()}"
+                }
+
                 // committed history lines
                 for line in history.read().iter() {
                     div {
@@ -232,7 +355,7 @@ pub fn AuthModal() -> Element {
                             "data-testid": "auth-input",
                             r#type: "text",
                             value: "{input_value}",
-                            autocomplete: "username",
+                            autocomplete: "email",
                             spellcheck: false,
                             style: "
                                 background: transparent; border: none; outline: none;
@@ -273,26 +396,44 @@ pub fn AuthModal() -> Element {
 
 #[derive(Clone, PartialEq)]
 enum Step {
-    Username,
-    Passkey(String), // username
+    Email,
+    Passkey(String), // email
 }
 
 // ── Passkey ceremony ──────────────────────────────────────────────────────────
 
 async fn run_passkey_ceremony(
-    username: String,
+    email: String,
+    flow: AuthIntent,
+    mut busy: Signal<bool>,
+    mut error: Signal<Option<String>>,
+    history: Signal<Vec<HistoryLine>>,
+    step: Signal<Step>,
+    auth: Signal<AuthState>,
+) {
+    busy.set(true);
+    error.set(None);
+
+    match flow {
+        AuthIntent::Login => {
+            run_login_ceremony(email, busy, error, history, step, auth).await;
+        }
+        AuthIntent::Register => {
+            run_register_ceremony(email, busy, error, history, step, auth).await;
+        }
+    }
+}
+
+async fn run_login_ceremony(
+    email: String,
     mut busy: Signal<bool>,
     mut error: Signal<Option<String>>,
     mut history: Signal<Vec<HistoryLine>>,
     mut step: Signal<Step>,
     mut auth: Signal<AuthState>,
 ) {
-    busy.set(true);
-    error.set(None);
-
-    // 1. Try login/start
     let start_res = Request::post("/auth/login/start")
-        .json(&serde_json::json!({ "username": username }))
+        .json(&serde_json::json!({ "username": email }))
         .unwrap()
         .send()
         .await;
@@ -311,8 +452,12 @@ async fn run_passkey_ceremony(
             }
         },
         Ok(r) if r.status() == 404 => {
-            // Unknown user — try register/start instead
-            run_register_ceremony(username, busy, error, history, step, auth).await;
+            finish_with_error(
+                "no account found for this email; use sign up first".to_string(),
+                &mut busy,
+                &mut error,
+                &mut step,
+            );
             return;
         }
         Ok(r) => {
@@ -331,7 +476,6 @@ async fn run_passkey_ceremony(
         }
     };
 
-    // 2. Call navigator.credentials.get
     let cred_json = match passkey::get_credential(&start_body).await {
         Ok(j) => j,
         Err(e) => {
@@ -340,7 +484,6 @@ async fn run_passkey_ceremony(
         }
     };
 
-    // 3. Finish
     let finish_res = Request::post("/auth/login/finish")
         .header("Content-Type", "application/json")
         .body(cred_json)
@@ -350,14 +493,13 @@ async fn run_passkey_ceremony(
 
     match finish_res {
         Ok(r) if r.ok() => {
-            // Hard cut
             history.write().push(HistoryLine {
-                prompt: "login:",
-                value: username.clone(),
+                prompt: "email:",
+                value: email.clone(),
             });
             auth.set(AuthState::Authenticated(AuthUser {
-                user_id: String::new(), // will be refreshed on next probe
-                username,
+                user_id: String::new(),
+                username: email,
             }));
         }
         Ok(r) => {
@@ -376,17 +518,23 @@ async fn run_passkey_ceremony(
 }
 
 async fn run_register_ceremony(
-    username: String,
+    email: String,
     mut busy: Signal<bool>,
     mut error: Signal<Option<String>>,
     mut history: Signal<Vec<HistoryLine>>,
     mut step: Signal<Step>,
     mut auth: Signal<AuthState>,
 ) {
-    // New user — register
+    let display_name = email
+        .split('@')
+        .next()
+        .filter(|part| !part.is_empty())
+        .unwrap_or("user")
+        .to_string();
+
     let start_res = Request::post("/auth/register/start")
         .json(
-            &serde_json::json!({ "username": username.clone(), "display_name": username.clone() }),
+            &serde_json::json!({ "username": email.clone(), "display_name": display_name }),
         )
         .unwrap()
         .send()
@@ -439,12 +587,12 @@ async fn run_register_ceremony(
     match finish_res {
         Ok(r) if r.ok() => {
             history.write().push(HistoryLine {
-                prompt: "login:",
-                value: username.clone(),
+                prompt: "email:",
+                value: email.clone(),
             });
             auth.set(AuthState::Authenticated(AuthUser {
                 user_id: String::new(),
-                username,
+                username: email,
             }));
         }
         Ok(r) => {
@@ -470,7 +618,7 @@ fn finish_with_error(
 ) {
     busy.set(false);
     error.set(Some(msg));
-    step.set(Step::Username);
+    step.set(Step::Email);
 }
 
 // ── CSS ───────────────────────────────────────────────────────────────────────

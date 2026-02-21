@@ -56,7 +56,7 @@ async function addVirtualAuthenticator(
 }
 
 function uniqueUsername(): string {
-  return `proxytest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return `proxytest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}@example.com`;
 }
 
 async function authMe(page: Page): Promise<MeResponse> {
