@@ -47,6 +47,29 @@ cargo test -p sandbox
 curl http://localhost:8080/health
 ```
 
+## Single-Command Grind Host Standup (Nix)
+
+`flake.nix` is now the single source of truth for AWS grind host standup defaults
+(AMI, instance type, subnet, security group, key name, and bootstrap repo sync).
+
+```bash
+# Provision or resume the grind instance, wait until running,
+# then ensure /opt/choiros/workspace is synced to origin/main.
+nix run .#standup-grind
+```
+
+Optional overrides for different infra values:
+
+```bash
+CHOIROS_AWS_REGION=us-east-1 \
+CHOIROS_GRIND_NAME=choiros-nixos-grind-01 \
+CHOIROS_AMI_ID=ami-xxxxxxxxxxxxxxxxx \
+CHOIROS_SUBNET_ID=subnet-xxxxxxxxxxxxxxxxx \
+CHOIROS_SECURITY_GROUP_ID=sg-xxxxxxxxxxxxxxxxx \
+CHOIROS_SSH_KEY_PATH=~/.ssh/choiros-production.pem \
+nix run .#standup-grind
+```
+
 ## Architecture
 
 ```
