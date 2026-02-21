@@ -110,18 +110,26 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "${DEPLOY_KEY}" > ~/.ssh/choiros_ec2
           chmod 600 ~/.ssh/choiros_ec2
-          ssh-keyscan -p "${DEPLOY_PORT}" "${DEPLOY_HOST}" >> ~/.ssh/known_hosts
+          touch ~/.ssh/known_hosts
+          ssh-keyscan -T 10 -p "${DEPLOY_PORT}" "${DEPLOY_HOST}" >> ~/.ssh/known_hosts || true
+          ssh -i ~/.ssh/choiros_ec2 \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=accept-new \
+            -p "${DEPLOY_PORT}" \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "echo ssh-ok"
 
       - name: Upload artifacts to EC2
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/choiros_ec2 -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" "mkdir -p /tmp/choiros-deploy/${{ github.sha }}"
-          scp -i ~/.ssh/choiros_ec2 -P "${DEPLOY_PORT}" .deploy/*.tgz "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/choiros-deploy/${{ github.sha }}/"
+          ssh -i ~/.ssh/choiros_ec2 -o StrictHostKeyChecking=accept-new -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" "mkdir -p /tmp/choiros-deploy/${{ github.sha }}"
+          scp -i ~/.ssh/choiros_ec2 -o StrictHostKeyChecking=accept-new -P "${DEPLOY_PORT}" .deploy/*.tgz "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/choiros-deploy/${{ github.sha }}/"
 
       - name: Activate artifacts on EC2
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/choiros_ec2 -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" '
+          ssh -i ~/.ssh/choiros_ec2 -o StrictHostKeyChecking=accept-new -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" '
             set -euo pipefail
             RELEASE_SHA="${{ github.sha }}"
             RELEASE_DIR="/opt/choiros/releases/${RELEASE_SHA}"
