@@ -124,13 +124,19 @@ jobs:
           install -m 0755 "$HYPERVISOR_OUT/bin/hypervisor" /opt/choiros/bin/hypervisor
           install -m 0755 "$DESKTOP_OUT/bin/sandbox-ui" /opt/choiros/bin/sandbox-ui
 
-          SANDBOX_BIN_STORE_PATH="$(readlink -f "$SANDBOX_OUT/bin/sandbox")"
-          ONNX_STORE_PATH="$(nix-store -q --references "$SANDBOX_BIN_STORE_PATH" | grep 'onnxruntime' | head -n 1 || true)"
-          if [ -z "$ONNX_STORE_PATH" ]; then
-            echo "Failed to determine onnxruntime path from sandbox closure"
+          ONNX_DYLIB_PATH=""
+          for candidate in /nix/store/*onnxruntime*/lib/libonnxruntime.so; do
+            if [ -f "$candidate" ]; then
+              ONNX_DYLIB_PATH="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$ONNX_DYLIB_PATH" ]; then
+            echo "Failed to locate libonnxruntime.so in /nix/store"
             exit 1
           fi
-          ONNX_DYLIB_PATH="$ONNX_STORE_PATH/lib/libonnxruntime.so"
+          ONNX_STORE_PATH="$(dirname "$(dirname "$ONNX_DYLIB_PATH")")"
 
           cat >/opt/choiros/bin/sandbox <<EOF_WRAPPER
           #!/usr/bin/env bash
