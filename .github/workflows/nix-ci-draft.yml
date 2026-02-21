@@ -125,7 +125,7 @@ jobs:
           install -m 0755 "$DESKTOP_OUT/bin/sandbox-ui" /opt/choiros/bin/sandbox-ui
 
           SANDBOX_BIN_STORE_PATH="$(readlink -f "$SANDBOX_OUT/bin/sandbox")"
-          ONNX_STORE_PATH="$(nix-store -q --references "$SANDBOX_BIN_STORE_PATH" | grep 'onnxruntime' | head -n 1)"
+          ONNX_STORE_PATH="$(nix-store -q --references "$SANDBOX_BIN_STORE_PATH" | grep 'onnxruntime' | head -n 1 || true)"
           if [ -z "$ONNX_STORE_PATH" ]; then
             echo "Failed to determine onnxruntime path from sandbox closure"
             exit 1
