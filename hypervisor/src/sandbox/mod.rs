@@ -267,6 +267,25 @@ impl SandboxRegistry {
         sleep(Duration::from_millis(200)).await;
 
         let mut child_cmd = Command::new(&self.binary);
+        child_cmd.env_clear();
+
+        for key in [
+            "PATH",
+            "HOME",
+            "USER",
+            "LANG",
+            "LC_ALL",
+            "TZDIR",
+            "SSL_CERT_FILE",
+            "NIX_SSL_CERT_FILE",
+            "RUST_LOG",
+            "RUST_BACKTRACE",
+        ] {
+            if let Ok(value) = std::env::var(key) {
+                child_cmd.env(key, value);
+            }
+        }
+
         child_cmd
             .env("PORT", port.to_string())
             .env("DATABASE_URL", format!("sqlite:./data/sandbox_{role}.db"))

@@ -1,6 +1,6 @@
-//! MemoryActor — local vector memory service (Phase 5).
+//! MemoryActor — local symbolic memory service.
 //!
-//! Manages four sqlite-vec virtual tables (384-dim float32, AllMiniLML6V2):
+//! Manages four SQLite collections for retrieval by lexical relevance:
 //!
 //! | Collection          | Unit                                          | Trigger                            |
 //! |---------------------|-----------------------------------------------|------------------------------------|
@@ -9,38 +9,27 @@
 //! | `run_trajectories`  | Summary of one harness run                    | AgentResult returned               |
 //! | `doc_trajectories`  | Rolled-up summary across all runs for a doc   | Updated on new version_snapshot    |
 //!
-//! Embedding backend: `fastembed` wrapping `ort` + AllMiniLML6V2 (384-dim).
-//! In test/offline mode (`CHOIROS_MEMORY_STUB=1`), embeddings are deterministic
-//! hash-based vectors so tests never hit the network.
-//!
 //! Dedup: every item is keyed by `chunk_hash` (SHA-256 hex of content).
-//! Re-embedding is skipped if the hash already exists in the table.
+//! Re-indexing is skipped if the hash already exists in the table.
 //!
-//! Phase 5 gate:
-//!   - sqlite-vec extension loads at runtime
-//!   - Embedder initialises (real or stub)
-//!   - Ingestion creates embedding records for test runs
-//!   - Retrieval returns ranked hits from seeded corpus
+//! Retrieval is intentionally symbolic-first for local memory. Global vector
+//! search can be introduced later at the publishing layer.
 
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use sha2::{Digest, Sha256};
-use zerocopy::AsBytes;
 
 use shared_types::{CitationRef, ContextItem, ContextSnapshot};
 
 use crate::actors::event_store::EventStoreMsg;
 
-// ─── Embedding dimensions ─────────────────────────────────────────────────────
+const LEGACY_EMBEDDING_DIM: usize = 384;
 
-/// Embedding dimensionality for AllMiniLML6V2.
-const EMBEDDING_DIM: usize = 384;
+// ─── Store ───────────────────────────────────────────────────────────────────
 
-// ─── VecStore ────────────────────────────────────────────────────────────────
-
-/// Thin wrapper around a rusqlite Connection with sqlite-vec loaded.
+/// Thin wrapper around a rusqlite Connection.
 ///
 /// All methods are synchronous — callers must use `tokio::task::spawn_blocking`.
 pub struct VecStore {
@@ -48,16 +37,9 @@ pub struct VecStore {
 }
 
 impl VecStore {
-    /// Open (or create) the vector store at the given SQLite path.
+    /// Open (or create) the store at the given SQLite path.
     /// Use `":memory:"` for in-process test stores.
     pub fn open(path: &str) -> Result<Self, rusqlite::Error> {
-        // Register sqlite-vec as an auto-extension for this process.
-        unsafe {
-            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
-                sqlite_vec::sqlite3_vec_init as *const (),
-            )));
-        }
-
         let conn = if path == ":memory:" {
             rusqlite::Connection::open_in_memory()?
         } else {
@@ -67,39 +49,38 @@ impl VecStore {
         // WAL mode so sqlx and rusqlite can coexist on the same file without contention.
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
 
-        // Create the four canonical virtual tables if they don't exist.
+        // Create the four canonical collections if they don't exist.
         conn.execute_batch(&format!(
             r#"
-            CREATE VIRTUAL TABLE IF NOT EXISTS user_inputs USING vec0(
-                embedding float[{dim}],
-                +item_id TEXT,
-                +source_ref TEXT,
-                +content TEXT,
-                +chunk_hash TEXT
+            CREATE TABLE IF NOT EXISTS user_inputs (
+                rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id TEXT NOT NULL UNIQUE,
+                source_ref TEXT NOT NULL,
+                content TEXT NOT NULL,
+                chunk_hash TEXT NOT NULL UNIQUE
             );
-            CREATE VIRTUAL TABLE IF NOT EXISTS version_snapshots USING vec0(
-                embedding float[{dim}],
-                +item_id TEXT,
-                +source_ref TEXT,
-                +content TEXT,
-                +chunk_hash TEXT
+            CREATE TABLE IF NOT EXISTS version_snapshots (
+                rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id TEXT NOT NULL UNIQUE,
+                source_ref TEXT NOT NULL,
+                content TEXT NOT NULL,
+                chunk_hash TEXT NOT NULL UNIQUE
             );
-            CREATE VIRTUAL TABLE IF NOT EXISTS run_trajectories USING vec0(
-                embedding float[{dim}],
-                +item_id TEXT,
-                +source_ref TEXT,
-                +content TEXT,
-                +chunk_hash TEXT
+            CREATE TABLE IF NOT EXISTS run_trajectories (
+                rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id TEXT NOT NULL UNIQUE,
+                source_ref TEXT NOT NULL,
+                content TEXT NOT NULL,
+                chunk_hash TEXT NOT NULL UNIQUE
             );
-            CREATE VIRTUAL TABLE IF NOT EXISTS doc_trajectories USING vec0(
-                embedding float[{dim}],
-                +item_id TEXT,
-                +source_ref TEXT,
-                +content TEXT,
-                +chunk_hash TEXT
+            CREATE TABLE IF NOT EXISTS doc_trajectories (
+                rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id TEXT NOT NULL UNIQUE,
+                source_ref TEXT NOT NULL,
+                content TEXT NOT NULL,
+                chunk_hash TEXT NOT NULL UNIQUE
             );
             "#,
-            dim = EMBEDDING_DIM,
         ))?;
 
         Ok(VecStore { conn })
@@ -121,82 +102,83 @@ impl VecStore {
         source_ref: &str,
         content: &str,
         chunk_hash: &str,
-        embedding: &[f32; EMBEDDING_DIM],
     ) -> Result<(), rusqlite::Error> {
+        if self.has_embedding_column(table)? {
+            let mut embedding_bytes = Vec::with_capacity(LEGACY_EMBEDDING_DIM * 4);
+            for _ in 0..LEGACY_EMBEDDING_DIM {
+                embedding_bytes.extend_from_slice(&0f32.to_le_bytes());
+            }
+
+            let sql = format!(
+                "INSERT INTO {table}(embedding, item_id, source_ref, content, chunk_hash) VALUES (?, ?, ?, ?, ?)"
+            );
+            self.conn.execute(
+                &sql,
+                rusqlite::params![embedding_bytes, item_id, source_ref, content, chunk_hash],
+            )?;
+            return Ok(());
+        }
+
         let sql = format!(
-            "INSERT INTO {table}(embedding, item_id, source_ref, content, chunk_hash) \
-             VALUES (?, ?, ?, ?, ?)"
+            "INSERT INTO {table}(item_id, source_ref, content, chunk_hash) VALUES (?, ?, ?, ?)"
         );
         self.conn.execute(
             &sql,
-            rusqlite::params![
-                embedding.as_bytes(),
-                item_id,
-                source_ref,
-                content,
-                chunk_hash
-            ],
+            rusqlite::params![item_id, source_ref, content, chunk_hash],
         )?;
         Ok(())
     }
 
-    /// KNN search — returns up to `k` hits sorted by ascending L2 distance.
+    fn has_embedding_column(&self, table: &str) -> Result<bool, rusqlite::Error> {
+        let sql = format!("PRAGMA table_info({table})");
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            let name: String = row.get(1)?;
+            if name == "embedding" {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Symbolic search — returns up to `k` hits sorted by descending relevance.
     pub fn search(
         &self,
         table: &str,
-        query_vec: &[f32; EMBEDDING_DIM],
+        query: &str,
         k: usize,
     ) -> Result<Vec<SearchHit>, rusqlite::Error> {
         let sql = format!(
             r#"
-            SELECT rowid, item_id, source_ref, content, distance
+            SELECT rowid, item_id, source_ref, content
             FROM {table}
-            WHERE embedding MATCH ?
-            ORDER BY distance
-            LIMIT {k}
             "#
         );
         let mut stmt = self.conn.prepare(&sql)?;
-        let hits = stmt
-            .query_map(rusqlite::params![query_vec.as_bytes()], |row| {
+        let mut hits = stmt
+            .query_map([], |row| {
                 Ok(SearchHit {
                     rowid: row.get(0)?,
                     item_id: row.get(1)?,
                     source_ref: row.get(2)?,
                     content: row.get(3)?,
-                    distance: row.get(4)?,
+                    relevance: 0.0,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(hits)
-    }
 
-    /// Fetch the stored embedding for a given `item_id` from `table`.
-    /// Returns `None` if the item doesn't exist.
-    pub fn get_embedding_by_item_id(
-        &self,
-        table: &str,
-        item_id: &str,
-    ) -> Result<Option<[f32; EMBEDDING_DIM]>, rusqlite::Error> {
-        // sqlite-vec stores the embedding as raw bytes via the embedding column.
-        // We retrieve it by doing a vec_to_json() trick: get the vec, re-parse.
-        // Simpler: store a lookup by rowid, then use the rowid to fetch the vector.
-        // For now we use the auxiliary content column to re-embed on the fly (stub ok).
-        let sql = format!("SELECT content FROM {table} WHERE item_id = ? LIMIT 1");
-        match self
-            .conn
-            .query_row(&sql, rusqlite::params![item_id], |row| {
-                let content: String = row.get(0)?;
-                Ok(content)
-            }) {
-            Ok(_content) => {
-                // Re-embedding is done by the caller via Embedder — we just confirm existence.
-                // Return a sentinel so caller knows item exists.
-                Ok(Some([0f32; EMBEDDING_DIM]))
-            }
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e),
+        for hit in &mut hits {
+            hit.relevance = lexical_relevance(query, &hit.content);
         }
+        hits.sort_by(|a, b| {
+            b.relevance
+                .partial_cmp(&a.relevance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| b.rowid.cmp(&a.rowid))
+        });
+        hits.truncate(k);
+        Ok(hits)
     }
 
     /// Fetch content for a list of item_ids from `table`.
@@ -233,110 +215,8 @@ pub struct SearchHit {
     pub item_id: String,
     pub source_ref: String,
     pub content: String,
-    /// L2 distance — lower means more similar.
-    pub distance: f64,
-}
-
-// ─── Embedder ────────────────────────────────────────────────────────────────
-
-/// Embedding backend.
-///
-/// `Real` wraps `fastembed::TextEmbedding` (AllMiniLML6V2, 384-dim).
-/// `Stub` returns deterministic hash-based vectors for test/offline use.
-///
-/// `TextEmbedding::embed` requires `&mut self`, so the real variant is
-/// kept inside a `Mutex` so the outer `Embedder` can be `Send`.
-pub enum Embedder {
-    Real(Mutex<fastembed::TextEmbedding>),
-    Stub,
-}
-
-impl Embedder {
-    /// Initialise the embedder.
-    ///
-    /// Returns `Stub` if `CHOIROS_MEMORY_STUB=1` is set or if the model
-    /// fails to load (e.g. no network in CI).
-    pub fn init() -> Self {
-        if std::env::var("CHOIROS_MEMORY_STUB")
-            .map(|v| v == "1")
-            .unwrap_or(false)
-        {
-            tracing::info!("MemoryActor: stub embedder active (CHOIROS_MEMORY_STUB=1)");
-            return Embedder::Stub;
-        }
-
-        // `ort` with `ort-load-dynamic` panics (rather than returning Err) when
-        // `libonnxruntime.so` is not discoverable via ORT_DYLIB_PATH or
-        // LD_LIBRARY_PATH.  catch_unwind prevents that panic from tearing down
-        // the entire supervision tree; we fall back to the hash-based stub
-        // embedder instead.
-        let result = std::panic::catch_unwind(|| {
-            fastembed::TextEmbedding::try_new(
-                fastembed::InitOptions::new(fastembed::EmbeddingModel::AllMiniLML6V2)
-                    .with_show_download_progress(false),
-            )
-        });
-
-        match result {
-            Ok(Ok(te)) => {
-                tracing::info!("MemoryActor: AllMiniLML6V2 loaded");
-                Embedder::Real(Mutex::new(te))
-            }
-            Ok(Err(e)) => {
-                tracing::warn!(
-                    "MemoryActor: model unavailable ({e}), falling back to stub"
-                );
-                Embedder::Stub
-            }
-            Err(panic_payload) => {
-                let msg = panic_payload
-                    .downcast_ref::<String>()
-                    .map(|s| s.as_str())
-                    .or_else(|| panic_payload.downcast_ref::<&str>().copied())
-                    .unwrap_or("unknown panic");
-                tracing::warn!(
-                    "MemoryActor: ONNX runtime init panicked ({msg}), falling back to stub"
-                );
-                Embedder::Stub
-            }
-        }
-    }
-
-    /// Embed a batch of strings. Returns 384-dim float32 vectors.
-    pub fn embed_batch(&self, texts: &[&str]) -> Vec<[f32; EMBEDDING_DIM]> {
-        match self {
-            Embedder::Real(mutex) => {
-                let mut te = mutex.lock().expect("Embedder mutex poisoned");
-                match te.embed(texts.to_vec(), None) {
-                    Ok(embeddings) => embeddings
-                        .into_iter()
-                        .map(|v| {
-                            let mut arr = [0f32; EMBEDDING_DIM];
-                            let len = v.len().min(EMBEDDING_DIM);
-                            arr[..len].copy_from_slice(&v[..len]);
-                            arr
-                        })
-                        .collect(),
-                    Err(e) => {
-                        tracing::warn!("embed_batch error: {e}");
-                        texts.iter().map(|t| hash_embed(t)).collect()
-                    }
-                }
-            }
-            Embedder::Stub => texts.iter().map(|t| hash_embed(t)).collect(),
-        }
-    }
-}
-
-/// Deterministic 384-dim vector from SHA-256 of text. Test/stub use only.
-fn hash_embed(text: &str) -> [f32; EMBEDDING_DIM] {
-    let digest = Sha256::digest(text.as_bytes());
-    let mut arr = [0f32; EMBEDDING_DIM];
-    for (i, f) in arr.iter_mut().enumerate() {
-        let byte = digest[i % 32] as f32;
-        *f = (byte / 255.0) * 2.0 - 1.0; // normalise to [-1, 1]
-    }
-    arr
+    /// Normalized lexical relevance in [0, 1].
+    pub relevance: f64,
 }
 
 /// Compute a hex SHA-256 hash for dedup keying.
@@ -401,7 +281,6 @@ pub struct MemoryState {
 
 pub struct MemoryInner {
     pub store: VecStore,
-    pub embedder: Embedder,
 }
 
 // ─── Message types ────────────────────────────────────────────────────────────
@@ -431,7 +310,7 @@ pub enum MemoryMsg {
         reply: Option<RpcReplyPort<bool>>,
     },
 
-    /// KNN search against one collection.
+    /// Symbolic search against one collection.
     ArtifactSearch {
         collection: CollectionKind,
         query: String,
@@ -441,7 +320,7 @@ pub enum MemoryMsg {
 
     /// Expand a set of known item_ids to their neighbors across collections.
     ///
-    /// For each item_id, re-embed its content and run KNN to find related items
+    /// For each item_id, use its content as a symbolic query to find related items
     /// in the same and adjacent collections. Returns merged, deduplicated hits.
     /// This is the multi-hop retrieval step: search → expand → pack.
     ArtifactExpand {
@@ -468,7 +347,7 @@ pub enum MemoryMsg {
     },
 
     /// Retrieve a merged context snapshot across all four collections.
-    /// Hits are ranked by ascending L2 distance and truncated to `max_items`.
+    /// Hits are ranked by descending lexical relevance and truncated to `max_items`.
     GetContextSnapshot {
         run_id: String,
         query: String,
@@ -494,8 +373,7 @@ impl Actor for MemoryActor {
 
         let inner = tokio::task::spawn_blocking(move || {
             let store = VecStore::open(&vec_db_path).map_err(|e| format!("VecStore::open: {e}"))?;
-            let embedder = Embedder::init();
-            Ok::<_, String>(Arc::new(Mutex::new(MemoryInner { store, embedder })))
+            Ok::<_, String>(Arc::new(Mutex::new(MemoryInner { store })))
         })
         .await
         .map_err(|e| format!("spawn_blocking panicked: {e}"))?
@@ -527,16 +405,12 @@ impl Actor for MemoryActor {
                         return false; // duplicate — skip
                     }
 
-                    let vecs = guard.embedder.embed_batch(&[req.content.as_str()]);
-                    let vec = &vecs[0];
-
                     if let Err(e) = guard.store.insert(
                         req.collection.table_name(),
                         &req.item_id,
                         &req.source_ref,
                         &req.content,
                         &hash,
-                        vec,
                     ) {
                         tracing::warn!("MemoryActor ingest error: {e}");
                         return false;
@@ -562,12 +436,9 @@ impl Actor for MemoryActor {
                 let inner = Arc::clone(&state.inner);
                 let result = tokio::task::spawn_blocking(move || {
                     let guard = inner.lock().expect("MemoryInner lock poisoned");
-                    let qvecs = guard.embedder.embed_batch(&[query.as_str()]);
-                    let qvec = &qvecs[0];
-
                     let hits = guard
                         .store
-                        .search(collection.table_name(), qvec, k)
+                        .search(collection.table_name(), &query, k)
                         .unwrap_or_default();
 
                     let items = hits
@@ -577,7 +448,7 @@ impl Actor for MemoryActor {
                             kind: collection.kind_str().to_string(),
                             source_ref: h.source_ref,
                             content: h.content,
-                            relevance: distance_to_relevance(h.distance),
+                            relevance: h.relevance,
                             created_at: chrono::Utc::now(),
                         })
                         .collect();
@@ -603,8 +474,6 @@ impl Actor for MemoryActor {
 
                 let items = tokio::task::spawn_blocking(move || {
                     let guard = inner.lock().expect("MemoryInner lock poisoned");
-                    let qvecs = guard.embedder.embed_batch(&[q.as_str()]);
-                    let qvec = &qvecs[0];
 
                     let per_col = (max_items / 4).max(1);
                     let all_cols = [
@@ -616,26 +485,28 @@ impl Actor for MemoryActor {
 
                     let mut merged: Vec<(f64, CollectionKind, SearchHit)> = Vec::new();
                     for col in &all_cols {
-                        if let Ok(hits) = guard.store.search(col.table_name(), qvec, per_col) {
+                        if let Ok(hits) = guard.store.search(col.table_name(), &q, per_col) {
                             for h in hits {
-                                let d = h.distance;
-                                merged.push((d, *col, h));
+                                merged.push((h.relevance, *col, h));
                             }
                         }
                     }
 
-                    merged
-                        .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                    merged.sort_by(|a, b| {
+                        b.0.partial_cmp(&a.0)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                            .then_with(|| b.2.rowid.cmp(&a.2.rowid))
+                    });
                     merged.truncate(max_items);
 
                     merged
                         .into_iter()
-                        .map(|(d, col, h)| ContextItem {
+                        .map(|(relevance, col, h)| ContextItem {
                             item_id: h.item_id,
                             kind: col.kind_str().to_string(),
                             source_ref: h.source_ref,
                             content: h.content,
-                            relevance: distance_to_relevance(d),
+                            relevance,
                             created_at: chrono::Utc::now(),
                         })
                         .collect::<Vec<_>>()
@@ -666,7 +537,7 @@ impl Actor for MemoryActor {
                 let result = tokio::task::spawn_blocking(move || {
                     let guard = inner.lock().expect("MemoryInner lock poisoned");
 
-                    // Fetch content for each item_id, re-embed, then find neighbors.
+                    // Fetch content for each item_id, then find symbolic neighbors.
                     let rows = guard
                         .store
                         .get_contents_by_item_ids(source_collection.table_name(), &item_ids)
@@ -685,13 +556,10 @@ impl Actor for MemoryActor {
                     ];
 
                     for (item_id, src, content) in &rows {
-                        let vecs = guard.embedder.embed_batch(&[content.as_str()]);
-                        let qvec = &vecs[0];
-
                         for col in &adjacent {
                             let hits = guard
                                 .store
-                                .search(col.table_name(), qvec, neighbors_per_item)
+                                .search(col.table_name(), content, neighbors_per_item)
                                 .unwrap_or_default();
 
                             for h in hits {
@@ -704,7 +572,7 @@ impl Actor for MemoryActor {
                                     kind: col.kind_str().to_string(),
                                     source_ref: h.source_ref,
                                     content: h.content,
-                                    relevance: distance_to_relevance(h.distance),
+                                    relevance: h.relevance,
                                     created_at: chrono::Utc::now(),
                                 });
                             }
@@ -741,8 +609,6 @@ impl Actor for MemoryActor {
 
                 let items = tokio::task::spawn_blocking(move || {
                     let guard = inner.lock().expect("MemoryInner lock poisoned");
-                    let qvecs = guard.embedder.embed_batch(&[obj.as_str()]);
-                    let qvec = &qvecs[0];
 
                     // Fetch candidates from all collections.
                     let all_cols = [
@@ -754,24 +620,25 @@ impl Actor for MemoryActor {
 
                     let mut candidates: Vec<(f64, CollectionKind, SearchHit)> = Vec::new();
                     for col in &all_cols {
-                        if let Ok(hits) = guard.store.search(col.table_name(), qvec, 8) {
+                        if let Ok(hits) = guard.store.search(col.table_name(), &obj, 8) {
                             for h in hits {
-                                let d = h.distance;
-                                candidates.push((d, *col, h));
+                                candidates.push((h.relevance, *col, h));
                             }
                         }
                     }
 
-                    // Sort by ascending distance (highest relevance first).
-                    candidates
-                        .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                    candidates.sort_by(|a, b| {
+                        b.0.partial_cmp(&a.0)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                            .then_with(|| b.2.rowid.cmp(&a.2.rowid))
+                    });
 
                     // Pack greedily within token budget (1 token ≈ 4 chars).
                     let char_budget = token_budget * 4;
                     let mut used_chars = 0usize;
                     let mut packed: Vec<ContextItem> = Vec::new();
 
-                    for (rank, (dist, col, h)) in candidates.into_iter().enumerate() {
+                    for (rank, (relevance, col, h)) in candidates.into_iter().enumerate() {
                         let chars = h.content.len();
                         if used_chars + chars > char_budget {
                             break;
@@ -779,7 +646,6 @@ impl Actor for MemoryActor {
                         used_chars += chars;
 
                         // Rationale: rank position and relevance score.
-                        let relevance = distance_to_relevance(dist);
                         let _ = rank; // rationale is attached via relevance field
 
                         packed.push(ContextItem {
@@ -816,10 +682,30 @@ impl Actor for MemoryActor {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/// Convert an L2 distance to a [0, 1] relevance score.
-/// distance=0 → relevance=1.0; distance≥2 → relevance≈0.
-fn distance_to_relevance(dist: f64) -> f64 {
-    (1.0 - (dist / 2.0).min(1.0)).max(0.0)
+/// Compute a lightweight lexical relevance score in [0, 1].
+fn lexical_relevance(query: &str, content: &str) -> f64 {
+    let query_tokens = tokenize(query);
+    if query_tokens.is_empty() {
+        return 0.0;
+    }
+
+    let content_tokens = tokenize(content);
+    let overlap = query_tokens.intersection(&content_tokens).count() as f64;
+    let mut score = overlap / query_tokens.len() as f64;
+
+    let q = query.trim().to_ascii_lowercase();
+    if !q.is_empty() && content.to_ascii_lowercase().contains(&q) {
+        score += 0.2;
+    }
+
+    score.clamp(0.0, 1.0)
+}
+
+fn tokenize(text: &str) -> std::collections::HashSet<String> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|t| t.len() >= 2)
+        .map(|t| t.to_ascii_lowercase())
+        .collect()
 }
 
 /// Public re-export so ingestion callers can compute the hash before building

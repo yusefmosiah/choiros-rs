@@ -1,43 +1,33 @@
 //! Phase 5.2 gate tests — MemoryActor ingestion, dedup, search, and context snapshot.
 //!
-//! All tests run in stub-embedder mode (`CHOIROS_MEMORY_STUB=1`) so they never
-//! require network access or a downloaded model. The stub returns deterministic
-//! hash-based 384-dim vectors, which are geometrically meaningful enough for
-//! KNN correctness tests (same string → distance 0; different strings → non-zero).
+//! Tests validate symbolic retrieval behavior and dedup semantics.
 //!
 //! Gate conditions (Phase 5.2):
-//!   ✓ sqlite-vec extension loads; vec0 tables are created
+//!   ✓ Memory store opens; all four collections are created
 //!   ✓ Ingest inserts a row and returns `true`
 //!   ✓ Duplicate ingest (same chunk_hash) is skipped and returns `false`
-//!   ✓ KNN search returns the nearest hit first
+//!   ✓ Lexical search returns exact-match content first
 //!   ✓ GetContextSnapshot merges across all four collections
 //!   ✓ VecStore can be opened `:memory:` (in-process, no disk artifact)
 
 use std::sync::{Arc, Mutex};
 
-// Force stub embedder for all tests in this file.
-// (Also set via std::env::set_var in each test for isolation.)
-
 use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};
 use sandbox::actors::memory::{
-    chunk_hash, CollectionKind, Embedder, IngestRequest, MemoryActor, MemoryArguments, MemoryInner,
+    chunk_hash, CollectionKind, IngestRequest, MemoryActor, MemoryArguments, MemoryInner,
     MemoryMsg, VecStore,
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-fn stub_env() {
-    std::env::set_var("CHOIROS_MEMORY_STUB", "1");
-}
-
-/// Build a MemoryInner with an in-memory VecStore and a stub Embedder.
+/// Build a MemoryInner with an in-memory VecStore.
 /// This is the synchronous analogue of what MemoryActor::pre_start does.
 fn make_inner() -> Arc<Mutex<MemoryInner>> {
-    stub_env();
     let store = VecStore::open(":memory:").expect("VecStore::open(:memory:)");
-    let embedder = Embedder::init(); // returns Stub because CHOIROS_MEMORY_STUB=1
-    Arc::new(Mutex::new(MemoryInner { store, embedder }))
+    Arc::new(Mutex::new(MemoryInner { store }))
 }
+
+fn stub_env() {}
 
 fn ulid() -> String {
     ulid::Ulid::new().to_string()
@@ -45,23 +35,22 @@ fn ulid() -> String {
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-/// 5.2-G1: sqlite-vec extension loads; all four vec0 tables are created.
+/// 5.2-G1: Memory store opens; all four collections are created.
 #[test]
 fn test_vec_store_opens_with_four_tables() {
-    stub_env();
     let store = VecStore::open(":memory:").expect("should open");
     // Verify by searching (returns empty, not an error) — if tables don't
     // exist sqlite would return an error from the query.
-    let hits = store.search("user_inputs", &[0f32; 384], 5);
+    let hits = store.search("user_inputs", "anything", 5);
     assert!(hits.is_ok(), "user_inputs table missing: {:?}", hits.err());
 
-    let hits = store.search("version_snapshots", &[0f32; 384], 5);
+    let hits = store.search("version_snapshots", "anything", 5);
     assert!(hits.is_ok(), "version_snapshots table missing");
 
-    let hits = store.search("run_trajectories", &[0f32; 384], 5);
+    let hits = store.search("run_trajectories", "anything", 5);
     assert!(hits.is_ok(), "run_trajectories table missing");
 
-    let hits = store.search("doc_trajectories", &[0f32; 384], 5);
+    let hits = store.search("doc_trajectories", "anything", 5);
     assert!(hits.is_ok(), "doc_trajectories table missing");
 }
 
@@ -80,27 +69,17 @@ fn test_chunk_hash_deterministic() {
 /// 5.2-G3: Ingest inserts a row and returns `true`; dedup skips on second call.
 #[test]
 fn test_ingest_and_dedup() {
-    stub_env();
     let inner = make_inner();
     let guard = inner.lock().unwrap();
 
     let content = "test document content for phase 5 gate";
     let hash = chunk_hash(content);
-    let embedding = guard.embedder.embed_batch(&[content]);
-    let vec = &embedding[0];
 
     // First insert — should succeed.
     assert!(!guard.store.hash_exists("version_snapshots", &hash));
     guard
         .store
-        .insert(
-            "version_snapshots",
-            &ulid(),
-            "doc/test.qwy",
-            content,
-            &hash,
-            vec,
-        )
+        .insert("version_snapshots", &ulid(), "doc/test.qwy", content, &hash)
         .expect("insert should succeed");
     assert!(guard.store.hash_exists("version_snapshots", &hash));
 
@@ -109,17 +88,15 @@ fn test_ingest_and_dedup() {
     assert!(already_exists, "duplicate should be detected");
 }
 
-/// 5.2-G4: KNN search returns the nearest hit first (distance=0 for exact vector).
+/// 5.2-G4: Lexical search returns exact-match content first.
 #[test]
-fn test_knn_returns_nearest_first() {
-    stub_env();
+fn test_search_returns_exact_match_first() {
     let inner = make_inner();
     let guard = inner.lock().unwrap();
 
     let texts = ["alpha content", "beta content", "gamma content"];
-    let embeddings = guard.embedder.embed_batch(&texts);
 
-    for (i, (text, vec)) in texts.iter().zip(embeddings.iter()).enumerate() {
+    for (i, text) in texts.iter().enumerate() {
         let hash = chunk_hash(text);
         guard
             .store
@@ -129,16 +106,14 @@ fn test_knn_returns_nearest_first() {
                 &format!("source/{i}"),
                 text,
                 &hash,
-                vec,
             )
             .expect("insert");
     }
 
-    // Query for "alpha content" — its own vector should be distance=0 (nearest).
-    let query_vec = &guard.embedder.embed_batch(&["alpha content"])[0];
+    // Query for "alpha content" — exact textual match should rank first.
     let hits = guard
         .store
-        .search("run_trajectories", query_vec, 3)
+        .search("run_trajectories", "alpha content", 3)
         .expect("search");
 
     assert!(!hits.is_empty(), "expected hits");
@@ -146,17 +121,11 @@ fn test_knn_returns_nearest_first() {
         hits[0].content, "alpha content",
         "nearest should be exact match"
     );
-    // Exact match should have distance very close to 0.
-    assert!(
-        hits[0].distance < 0.001,
-        "exact match distance should be ~0, got {}",
-        hits[0].distance
-    );
-    // Results must be ordered ascending by distance.
+    // Results must be ordered by descending relevance.
     for w in hits.windows(2) {
         assert!(
-            w[0].distance <= w[1].distance,
-            "results not sorted by distance"
+            w[0].relevance >= w[1].relevance,
+            "results not sorted by relevance"
         );
     }
 }
@@ -164,7 +133,6 @@ fn test_knn_returns_nearest_first() {
 /// 5.2-G5: GetContextSnapshot merges across all four collections.
 #[tokio::test]
 async fn test_get_context_snapshot_merges_collections() {
-    stub_env();
     let inner = make_inner();
 
     // Seed one item in each collection.
@@ -194,10 +162,9 @@ async fn test_get_context_snapshot_merges_collections() {
         ];
         for (content, col, src) in seeds {
             let hash = chunk_hash(content);
-            let vecs = guard.embedder.embed_batch(&[content]);
             guard
                 .store
-                .insert(col.table_name(), &ulid(), src, content, &hash, &vecs[0])
+                .insert(col.table_name(), &ulid(), src, content, &hash)
                 .expect("insert seed");
         }
     }
@@ -347,7 +314,6 @@ async fn test_artifact_search_single_collection() {
     .expect("search rpc");
 
     assert_eq!(result.items.len(), 2);
-    // With stub (hash-based) embedder, semantic ranking is not meaningful.
     // Assert both docs are present and relevance is in range.
     let source_refs: Vec<&str> = result.items.iter().map(|i| i.source_ref.as_str()).collect();
     assert!(
@@ -475,7 +441,7 @@ async fn test_artifact_expand_finds_neighbors() {
     })
     .expect("expand rpc");
 
-    // With stub embedder and related content, at least one neighbor should be returned.
+    // With related content, at least one neighbor should be returned.
     assert!(
         !result.items.is_empty(),
         "ArtifactExpand should return neighbors"
@@ -634,12 +600,12 @@ async fn test_artifact_context_pack_deterministic_items() {
 
 // ─── Phase 5.5 gate test ──────────────────────────────────────────────────────
 
-/// 5.5-G1: Selective re-embedding — second version with one changed block produces
-/// exactly ONE new embedding call; unchanged blocks are skipped via chunk_hash dedup.
+/// 5.5-G1: Selective re-indexing — second version with one changed block produces
+/// exactly ONE new insert; unchanged blocks are skipped via chunk_hash dedup.
 ///
 /// Simulates: document v1 has blocks [A, B, C]. Document v2 changes only B → B'.
 /// Expected: B' is ingested (new hash); A and C are skipped (same hashes).
-/// Total new embeddings for v2 = 1 (only B').
+/// Total new inserts for v2 = 1 (only B').
 #[tokio::test]
 async fn test_selective_reembedding_only_changed_blocks() {
     stub_env();
@@ -716,10 +682,10 @@ async fn test_selective_reembedding_only_changed_blocks() {
         }
     }
 
-    // Gate: only 1 new embedding (B' only) — A and C were skipped via chunk_hash dedup.
+    // Gate: only 1 new insert (B' only) — A and C were skipped via chunk_hash dedup.
     assert_eq!(
         v2_inserted, 1,
-        "v2 should produce exactly 1 new embedding (changed block only), got {v2_inserted}"
+        "v2 should produce exactly 1 new insert (changed block only), got {v2_inserted}"
     );
 
     memory.stop(None);
