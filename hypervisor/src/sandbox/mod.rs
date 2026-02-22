@@ -24,6 +24,7 @@ const SANDBOX_PARENT_ENV_ALLOWLIST: &[&str] = &[
     "TZDIR",
     "SSL_CERT_FILE",
     "NIX_SSL_CERT_FILE",
+    "FRONTEND_DIST",
     "RUST_LOG",
     "RUST_BACKTRACE",
 ];
@@ -398,6 +399,11 @@ mod tests {
         let parent = HashMap::from([
             ("PATH".to_string(), "/usr/bin".to_string()),
             ("HOME".to_string(), "/home/test".to_string()),
+            (
+                "FRONTEND_DIST".to_string(),
+                "/opt/choiros/workspace/dioxus-desktop/target/dx/sandbox-ui/release/web/public"
+                    .to_string(),
+            ),
             ("RUST_LOG".to_string(), "info".to_string()),
             ("OPENAI_API_KEY".to_string(), "secret".to_string()),
             ("RANDOM_VAR".to_string(), "value".to_string()),
@@ -408,6 +414,10 @@ mod tests {
 
         assert_eq!(env_map.get("PATH").map(String::as_str), Some("/usr/bin"));
         assert_eq!(env_map.get("HOME").map(String::as_str), Some("/home/test"));
+        assert_eq!(
+            env_map.get("FRONTEND_DIST").map(String::as_str),
+            Some("/opt/choiros/workspace/dioxus-desktop/target/dx/sandbox-ui/release/web/public")
+        );
         assert_eq!(env_map.get("RUST_LOG").map(String::as_str), Some("info"));
         assert!(!env_map.contains_key("RANDOM_VAR"));
     }
