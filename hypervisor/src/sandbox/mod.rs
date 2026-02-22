@@ -18,6 +18,7 @@ use crate::config::SandboxRuntime;
 const SANDBOX_PARENT_ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "HOME",
+    "XDG_CACHE_HOME",
     "USER",
     "LANG",
     "LC_ALL",
@@ -320,6 +321,15 @@ impl SandboxRegistry {
         let parent_env: HashMap<String, String> = std::env::vars().collect();
         for (key, value) in sanitized_parent_env(&parent_env) {
             child_cmd.env(key, value);
+        }
+
+        // BAML/runtime caches need a resolvable cache/home directory. Under
+        // systemd services HOME may be unset, so provide deterministic defaults.
+        if !parent_env.contains_key("HOME") {
+            child_cmd.env("HOME", "/tmp");
+        }
+        if !parent_env.contains_key("XDG_CACHE_HOME") {
+            child_cmd.env("XDG_CACHE_HOME", "/tmp/choiros-cache");
         }
         // Defense in depth: keep explicit key removals even though env_clear()
         // already empties inherited environment for sandbox children.
