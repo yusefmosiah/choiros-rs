@@ -16,7 +16,7 @@ use axum::{
     routing::{any, get, post},
     Router,
 };
-use tower_http::{services::ServeDir, trace::TraceLayer};
+use tower_http::trace::TraceLayer;
 use tower_sessions::{Expiry, SessionManagerLayer};
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -92,20 +92,7 @@ async fn main() -> anyhow::Result<()> {
         },
     });
 
-    // Dioxus WASM frontend — served from the dx build output directory.
-    // Default matches `dx build` debug output. Override with FRONTEND_DIST in prod.
-    // Release path: dioxus-desktop/target/dx/dioxus-desktop/release/web/public
-    let frontend_dist = config::frontend_dist_from_env();
-    info!(path = %frontend_dist, "serving frontend assets from");
-
     let app = Router::new()
-        // Auth pages — serve the Dioxus index.html; the WASM router handles
-        // /login, /register, /recovery client-side.
-        // Falls through to the ServeDir nest below when the dist exists.
-        .route("/", get(auth::handlers::root_page))
-        .route("/login", get(auth::handlers::login_page))
-        .route("/register", get(auth::handlers::register_page))
-        .route("/recovery", get(auth::handlers::recovery_page))
         // Auth API endpoints
         .route("/auth/register/start", post(auth::handlers::register_start))
         .route(
@@ -135,14 +122,7 @@ async fn main() -> anyhow::Result<()> {
             "/admin/sandboxes/{user_id}/swap",
             post(api::swap_sandbox_roles),
         )
-        // Frontend static assets — served without auth.
-        // /wasm/*   — WASM binary + generated JS bindings + snippets
-        // /assets/* — hashed CSS/font assets (manganis output)
-        // Other public root files (xterm.js etc.) are only needed after the
-        // user is authenticated and proxied to the sandbox, which serves them.
-        .nest_service("/wasm", ServeDir::new(format!("{frontend_dist}/wasm")))
-        .nest_service("/assets", ServeDir::new(format!("{frontend_dist}/assets")))
-        // All other traffic → proxy to sandbox (auth enforced by middleware)
+        // All non-auth traffic is routed to sandbox runtime (auth enforced by middleware)
         .fallback(middleware::proxy_to_sandbox)
         .layer(axum_middleware::from_fn_with_state(
             Arc::clone(&state),

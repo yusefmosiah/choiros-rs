@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 pub mod conductor;
 pub mod desktop;
+pub mod dioxus_compat;
 pub mod files;
 pub mod logs;
 pub mod run_observability;
@@ -36,6 +37,7 @@ pub struct ApiState {
 pub fn router() -> Router<ApiState> {
     Router::new()
         .route("/health", get(health_check))
+        .route("/_dioxus", get(dioxus_compat::hmr_websocket))
         .route("/ws", get(websocket::ws_handler))
         .route("/ws/logs/events", get(websocket_logs::logs_websocket))
         // Note: Chat backend removed - Prompt Bar routes to Conductor

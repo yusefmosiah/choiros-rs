@@ -5,10 +5,12 @@ use sandbox::actors::event_store::{
 };
 use sandbox::api;
 use sandbox::app_state::AppState;
+use std::path::PathBuf;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::services::{ServeDir, ServeFile};
 
 const FORBIDDEN_PROVIDER_KEY_ENVS: &[&str] = &[
     "OPENAI_API_KEY",
@@ -107,16 +109,48 @@ fn should_enforce_keyless_policy() -> bool {
         || std::env::var("CHOIR_SANDBOX_USER_ID").is_ok()
 }
 
+fn frontend_dist_from_env() -> String {
+    if let Ok(path) = std::env::var("FRONTEND_DIST") {
+        return path;
+    }
+
+    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    let release = workspace_root.join("dioxus-desktop/target/dx/dioxus-desktop/release/web/public");
+    if release.join("index.html").exists() {
+        return release.to_string_lossy().to_string();
+    }
+
+    let debug = workspace_root.join("dioxus-desktop/target/dx/dioxus-desktop/debug/web/public");
+    if debug.join("index.html").exists() {
+        return debug.to_string_lossy().to_string();
+    }
+
+    // Final fallback for environments that provide dist through runtime wiring.
+    debug.to_string_lossy().to_string()
+}
+
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     // Initialize logging
     tracing_subscriber::fmt::init();
 
-    // Load .env values early so provider/model keys are available to all actors.
-    // Search the current directory and ancestors so running from `sandbox/` still
-    // picks up repo-root `.env`.
-    load_env_file();
-    if should_enforce_keyless_policy() {
+    let enforce_keyless = should_enforce_keyless_policy();
+
+    // Load .env only in standalone mode. Managed/keyless sandbox mode must not
+    // import provider credentials from repo-root .env.
+    if !enforce_keyless {
+        // Search the current directory and ancestors so running from `sandbox/`
+        // still picks up repo-root `.env`.
+        load_env_file();
+    } else {
+        tracing::info!("Managed keyless mode detected; skipping .env load");
+    }
+
+    if enforce_keyless {
         assert_keyless_sandbox_env()?;
     } else {
         tracing::warn!(
@@ -233,8 +267,22 @@ async fn main() -> std::io::Result<()> {
         app_state,
         ws_sessions,
     };
+    let frontend_dist = frontend_dist_from_env();
+    let frontend_index = format!("{frontend_dist}/index.html");
+    tracing::info!(path = %frontend_dist, "Serving sandbox frontend assets from");
 
-    let app = api::router().with_state(api_state).layer(cors);
+    let app = api::router()
+        .route_service("/", ServeFile::new(frontend_index.clone()))
+        .route_service("/login", ServeFile::new(frontend_index.clone()))
+        .route_service("/register", ServeFile::new(frontend_index.clone()))
+        .route_service("/recovery", ServeFile::new(frontend_index.clone()))
+        .nest_service("/wasm", ServeDir::new(format!("{frontend_dist}/wasm")))
+        .nest_service("/assets", ServeDir::new(format!("{frontend_dist}/assets")))
+        .fallback_service(
+            ServeDir::new(frontend_dist).not_found_service(ServeFile::new(frontend_index)),
+        )
+        .with_state(api_state)
+        .layer(cors);
 
     let listener = TcpListener::bind(format!("0.0.0.0:{port}")).await?;
     axum::serve(listener, app).await

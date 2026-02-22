@@ -134,7 +134,7 @@ fn env_csv(key: &str, default: &[&str]) -> Vec<String> {
     }
 }
 
-/// Resolve the Dioxus frontend dist directory.
+/// Resolve the Dioxus frontend dist directory for unauth auth-page bootstrap.
 ///
 /// If `FRONTEND_DIST` is set, that value is used as-is.
 /// Otherwise resolve from the workspace root so this works whether the

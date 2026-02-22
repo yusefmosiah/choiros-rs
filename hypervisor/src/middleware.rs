@@ -10,6 +10,24 @@ use tower_sessions::Session;
 
 use crate::{auth::session as sess, sandbox::SandboxRole, AppState};
 
+fn is_public_bootstrap_path(path: &str) -> bool {
+    path == "/"
+        || path == "/login"
+        || path == "/register"
+        || path == "/recovery"
+        || path.starts_with("/wasm/")
+        || path.starts_with("/assets/")
+        || matches!(
+            path,
+            "/xterm.css"
+                | "/xterm.js"
+                | "/xterm-addon-fit.js"
+                | "/terminal.js"
+                | "/viewer-text.js"
+                | "/favicon.ico"
+        )
+}
+
 /// Middleware: require an authenticated session.
 /// Unauthenticated requests to non-auth paths are redirected to /login.
 pub async fn require_auth(
@@ -20,15 +38,10 @@ pub async fn require_auth(
 ) -> Response {
     let path = req.uri().path();
 
-    // Allow auth endpoints, auth pages, and static frontend assets through unauthenticated
+    // Allow auth endpoints and public app bootstrap assets without session.
     if path.starts_with("/auth/")
-        || path.starts_with("/assets/")
-        || path.starts_with("/wasm/")
         || path.starts_with("/provider/v1/")
-        || path == "/"
-        || path == "/login"
-        || path == "/register"
-        || path == "/recovery"
+        || is_public_bootstrap_path(path)
     {
         return next.run(req).await;
     }
@@ -47,12 +60,14 @@ pub async fn proxy_to_sandbox(
     session: Session,
     req: Request,
 ) -> Response {
-    let user_id = match sess::get_user_id(&session).await {
-        Some(id) => id,
+    let path = req.uri().path().to_string();
+    let is_public_bootstrap = is_public_bootstrap_path(&path);
+    let (user_id, authenticated) = match sess::get_user_id(&session).await {
+        Some(id) => (id, true),
+        None if is_public_bootstrap => ("public".to_string(), false),
         None => return (StatusCode::UNAUTHORIZED, "not authenticated").into_response(),
     };
 
-    let path = req.uri().path().to_string();
     let (role, effective_path) = if path.starts_with("/dev/") {
         (
             SandboxRole::Dev,
@@ -82,7 +97,7 @@ pub async fn proxy_to_sandbox(
         .map(|v| v.eq_ignore_ascii_case("websocket"))
         .unwrap_or(false);
 
-    let req = sanitize_and_tag_proxy_request(req, &user_id, role);
+    let req = sanitize_and_tag_proxy_request(req, Some(&user_id), role, authenticated);
 
     if is_ws {
         let path_with_query = req
@@ -121,7 +136,12 @@ pub async fn proxy_to_sandbox(
     crate::proxy::proxy_http(req, port).await
 }
 
-fn sanitize_and_tag_proxy_request(req: Request, user_id: &str, role: SandboxRole) -> Request {
+fn sanitize_and_tag_proxy_request(
+    req: Request,
+    user_id: Option<&str>,
+    role: SandboxRole,
+    authenticated: bool,
+) -> Request {
     let (mut parts, body) = req.into_parts();
 
     // Never forward browser session credentials or client auth headers into sandbox.
@@ -129,8 +149,10 @@ fn sanitize_and_tag_proxy_request(req: Request, user_id: &str, role: SandboxRole
     parts.headers.remove(header::AUTHORIZATION);
     parts.headers.remove(header::PROXY_AUTHORIZATION);
 
-    if let Ok(v) = HeaderValue::from_str(user_id) {
-        parts.headers.insert("x-choiros-user-id", v);
+    if let Some(user_id) = user_id {
+        if let Ok(v) = HeaderValue::from_str(user_id) {
+            parts.headers.insert("x-choiros-user-id", v);
+        }
     }
     let role_value = match role {
         SandboxRole::Live => "live",
@@ -142,7 +164,11 @@ fn sanitize_and_tag_proxy_request(req: Request, user_id: &str, role: SandboxRole
     );
     parts.headers.insert(
         "x-choiros-proxy-authenticated",
-        HeaderValue::from_static("true"),
+        if authenticated {
+            HeaderValue::from_static("true")
+        } else {
+            HeaderValue::from_static("false")
+        },
     );
 
     Request::from_parts(parts, body)

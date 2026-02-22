@@ -10,8 +10,8 @@ default:
 dev-sandbox:
     cd sandbox && DATABASE_URL="sqlite:../data/events.db" SQLX_OFFLINE=true CARGO_INCREMENTAL=0 cargo run
 
-# Run hypervisor component
-dev-hypervisor:
+# Run hypervisor component (build release UI first so sandbox serves non-HMR assets)
+dev-hypervisor: build-ui-release
     cd hypervisor && SQLX_OFFLINE=true DATABASE_URL="sqlite:../data/hypervisor.db" cargo run
 
 # Build the Dioxus WASM frontend (debug) into target/dx/dioxus-desktop/debug/web/public
@@ -22,10 +22,10 @@ build-ui:
 build-ui-release:
     cd dioxus-desktop && dx build --release
 
-# Build UI then run hypervisor — full stack on port 9090
+# Build release UI then run hypervisor — full stack on port 9090
 # Builds the sandbox binary, the Dioxus WASM frontend, then starts the hypervisor.
-# The hypervisor serves the WASM app and proxies authenticated traffic to the sandbox.
-dev-full: build-ui
+# The sandbox serves desktop runtime assets; hypervisor handles auth + proxying.
+dev-full: build-ui-release
     cargo build -p sandbox
     cd hypervisor && SQLX_OFFLINE=true DATABASE_URL="sqlite:../data/hypervisor.db" cargo run
 
