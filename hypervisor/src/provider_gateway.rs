@@ -1,4 +1,5 @@
 use std::{
+    fs,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -132,7 +133,7 @@ pub async fn forward_provider_request(
         .client
         .request(method, &upstream_url)
         .bearer_auth(provider_api_key)
-        .body(body_bytes);
+        .body(body_bytes.clone());
     upstream_req = copy_request_headers(upstream_req, &parts.headers);
 
     let upstream_res = match upstream_req.send().await {
@@ -152,6 +153,18 @@ pub async fn forward_provider_request(
             return (StatusCode::BAD_GATEWAY, "invalid upstream response").into_response();
         }
     };
+
+    if status == StatusCode::UNAUTHORIZED {
+        dump_401_debug_artifact(
+            "forward",
+            &provider,
+            &upstream_url,
+            &context,
+            &parts.headers,
+            &body_bytes,
+            &bytes,
+        );
+    }
 
     let mut response = Response::new(Body::from(bytes));
     *response.status_mut() = status;
@@ -214,7 +227,7 @@ async fn forward_bedrock_request(
         .client
         .post(&upstream_url)
         .bearer_auth(provider_api_key)
-        .body(body_bytes);
+        .body(body_bytes.clone());
     upstream_req = copy_request_headers(upstream_req, &parts.headers);
 
     let upstream_res = match upstream_req.send().await {
@@ -234,6 +247,18 @@ async fn forward_bedrock_request(
             return (StatusCode::BAD_GATEWAY, "invalid upstream response").into_response();
         }
     };
+
+    if status == StatusCode::UNAUTHORIZED {
+        dump_401_debug_artifact(
+            "aws-bedrock",
+            &provider,
+            &upstream_url,
+            &context,
+            &parts.headers,
+            &body_bytes,
+            &bytes,
+        );
+    }
 
     let mut response = Response::new(Body::from(bytes));
     *response.status_mut() = status;
@@ -418,6 +443,71 @@ fn copy_response_headers(dest: &mut HeaderMap, src: &HeaderMap) {
             dest.insert(name, header_value);
         }
     }
+}
+
+fn dump_401_debug_artifact(
+    flow: &str,
+    provider: &str,
+    upstream_url: &str,
+    context: &GatewayCallerContext,
+    request_headers: &HeaderMap,
+    request_body: &[u8],
+    response_body: &[u8],
+) {
+    if !gateway_debug_dump_401_enabled() {
+        return;
+    }
+
+    let timestamp = chrono::Utc::now().format("%Y%m%dT%H%M%S%.3fZ");
+    let path = format!("/tmp/choiros-provider-401-{timestamp}.log");
+    let request_body_preview = String::from_utf8_lossy(request_body);
+    let response_body_preview = String::from_utf8_lossy(response_body);
+    let mut kept_headers: Vec<(String, String)> = request_headers
+        .iter()
+        .filter_map(|(name, value)| {
+            let key = name.as_str().to_ascii_lowercase();
+            if key == "authorization" || key == "x-api-key" || key == "api-key" {
+                return None;
+            }
+            let val = value.to_str().ok()?.to_string();
+            Some((key, val))
+        })
+        .collect();
+    kept_headers.sort_by(|a, b| a.0.cmp(&b.0));
+    let header_lines = kept_headers
+        .into_iter()
+        .map(|(k, v)| format!("{k}: {v}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let payload = format!(
+        "flow={flow}\nprovider={provider}\nupstream_url={upstream_url}\n\
+         sandbox_id={}\nuser_id={}\nmodel={}\nrequest_len={}\nresponse_len={}\n\
+         headers:\n{}\n\nrequest_body:\n{}\n\nresponse_body:\n{}\n",
+        context.sandbox_id,
+        context.user_id,
+        context.model,
+        request_body.len(),
+        response_body.len(),
+        header_lines,
+        request_body_preview,
+        response_body_preview,
+    );
+
+    match fs::write(&path, payload) {
+        Ok(_) => warn!(path = %path, provider = %provider, model = %context.model, "dumped provider 401 debug artifact"),
+        Err(err) => warn!(error = %err, path = %path, "failed to write provider 401 debug artifact"),
+    }
+}
+
+fn gateway_debug_dump_401_enabled() -> bool {
+    std::env::var("CHOIR_PROVIDER_GATEWAY_DEBUG_DUMP_401")
+        .ok()
+        .map(|v| {
+            let v = v.trim().to_ascii_lowercase();
+            v == "1" || v == "true" || v == "yes" || v == "on"
+        })
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
