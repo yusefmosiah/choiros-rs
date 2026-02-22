@@ -995,7 +995,7 @@ name = "Kimi K2.5 (coding)"
 provider = "anthropic"
 base_url = "https://api.kimi.com/coding/"
 api_key_env = "PATH"
-model = "kimi-for-coding"
+model = "kimi-for-coding/k2p5"
 aliases = ["KimiK25"]
 
 [models.ClaudeBedrockSonnet45]
