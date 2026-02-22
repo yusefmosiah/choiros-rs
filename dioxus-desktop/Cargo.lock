@@ -642,6 +642,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfc4b8cdc440a55c17355542fc2089d97949bba674255d84cac77805e1db8c9f"
 
 [[package]]
+name = "dioxus-desktop"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "dioxus",
+ "dioxus-logger",
+ "dioxus-web",
+ "futures-util",
+ "getrandom 0.3.4",
+ "gloo-net",
+ "gloo-timers",
+ "js-sys",
+ "log",
+ "serde",
+ "serde_json",
+ "shared-types",
+ "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "wasm-logger",
+ "web-sys",
+]
+
+[[package]]
 name = "dioxus-devtools"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2373,31 +2398,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
-]
-
-[[package]]
-name = "sandbox-ui"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "dioxus",
- "dioxus-logger",
- "dioxus-web",
- "futures-util",
- "getrandom 0.3.4",
- "gloo-net",
- "gloo-timers",
- "js-sys",
- "log",
- "serde",
- "serde_json",
- "shared-types",
- "uuid",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-bindgen-test",
- "wasm-logger",
- "web-sys",
 ]
 
 [[package]]

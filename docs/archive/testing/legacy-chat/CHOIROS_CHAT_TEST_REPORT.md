@@ -326,7 +326,7 @@ cargo test -p sandbox --test markdown_test
 
 2. **Frontend Markdown Integration**
    - Backend markdown module ready, needs Dioxus integration
-   - **Action:** Create markdown component in sandbox-ui
+   - **Action:** Create markdown component in dioxus-desktop
 
 ### Recommendations
 

@@ -716,7 +716,7 @@ Add a `Signal<TrajectoryMode>` to the component state.
 // reduces to 80 columns with correct worst-status aggregation.
 ```
 
-Note: `build_trajectory_cells` and `bucket_cells` are pure functions on `trace.rs` data types. Test them as lib tests in `dioxus-desktop/src/components/trace.rs` using `#[cfg(test)]` inline blocks, not as a separate integration test binary. Run via `cargo test -p sandbox-ui --lib` (or the crate name for dioxus-desktop).
+Note: `build_trajectory_cells` and `bucket_cells` are pure functions on `trace.rs` data types. Test them as lib tests in `dioxus-desktop/src/components/trace.rs` using `#[cfg(test)]` inline blocks, not as a separate integration test binary. Run via `cargo test -p dioxus-desktop --lib` (or the crate name for dioxus-desktop).
 
 ### 3.6 Playwright spec
 

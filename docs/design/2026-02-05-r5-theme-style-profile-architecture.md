@@ -15,24 +15,24 @@ Define a style-profile architecture that prioritizes user-prompted visual direct
 - `/Users/wiz/choiros-rs/sandbox/src/api/user.rs`
 - `/Users/wiz/choiros-rs/sandbox/src/api/mod.rs`
 - `/Users/wiz/choiros-rs/shared-types/src/lib.rs`
-- `/Users/wiz/choiros-rs/sandbox-ui/src/api.rs`
-- `/Users/wiz/choiros-rs/sandbox-ui/src/desktop.rs`
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/api.rs`
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop.rs`
 - `/Users/wiz/choiros-rs/sandbox/tests/desktop_api_test.rs`
 
 ## Current-State Evidence
 
 1. API and frontend are currently `theme: "light" | "dark"` only.
    - Request/response shape is string-only in `/Users/wiz/choiros-rs/sandbox/src/api/user.rs:18` and `/Users/wiz/choiros-rs/sandbox/src/api/user.rs:23`.
-   - Frontend API expects `theme: String` in `/Users/wiz/choiros-rs/sandbox-ui/src/api.rs:171`.
+   - Frontend API expects `theme: String` in `/Users/wiz/choiros-rs/dioxus-desktop/src/api.rs:171`.
 2. Backend persists theme preference as an EventStore event (`user.theme_preference`).
    - Event type constant: `/Users/wiz/choiros-rs/shared-types/src/lib.rs:247`.
    - Append/read path: `/Users/wiz/choiros-rs/sandbox/src/api/user.rs:41` and `/Users/wiz/choiros-rs/sandbox/src/api/user.rs:95`.
 3. Backend is authoritative and cache is non-authoritative by policy and implementation.
    - Policy: `/Users/wiz/choiros-rs/docs/design/2026-02-05-ui-storage-reconciliation.md:15`.
-   - UI bootstrap reads cache first, then fetches backend and overwrites local state: `/Users/wiz/choiros-rs/sandbox-ui/src/desktop.rs:42`.
+   - UI bootstrap reads cache first, then fetches backend and overwrites local state: `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop.rs:42`.
 4. UI rendering is still toggle-centric.
-   - Prompt bar toggle button: `/Users/wiz/choiros-rs/sandbox-ui/src/desktop.rs:515`.
-   - Theme application hard-accepts only `light|dark`: `/Users/wiz/choiros-rs/sandbox-ui/src/desktop.rs:787`.
+   - Prompt bar toggle button: `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop.rs:515`.
+   - Theme application hard-accepts only `light|dark`: `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop.rs:787`.
 5. Existing tests cover default/get/set and invalid theme rejection only.
    - `/Users/wiz/choiros-rs/sandbox/tests/desktop_api_test.rs:603`
    - `/Users/wiz/choiros-rs/sandbox/tests/desktop_api_test.rs:620`
@@ -131,7 +131,7 @@ Extensibility:
 Final application order (lowest to highest precedence):
 
 1. **Semantic base tokens** from `base_theme` (`light|dark`)  
-   Source: existing token groups in `/Users/wiz/choiros-rs/sandbox-ui/src/desktop.rs:630` and selectors in `/Users/wiz/choiros-rs/sandbox-ui/src/desktop.rs:672`.
+   Source: existing token groups in `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop.rs:630` and selectors in `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop.rs:672`.
 2. **Profile pack overrides** for `style_profile`  
    Applied as curated token deltas against semantic tokens.
 3. **User `custom_overrides`**  
@@ -147,7 +147,7 @@ Determinism rule:
 
 1. **Token-key allowlist only**
    - Reject non-allowlisted keys.
-   - Start allowlist from currently used semantic token set in `/Users/wiz/choiros-rs/sandbox-ui/src/desktop.rs:633`.
+   - Start allowlist from currently used semantic token set in `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop.rs:633`.
 2. **Value validation by token type**
    - Color tokens: hex/rgb/rgba/hsl only.
    - Length/radius tokens: `px|rem|em|%` constrained ranges.
@@ -193,7 +193,7 @@ Determinism rule:
 ### New frontend tests required
 
 1. Bootstrap conflict: backend profile overrides cached legacy theme (policy gate from `/Users/wiz/choiros-rs/docs/design/2026-02-05-r4-storage-conformance-audit.md:37`).
-2. Theme application accepts profile-resolved token maps (not only `light|dark` guard currently in `/Users/wiz/choiros-rs/sandbox-ui/src/desktop.rs:788`).
+2. Theme application accepts profile-resolved token maps (not only `light|dark` guard currently in `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop.rs:788`).
 3. Prompt-bar style actions update profile state without requiring binary toggle.
 
 ## Open Implementation Notes

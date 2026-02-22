@@ -158,7 +158,7 @@ Milestone B: Auth extractor wired into REST (even if permissive), and Chat + Des
 - All tests in `sandbox/tests/chat_api_test.rs` and `sandbox/tests/desktop_api_test.rs` pass after conversion.
 
 Milestone C: Desktop WebSocket works.
-- `sandbox-ui` desktop connects to `/ws` and receives `desktop_state` and updates.
+- `dioxus-desktop` desktop connects to `/ws` and receives `desktop_state` and updates.
 
 Milestone D: Chat WebSocket works (with auth).
 - `sandbox/tests/websocket_chat_test.rs` ported and passing (or replaced with a new WS test).

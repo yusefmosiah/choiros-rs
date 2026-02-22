@@ -115,7 +115,7 @@ test_invalid_desktop_id_returns_400()
 #[cfg(test)]
 mod tests {
     use wasm_bindgen_test::*;
-    use sandbox_ui::api::*;
+    use dioxus_desktop::api::*;
 
     wasm_bindgen_test_configure!(run_in_browser);
 
@@ -134,7 +134,7 @@ mod tests {
 
 **Implementation Priority:**
 - [ ] Add `wasm-bindgen-test` dependency
-- [ ] Create `sandbox-ui/tests/` directory
+- [ ] Create `dioxus-desktop/tests/` directory
 - [ ] Write API response parsing tests
 - [ ] Write utility function tests
 - [ ] Skip: Component rendering tests (use E2E instead)
@@ -234,7 +234,7 @@ async fn test_desktop_api_end_to_end() {
 
 ```rust
 // Create a test harness app
-// sandbox-ui/src/test_harness.rs
+// dioxus-desktop/src/test_harness.rs
 
 #[component]
 fn TestHarness() -> Element {
@@ -477,7 +477,7 @@ choiros-rs/
 │       ├── integration/      # API integration tests
 │       └── fixtures/         # Test data factories
 │
-├── sandbox-ui/
+├── dioxus-desktop/
 │   ├── src/
 │   │   ├── desktop.rs        # E2E tested
 │   │   ├── components.rs     # E2E tested
@@ -527,7 +527,7 @@ jobs:
         run: cargo install dioxus-cli
 
       - name: Build frontend
-        run: cargo build -p sandbox-ui
+        run: cargo build -p dioxus-desktop
 
   e2e-tests:
     runs-on: ubuntu-latest
@@ -543,7 +543,7 @@ jobs:
         run: cargo run -p sandbox &
 
       - name: Start frontend
-        run: cd sandbox-ui && dx serve &
+        run: cd dioxus-desktop && dx serve &
 
       - name: Wait for servers
         run: sleep 10
@@ -573,7 +573,7 @@ cargo test -p sandbox --quiet
 
 # 2. Frontend build
 echo "🎨 Frontend Build..."
-cargo build -p sandbox-ui --quiet
+cargo build -p dioxus-desktop --quiet
 
 # 3. API health check
 echo "🔌 API Health Check..."
@@ -583,7 +583,7 @@ curl -s http://localhost:8080/health | grep -q "healthy" && echo "✅ Backend he
 echo ""
 echo "Manual Testing:"
 echo "  1. Start backend: cargo run -p sandbox"
-echo "  2. Start frontend: cd sandbox-ui && dx serve"
+echo "  2. Start frontend: cd dioxus-desktop && dx serve"
 echo "  3. Open: http://localhost:3000"
 echo ""
 echo "E2E Testing:"

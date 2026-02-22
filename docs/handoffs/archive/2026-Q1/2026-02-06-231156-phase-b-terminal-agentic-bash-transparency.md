@@ -11,7 +11,7 @@
   - f67ee36 Document scoped roadmap progress
   - e53c1f9 Act on roadmap progress update
   - 0b7fc0b Document critical roadmap gaps
-  - d9790c3 docs: archive React migration docs and remove sandbox-ui directory
+  - d9790c3 docs: archive React migration docs and remove dioxus-desktop directory
 
 ## Handoff Chain
 

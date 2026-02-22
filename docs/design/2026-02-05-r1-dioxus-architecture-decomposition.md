@@ -6,7 +6,7 @@
 
 ## Scope
 
-Decompose `sandbox-ui/src/desktop.rs` into mergeable, testable modules while preserving behavior, API contracts, and current UX.
+Decompose `dioxus-desktop/src/desktop.rs` into mergeable, testable modules while preserving behavior, API contracts, and current UX.
 
 ## Non-Goals
 
@@ -16,39 +16,39 @@ Decompose `sandbox-ui/src/desktop.rs` into mergeable, testable modules while pre
 
 ## Repository Evidence (Current State)
 
-1. `sandbox-ui/src/desktop.rs` is a 1071-line mixed-responsibility file (`wc -l`) containing:
-- Root orchestration + signals + effects: `sandbox-ui/src/desktop.rs:22`
-- Theme caching/apply/persist logic: `sandbox-ui/src/desktop.rs:42`, `sandbox-ui/src/desktop.rs:787`
-- Core app registry + registration side effect: `sandbox-ui/src/desktop.rs:244`, `sandbox-ui/src/desktop.rs:280`
-- Prompt bar + icon/grid + loading/error helper components: `sandbox-ui/src/desktop.rs:385`, `sandbox-ui/src/desktop.rs:488`, `sandbox-ui/src/desktop.rs:605`
-- WebSocket parse + event projection + connection setup: `sandbox-ui/src/desktop.rs:816`, `sandbox-ui/src/desktop.rs:920`
-- Global token/style blob: `sandbox-ui/src/desktop.rs:630`
+1. `dioxus-desktop/src/desktop.rs` is a 1071-line mixed-responsibility file (`wc -l`) containing:
+- Root orchestration + signals + effects: `dioxus-desktop/src/desktop.rs:22`
+- Theme caching/apply/persist logic: `dioxus-desktop/src/desktop.rs:42`, `dioxus-desktop/src/desktop.rs:787`
+- Core app registry + registration side effect: `dioxus-desktop/src/desktop.rs:244`, `dioxus-desktop/src/desktop.rs:280`
+- Prompt bar + icon/grid + loading/error helper components: `dioxus-desktop/src/desktop.rs:385`, `dioxus-desktop/src/desktop.rs:488`, `dioxus-desktop/src/desktop.rs:605`
+- WebSocket parse + event projection + connection setup: `dioxus-desktop/src/desktop.rs:816`, `dioxus-desktop/src/desktop.rs:920`
+- Global token/style blob: `dioxus-desktop/src/desktop.rs:630`
 
 2. Window rendering is already partially separated:
-- `FloatingWindow` exists in `sandbox-ui/src/desktop_window.rs:8` and is consumed by `Desktop` at `sandbox-ui/src/desktop.rs:340`.
-- Drag/resize handlers are stubs (`start_drag`, `start_resize`) in `sandbox-ui/src/desktop_window.rs:117` and `sandbox-ui/src/desktop_window.rs:121`.
+- `FloatingWindow` exists in `dioxus-desktop/src/desktop_window.rs:8` and is consumed by `Desktop` at `dioxus-desktop/src/desktop.rs:340`.
+- Drag/resize handlers are stubs (`start_drag`, `start_resize`) in `dioxus-desktop/src/desktop_window.rs:117` and `dioxus-desktop/src/desktop_window.rs:121`.
 
 3. Entry-point coupling is minimal and can be preserved:
-- `Desktop` is launched from `sandbox-ui/src/main.rs:18`.
-- Re-exported via `sandbox-ui/src/lib.rs:10`.
+- `Desktop` is launched from `dioxus-desktop/src/main.rs:18`.
+- Re-exported via `dioxus-desktop/src/lib.rs:10`.
 
 4. Desktop API surface consumed by UI is in one place:
-- Window/desktop/theme calls in `sandbox-ui/src/api.rs:186` through `sandbox-ui/src/api.rs:541`.
+- Window/desktop/theme calls in `dioxus-desktop/src/api.rs:186` through `dioxus-desktop/src/api.rs:541`.
 
 5. Existing automated coverage is backend-heavy:
 - Desktop endpoint integration tests in `sandbox/tests/desktop_api_test.rs:1`.
-- No current `sandbox-ui` tests discovered (`rg` for `#[cfg(test)]`, `mod tests`, `wasm_bindgen_test`).
+- No current `dioxus-desktop` tests discovered (`rg` for `#[cfg(test)]`, `mod tests`, `wasm_bindgen_test`).
 
 ## Target Architecture
 
 ### Component and File Map (Concrete)
 
-Keep public entry `Desktop` in `sandbox-ui/src/desktop.rs`, reduce file to composition + module wiring.
+Keep public entry `Desktop` in `dioxus-desktop/src/desktop.rs`, reduce file to composition + module wiring.
 
 Planned module tree:
 
 ```text
-sandbox-ui/src/
+dioxus-desktop/src/
   desktop.rs                          # thin public entry; re-export Desktop
   desktop/
     mod.rs                            # DesktopShell component + props wiring
@@ -67,13 +67,13 @@ sandbox-ui/src/
 
 Compatibility constraints:
 
-- `sandbox-ui/src/main.rs` remains unchanged (`Desktop` import path stable).
-- `sandbox-ui/src/lib.rs` keeps `pub mod desktop;` and `pub use desktop::*;`.
-- `sandbox-ui/src/desktop_window.rs` remains source of `FloatingWindow` until later window-lane work.
+- `dioxus-desktop/src/main.rs` remains unchanged (`Desktop` import path stable).
+- `dioxus-desktop/src/lib.rs` keeps `pub mod desktop;` and `pub use desktop::*;`.
+- `dioxus-desktop/src/desktop_window.rs` remains source of `FloatingWindow` until later window-lane work.
 
 ### Runtime Composition
 
-1. `Desktop` (`sandbox-ui/src/desktop.rs`) delegates to `desktop::DesktopShell`.
+1. `Desktop` (`dioxus-desktop/src/desktop.rs`) delegates to `desktop::DesktopShell`.
 2. `DesktopShell` owns top-level signals and invokes `effects::*` hooks.
 3. `WorkspaceCanvas` renders icon layer + floating windows using derived view model.
 4. `PromptBar` receives a minimal view model (connection, running windows, active id, theme).
@@ -84,16 +84,16 @@ Compatibility constraints:
 
 | State / Data | Owner Module | Write Path | Read Path | Persistence / Source of Truth |
 |---|---|---|---|---|
-| `desktop_state: Option<DesktopState>` | `desktop::state` (stored in `DesktopShell`) | `effects` initial fetch, `actions`, `ws` projection reducers | `WorkspaceCanvas`, `PromptBar` | Backend desktop API + websocket events (`sandbox-ui/src/api.rs:186`, `sandbox-ui/src/desktop.rs:920`) |
+| `desktop_state: Option<DesktopState>` | `desktop::state` (stored in `DesktopShell`) | `effects` initial fetch, `actions`, `ws` projection reducers | `WorkspaceCanvas`, `PromptBar` | Backend desktop API + websocket events (`dioxus-desktop/src/api.rs:186`, `dioxus-desktop/src/desktop.rs:920`) |
 | `loading: bool` | `desktop::effects` + shell | set during initial fetch | `status_views` | UI-local transient |
 | `error: Option<String>` | `desktop::effects` + shell | fetch/action failures | `status_views` | UI-local transient |
-| `ws_connected: bool` | `desktop::ws` projection | ws connect/disconnect events | `PromptBar` status | websocket lifecycle (`sandbox-ui/src/desktop.rs:822`) |
-| `viewport: (u32,u32)` | `desktop::effects` | viewport bootstrap/updates | `WorkspaceCanvas`, `FloatingWindow` | browser runtime; currently stubbed getter (`sandbox-ui/src/desktop.rs:869`) |
-| `current_theme: String` (`light|dark`) | `desktop::theme` | toggle action + bootstrap fetch/cache | `PromptBar` theme toggle rendering | localStorage + backend user pref (`sandbox-ui/src/desktop.rs:49`, `sandbox-ui/src/api.rs:271`) |
-| `apps_registered: bool` | `desktop::effects` | one-time side effect guard | internal only | UI-local guard for `register_app` loop (`sandbox-ui/src/desktop.rs:285`) |
-| Core app definitions (`chat`,`writer`,`terminal`,`files`) | `desktop::apps` | static/const | `DesktopIcons`, app registration effect | code-defined defaults (`sandbox-ui/src/desktop.rs:245`) |
+| `ws_connected: bool` | `desktop::ws` projection | ws connect/disconnect events | `PromptBar` status | websocket lifecycle (`dioxus-desktop/src/desktop.rs:822`) |
+| `viewport: (u32,u32)` | `desktop::effects` | viewport bootstrap/updates | `WorkspaceCanvas`, `FloatingWindow` | browser runtime; currently stubbed getter (`dioxus-desktop/src/desktop.rs:869`) |
+| `current_theme: String` (`light|dark`) | `desktop::theme` | toggle action + bootstrap fetch/cache | `PromptBar` theme toggle rendering | localStorage + backend user pref (`dioxus-desktop/src/desktop.rs:49`, `dioxus-desktop/src/api.rs:271`) |
+| `apps_registered: bool` | `desktop::effects` | one-time side effect guard | internal only | UI-local guard for `register_app` loop (`dioxus-desktop/src/desktop.rs:285`) |
+| Core app definitions (`chat`,`writer`,`terminal`,`files`) | `desktop::apps` | static/const | `DesktopIcons`, app registration effect | code-defined defaults (`dioxus-desktop/src/desktop.rs:245`) |
 | Prompt input text | `components/prompt_bar.rs` local signal | input handlers | prompt bar only | UI-local ephemeral |
-| Desktop icon pressed/double-click debounce | `components/desktop_icons.rs` local signal | icon click handlers | icon component only | UI-local ephemeral (`sandbox-ui/src/desktop.rs:418`) |
+| Desktop icon pressed/double-click debounce | `components/desktop_icons.rs` local signal | icon click handlers | icon component only | UI-local ephemeral (`dioxus-desktop/src/desktop.rs:418`) |
 
 Ownership rules:
 
@@ -120,8 +120,8 @@ Changes:
 Acceptance criteria:
 
 - `Desktop` renders identically with unchanged behavior paths.
-- `sandbox-ui/src/main.rs` and `sandbox-ui/src/lib.rs` do not require public API changes.
-- `cargo check -p sandbox-ui` passes.
+- `dioxus-desktop/src/main.rs` and `dioxus-desktop/src/lib.rs` do not require public API changes.
+- `cargo check -p dioxus-desktop` passes.
 
 Explicit test impacts:
 
@@ -176,11 +176,11 @@ Changes:
 
 - Move open/close/focus/move/resize/prompt-submit callbacks into `desktop/actions.rs`.
 - Move initial fetch, register-app bootstrap, viewport bootstrap, ws bootstrap into `desktop/effects.rs`.
-- Collapse `sandbox-ui/src/desktop.rs` to thin public entry forwarding to `desktop::DesktopShell`.
+- Collapse `dioxus-desktop/src/desktop.rs` to thin public entry forwarding to `desktop::DesktopShell`.
 
 Acceptance criteria:
 
-- `sandbox-ui/src/desktop.rs` reduced to composition/wiring only.
+- `dioxus-desktop/src/desktop.rs` reduced to composition/wiring only.
 - Side-effect ordering preserved:
   - initial state fetch
   - ws connect
@@ -211,7 +211,7 @@ Acceptance criteria:
 
 Explicit test impacts:
 
-- Ensure new `sandbox-ui` tests are part of CI path (if wasm tests require explicit job, note in follow-up lane).
+- Ensure new `dioxus-desktop` tests are part of CI path (if wasm tests require explicit job, note in follow-up lane).
 - No expected changes to `sandbox/tests/desktop_api_test.rs` assertions.
 
 ## Definition of Done
@@ -242,4 +242,4 @@ This architecture decomposition lane is complete when:
 
 - Prioritize moving code first, then renaming symbols; avoid mixed semantic rewrites.
 - For each slice, land tests in same PR before further decomposition.
-- Use the existing API wrappers in `sandbox-ui/src/api.rs`; do not add direct HTTP logic in components.
+- Use the existing API wrappers in `dioxus-desktop/src/api.rs`; do not add direct HTTP logic in components.

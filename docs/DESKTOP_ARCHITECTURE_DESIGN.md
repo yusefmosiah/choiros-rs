@@ -208,7 +208,7 @@ DesktopActor::register_app(AppDefinition {
 **For development**:
 ```bash
 # Terminal 1: Watch and rebuild
-cd sandbox-ui
+cd dioxus-desktop
 dx serve --hot-reload
 
 # Changes to src/ automatically reload browser
@@ -471,7 +471,7 @@ sandbox/src/
     chat.rs             # Existing
     desktop.rs          # NEW: Desktop API endpoints
 
-sandbox-ui/src/
+dioxus-desktop/src/
   main.rs
   desktop.rs            # NEW: Desktop component
   window.rs             # NEW: Window chrome

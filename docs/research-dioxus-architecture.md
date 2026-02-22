@@ -50,7 +50,7 @@ This research document provides a comprehensive analysis of Dioxus architecture 
 ### 1.1 Current Structure
 
 ```
-sandbox-ui/
+dioxus-desktop/
 ├── src/
 │   ├── main.rs           # Entry point, launches App
 │   ├── lib.rs            # Module exports
@@ -1182,7 +1182,7 @@ const DEFAULT_TOKENS: &str = r#"
 **Structure:**
 
 ```
-sandbox-ui/
+dioxus-desktop/
 ├── src/
 │   └── components/
 │       └── styles/
@@ -1614,7 +1614,7 @@ loading.set(false);
 ### 12.1 Overall Structure
 
 ```
-sandbox-ui/
+dioxus-desktop/
 ├── src/
 │   ├── main.rs              # Entry point
 │   ├── lib.rs               # Exports

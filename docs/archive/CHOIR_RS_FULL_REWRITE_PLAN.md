@@ -87,7 +87,7 @@ cargo init --name choir-workspace
 # Edit Cargo.toml to workspace
 ```toml
 [workspace]
-members = ["shared-types", "hypervisor", "sandbox", "sandbox-ui"]
+members = ["shared-types", "hypervisor", "sandbox", "dioxus-desktop"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -121,13 +121,13 @@ dev-hypervisor:
 
 # Run sandbox with UI
 dev-sandbox:
-    cd sandbox-ui && trunk serve --port 5173 &
+    cd dioxus-desktop && trunk serve --port 5173 &
     cargo watch -p sandbox -x 'run -p sandbox'
 
 # Build UI for production (embeds in sandbox binary)
 build-ui:
-    cd sandbox-ui && trunk build --release
-    cp sandbox-ui/dist sandbox/static/
+    cd dioxus-desktop && trunk build --release
+    cp dioxus-desktop/dist sandbox/static/
 
 # Test everything
 test:
@@ -499,7 +499,7 @@ impl Handler<super::EventPublished> for ChatActor {
 ### 4.1 Window Manager
 
 ```rust
-// sandbox-ui/src/desktop.rs
+// dioxus-desktop/src/desktop.rs
 use yew::prelude::*;
 use shared_types::*;
 
@@ -551,7 +551,7 @@ pub fn desktop() -> Html {
 ### 4.2 Draggable Window Component
 
 ```rust
-// sandbox-ui/src/window.rs
+// dioxus-desktop/src/window.rs
 use yew::prelude::*;
 use shared_types::WindowState;
 
@@ -633,7 +633,7 @@ pub fn window(props: &WindowProps) -> Html {
 ### 4.3 Chat App
 
 ```rust
-// sandbox-ui/src/apps/chat.rs
+// dioxus-desktop/src/apps/chat.rs
 use yew::prelude::*;
 use shared_types::*;
 
@@ -692,7 +692,7 @@ pub fn chat_app(props: &ChatAppProps) -> Html {
 ### 5.1 Trunk.toml (for Yew build)
 
 ```toml
-# sandbox-ui/Trunk.toml
+# dioxus-desktop/Trunk.toml
 [build]
 target = "index.html"
 
@@ -710,7 +710,7 @@ watch = ["src", "../shared-types/src"]
 **Development (local):**
 ```bash
 # Build Yew UI
-cd sandbox-ui
+cd dioxus-desktop
 trunk build --release
 
 # Copy static files into sandbox (embedded in binary)
@@ -736,14 +736,14 @@ FROM rust:1.75 as builder
 
 # Build Yew UI
 RUN cargo install trunk
-WORKDIR /app/sandbox-ui
-COPY sandbox-ui .
+WORKDIR /app/dioxus-desktop
+COPY dioxus-desktop .
 RUN trunk build --release
 
 # Build Actix binary with embedded static files
 WORKDIR /app
 COPY . .
-RUN cp -r sandbox-ui/dist/* sandbox/static/
+RUN cp -r dioxus-desktop/dist/* sandbox/static/
 RUN cargo build --release --package sandbox
 
 # Runtime image

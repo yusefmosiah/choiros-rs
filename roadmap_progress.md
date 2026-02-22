@@ -1160,7 +1160,7 @@ Time window: **2026-02-06 04:00 EST** through **2026-02-07 01:39 EST**
 6. `bf90464` (Fri Feb 6 18:29:20 2026 -0500) `Stabilize terminal websocket lifecycle across reloads and multi-browser sessions`
 7. `0e25530` (Fri Feb 6 18:54:17 2026 -0500) `Add window drag and mobile layout`
 8. `973ea53` (Fri Feb 6 20:53:19 2026 -0500) `refactor: complete supervision cutover, remove ActorManager runtime`
-9. `d9790c3` (Fri Feb 6 21:06:36 2026 -0500) `docs: archive React migration docs and remove sandbox-ui directory`
+9. `d9790c3` (Fri Feb 6 21:06:36 2026 -0500) `docs: archive React migration docs and remove dioxus-desktop directory`
 10. `0b7fc0b` (Fri Feb 6 21:35:05 2026 -0500) `Document critical roadmap gaps`
 11. `e53c1f9` (Fri Feb 6 21:54:33 2026 -0500) `Act on roadmap progress update`
 12. `f67ee36` (Fri Feb 6 22:04:52 2026 -0500) `Document scoped roadmap progress`

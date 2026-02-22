@@ -29,9 +29,9 @@ All checks pass (`test`, `tsc`, `build`).
 - Best-effort backend session teardown via `stopTerminal(terminalId)` on component unmount.
 
 **Files**
-- `/Users/wiz/choiros-rs/sandbox-ui/src/components/apps/Terminal/Terminal.tsx`
-- `/Users/wiz/choiros-rs/sandbox-ui/src/components/apps/Terminal/ws.ts`
-- `/Users/wiz/choiros-rs/sandbox-ui/src/lib/api/terminal.ts`
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/components/apps/Terminal/Terminal.tsx`
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/components/apps/Terminal/ws.ts`
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/lib/api/terminal.ts`
 
 ### 2) Chat streaming over websocket
 
@@ -43,9 +43,9 @@ All checks pass (`test`, `tsc`, `build`).
 - Keeps optimistic user message behavior with pending marker and resolves pending on response.
 
 **Files**
-- `/Users/wiz/choiros-rs/sandbox-ui/src/components/apps/Chat/Chat.tsx`
-- `/Users/wiz/choiros-rs/sandbox-ui/src/components/apps/Chat/ws.ts`
-- `/Users/wiz/choiros-rs/sandbox-ui/src/components/apps/Chat/Chat.css`
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/components/apps/Chat/Chat.tsx`
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/components/apps/Chat/ws.ts`
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/components/apps/Chat/Chat.css`
 
 ### 3) Integration wiring and test harness
 
@@ -57,10 +57,10 @@ All checks pass (`test`, `tsc`, `build`).
   - Chat stream parser + response-text extraction
 
 **Files**
-- `/Users/wiz/choiros-rs/sandbox-ui/src/components/window/Window.tsx`
-- `/Users/wiz/choiros-rs/sandbox-ui/package.json`
-- `/Users/wiz/choiros-rs/sandbox-ui/src/components/apps/Terminal/ws.test.ts`
-- `/Users/wiz/choiros-rs/sandbox-ui/src/components/apps/Chat/ws.test.ts`
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/components/window/Window.tsx`
+- `/Users/wiz/choiros-rs/dioxus-desktop/package.json`
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/components/apps/Terminal/ws.test.ts`
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/components/apps/Chat/ws.test.ts`
 
 ---
 
@@ -69,9 +69,9 @@ All checks pass (`test`, `tsc`, `build`).
 Executed and passing:
 
 ```bash
-cd /Users/wiz/choiros-rs/sandbox-ui && npm test
-cd /Users/wiz/choiros-rs/sandbox-ui && npx tsc --noEmit
-cd /Users/wiz/choiros-rs/sandbox-ui && npm run build
+cd /Users/wiz/choiros-rs/dioxus-desktop && npm test
+cd /Users/wiz/choiros-rs/dioxus-desktop && npx tsc --noEmit
+cd /Users/wiz/choiros-rs/dioxus-desktop && npm run build
 ```
 
 Results:
@@ -83,7 +83,7 @@ Results:
 
 ## Notes / Caveats
 
-- Local Vite cache files under `sandbox-ui/node_modules/.vite/` continue to change during local builds.
+- Local Vite cache files under `dioxus-desktop/node_modules/.vite/` continue to change during local builds.
 - Chat streaming currently consumes final `response` chunks as assistant messages. Tool/thinking chunks are parsed but not rendered yet.
 - Terminal reconnect is implemented, but max retry count is currently unbounded (bounded by delay cap); this is acceptable for dev UX and can be tightened if needed.
 

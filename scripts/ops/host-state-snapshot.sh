@@ -141,7 +141,7 @@ generate_snapshot() {
 
   binary_blob "sandbox"
   binary_blob "hypervisor"
-  binary_blob "sandbox-ui"
+  binary_blob "dioxus-desktop"
 
   state_blob "hypervisor.service"
   state_blob "container@sandbox-live.service"

@@ -1,7 +1,7 @@
 # Porting Fixes Required Report
 
 **Date:** February 6, 2026
-**Scope:** React sandbox-ui vs Dioxus backup vs Backend contracts
+**Scope:** React dioxus-desktop vs Dioxus backup vs Backend contracts
 **Total Issues Analyzed:** 5 review reports merged
 
 ---
@@ -56,7 +56,7 @@ This comprehensive review synthesizes findings from five detailed reports coveri
 ### CRITICAL Severity - Fix Immediately
 
 #### CRITICAL-001: State Duplication Between DesktopStore and WindowsStore
-**Location:** `sandbox-ui/src/stores/desktop.ts:5`, `sandbox-ui/src/stores/windows.ts:5`
+**Location:** `dioxus-desktop/src/stores/desktop.ts:5`, `dioxus-desktop/src/stores/windows.ts:5`
 **Report:** STATE_MANAGEMENT_REVIEW.md (Bug #1)
 
 **Issue:** Same `windows` data exists in two separate stores:
@@ -94,7 +94,7 @@ interface WindowsStore {
 ---
 
 #### CRITICAL-002: Race Condition in WebSocket State Updates
-**Location:** `sandbox-ui/src/hooks/useWebSocket.ts:17-92`
+**Location:** `dioxus-desktop/src/hooks/useWebSocket.ts:17-92`
 **Report:** STATE_MANAGEMENT_REVIEW.md (Bug #2)
 
 **Issue:** `applyWsMessage` function updates both stores but doesn't guarantee atomicity.
@@ -130,7 +130,7 @@ function applyWsMessage(message: WsServerMessage): void {
 ---
 
 #### CRITICAL-003: z_index Not Calculated on Window Focus
-**Location:** `sandbox-ui/src/stores/windows.ts:65-73`
+**Location:** `dioxus-desktop/src/stores/windows.ts:65-73`
 **Report:** STATE_MANAGEMENT_REVIEW.md (Bug #3)
 
 **Issue:** `focusWindow` sets z_index but doesn't calculate it correctly - requires caller to pass it.
@@ -178,7 +178,7 @@ const handleFocusWindow = useCallback(
 ---
 
 #### CRITICAL-004: Missing Pointer Capture on Window Drag/Resize
-**Location:** `sandbox-ui/src/components/window/Window.tsx:50-96`
+**Location:** `dioxus-desktop/src/components/window/Window.tsx:50-96`
 **Report:** DESKTOP_WINDOW_COMPARISON_REPORT.md (Bug 2.1.1)
 
 **Issue:** Window drag and resize operations use global window event listeners instead of pointer capture. This causes the window to lose track if the pointer moves outside the element bounds or moves too quickly.
@@ -227,7 +227,7 @@ const onHeaderPointerDown: PointerEventHandler<HTMLDivElement> = (event) => {
 ---
 
 #### CRITICAL-005: No Window Bounds Clamping to Viewport
-**Location:** `sandbox-ui/src/components/window/Window.tsx:50-96`
+**Location:** `dioxus-desktop/src/components/window/Window.tsx:50-96`
 **Report:** DESKTOP_WINDOW_COMPARISON_REPORT.md (Bug 2.1.3)
 
 **Issue:** Windows can be dragged or resized outside the visible viewport, making them inaccessible.
@@ -274,12 +274,12 @@ fn clamp_bounds(bounds: WindowBounds, viewport: (u32, u32), is_mobile: bool) -> 
 ---
 
 #### CRITICAL-006: Missing Viewer API Client Module
-**Location:** `sandbox-ui/src/lib/api/` - No `viewer.ts` file
+**Location:** `dioxus-desktop/src/lib/api/` - No `viewer.ts` file
 **Report:** API_TYPE_GENERATION_REVIEW.md (BUG-001)
 
 **Issue:** Backend exposes `/viewer/content` (GET/PATCH) but React has no client.
 
-**Evidence:** Dioxus backup has `fetch_viewer_content` and `patch_viewer_content` at `sandbox-ui-backup/src/api.rs:690-759`
+**Evidence:** Dioxus backup has `fetch_viewer_content` and `patch_viewer_content` at `dioxus-desktop-backup/src/api.rs:690-759`
 
 **Backend Contract:** `sandbox/src/api/viewer.rs`
 
@@ -290,7 +290,7 @@ fn clamp_bounds(bounds: WindowBounds, viewport: (u32, u32), is_mobile: bool) -> 
 ---
 
 #### CRITICAL-007: Desktop Maximize Window Response Type Mismatch
-**Location:** `sandbox-ui/src/lib/api/desktop.ts:104-107`
+**Location:** `dioxus-desktop/src/lib/api/desktop.ts:104-107`
 **Report:** API_TYPE_GENERATION_REVIEW.md (BUG-002)
 
 **Issue:** Frontend expects `{ success, window }` but backend sends `{ success, window, from, message }`
@@ -320,7 +320,7 @@ Json(json!({
 ---
 
 #### CRITICAL-008: Desktop Restore Window Response Type Mismatch
-**Location:** `sandbox-ui/src/lib/api/desktop.ts:109-112`
+**Location:** `dioxus-desktop/src/lib/api/desktop.ts:109-112`
 **Report:** API_TYPE_GENERATION_REVIEW.md (BUG-003)
 
 **Issue:** Same as CRITICAL-007 - backend returns `{ success, window, from, message }`, frontend expects `{ success, window }`
@@ -334,7 +334,7 @@ Json(json!({
 ---
 
 #### CRITICAL-009: Chat Component - Race Condition in Pending Message Cleanup
-**Location:** `sandbox-ui/src/components/apps/Chat/Chat.tsx:264-266`
+**Location:** `dioxus-desktop/src/components/apps/Chat/Chat.tsx:264-266`
 **Report:** APP_PARITY_ANALYSIS.md (Bug #1)
 
 **Issue:** No cleanup of timeout on component unmount.
@@ -352,7 +352,7 @@ setTimeout(() => {
 ---
 
 #### CRITICAL-010: Missing z_index in Dioxus WindowFocused Event
-**Location:** `sandbox-ui-backup/src/desktop/ws.rs:26`
+**Location:** `dioxus-desktop-backup/src/desktop/ws.rs:26`
 **Report:** websocket-implementation-review.md (Bug #1)
 
 **Issue:** The Dioxus `WsEvent::WindowFocused` variant only takes a `String` (window_id) but, backend sends `z_index` field.
@@ -375,7 +375,7 @@ WindowFocused { window_id: String, z_index: u32 },
 ---
 
 #### CRITICAL-011: Missing AppRegistered Event in Dioxus
-**Location:** `sandbox-ui-backup/src/desktop/ws.rs`
+**Location:** `dioxus-desktop-backup/src/desktop/ws.rs`
 **Report:** websocket-implementation-review.md (Bug #2)
 
 **Issue:** The Dioxus `WsEvent` enum is missing `AppRegistered` variant entirely.
@@ -398,7 +398,7 @@ AppRegistered { app: shared_types::AppDefinition },
 ---
 
 #### CRITICAL-012: Desktop Store Updates Windows Array Inconsistently
-**Location:** `sandbox-ui/src/stores/desktop.ts:68-87`
+**Location:** `dioxus-desktop/src/stores/desktop.ts:68-87`
 **Report:** STATE_MANAGEMENT_REVIEW.md (Bug #4)
 
 **Issue:** `closeWindow` in desktop store tries to update `desktop.windows` but the actual source of truth is `useWindowsStore.windows`:
@@ -437,7 +437,7 @@ closeWindow: (windowId) => {
 ### HIGH Severity
 
 #### HIGH-001: Missing Active Window Handling in Minimize
-**Location:** `sandbox-ui/src/stores/desktop.ts:89-113`
+**Location:** `dioxus-desktop/src/stores/desktop.ts:89-113`
 **Report:** STATE_MANAGEMENT_REVIEW.md (Bug #5)
 
 **Issue:** `minimizeWindow` calculates next active window correctly but doesn't update the windows store to set `minimized: true`
@@ -470,7 +470,7 @@ minimizeWindow: (windowId) => {
 ---
 
 #### HIGH-002: No Rate Limiting on Move/Resize Events
-**Location:** `sandbox-ui/src/components/window/Window.tsx:66-79`
+**Location:** `dioxus-desktop/src/components/window/Window.tsx:66-79`
 **Report:** DESKTOP_WINDOW_COMPARISON_REPORT.md (Bug 2.1.5)
 
 **Issue:** Every pointer move event triggers a move/resize API call. This can spam the backend with hundreds of events per second.
@@ -496,7 +496,7 @@ const handlePointerMove = (moveEvent: PointerEvent) => {
 ---
 
 #### HIGH-003: Missing Keyboard Accessibility
-**Location:** `sandbox-ui/src/components/window/Window.tsx:149-186`
+**Location:** `dioxus-desktop/src/components/window/Window.tsx:149-186`
 **Report:** DESKTOP_WINDOW_COMPARISON_REPORT.md (Bug 2.1.6)
 
 **Issue:** No keyboard shortcuts for window management.
@@ -516,7 +516,7 @@ const handlePointerMove = (moveEvent: PointerEvent) => {
 ---
 
 #### HIGH-004: User Preferences Response Type Mismatch
-**Location:** `sandbox-ui/src/lib/api/user.ts:3-28`
+**Location:** `dioxus-desktop/src/lib/api/user.ts:3-28`
 **Report:** API_TYPE_GENERATION_REVIEW.md (BUG-004)
 
 **Issue:** Frontend expects complex `UserPreferences` object, backend returns only `{ success, theme }`
@@ -548,7 +548,7 @@ interface UserPreferences {
 ---
 
 #### HIGH-005: Unnecessary Re-renders from Store Subscriptions
-**Location:** `sandbox-ui/src/components/desktop/Desktop.tsx:35-38`
+**Location:** `dioxus-desktop/src/components/desktop/Desktop.tsx:35-38`
 **Report:** STATE_MANAGEMENT_REVIEW.md (Bug #6)
 
 **Issue:** Component subscribes to entire store slices:
@@ -568,7 +568,7 @@ const activeWindowId = useDesktopStore((state) => state.activeWindowId);
 ---
 
 #### HIGH-006: Chat State Not Integrated with Desktop State
-**Location:** `sandbox-ui/src/stores/chat.ts:4-14`
+**Location:** `dioxus-desktop/src/stores/chat.ts:4-14`
 **Report:** STATE_MANAGEMENT_REVIEW.md (Bug #7)
 
 **Issue:** Chat messages are completely separate from desktop state.
@@ -585,7 +585,7 @@ const activeWindowId = useDesktopStore((state) => state.activeWindowId);
 ---
 
 #### HIGH-007: No Viewer Shell Integration
-**Location:** `sandbox-ui/src/components/window/Window.tsx:189-211`
+**Location:** `dioxus-desktop/src/components/window/Window.tsx:189-211`
 **Report:** DESKTOP_WINDOW_COMPARISON_REPORT.md (Bug 2.2.7)
 
 **Issue:** Writer and Files apps show placeholder text. Dioxus has ViewerShell component for rendering different content types.
@@ -597,7 +597,7 @@ const activeWindowId = useDesktopStore((state) => state.activeWindowId);
 ---
 
 #### HIGH-008: Tool Call Rendering Missing
-**Location:** Dioxus `sandbox-ui-backup/src/components.rs:589-666`
+**Location:** Dioxus `dioxus-desktop-backup/src/components.rs:589-666`
 **Report:** APP_PARITY_ANALYSIS.md (Missing Feature #1)
 
 **Issue:** React Chat component shows stream events but no tool call visualization.
@@ -618,7 +618,7 @@ const activeWindowId = useDesktopStore((state) => state.activeWindowId);
 ---
 
 #### HIGH-009: Missing ImageViewer Component
-**Location:** Dioxus `sandbox-ui-backup/src/viewers/image.rs`
+**Location:** Dioxus `dioxus-desktop-backup/src/viewers/image.rs`
 **Report:** APP_PARITY_ANALYSIS.md (Missing Feature #2)
 
 **Issue:** Image viewer not implemented in React.
@@ -636,7 +636,7 @@ const activeWindowId = useDesktopStore((state) => state.activeWindowId);
 ---
 
 #### HIGH-010: Missing TextViewer Component
-**Location:** Dioxus `sandbox-ui-backup/src/viewers/text.rs`
+**Location:** Dioxus `dioxus-desktop-backup/src/viewers/text.rs`
 **Report:** APP_PARITY_ANALYSIS.md (Missing Feature #3)
 
 **Issue:** Text viewer not implemented in React.
@@ -654,7 +654,7 @@ const activeWindowId = useDesktopStore((state) => state.activeWindowId);
 ---
 
 #### HIGH-011: Missing ViewerShell Component
-**Location:** Dioxus `sandbox-ui-backup/src/viewers/shell.rs`
+**Location:** Dioxus `dioxus-desktop-backup/src/viewers/shell.rs`
 **Report:** APP_PARITY_ANALYSIS.md (Missing Feature #4)
 
 **Issue:** Unified wrapper for viewing/editing files not implemented.
@@ -673,7 +673,7 @@ const activeWindowId = useDesktopStore((state) => state.activeWindowId);
 ---
 
 #### HIGH-012: Terminal WebSocket URL Parameter Inconsistency
-**Location:** `sandbox-ui/src/components/apps/Terminal/Terminal.tsx:94`
+**Location:** `dioxus-desktop/src/components/apps/Terminal/Terminal.tsx:94`
 **Report:** APP_PARITY_ANALYSIS.md (Bug #3)
 
 **Issue:** React passes `userId` via query param, but Dioxus passes it via URL path. Backend may expect one format.
@@ -693,7 +693,7 @@ const ws = new WebSocket(getTerminalWebSocketUrl(terminalId, userId));
 ### MEDIUM Severity
 
 #### MEDIUM-001: Missing Pointer Cancel Handler
-**Location:** `sandbox-ui/src/components/window/Window.tsx`
+**Location:** `dioxus-desktop/src/components/window/Window.tsx`
 **Report:** DESKTOP_WINDOW_COMPARISON_REPORT.md (Bug 2.1.2)
 
 **Issue:** No `pointercancel` event handling. If browser cancels a pointer event (system modal, touch gesture), window remains in drag/resize state.
@@ -707,7 +707,7 @@ const ws = new WebSocket(getTerminalWebSocketUrl(terminalId, userId));
 ---
 
 #### MEDIUM-002: Race Condition in useWebSocket Hook Status State
-**Location:** `sandbox-ui/src/hooks/useWebSocket.ts:148`
+**Location:** `dioxus-desktop/src/hooks/useWebSocket.ts:148`
 **Report:** websocket-implementation-review.md (Bug #3)
 
 **Issue:** The hook returns a derived status that can be stale.
@@ -727,7 +727,7 @@ return {
 ---
 
 #### MEDIUM-003: Multiple useWebSocket Hooks with Single Client Instance
-**Location:** `sandbox-ui/src/hooks/useWebSocket.ts:8-14`
+**Location:** `dioxus-desktop/src/hooks/useWebSocket.ts:8-14`
 **Report:** websocket-implementation-review.md (Bug #4)
 
 **Issue:** The client is a singleton shared across all hook instances, but each hook manages its own subscription/unsubscription.
@@ -739,7 +739,7 @@ return {
 ---
 
 #### MEDIUM-004: Silent Message Send Failures
-**Location:** `sandbox-ui/src/lib/ws/client.ts:71-77`
+**Location:** `dioxus-desktop/src/lib/ws/client.ts:71-77`
 **Report:** websocket-implementation-review.md (Bug #6)
 
 **Issue:** `send()` method silently drops messages if socket is not open.
@@ -760,7 +760,7 @@ send(message: WsClientMessage): void {
 ---
 
 #### MEDIUM-005: Bootstrap State Not Reset on Unmount
-**Location:** `sandbox-ui/src/components/desktop/Desktop.tsx:7, 49-108`
+**Location:** `dioxus-desktop/src/components/desktop/Desktop.tsx:7, 49-108`
 **Report:** STATE_MANAGEMENT_REVIEW.md (Bug #9)
 
 **Issue:** Module-level `bootstrapState` map is never cleared.
@@ -772,7 +772,7 @@ send(message: WsClientMessage): void {
 ---
 
 #### MEDIUM-006: No Drag Threshold
-**Location:** `sandbox-ui/src/components/window/Window.tsx:66-79`
+**Location:** `dioxus-desktop/src/components/window/Window.tsx:66-79`
 **Report:** DESKTOP_WINDOW_COMPARISON_REPORT.md (Bug 2.1.4)
 
 **Issue:** Drag starts immediately on pointerdown, even if it's just a click.
@@ -786,7 +786,7 @@ send(message: WsClientMessage): void {
 ---
 
 #### MEDIUM-007: Missing Mobile Window Constraints
-**Location:** `sandbox-ui/src/components/window/Window.tsx`
+**Location:** `dioxus-desktop/src/components/window/Window.tsx`
 **Report:** DESKTOP_WINDOW_COMPARISON_REPORT.md (Bug 2.1.7)
 
 **Issue:** No special handling for mobile viewports (≤1024px).
@@ -810,7 +810,7 @@ send(message: WsClientMessage): void {
 ---
 
 #### MEDIUM-009: Desktop Icons Lack Press Animation
-**Location:** `sandbox-ui/src/components/desktop/Desktop.css:38-40`
+**Location:** `dioxus-desktop/src/components/desktop/Desktop.css:38-40`
 **Report:** DESKTOP_WINDOW_COMPARISON_REPORT.md (Bug 2.3.3)
 
 **Issue:** Icons only change background on hover, no scale animation.
@@ -822,7 +822,7 @@ send(message: WsClientMessage): void {
 ---
 
 #### MEDIUM-010: Double-Click on Icon Not Detected
-**Location:** `sandbox-ui/src/components/desktop/Icon.tsx`
+**Location:** `dioxus-desktop/src/components/desktop/Icon.tsx`
 **Report:** DESKTOP_WINDOW_COMPARISON_REPORT.md (Bug 2.2.3)
 
 **Issue:** Desktop icons use single click to open app. Should require double-click or have press state animation.
@@ -860,7 +860,7 @@ send(message: WsClientMessage): void {
 ---
 
 #### LOW-003: Weak Type Validation in parseWsServerMessage
-**Location:** `sandbox-ui/src/lib/ws/types.ts:31-47`
+**Location:** `dioxus-desktop/src/lib/ws/types.ts:31-47`
 **Report:** websocket-implementation-review.md (Bug #9)
 
 **Issue:** Parser only validates `type` field, not actual message structure.
@@ -872,7 +872,7 @@ send(message: WsClientMessage): void {
 ---
 
 #### LOW-004: No Connection Timeout
-**Location:** `sandbox-ui/src/lib/ws/client.ts`
+**Location:** `dioxus-desktop/src/lib/ws/client.ts`
 **Report:** websocket-implementation-review.md (Bug #11)
 
 **Issue:** No timeout for WebSocket connection.
@@ -931,7 +931,7 @@ See detailed reports for complete list of minor issues including:
 
 ### 3.2 Tool Call Rendering (Major Feature Gap)
 
-**Dioxus Implementation:** `sandbox-ui-backup/src/components.rs:589-666` (77 lines)
+**Dioxus Implementation:** `dioxus-desktop-backup/src/components.rs:589-666` (77 lines)
 
 **Features:**
 - Collapsible tool call sections
@@ -961,7 +961,7 @@ See detailed reports for complete list of minor issues including:
 
 **Files to Create:**
 ```
-sandbox-ui/src/lib/theme/
+dioxus-desktop/src/lib/theme/
   ├── index.ts
   ├── theme.ts          // Theme types and definitions
   ├── useTheme.ts       // Custom hook for theme management
@@ -1075,7 +1075,7 @@ const handlePointerCancel = (event: React.PointerEvent) => {
 
 ### 3.9 Chat Assistant Bundling
 
-**Dioxus Implementation:** `sandbox-ui-backup/src/components.rs:510-723`
+**Dioxus Implementation:** `dioxus-desktop-backup/src/components.rs:510-723`
 
 **Features:**
 - Collapses tool calls into assistant messages
@@ -1091,7 +1091,7 @@ const handlePointerCancel = (event: React.PointerEvent) => {
 
 ### 3.10 Terminal Reconnection with Jitter
 
-**Dioxus Implementation:** `sandbox-ui-backup/src/terminal.rs:367-408`
+**Dioxus Implementation:** `dioxus-desktop-backup/src/terminal.rs:367-408`
 
 **Advanced Features:**
 - Exponential backoff with max cap
@@ -1332,7 +1332,7 @@ export function useWindowInteraction(
 
 ### 4.6 Use Shared Types from shared-types
 
-**Current:** `sandbox-ui/src/lib/ws/types.ts` defines `WsServerMessage` separately from backend
+**Current:** `dioxus-desktop/src/lib/ws/types.ts` defines `WsServerMessage` separately from backend
 
 **Recommendation:** Use TypeScript types generated by `ts_rs` from `shared_types::WsMessage`
 
@@ -1340,7 +1340,7 @@ export function useWindowInteraction(
 // shared-types/src/lib.rs - Add this export
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "type")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum DesktopWsMessage {
     // ... all WsMessage variants from websocket.rs
 }
@@ -1588,7 +1588,7 @@ export function useViewport() {
 |------|----------|-----------------|--------|
 | `ApiResponse<T>` | `shared-types/src/lib.rs:243` | ✅ Missing | Can't use generic response type |
 | `WriterMsg` | `shared-types/src/lib.rs:128` | ✅ Missing | WriterActor integration |
-| `RegisterAppRequest` | `sandbox-ui-backup/src/api.rs:177` | ✅ Duplicate | Defined in Dioxus, not in shared-types |
+| `RegisterAppRequest` | `dioxus-desktop-backup/src/api.rs:177` | ✅ Duplicate | Defined in Dioxus, not in shared-types |
 | `DesktopWsMessage` | `sandbox/src/api/websocket.rs` | ✅ Missing | Desktop WebSocket protocol |
 
 **Recommendation:** Add `#[ts(export, export_to = "...")]` to these types.
@@ -1677,9 +1677,9 @@ export type ToolStatus = { status: "success" } | { status: "error"; message: str
 
 ### 5.4 WebSocket Type Duplication
 
-**React:** Uses its own WebSocket types in `sandbox-ui/src/lib/ws/types.ts`
+**React:** Uses its own WebSocket types in `dioxus-desktop/src/lib/ws/types.ts`
 
-**Generated:** `WsMsg` exists in `sandbox-ui/src/types/generated.ts` but not used
+**Generated:** `WsMsg` exists in `dioxus-desktop/src/types/generated.ts` but not used
 
 **Recommendation:** Use generated `WsMsg` or export desktop-specific types to shared-types
 
@@ -1921,7 +1921,7 @@ export async function moveWindow(
 
 ### 7.7 Type Duplication
 
-**Files:** `sandbox-ui/src/lib/ws/types.ts`, `shared-types/src/lib.rs`
+**Files:** `dioxus-desktop/src/lib/ws/types.ts`, `shared-types/src/lib.rs`
 
 **Issue:** `WsServerMessage` in frontend duplicates fields from backend `WsMessage`.
 
@@ -2193,7 +2193,7 @@ export async function moveWindow(
 
 ### Summary of Findings
 
-The React implementation (`sandbox-ui`) has solid foundations with working Chat and Terminal apps, functional WebSocket connections, and a reasonable API client layer. However, significant gaps exist compared to Dioxus backup:
+The React implementation (`dioxus-desktop`) has solid foundations with working Chat and Terminal apps, functional WebSocket connections, and a reasonable API client layer. However, significant gaps exist compared to Dioxus backup:
 
 **Major Strengths:**
 - ✅ Core Chat and Terminal apps functional

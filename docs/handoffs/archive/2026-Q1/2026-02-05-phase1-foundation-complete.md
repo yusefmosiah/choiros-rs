@@ -15,20 +15,20 @@ All 3 parallel Phase 1 tasks completed successfully. The React project foundatio
 ## Completed Tasks
 
 ### T1.1: React Project Scaffolding ✅
-- **Backup**: Original Dioxus code backed up to `/Users/wiz/choiros-rs/sandbox-ui-backup/`
+- **Backup**: Original Dioxus code backed up to `/Users/wiz/choiros-rs/dioxus-desktop-backup/`
 - **Project**: New React + TypeScript + Vite project initialized
 - **Dependencies**: React 18, Zustand, xterm.js, Vite
 - **Config**: TypeScript strict mode, path aliases (`@/*`), proxy to localhost:8080
 - **Structure**: Folder hierarchy created (components/, hooks/, lib/, stores/, styles/)
 
 **Files Created**:
-- `sandbox-ui/package.json`
-- `sandbox-ui/vite.config.ts`
-- `sandbox-ui/tsconfig.json`
-- `sandbox-ui/index.html`
-- `sandbox-ui/src/main.tsx`
-- `sandbox-ui/src/App.tsx`
-- `sandbox-ui/src/styles/index.css`
+- `dioxus-desktop/package.json`
+- `dioxus-desktop/vite.config.ts`
+- `dioxus-desktop/tsconfig.json`
+- `dioxus-desktop/index.html`
+- `dioxus-desktop/src/main.tsx`
+- `dioxus-desktop/src/App.tsx`
+- `dioxus-desktop/src/styles/index.css`
 
 ### T1.2: Type Generation Pipeline ✅
 - **ts-rs**: Added to shared-types/Cargo.toml with chrono-impl feature
@@ -41,7 +41,7 @@ All 3 parallel Phase 1 tasks completed successfully. The React project foundatio
   - Viewer: `ViewerKind`, `ViewerResource`, `ViewerCapabilities`, `ViewerDescriptor`, `ViewerRevision`
   - Tools: `ToolDef`, `ToolCall`
 - **Script**: `scripts/generate-types.sh` automates type generation
-- **Output**: `sandbox-ui/src/types/generated.ts`
+- **Output**: `dioxus-desktop/src/types/generated.ts`
 
 **Key Type Mappings**:
 ```typescript
@@ -107,7 +107,7 @@ These tasks can now run in parallel:
 - `chat.ts`: Chat messages, loading states
 - Match Dioxus state structure - don't add new features yet
 
-**Reference**: See `/Users/wiz/choiros-rs/sandbox-ui-backup/src/desktop/state.rs` for Dioxus state patterns
+**Reference**: See `/Users/wiz/choiros-rs/dioxus-desktop-backup/src/desktop/state.rs` for Dioxus state patterns
 
 ---
 
@@ -126,7 +126,7 @@ These tasks can now run in parallel:
 ## Files Ready for Next Phase
 
 ```
-sandbox-ui/
+dioxus-desktop/
 ├── src/
 │   ├── types/
 │   │   └── generated.ts      ✅ (19 types from Rust)
@@ -156,13 +156,13 @@ sandbox-ui/
 cd /Users/wiz/choiros-rs && ./scripts/generate-types.sh
 
 # TypeScript check
-cd /Users/wiz/choiros-rs/sandbox-ui && npx tsc --noEmit
+cd /Users/wiz/choiros-rs/dioxus-desktop && npx tsc --noEmit
 
 # Install deps (if needed)
-cd /Users/wiz/choiros-rs/sandbox-ui && npm install
+cd /Users/wiz/choiros-rs/dioxus-desktop && npm install
 
 # Dev server
-cd /Users/wiz/choiros-rs/sandbox-ui && npm run dev  # port 3000
+cd /Users/wiz/choiros-rs/dioxus-desktop && npm run dev  # port 3000
 ```
 
 ---
@@ -187,4 +187,4 @@ None. Phase 1 foundation is complete.
 - Rust Types: `/Users/wiz/choiros-rs/shared-types/src/lib.rs`
 - Backend API: `/Users/wiz/choiros-rs/sandbox/src/api/mod.rs`
 - WebSocket Handler: `/Users/wiz/choiros-rs/sandbox/src/api/websocket.rs`
-- Original Dioxus (for reference): `/Users/wiz/choiros-rs/sandbox-ui-backup/`
+- Original Dioxus (for reference): `/Users/wiz/choiros-rs/dioxus-desktop-backup/`

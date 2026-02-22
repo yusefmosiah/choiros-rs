@@ -41,7 +41,7 @@ Current host state:
 - Hypervisor is running as a host systemd service on `:9090` and serves the
   desktop/auth shell at `http://54.211.83.193:9090/login`.
 - Hypervisor is configured to serve frontend assets from:
-  `/opt/choiros/workspace/dioxus-desktop/target/dx/sandbox-ui/release/web/public`.
+  `/opt/choiros/workspace/dioxus-desktop/target/dx/dioxus-desktop/release/web/public`.
 - Hypervisor sandbox registry now adopts existing listeners on configured
   live/dev ports, which allows host-managed NixOS containers to remain the
   runtime substrate.

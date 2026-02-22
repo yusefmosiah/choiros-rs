@@ -10,7 +10,7 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 - Incident doc: `/Users/wiz/choiros-rs/docs/handoffs/2026-02-06-react-terminal-browser-cpu-regression.md`
 - 2026-02-06: Rollback experiment path created to validate reversibility:
   - `dioxus-desktop/` = Dioxus frontend (active rollback target)
-  - `sandbox-ui/` = React frontend (kept as backup)
+  - `dioxus-desktop/` = React frontend (kept as backup)
   - Backend API/websocket contracts intentionally unchanged for A/B validation.
 - 2026-02-06: Dioxus terminal multi-browser/reload stability fix landed.
   - Handoff doc: `/Users/wiz/choiros-rs/docs/handoffs/2026-02-06-dioxus-terminal-multibrowser-fix.md`
@@ -29,13 +29,13 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 
 - **dioxus-desktop/**: Dioxus frontend (restored for rollback validation)
 - **sandbox/**: Rust backend with **Ractor** actors and **Axum** web framework (13,154 lines - PRESERVED)
-- **sandbox-ui/**: React frontend kept as backup during rollback testing
+- **dioxus-desktop/**: React frontend kept as backup during rollback testing
 - **shared-types/**: Rust structs shared with backend and Dioxus/React experiments
 - **choiros/**: Reference React implementation (patterns only - NOT cloning)
 
 ### Target State
 
-- **sandbox-ui/**: New React + TypeScript frontend (long-term target, currently backup)
+- **dioxus-desktop/**: New React + TypeScript frontend (long-term target, currently backup)
 - **dioxus-desktop/**: Active rollback frontend for regression isolation
 - **sandbox/**: Unchanged Rust backend (Ractor + Axum)
 - **shared-types/**: Rust types with TypeScript generation pipeline
@@ -49,15 +49,15 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 
 - **ID**: T1.1
 - **Name**: Initialize React Project Structure
-- **Description**: Create new React + TypeScript + Vite project in sandbox-ui/, replacing Dioxus. Set up build configuration, linting, and folder structure.
+- **Description**: Create new React + TypeScript + Vite project in dioxus-desktop/, replacing Dioxus. Set up build configuration, linting, and folder structure.
 - **Effort**: Medium
 - **Dependencies**: None
 - **Files Affected**:
-  - `/Users/wiz/choiros-rs/sandbox-ui/package.json` (new)
-  - `/Users/wiz/choiros-rs/sandbox-ui/vite.config.ts` (new)
-  - `/Users/wiz/choiros-rs/sandbox-ui/tsconfig.json` (new)
-  - `/Users/wiz/choiros-rs/sandbox-ui/index.html` (new)
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/main.tsx` (new)
+  - `/Users/wiz/choiros-rs/dioxus-desktop/package.json` (new)
+  - `/Users/wiz/choiros-rs/dioxus-desktop/vite.config.ts` (new)
+  - `/Users/wiz/choiros-rs/dioxus-desktop/tsconfig.json` (new)
+  - `/Users/wiz/choiros-rs/dioxus-desktop/index.html` (new)
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/main.tsx` (new)
 - **Parallelizable With**: T1.2, T1.3
 
 ### Task 1.2: Type Generation from Rust (Rust ↔ TypeScript)
@@ -69,7 +69,7 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 - **Dependencies**: None
 - **Files Affected**:
   - `/Users/wiz/choiros-rs/shared-types/` (add ts-rs derive macros)
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/types/generated.ts` (new)
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/types/generated.ts` (new)
   - Type generation script in `/Users/wiz/choiros-rs/scripts/generate-types.sh`
 - **Parallelizable With**: T1.1, T1.3
 - **Key Types to Generate**:
@@ -87,8 +87,8 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 - **Effort**: Small
 - **Dependencies**: None
 - **Files Affected**:
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/lib/api/client.ts` (new)
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/lib/api/errors.ts` (new)
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/lib/api/client.ts` (new)
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/lib/api/errors.ts` (new)
 - **Parallelizable With**: T1.1, T1.2
 
 ### Task 1.4: WebSocket Connection Layer (CRITICAL)
@@ -99,10 +99,10 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 - **Effort**: Large
 - **Dependencies**: T1.2 (needs types)
 - **Files Affected**:
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/lib/ws/client.ts` (new)
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/lib/ws/types.ts` (new)
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/hooks/useWebSocket.ts` (new)
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/lib/ws/client.test.ts` (tests - CRITICAL)
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/lib/ws/client.ts` (new)
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/lib/ws/types.ts` (new)
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/hooks/useWebSocket.ts` (new)
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/lib/ws/client.test.ts` (tests - CRITICAL)
 - **Parallelizable With**: T1.5
 - **Testing Requirements**:
   - Connection establishment
@@ -120,9 +120,9 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 - **Effort**: Small
 - **Dependencies**: T1.2 (needs types)
 - **Files Affected**:
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/stores/index.ts` (new)
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/stores/windows.ts` (new)
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/stores/desktop.ts` (new)
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/stores/index.ts` (new)
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/stores/windows.ts` (new)
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/stores/desktop.ts` (new)
 - **Parallelizable With**: T1.4
 
 ---
@@ -137,10 +137,10 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 - **Effort**: Large
 - **Dependencies**: T1.5 (needs stores), T1.2 (needs types)
 - **Files Affected**:
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/window/Window.tsx`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/window/WindowManager.tsx`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/window/Window.css`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/stores/windows.ts`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/window/Window.tsx`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/window/WindowManager.tsx`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/window/Window.css`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/stores/windows.ts`
 - **Parallelizable With**: T2.3
 
 ### Task 2.2: Desktop Shell Components
@@ -151,11 +151,11 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 - **Effort**: Medium
 - **Dependencies**: T2.1 (window management), T1.5 (stores)
 - **Files Affected**:
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/desktop/Desktop.tsx`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/desktop/Desktop.css`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/desktop/Icon.tsx`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/desktop/Taskbar.tsx`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/desktop/PromptBar.tsx`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/desktop/Desktop.tsx`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/desktop/Desktop.css`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/desktop/Icon.tsx`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/desktop/Taskbar.tsx`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/desktop/PromptBar.tsx`
 
 ### Task 2.3: Theme System
 
@@ -165,10 +165,10 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 - **Effort**: Small
 - **Dependencies**: T1.1 (project setup)
 - **Files Affected**:
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/styles/variables.css`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/styles/themes/dark.css`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/styles/themes/light.css`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/hooks/useTheme.ts`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/styles/variables.css`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/styles/themes/dark.css`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/styles/themes/light.css`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/hooks/useTheme.ts`
 - **Parallelizable With**: T2.1
 
 ### Task 2.4: App Registry System
@@ -179,8 +179,8 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 - **Effort**: Small
 - **Dependencies**: T1.2 (types), T2.3 (theme for icons)
 - **Files Affected**:
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/lib/apps.ts`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/types/apps.ts`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/lib/apps.ts`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/types/apps.ts`
 
 ### Task 2.5: Event Handling Infrastructure
 
@@ -190,9 +190,9 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 - **Effort**: Medium
 - **Dependencies**: T1.4 (WebSocket), T1.5 (stores)
 - **Files Affected**:
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/lib/events/handler.ts`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/lib/events/dispatcher.ts`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/hooks/useEvents.ts`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/lib/events/handler.ts`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/lib/events/dispatcher.ts`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/hooks/useEvents.ts`
 
 ---
 
@@ -208,7 +208,7 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 - **Effort**: Small
 - **Dependencies**: T1.3 (API client), T1.2 (types)
 - **Files Affected**:
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/lib/api/chat.ts`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/lib/api/chat.ts`
 
 ### Task 3.2: Chat App Component (Basic)
 
@@ -218,10 +218,10 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 - **Effort**: Medium
 - **Dependencies**: T3.1 (API), T2.1 (windows), T2.5 (events)
 - **Files Affected**:
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/apps/Chat/Chat.tsx`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/apps/Chat/Chat.css`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/apps/Chat/MessageList.tsx`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/apps/Chat/ChatInput.tsx`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/apps/Chat/Chat.tsx`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/apps/Chat/Chat.css`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/apps/Chat/MessageList.tsx`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/apps/Chat/ChatInput.tsx`
 - **Deferred for Later**: Advanced features like file attachments, rich formatting, etc.
 
 ### Task 3.3: Terminal App
@@ -232,9 +232,9 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 - **Effort**: Large
 - **Dependencies**: T2.1 (windows), T1.4 (WebSocket for PTY)
 - **Files Affected**:
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/apps/Terminal/Terminal.tsx`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/apps/Terminal/Terminal.css`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/apps/Terminal/xterm.css`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/apps/Terminal/Terminal.tsx`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/apps/Terminal/Terminal.css`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/apps/Terminal/xterm.css`
 
 ### Task 3.4: Window-App Integration
 
@@ -244,8 +244,8 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 - **Effort**: Medium
 - **Dependencies**: T2.1 (windows), T2.4 (registry), T3.2, T3.3
 - **Files Affected**:
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/window/WindowManager.tsx`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/App.tsx`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/window/WindowManager.tsx`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/App.tsx`
 
 ---
 
@@ -259,8 +259,8 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 - **Effort**: Medium
 - **Dependencies**: T2.2 (desktop), T3.4 (window-app integration)
 - **Files Affected**:
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/desktop/Desktop.tsx`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/desktop/Taskbar.tsx`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/desktop/Desktop.tsx`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/desktop/Taskbar.tsx`
 
 ### Task 4.2: WebSocket Testing Suite (CRITICAL)
 
@@ -270,8 +270,8 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 - **Effort**: Large
 - **Dependencies**: T1.4 (WebSocket client), T2.5 (event handling), T3.4 (integration)
 - **Files Affected**:
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/lib/ws/client.test.ts`
-  - `/Users/wiz/choiros-rs/sandbox-ui/e2e/websocket.spec.ts`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/lib/ws/client.test.ts`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/e2e/websocket.spec.ts`
 - **Test Coverage Required**:
   - Connection lifecycle (connect, disconnect, reconnect)
   - Subscription to desktop state
@@ -290,9 +290,9 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 - **Effort**: Medium
 - **Dependencies**: T3.4 (integration complete)
 - **Files Affected**:
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/ErrorBoundary.tsx`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/LoadingSpinner.tsx`
-  - `/Users/wiz/choiros-rs/sandbox-ui/src/components/ConnectionStatus.tsx`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/ErrorBoundary.tsx`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/LoadingSpinner.tsx`
+  - `/Users/wiz/choiros-rs/dioxus-desktop/src/components/ConnectionStatus.tsx`
 
 ### Task 4.4: Build & Deploy Configuration
 
@@ -302,7 +302,7 @@ This document provides a comprehensive DAG (Directed Acyclic Graph) for migratin
 - **Effort**: Medium
 - **Dependencies**: T1.1 (frontend project)
 - **Files Affected**:
-  - `/Users/wiz/choiros-rs/sandbox-ui/Dockerfile` (new)
+  - `/Users/wiz/choiros-rs/dioxus-desktop/Dockerfile` (new)
   - `/Users/wiz/choiros-rs/sandbox/src/main.rs` (static file serving)
   - `/Users/wiz/choiros-rs/Cargo.toml` (workspace updates)
 
@@ -445,7 +445,7 @@ T1.2 (types) → T1.4 (WebSocket) → T1.5 (stores) → T2.1 (windows) → T3.4 
 - `/Users/wiz/choiros-rs/sandbox/src/api/mod.rs` - API routes (Axum)
 - `/Users/wiz/choiros-rs/sandbox/src/api/websocket.rs` - WebSocket handler
 - `/Users/wiz/choiros-rs/shared-types/src/lib.rs` - Shared types for ts-rs
-- `/Users/wiz/choiros-rs/sandbox-ui/src/lib/ws/client.ts` - WebSocket client (CRITICAL)
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/lib/ws/client.ts` - WebSocket client (CRITICAL)
 
 ---
 
@@ -458,7 +458,7 @@ T1.2 (types) → T1.4 (WebSocket) → T1.5 (stores) → T2.1 (windows) → T3.4 
 | **Styling** | Plain CSS | Match Dioxus approach. Better for agentic coding than Tailwind (class soup) or CSS Modules (build complexity) |
 | **State Management** | Zustand | Proven pattern from old React app. Simple, no boilerplate, works well with agentic code generation |
 | **Build Integration** | Justfile | Use existing Justfile to orchestrate both npm and cargo builds |
-| **Deployment** | Rust serves static files | Axum serves built React files from `sandbox-ui/dist/` |
+| **Deployment** | Rust serves static files | Axum serves built React files from `dioxus-desktop/dist/` |
 
 ---
 

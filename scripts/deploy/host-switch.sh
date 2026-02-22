@@ -150,7 +150,7 @@ desktop_out="$(resolve_or_build_store_path "${DESKTOP_STORE_PATH}" './dioxus-des
 
 install -m 0755 "${sandbox_out}/bin/sandbox" /opt/choiros/bin/sandbox
 install -m 0755 "${hypervisor_out}/bin/hypervisor" /opt/choiros/bin/hypervisor
-install -m 0755 "${desktop_out}/bin/sandbox-ui" /opt/choiros/bin/sandbox-ui
+install -m 0755 "${desktop_out}/bin/dioxus-desktop" /opt/choiros/bin/dioxus-desktop
 
 export NIX_PATH="nixpkgs=$(nix --extra-experimental-features nix-command --extra-experimental-features flakes eval --raw nixpkgs#path)"
 export NIXOS_CONFIG=/etc/nixos/configuration.nix

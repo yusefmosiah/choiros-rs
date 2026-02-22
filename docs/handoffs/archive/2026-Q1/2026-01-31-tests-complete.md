@@ -97,7 +97,7 @@ The ChoirOS testing infrastructure is **now complete** with a full testing pyram
 cargo run -p sandbox
 
 # Terminal 2: Start frontend
-cd sandbox-ui && dx serve
+cd dioxus-desktop && dx serve
 
 # Terminal 3: Run E2E tests
 ./run-e2e-tests.sh        # Headless mode
@@ -189,10 +189,10 @@ cargo run -p sandbox
 cargo test -p sandbox
 
 # Build UI
-cargo build -p sandbox-ui
+cargo build -p dioxus-desktop
 
 # Run UI dev server
-cd sandbox-ui && dx serve
+cd dioxus-desktop && dx serve
 
 # Run E2E tests (requires both servers)
 ./run-e2e-tests.sh
@@ -349,7 +349,7 @@ page.locator(".taskbar, [class*='taskbar']")
 cargo run -p sandbox
 
 # Terminal 2  
-cd sandbox-ui && dx serve
+cd dioxus-desktop && dx serve
 
 # Terminal 3
 ./run-e2e-tests.sh --headed
@@ -369,7 +369,7 @@ cd sandbox-ui && dx serve
 
 **Recommendation:** Add `data-testid` attributes to key elements:
 ```rust
-// In sandbox-ui/src/desktop.rs
+// In dioxus-desktop/src/desktop.rs
 rsx! {
     div {
         class: "taskbar",

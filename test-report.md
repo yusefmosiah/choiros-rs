@@ -11,7 +11,7 @@
 | Component | Version | Status |
 |-----------|---------|--------|
 | Backend (sandbox) | 0.1.0 | ✅ Compiled |
-| Frontend (sandbox-ui) | 0.1.0 | ✅ Compiled |
+| Frontend (dioxus-desktop) | 0.1.0 | ✅ Compiled |
 | Rust | 1.84.0 | ✅ Working |
 | Dioxus CLI | Latest | Required for UI dev |
 
@@ -61,7 +61,7 @@ cargo run -p sandbox
 # Server starts on http://localhost:8080
 
 # Terminal 2: Start frontend dev server
-cd sandbox-ui
+cd dioxus-desktop
 dx serve
 # UI available at http://localhost:3000
 ```
@@ -313,7 +313,7 @@ curl http://localhost:8080/desktop/test-desktop/apps
 cargo run -p sandbox
 
 # 2. Start frontend (in new terminal)
-cd sandbox-ui && dx serve
+cd dioxus-desktop && dx serve
 
 # 3. Open browser to http://localhost:3000
 

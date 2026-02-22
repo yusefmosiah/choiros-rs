@@ -658,7 +658,7 @@ cd sandbox
 cargo run
 
 # Terminal 3: Dioxus dev server
-cd sandbox-ui
+cd dioxus-desktop
 dx serve --hot-reload
 
 # Access: http://localhost:3000
@@ -668,7 +668,7 @@ dx serve --hot-reload
 
 ```bash
 # Build UI
-cd sandbox-ui
+cd dioxus-desktop
 dx build --release
 
 # Copy to sandbox static
@@ -827,7 +827,7 @@ jobs:
       
       - name: Build sandbox
         run: |
-          cd sandbox-ui && dx build --release
+          cd dioxus-desktop && dx build --release
           cp -r dist/* ../sandbox/static/
           cd ../sandbox && cargo build --release
 
@@ -1129,7 +1129,7 @@ If you're an AI agent reading this to implement the system:
 1. **Start here:** `shared-types/` - Define Event, ActorId, all messages
 2. **Then:** `sandbox/src/event_store.rs` - SQLite append-only log
 3. **Then:** `sandbox/src/actors/chat.rs` - Chat actor
-4. **Then:** `sandbox-ui/src/chat.rs` - Dioxus chat component
+4. **Then:** `dioxus-desktop/src/chat.rs` - Dioxus chat component
 5. **Finally:** Wire together with HTTP handlers
 
 **Key constraints:**

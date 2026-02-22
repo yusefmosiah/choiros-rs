@@ -19,7 +19,7 @@ The ChoirOS deployment is **working**, but still **not production-ready**. Core 
 
 ### 1. 🔴 **CRITICAL: Frontend Hardcoded API Origin**
 
-**Location:** `sandbox-ui/src/api.rs:6`  
+**Location:** `dioxus-desktop/src/api.rs:6`  
 **Issue:** 
 ```rust
 const API_BASE: &str = "http://localhost:8080";
@@ -80,7 +80,7 @@ let db_path = std::env::var("DATABASE_URL")
 1. Build static files: `dx build --release`
 2. Update Caddy to serve static files directly:
    ```
-   root * /opt/choiros/sandbox-ui/dist
+   root * /opt/choiros/dioxus-desktop/dist
    file_server
    ```
 3. Remove frontend systemd service (no longer needed)
@@ -205,7 +205,7 @@ curl -H "Origin: http://example.com" http://server/health
 ### Phase 1: Critical Fixes (Required for Production)
 
 1. **Fix API_BASE** (5 min)
-   - Edit `sandbox-ui/src/api.rs` line 6
+   - Edit `dioxus-desktop/src/api.rs` line 6
    - Change to `const API_BASE: &str = "";`
 
 2. **Fix Database Path** (5 min)
@@ -215,7 +215,7 @@ curl -H "Origin: http://example.com" http://server/health
 3. **Rebuild & Redeploy** (10 min)
    ```bash
    # On server
-   cd /opt/choiros/sandbox-ui
+   cd /opt/choiros/dioxus-desktop
    dx build --release
    sudo systemctl restart choiros-backend choiros-frontend
    ```

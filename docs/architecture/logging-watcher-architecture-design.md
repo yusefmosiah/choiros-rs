@@ -123,7 +123,7 @@ ChoirOS has two fundamentally different interaction patterns that must be logged
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct Event {
     // === Core Identification ===
     pub seq: i64,                              // Global logical sequence (EventStore assigned)
@@ -192,7 +192,7 @@ pub struct Event {
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum InterfaceKind {
     UactorActor,
     AppactorToolactor,
@@ -200,7 +200,7 @@ pub enum InterfaceKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum EventKind {
     ActorLifecycle,
     ModelInvocation,
@@ -212,7 +212,7 @@ pub enum EventKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum EventStatus {
     Started,
     InProgress,
@@ -224,7 +224,7 @@ pub enum EventStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum SecurityLabel {
     PiiEmail,
     PiiPhone,
@@ -238,7 +238,7 @@ pub enum SecurityLabel {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct RedactionState {
     pub redacted_fields: Vec<String>,
     pub redaction_method: String,    // "regex", "field", "ml"

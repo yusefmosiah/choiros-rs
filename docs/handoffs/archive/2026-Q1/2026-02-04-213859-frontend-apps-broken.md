@@ -29,8 +29,8 @@ User reported that desktop icons weren’t launching apps, terminal showed no ou
 
 ### Architecture Overview
 
-- Frontend is Dioxus (`sandbox-ui/src`), with chat in `components.rs` and terminal in `terminal.rs`.
-- Terminal UI uses xterm.js + fit addon from `sandbox-ui/public` and connects to `/ws/terminal/{terminal_id}`.
+- Frontend is Dioxus (`dioxus-desktop/src`), with chat in `components.rs` and terminal in `terminal.rs`.
+- Terminal UI uses xterm.js + fit addon from `dioxus-desktop/public` and connects to `/ws/terminal/{terminal_id}`.
 - Chat has HTTP endpoints (`/chat/send`, `/chat/{actor_id}/messages`) and a streaming WebSocket (`/ws/chat/{actor_id}/{user_id}`).
 - ChatAgent uses BAML/Bedrock for responses and writes assistant messages to EventStore; frontend must pull/stream those events.
 
@@ -38,9 +38,9 @@ User reported that desktop icons weren’t launching apps, terminal showed no ou
 
 | File | Purpose | Relevance |
 |------|---------|-----------|
-| sandbox-ui/src/components.rs | Chat UI + WS client | Adds WS streaming + fallback polling for assistant responses |
-| sandbox-ui/src/terminal.rs | Terminal view + WS client | Handles WS status/info/error and resize for xterm |
-| sandbox-ui/public/terminal.js | xterm.js bridge | Focus handling so terminal accepts input |
+| dioxus-desktop/src/components.rs | Chat UI + WS client | Adds WS streaming + fallback polling for assistant responses |
+| dioxus-desktop/src/terminal.rs | Terminal view + WS client | Handles WS status/info/error and resize for xterm |
+| dioxus-desktop/public/terminal.js | xterm.js bridge | Focus handling so terminal accepts input |
 | sandbox/src/api/websocket_chat.rs | Chat WS server | Streams `thinking`/`response` payloads to frontend |
 | sandbox/src/api/terminal.rs | Terminal WS server | PTY IO and status info for terminal sessions |
 
@@ -48,7 +48,7 @@ User reported that desktop icons weren’t launching apps, terminal showed no ou
 
 - Dioxus uses `use_effect` for mount-only side effects and `Signal` for reactive state.
 - WebSocket handling in WASM requires keeping `Closure` handles in a struct to prevent GC.
-- API base in `sandbox-ui/src/api.rs` uses localhost:8080 in dev and same-origin in prod; WS URLs are derived from that.
+- API base in `dioxus-desktop/src/api.rs` uses localhost:8080 in dev and same-origin in prod; WS URLs are derived from that.
 
 ## Work Completed
 
@@ -62,10 +62,10 @@ User reported that desktop icons weren’t launching apps, terminal showed no ou
 
 | File | Changes | Rationale |
 |------|---------|-----------|
-| sandbox-ui/public/terminal.js | Focus terminal on open/click | xterm wasn’t receiving keyboard input without focus |
-| sandbox-ui/src/components.rs | Chat WS client, response parsing, HTTP fallback polling | Chat UI previously only posted user messages and never got assistant responses |
-| sandbox-ui/src/terminal.rs | Handle `info` and `error` WS messages | Provide status/error visibility for terminal sessions |
-| sandbox-ui/src/desktop.rs | Desktop icon click + window canvas layering | Fix app window launching (already done earlier) |
+| dioxus-desktop/public/terminal.js | Focus terminal on open/click | xterm wasn’t receiving keyboard input without focus |
+| dioxus-desktop/src/components.rs | Chat WS client, response parsing, HTTP fallback polling | Chat UI previously only posted user messages and never got assistant responses |
+| dioxus-desktop/src/terminal.rs | Handle `info` and `error` WS messages | Provide status/error visibility for terminal sessions |
+| dioxus-desktop/src/desktop.rs | Desktop icon click + window canvas layering | Fix app window launching (already done earlier) |
 
 ### Decisions Made
 
@@ -98,7 +98,7 @@ User reported that desktop icons weren’t launching apps, terminal showed no ou
 
 - Chat UI now listens on `/ws/chat/{actor_id}/{user_id}` and expects `response` messages whose `content` field is a JSON string containing `text`. Errors are shown as assistant messages if provided.
 - If WS is unavailable, chat falls back to HTTP and polls EventStore for assistant responses up to ~3 seconds.
-- Terminal UI status now updates on WS `info` messages and shows any `error` payloads; xterm focus is handled in `sandbox-ui/public/terminal.js`.
+- Terminal UI status now updates on WS `info` messages and shows any `error` payloads; xterm focus is handled in `dioxus-desktop/public/terminal.js`.
 
 ### Assumptions Made
 
@@ -109,7 +109,7 @@ User reported that desktop icons weren’t launching apps, terminal showed no ou
 
 - Chat backend still uses actix WebSocket handler (`sandbox/src/api/websocket_chat.rs`), which may be affected by upcoming actix->axum refactor.
 - ChatAgent may fail if Bedrock credentials or BAML config are missing; frontend will then show errors or never receive assistant output.
-- Terminal depends on xterm assets in `sandbox-ui/public`; caching or missing assets will break rendering.
+- Terminal depends on xterm assets in `dioxus-desktop/public`; caching or missing assets will break rendering.
 
 ## Environment State
 
@@ -129,8 +129,8 @@ User reported that desktop icons weren’t launching apps, terminal showed no ou
 
 - docs/terminal-ui.md
 - docs/CHOIR_MULTI_AGENT_VISION.md
-- sandbox-ui/src/components.rs
-- sandbox-ui/src/terminal.rs
+- dioxus-desktop/src/components.rs
+- dioxus-desktop/src/terminal.rs
 - sandbox/src/api/websocket_chat.rs
 - sandbox/src/api/terminal.rs
 

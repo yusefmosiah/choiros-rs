@@ -6,7 +6,7 @@ Successfully reconciled and tested changes from multiple parallel subagents. All
 
 ## Changes Reviewed
 
-### 1. WebSocket Connection Fix (`sandbox-ui/src/desktop.rs`)
+### 1. WebSocket Connection Fix (`dioxus-desktop/src/desktop.rs`)
 **Status:** ✅ IMPLEMENTED
 - **Location:** Lines 860-1013
 - **Feature:** Full WebSocket client implementation
@@ -17,7 +17,7 @@ Successfully reconciled and tested changes from multiple parallel subagents. All
   - Processes server events: desktop_state, window_opened, window_closed, window_moved, window_resized, window_focused
   - Connection status displayed in prompt bar ("Connected"/"Connecting...")
 
-### 2. Icon Double-Click Handling (`sandbox-ui/src/desktop.rs`)
+### 2. Icon Double-Click Handling (`dioxus-desktop/src/desktop.rs`)
 **Status:** ✅ IMPLEMENTED
 - **Location:** Lines 333-401 (DesktopIcon component)
 - **Feature:** Double-click detection with visual feedback
@@ -60,7 +60,7 @@ curl http://localhost:8080/health
 
 ## UI Components Verified
 
-### Chat UI Styling (`sandbox-ui/src/components.rs`)
+### Chat UI Styling (`dioxus-desktop/src/components.rs`)
 **Status:** ✅ IMPLEMENTED
 - Modern chat interface with message bubbles
 - User/Assistant message differentiation
@@ -89,7 +89,7 @@ Screenshots captured during testing:
 
 Fixed minor issues to ensure clean build:
 1. Removed unused import `GetMessages` from `sandbox/src/api/chat.rs`
-2. Prefixed unused variable `messages_end_ref` with underscore in `sandbox-ui/src/components.rs`
+2. Prefixed unused variable `messages_end_ref` with underscore in `dioxus-desktop/src/components.rs`
 
 ## Conclusion
 

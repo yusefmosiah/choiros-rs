@@ -14,7 +14,7 @@ dev-sandbox:
 dev-hypervisor:
     cd hypervisor && SQLX_OFFLINE=true DATABASE_URL="sqlite:../data/hypervisor.db" cargo run
 
-# Build the Dioxus WASM frontend (debug) into target/dx/sandbox-ui/debug/web/public
+# Build the Dioxus WASM frontend (debug) into target/dx/dioxus-desktop/debug/web/public
 build-ui:
     cd dioxus-desktop && dx build
 

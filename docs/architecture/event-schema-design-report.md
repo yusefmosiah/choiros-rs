@@ -702,7 +702,7 @@ The design builds incrementally on ChoirOS's existing EventStoreActor foundation
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct Event {
     // === Core Envelope (Immutable) ===
     pub seq: i64,

@@ -42,12 +42,12 @@ Implemented R3 MVP per `docs/design/2026-02-05-r3-content-viewer-mvp-spec.md` ac
 | shared-types/src/lib.rs | Shared DTOs and event constants | Added viewer types and event names used by backend/UI |
 | sandbox/src/api/viewer.rs | New viewer backend API implementation | Canonical load/save, conflict handling, event append |
 | sandbox/src/api/mod.rs | API router | Registers `/viewer/content` GET/PATCH routes |
-| sandbox-ui/src/viewers/shell.rs | Shared viewer shell | Shell lifecycle/state machine and save/reload orchestration |
-| sandbox-ui/src/viewers/text.rs | Text viewer interop runtime | Lazy-load bridge and dispose-on-unmount lifecycle |
-| sandbox-ui/public/viewer-text.js | JS bridge implementation | create/set/change/dispose APIs consumed by WASM |
-| sandbox-ui/src/viewers/image.rs | Image viewer baseline | Read-only zoom/pan/reset MVP viewer |
-| sandbox-ui/src/desktop_window.rs | Window content routing | Routes to viewer shell based on `props.viewer` |
-| sandbox-ui/src/api.rs | Frontend viewer API client | GET/PATCH DTOs and conflict error surface |
+| dioxus-desktop/src/viewers/shell.rs | Shared viewer shell | Shell lifecycle/state machine and save/reload orchestration |
+| dioxus-desktop/src/viewers/text.rs | Text viewer interop runtime | Lazy-load bridge and dispose-on-unmount lifecycle |
+| dioxus-desktop/public/viewer-text.js | JS bridge implementation | create/set/change/dispose APIs consumed by WASM |
+| dioxus-desktop/src/viewers/image.rs | Image viewer baseline | Read-only zoom/pan/reset MVP viewer |
+| dioxus-desktop/src/desktop_window.rs | Window content routing | Routes to viewer shell based on `props.viewer` |
+| dioxus-desktop/src/api.rs | Frontend viewer API client | GET/PATCH DTOs and conflict error surface |
 | sandbox/tests/viewer_api_test.rs | New backend API tests | GET/PATCH/conflict/event payload matrix coverage |
 
 ### Key Patterns Discovered
@@ -74,22 +74,22 @@ Implemented R3 MVP per `docs/design/2026-02-05-r3-content-viewer-mvp-spec.md` ac
 
 | File | Changes | Rationale |
 |------|---------|-----------|
-| sandbox-ui/src/lib.rs | Exported `viewers` module | Make new viewer components/types available |
+| dioxus-desktop/src/lib.rs | Exported `viewers` module | Make new viewer components/types available |
 | sandbox/src/api/mod.rs | Added `viewer` module + `/viewer/content` GET/PATCH route | Expose new backend viewer contract |
 | shared-types/src/lib.rs | Added `ViewerKind/Descriptor/Resource/Capabilities/Revision` and viewer event constants | Shared contract across backend/UI |
-| sandbox-ui/src/desktop_window.rs | Added content routing to `ViewerShell` based on parsed `props.viewer` | Required by spec for window-content-driven viewer rendering |
-| sandbox-ui/src/api.rs | Added viewer GET/PATCH DTOs and conflict error type | Frontend shell needs typed backend API client |
+| dioxus-desktop/src/desktop_window.rs | Added content routing to `ViewerShell` based on parsed `props.viewer` | Required by spec for window-content-driven viewer rendering |
+| dioxus-desktop/src/api.rs | Added viewer GET/PATCH DTOs and conflict error type | Frontend shell needs typed backend API client |
 | sandbox/Cargo.toml | Added `base64` dependency | Encode initial image content into data URI payload |
 | sandbox/tests/desktop_api_test.rs | Added test preserving `props.viewer` through open window API | Validate desktop contract preservation |
-| sandbox-ui/src/desktop.rs | Added viewer props when opening writer/files windows | Ensure launch flow exercises new viewer route |
+| dioxus-desktop/src/desktop.rs | Added viewer props when opening writer/files windows | Ensure launch flow exercises new viewer route |
 | sandbox/src/api/viewer.rs | New file implementing canonical viewer load/save/conflict logic | Core backend MVP implementation |
 | sandbox/tests/viewer_api_test.rs | New viewer API integration test file | R3 backend test matrix coverage |
-| sandbox-ui/public/viewer-text.js | New JS bridge file for text viewer | Text interop API and lifecycle surface |
-| sandbox-ui/src/viewers/mod.rs | New module barrel | Organize viewer components |
-| sandbox-ui/src/viewers/types.rs | Viewer descriptor parsing + tests | Validate window props contract |
-| sandbox-ui/src/viewers/shell.rs | Shared shell state/actions + tests | Shell orchestration and status footer |
-| sandbox-ui/src/viewers/text.rs | Text interop runtime | Lazy-load bridge, change events, dispose on drop |
-| sandbox-ui/src/viewers/image.rs | Image baseline component | MVP image viewer type |
+| dioxus-desktop/public/viewer-text.js | New JS bridge file for text viewer | Text interop API and lifecycle surface |
+| dioxus-desktop/src/viewers/mod.rs | New module barrel | Organize viewer components |
+| dioxus-desktop/src/viewers/types.rs | Viewer descriptor parsing + tests | Validate window props contract |
+| dioxus-desktop/src/viewers/shell.rs | Shared shell state/actions + tests | Shell orchestration and status footer |
+| dioxus-desktop/src/viewers/text.rs | Text interop runtime | Lazy-load bridge, change events, dispose on drop |
+| dioxus-desktop/src/viewers/image.rs | Image baseline component | MVP image viewer type |
 
 ### Decisions Made
 
@@ -104,7 +104,7 @@ Implemented R3 MVP per `docs/design/2026-02-05-r3-content-viewer-mvp-spec.md` ac
 
 ## Immediate Next Steps
 
-1. Merge these changes and resolve any conflicts around `sandbox-ui/src/desktop.rs` and `sandbox-ui/src/desktop_window.rs` if other lanes touched desktop/window rendering.
+1. Merge these changes and resolve any conflicts around `dioxus-desktop/src/desktop.rs` and `dioxus-desktop/src/desktop_window.rs` if other lanes touched desktop/window rendering.
 2. Decide whether to keep current text bridge MVP or swap bridge internals to CodeMirror 6 before merge-to-main.
 3. Add/execute E2E viewer tests from spec matrix if required by CI/release gate.
 
@@ -137,7 +137,7 @@ Implemented R3 MVP per `docs/design/2026-02-05-r3-content-viewer-mvp-spec.md` ac
 
 ### Potential Gotchas
 
-- `sandbox-ui/src/viewers/shell.rs` uses cloned URI signals to satisfy Dioxus closure ownership; avoid naive refactors that reintroduce move errors.
+- `dioxus-desktop/src/viewers/shell.rs` uses cloned URI signals to satisfy Dioxus closure ownership; avoid naive refactors that reintroduce move errors.
 - Text bridge options are currently passed as JSON string `JsValue`; if replaced, keep JS API stable (`create/set/onChange/dispose`).
 - Backend `GET /viewer/content` accepts data URIs for image baseline; this is intentional for MVP demo path.
 - Worktree reported detached head in scaffold metadata; verify merge target branch explicitly before cherry-picking/merging.
@@ -165,10 +165,10 @@ Implemented R3 MVP per `docs/design/2026-02-05-r3-content-viewer-mvp-spec.md` ac
 - `docs/design/2026-02-05-ui-storage-reconciliation.md`
 - `sandbox/src/api/viewer.rs`
 - `sandbox/tests/viewer_api_test.rs`
-- `sandbox-ui/src/viewers/shell.rs`
-- `sandbox-ui/src/viewers/text.rs`
-- `sandbox-ui/src/viewers/image.rs`
-- `sandbox-ui/public/viewer-text.js`
+- `dioxus-desktop/src/viewers/shell.rs`
+- `dioxus-desktop/src/viewers/text.rs`
+- `dioxus-desktop/src/viewers/image.rs`
+- `dioxus-desktop/public/viewer-text.js`
 
 ---
 
@@ -176,5 +176,5 @@ Implemented R3 MVP per `docs/design/2026-02-05-r3-content-viewer-mvp-spec.md` ac
 - `cargo fmt`
 - `cargo test -p sandbox --test viewer_api_test` (4 passed)
 - `cargo test -p sandbox --test desktop_api_test test_open_window_preserves_viewer_props` (1 passed)
-- `cargo check -p sandbox-ui --target wasm32-unknown-unknown` (passed)
-- `cargo test -p sandbox-ui --lib` (3 passed)
+- `cargo check -p dioxus-desktop --target wasm32-unknown-unknown` (passed)
+- `cargo test -p dioxus-desktop --lib` (3 passed)

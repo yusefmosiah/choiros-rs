@@ -1203,7 +1203,7 @@ pub fn ColorPicker(props: ColorPickerProps) -> Element {
 ## 13. Recommended File Structure
 
 ```
-sandbox-ui/
+dioxus-desktop/
 ├── src/
 │   ├── theme/
 │   │   ├── mod.rs

@@ -90,7 +90,7 @@ Observed additional behavior with multiple browser windows connected to the same
 ### Follow-up fix
 
 - Removed terminal stop-on-unmount from frontend terminal component:
-  - `sandbox-ui/src/components/apps/Terminal/Terminal.tsx`
+  - `dioxus-desktop/src/components/apps/Terminal/Terminal.tsx`
 - Added backend cleanup on explicit desktop window close:
   - `sandbox/src/api/desktop.rs`
   - If a terminal actor exists for the closed `window_id`, stop + evict it.

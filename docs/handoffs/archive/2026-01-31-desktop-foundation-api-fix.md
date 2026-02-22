@@ -27,8 +27,8 @@
 
 | File | Purpose | Status |
 |------|---------|--------|
-| `sandbox-ui/src/desktop.rs` | Main desktop component with dock, windows, prompt bar | ✅ Complete |
-| `sandbox-ui/src/interop.rs` | WASM drag/resize/WebSocket bindings | ✅ Complete |
+| `dioxus-desktop/src/desktop.rs` | Main desktop component with dock, windows, prompt bar | ✅ Complete |
+| `dioxus-desktop/src/interop.rs` | WASM drag/resize/WebSocket bindings | ✅ Complete |
 | `sandbox/src/api/websocket.rs` | WebSocket endpoint for real-time updates | ✅ Complete |
 | `sandbox/src/actors/desktop.rs` | DesktopActor with window/app state | ✅ Tests pass |
 | `sandbox/src/api/desktop.rs` | HTTP API endpoints | ⚠️ Returns empty |
@@ -46,7 +46,7 @@
 
 2. **Verify End-to-End** (Priority 2)
    - Start backend: `cargo run -p sandbox`
-   - Start frontend: `cd sandbox-ui && dx serve --port 3000`
+   - Start frontend: `cd dioxus-desktop && dx serve --port 3000`
    - Open http://localhost:3000
    - Confirm desktop loads with dock visible
    - Click Chat icon, verify window opens
@@ -116,7 +116,7 @@ Frontend (Dioxus)          Backend (Actix)
 ```bash
 # Start services
 cargo run -p sandbox &
-cd sandbox-ui && dx serve --port 3000 &
+cd dioxus-desktop && dx serve --port 3000 &
 
 # Test backend
 curl http://localhost:8080/health
@@ -129,7 +129,7 @@ curl http://localhost:3000
 cargo test -p sandbox
 
 # Build UI
-cargo build -p sandbox-ui --target wasm32-unknown-unknown
+cargo build -p dioxus-desktop --target wasm32-unknown-unknown
 ```
 
 ---

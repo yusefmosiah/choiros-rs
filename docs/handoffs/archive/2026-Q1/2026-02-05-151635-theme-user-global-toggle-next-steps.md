@@ -25,18 +25,18 @@ User-global theme preference is now fully wired end-to-end for `light|dark` with
 - `sandbox/src/api/user.rs` - user preference API handlers.
 - `sandbox/src/api/mod.rs` - API route registration for user preferences.
 - `shared-types/src/lib.rs` - new `EVENT_USER_THEME_PREFERENCE` constant.
-- `sandbox-ui/src/api.rs` - frontend fetch/patch helpers for user theme preference.
-- `sandbox-ui/src/desktop.rs` - theme init/toggle wiring and prompt bar control.
+- `dioxus-desktop/src/api.rs` - frontend fetch/patch helpers for user theme preference.
+- `dioxus-desktop/src/desktop.rs` - theme init/toggle wiring and prompt bar control.
 - `sandbox/tests/desktop_api_test.rs` - preference API integration tests.
 - `sandbox/tests/chat_api_test.rs` - tool history hydration integration test for HTTP path parity.
 
 ## Files Modified
 - `sandbox/tests/desktop_api_test.rs`
   - Added `test_update_user_preferences_rejects_invalid_theme` to enforce `400` on non-`light|dark` values.
-- `sandbox-ui/src/desktop.rs`
+- `dioxus-desktop/src/desktop.rs`
   - Added `current_theme` signal and `toggle_theme` callback.
   - Added prompt-bar theme toggle button and wiring to backend persistence.
-- `sandbox-ui/src/api.rs`
+- `dioxus-desktop/src/api.rs`
   - Added `update_user_theme_preference` (`PATCH /user/{user_id}/preferences`).
 - Already in prior step and now validated in this flow:
   - `sandbox/src/api/user.rs`, `sandbox/src/api/mod.rs`, `shared-types/src/lib.rs`.
@@ -49,7 +49,7 @@ User-global theme preference is now fully wired end-to-end for `light|dark` with
 
 ## Validation Performed
 - `cargo fmt`
-- `cargo check -p sandbox-ui`
+- `cargo check -p dioxus-desktop`
 - `cargo test -p sandbox --test desktop_api_test test_update_user_preferences_rejects_invalid_theme`
 - `cargo test -p sandbox --test desktop_api_test`
 - `cargo test -p sandbox --test chat_api_test`

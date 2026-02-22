@@ -90,8 +90,8 @@ if [ ! -x "${HYPERVISOR_PATH}/bin/hypervisor" ]; then
   exit 1
 fi
 
-if [ ! -x "${DESKTOP_PATH}/bin/sandbox-ui" ]; then
-  echo "Missing desktop binary at ${DESKTOP_PATH}/bin/sandbox-ui"
+if [ ! -x "${DESKTOP_PATH}/bin/dioxus-desktop" ]; then
+  echo "Missing desktop binary at ${DESKTOP_PATH}/bin/dioxus-desktop"
   exit 1
 fi
 
@@ -106,7 +106,7 @@ HYPERVISOR_PATH=${HYPERVISOR_PATH}
 DESKTOP_PATH=${DESKTOP_PATH}
 SANDBOX_BIN=${SANDBOX_PATH}/bin/sandbox
 HYPERVISOR_BIN=${HYPERVISOR_PATH}/bin/hypervisor
-DESKTOP_BIN=${DESKTOP_PATH}/bin/sandbox-ui
+DESKTOP_BIN=${DESKTOP_PATH}/bin/dioxus-desktop
 EOF
 
 echo "Release manifest written to ${MANIFEST_PATH}"

@@ -29,7 +29,7 @@ New comprehensive E2E test suite for the ChoirOS chat system with full browser a
 - Event-sourced with SQLite persistence
 - ChatAgent with BAML LLM integration
 
-**Frontend (`sandbox-ui/`)**
+**Frontend (`dioxus-desktop/`)**
 - Dioxus-based web UI
 - Connects via WebSocket for real-time chat
 - Runs on port 3000 (dev server)
@@ -124,7 +124,7 @@ Tests require both backend and frontend servers to be running:
 cargo run -p sandbox
 
 # Terminal 2: Start frontend
-cd sandbox-ui && dx serve
+cd dioxus-desktop && dx serve
 
 # Terminal 3: Run E2E tests
 pytest tests/e2e/ -v

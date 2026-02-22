@@ -46,24 +46,24 @@ All lanes in this plan must pass these constraints before implementation is appr
 ### Implemented
 
 1. Dioxus app root + desktop shell exists.
-   - `sandbox-ui/src/main.rs`
-   - `sandbox-ui/src/desktop.rs`
+   - `dioxus-desktop/src/main.rs`
+   - `dioxus-desktop/src/desktop.rs`
 2. Chat and terminal applications are functional.
-   - `sandbox-ui/src/components.rs`
-   - `sandbox-ui/src/terminal.rs`
+   - `dioxus-desktop/src/components.rs`
+   - `dioxus-desktop/src/terminal.rs`
 3. Backend window state/events/APIs are implemented with EventStore persistence.
    - `sandbox/src/actors/desktop.rs`
    - `sandbox/src/api/desktop.rs`
 4. Dark mode + theme preference persistence path is implemented (backend + cache + UI toggle).
-   - `sandbox-ui/src/desktop.rs`
+   - `dioxus-desktop/src/desktop.rs`
    - `sandbox/src/api/user.rs`
    - `shared-types/src/lib.rs`
 
 ### Gaps
 
-1. `sandbox-ui/src/desktop.rs` remains monolithic; architecture decomposition is pending.
+1. `dioxus-desktop/src/desktop.rs` remains monolithic; architecture decomposition is pending.
 2. Frontend drag/resize/minimize/maximize is incomplete in production UX.
-   - `sandbox-ui/src/desktop_window.rs`
+   - `dioxus-desktop/src/desktop_window.rs`
 3. Dedicated content viewer framework is not implemented yet.
 4. Theme system is still toggle-centric and not yet generalized into style-profile architecture.
 
@@ -86,9 +86,9 @@ Define concrete component boundaries and state ownership split for replacing the
 
 **Inputs**
 - `docs/research-dioxus-architecture.md`
-- `sandbox-ui/src/desktop.rs`
-- `sandbox-ui/src/components.rs`
-- `sandbox-ui/src/desktop_window.rs`
+- `dioxus-desktop/src/desktop.rs`
+- `dioxus-desktop/src/components.rs`
+- `dioxus-desktop/src/desktop_window.rs`
 
 **Required Outputs**
 1. Component map (DesktopShell, Workspace, WindowCanvas, TitleBar, ResizeHandles, PromptBar, status widgets).
@@ -110,8 +110,8 @@ Translate window-management research into a production-ready contract across bac
 - `docs/window-management-research.md`
 - `sandbox/src/actors/desktop.rs`
 - `sandbox/src/api/desktop.rs`
-- `sandbox-ui/src/desktop_window.rs`
-- `sandbox-ui/src/interop.rs`
+- `dioxus-desktop/src/desktop_window.rs`
+- `dioxus-desktop/src/interop.rs`
 - `shared-types/src/lib.rs`
 
 **Required Outputs**
@@ -132,8 +132,8 @@ Define a minimal but extensible viewer framework, including first viewer types a
 
 **Inputs**
 - `docs/content-viewer-research.md`
-- `sandbox-ui/src/desktop_window.rs`
-- `sandbox-ui/src/api.rs`
+- `dioxus-desktop/src/desktop_window.rs`
+- `dioxus-desktop/src/api.rs`
 
 **Required Outputs**
 1. Viewer shell contract (loading/error/metadata/actions/content regions).
@@ -154,9 +154,9 @@ Prove that each planned feature and current implementation respects backend-cano
 **Inputs**
 - `docs/design/2026-02-05-ui-storage-reconciliation.md`
 - `docs/design/2026-02-05-ui-implementation-backlog.md`
-- `sandbox-ui/src/api.rs`
-- `sandbox-ui/src/components.rs`
-- `sandbox-ui/src/desktop.rs`
+- `dioxus-desktop/src/api.rs`
+- `dioxus-desktop/src/components.rs`
+- `dioxus-desktop/src/desktop.rs`
 - `sandbox/src/api/user.rs`
 
 **Required Outputs**
@@ -175,7 +175,7 @@ Reframe theming from binary mode toggles into a profile-based style system enabl
 
 **Inputs**
 - `docs/theme-system-research.md`
-- `sandbox-ui/src/desktop.rs`
+- `dioxus-desktop/src/desktop.rs`
 - `sandbox/src/api/user.rs`
 - `shared-types/src/lib.rs`
 

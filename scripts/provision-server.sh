@@ -202,7 +202,7 @@ Wants=choiros-backend.service
 Type=simple
 User=choiros
 Group=choiros
-WorkingDirectory=/opt/choiros/sandbox-ui
+WorkingDirectory=/opt/choiros/dioxus-desktop
 Environment="PATH=/home/choiros/.cargo/bin:/usr/local/bin:/usr/bin:/bin"
 ExecStart=/home/choiros/.cargo/bin/dx serve
 Restart=on-failure

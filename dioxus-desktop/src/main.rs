@@ -2,7 +2,7 @@ use dioxus::launch;
 use dioxus::prelude::*;
 use dioxus_logger::tracing::Level;
 
-use sandbox_ui::Desktop;
+use dioxus_desktop::Desktop;
 
 fn main() {
     // Initialize logging for WASM

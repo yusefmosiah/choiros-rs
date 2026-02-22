@@ -16,7 +16,7 @@ use ts_rs::TS;
 
 /// Unique identifier for actors
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ActorId(pub String);
 
 impl ActorId {
@@ -42,7 +42,7 @@ impl Default for ActorId {
 /// Event - append-only log entry
 /// All state changes are logged as events
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct Event {
     /// Global sequence number (strictly increasing)
     pub seq: i64,
@@ -69,7 +69,7 @@ pub struct Event {
 
 /// Request to append an event
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct AppendEvent {
     pub event_type: String,
     #[ts(type = "unknown")]
@@ -80,7 +80,7 @@ pub struct AppendEvent {
 
 /// Query events for an actor
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct QueryEvents {
     pub actor_id: ActorId,
     pub since_seq: i64,
@@ -92,7 +92,7 @@ pub struct QueryEvents {
 
 /// Messages that can be sent to ChatActor
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum ChatMsg {
     /// User typed a message
     UserTyped { text: String, window_id: String },
@@ -118,7 +118,7 @@ pub enum ChatMsg {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum ToolStatus {
     Success,
     Error(String),
@@ -138,7 +138,7 @@ pub enum WriterMsg {
 
 /// Desktop state - all windows and their positions
 #[derive(Debug, Clone, Serialize, Deserialize, Default, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct DesktopState {
     pub windows: Vec<WindowState>,
     pub active_window: Option<String>,
@@ -147,7 +147,7 @@ pub struct DesktopState {
 
 /// Individual window state
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct WindowState {
     pub id: String,
     pub app_id: String, // "chat", "writer", "mail", etc.
@@ -165,7 +165,7 @@ pub struct WindowState {
 
 /// App definition for dynamic app registration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct AppDefinition {
     pub id: String,
     pub name: String,
@@ -177,7 +177,7 @@ pub struct AppDefinition {
 
 /// Chat message for UI display
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ChatMessage {
     pub id: String,
     pub text: String,
@@ -187,7 +187,7 @@ pub struct ChatMessage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum Sender {
     User,
     Assistant,
@@ -200,27 +200,27 @@ pub enum Sender {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum ViewerKind {
     Text,
     Image,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ViewerResource {
     pub uri: String,
     pub mime: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ViewerCapabilities {
     pub readonly: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ViewerDescriptor {
     pub kind: ViewerKind,
     pub resource: ViewerResource,
@@ -228,7 +228,7 @@ pub struct ViewerDescriptor {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ViewerRevision {
     pub rev: i64,
     pub updated_at: String,
@@ -249,7 +249,7 @@ pub struct ApiResponse<T> {
 /// WebSocket message protocol
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "type")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum WsMsg {
     /// Client → Server: Subscribe to actor events
     Subscribe { actor_id: ActorId },
@@ -281,7 +281,7 @@ pub enum WsMsg {
 
 /// Tool definition for LLM
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ToolDef {
     pub name: String,
     pub description: String,
@@ -291,7 +291,7 @@ pub struct ToolDef {
 
 /// Tool call from LLM
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ToolCall {
     pub id: String,
     pub tool: String,
@@ -305,7 +305,7 @@ pub struct ToolCall {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum WorkerTurnStatus {
     Running,
     Completed,
@@ -314,7 +314,7 @@ pub enum WorkerTurnStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct WorkerFinding {
     pub finding_id: String,
     pub claim: String,
@@ -324,7 +324,7 @@ pub struct WorkerFinding {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct WorkerLearning {
     pub learning_id: String,
     pub insight: String,
@@ -335,7 +335,7 @@ pub struct WorkerLearning {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum WorkerEscalationKind {
     Blocker,
     Help,
@@ -345,7 +345,7 @@ pub enum WorkerEscalationKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum WorkerEscalationUrgency {
     Low,
     Medium,
@@ -353,7 +353,7 @@ pub enum WorkerEscalationUrgency {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct WorkerEscalation {
     pub escalation_id: String,
     pub kind: WorkerEscalationKind,
@@ -365,7 +365,7 @@ pub struct WorkerEscalation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct WorkerArtifact {
     pub artifact_id: String,
     pub kind: String,
@@ -373,7 +373,7 @@ pub struct WorkerArtifact {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct WorkerTurnReport {
     pub turn_id: String,
     pub worker_id: String,
@@ -390,7 +390,7 @@ pub struct WorkerTurnReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum WorkerSignalType {
     Finding,
     Learning,
@@ -400,7 +400,7 @@ pub enum WorkerSignalType {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum WorkerSignalRejectReason {
     MaxPerTurnExceeded,
     LowConfidence,
@@ -411,7 +411,7 @@ pub enum WorkerSignalRejectReason {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct WorkerSignalRejection {
     pub signal_type: WorkerSignalType,
     pub signal_id: String,
@@ -420,7 +420,7 @@ pub struct WorkerSignalRejection {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct WorkerTurnReportIngestResult {
     pub accepted_findings: usize,
     pub accepted_learnings: usize,
@@ -433,7 +433,7 @@ pub struct WorkerTurnReportIngestResult {
 /// Status of an objective during agent execution
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum ObjectiveStatus {
     /// Objective complete, final_response required
     Satisfied,
@@ -446,7 +446,7 @@ pub enum ObjectiveStatus {
 /// Planning mode for agent execution control
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum PlanMode {
     /// Execute tool calls
     CallTools,
@@ -459,7 +459,7 @@ pub enum PlanMode {
 /// Classification of failure types for error handling and retry logic
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum FailureKind {
     Timeout,    // Time limit exceeded
     Network,    // Connectivity issues
@@ -472,7 +472,7 @@ pub enum FailureKind {
 
 /// Contract defining an objective for parent-child delegation
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ObjectiveContract {
     pub objective_id: String,                // Unique objective identifier
     pub parent_objective_id: Option<String>, // Hierarchy linkage
@@ -484,7 +484,7 @@ pub struct ObjectiveContract {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ObjectiveConstraints {
     pub max_tool_calls: u32,
     pub timeout_ms: u64,
@@ -493,7 +493,7 @@ pub struct ObjectiveConstraints {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct EvidenceRequirements {
     pub requires_citations: bool,
     pub min_confidence: f64,
@@ -502,7 +502,7 @@ pub struct EvidenceRequirements {
 
 /// Payload for child-to-parent completion reporting
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct CompletionPayload {
     pub objective_status: ObjectiveStatus,
     pub objective_fulfilled: bool, // Explicit completion boolean
@@ -513,7 +513,7 @@ pub struct CompletionPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct Evidence {
     pub evidence_id: String,
     pub evidence_type: EvidenceType,
@@ -524,7 +524,7 @@ pub struct Evidence {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct UnresolvedItem {
     pub item_id: String,
     pub description: String,
@@ -532,7 +532,7 @@ pub struct UnresolvedItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct NextAction {
     pub action_type: NextActionType, // escalate | continue | complete
     pub recommended_capability: Option<String>,
@@ -542,7 +542,7 @@ pub struct NextAction {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum EvidenceType {
     SearchResult,
     CodeSnippet,
@@ -555,7 +555,7 @@ pub enum EvidenceType {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum NextActionType {
     Escalate,
     Continue,
@@ -569,7 +569,7 @@ pub enum NextActionType {
 /// Event lane metadata for conductor/runtime processing.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum EventLane {
     /// Event is part of orchestration control flow.
     Control,
@@ -580,7 +580,7 @@ pub enum EventLane {
 /// Importance level for events
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum EventImportance {
     Low,
     Normal,
@@ -589,7 +589,7 @@ pub enum EventImportance {
 
 /// Event metadata for control/telemetry lane separation
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct EventMetadata {
     /// Control/telemetry lane for this event
     pub lane: EventLane,
@@ -665,7 +665,7 @@ impl EventMetadata {
 /// Status of a capability call
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum CapabilityCallStatus {
     Pending,
     Running,
@@ -676,7 +676,7 @@ pub enum CapabilityCallStatus {
 
 /// A single item in the conductor's agenda
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ConductorAgendaItem {
     pub item_id: String,
     pub capability: String,
@@ -692,7 +692,7 @@ pub struct ConductorAgendaItem {
 /// Status of an agenda item
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum AgendaItemStatus {
     Pending,
     Ready, // Dependencies satisfied, ready to run
@@ -704,7 +704,7 @@ pub enum AgendaItemStatus {
 
 /// A tracked capability call in-flight
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ConductorCapabilityCall {
     pub call_id: String,
     pub capability: String,
@@ -720,7 +720,7 @@ pub struct ConductorCapabilityCall {
 
 /// A typed artifact produced during execution
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ConductorArtifact {
     pub artifact_id: String,
     pub kind: ArtifactKind,
@@ -735,7 +735,7 @@ pub struct ConductorArtifact {
 /// Kinds of artifacts that can be produced
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum ArtifactKind {
     Report,
     File,
@@ -749,7 +749,7 @@ pub enum ArtifactKind {
 
 /// A decision made by the conductor
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ConductorDecision {
     pub decision_id: String,
     pub decision_type: DecisionType,
@@ -762,7 +762,7 @@ pub struct ConductorDecision {
 /// Types of decisions the conductor can make
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum DecisionType {
     /// Dispatch a capability call
     Dispatch,
@@ -780,7 +780,7 @@ pub enum DecisionType {
 
 /// Full runtime state for a conductor run
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ConductorRunState {
     pub run_id: String,
     pub objective: String,
@@ -807,7 +807,7 @@ pub struct ConductorRunState {
 /// Status of a conductor run
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum ConductorRunStatus {
     Initializing,
     Running,
@@ -825,7 +825,7 @@ pub enum ConductorRunStatus {
 /// Output mode for Conductor task execution
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum ConductorOutputMode {
     Auto,
     MarkdownReportToWriter,
@@ -835,7 +835,7 @@ pub enum ConductorOutputMode {
 /// Visual tone for prompt-bar toast output.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum ConductorToastTone {
     Info,
     Success,
@@ -845,7 +845,7 @@ pub enum ConductorToastTone {
 
 /// Typed prompt-bar toast payload for Conductor completion.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ConductorToastPayload {
     pub title: String,
     pub message: String,
@@ -856,7 +856,7 @@ pub struct ConductorToastPayload {
 /// Request to execute a Conductor run.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ConductorExecuteRequest {
     pub objective: String,
     pub desktop_id: String,
@@ -867,7 +867,7 @@ pub struct ConductorExecuteRequest {
 
 /// Typed error for Conductor task failures
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ConductorError {
     pub code: String,
     pub message: String,
@@ -876,7 +876,7 @@ pub struct ConductorError {
 
 /// Response from Conductor task execution
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ConductorExecuteResponse {
     pub run_id: String,
     pub status: ConductorRunStatus,
@@ -888,7 +888,7 @@ pub struct ConductorExecuteResponse {
 
 /// Typed window props for Writer integration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct WriterWindowProps {
     pub x: i32,
     pub y: i32,
@@ -906,7 +906,7 @@ pub struct WriterWindowProps {
 /// Single patch operation for document editing
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 #[serde(tag = "op", rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum PatchOp {
     Insert { pos: u64, text: String },
     Delete { pos: u64, len: u64 },
@@ -917,7 +917,7 @@ pub enum PatchOp {
 /// Status for writer run events
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum WriterRunStatusKind {
     Initializing,
     Running,
@@ -931,7 +931,7 @@ pub enum WriterRunStatusKind {
 /// Source of a patch operation
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum PatchSource {
     Agent,
     User,
@@ -940,7 +940,7 @@ pub enum PatchSource {
 
 /// Base fields required on every writer run event
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct WriterRunEventBase {
     pub desktop_id: String,
     pub session_id: String,
@@ -953,7 +953,7 @@ pub struct WriterRunEventBase {
 
 /// Payload for writer.run.patch events
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct WriterRunPatchPayload {
     pub patch_id: String,
     pub source: PatchSource,
@@ -968,7 +968,7 @@ pub struct WriterRunPatchPayload {
 /// Impact level for writer.run.changeset events (mirrors BAML ImpactLevel)
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum ChangesetImpact {
     Low,
     Medium,
@@ -977,7 +977,7 @@ pub enum ChangesetImpact {
 
 /// Payload for writer.run.changeset events (semantic summary of a document patch)
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct WriterRunChangesetPayload {
     /// Correlates to the patch_id from the preceding writer.run.patch event
     pub patch_id: String,
@@ -994,7 +994,7 @@ pub struct WriterRunChangesetPayload {
 /// Full writer run event with base fields and typed payload
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "event_type", rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum WriterRunEvent {
     #[serde(rename = "writer.run.started")]
     Started {
@@ -1043,7 +1043,7 @@ pub enum WriterRunEvent {
 
 /// State tracking for a Conductor run via API
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ConductorRunStatusResponse {
     pub run_id: String,
     pub status: ConductorRunStatus,
@@ -1213,7 +1213,7 @@ pub const INTERFACE_KIND_APPACTOR_TOOLACTOR: &str = "appactor_toolactor";
 /// Stable identifier for a block in a `.qwy` document.
 /// Newtype over a ULID string — never reassigned, never reused.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct BlockId(pub String);
 
 impl BlockId {
@@ -1231,7 +1231,7 @@ impl Default for BlockId {
 /// Block type variants for a `.qwy` document node.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum BlockType {
     Paragraph,
     Heading,
@@ -1262,7 +1262,7 @@ impl ChunkHash {
 
 /// W3C PROV-O style provenance envelope attached to every `.qwy` block.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ProvenanceEnvelope {
     /// Activity that produced this block (loop_id or run_id).
     pub was_generated_by: Option<String>,
@@ -1280,7 +1280,7 @@ pub struct ProvenanceEnvelope {
 
 /// An inline annotation on a block (citation anchor, highlight, comment).
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct BlockAnnotation {
     /// Annotation category: "citation_anchor" | "highlight" | "comment"
     pub annotation_type: String,
@@ -1294,7 +1294,7 @@ pub struct BlockAnnotation {
 
 /// A single node in the `.qwy` block tree.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct BlockNode {
     /// Stable ULID — never reassigned.
     pub block_id: BlockId,
@@ -1315,7 +1315,7 @@ pub struct BlockNode {
 /// A single operation in the `.qwy` append-only patch log.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "action", rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum QwyPatchOp {
     /// Insert a new block into the tree.
     Insert {
@@ -1338,7 +1338,7 @@ pub enum QwyPatchOp {
 
 /// A timestamped entry in the `.qwy` patch log.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct QwyPatchEntry {
     pub patch_id: String,
     /// Transaction grouping ID — atomic across multiple ops.
@@ -1353,7 +1353,7 @@ pub struct QwyPatchEntry {
 
 /// Version index entry within a `.qwy` document.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct QwyVersionIndexEntry {
     /// SHA-256 of the full document state at this version.
     pub snapshot_hash: String,
@@ -1365,7 +1365,7 @@ pub struct QwyVersionIndexEntry {
 
 /// Header block for a `.qwy` document.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct QwyDocumentHeader {
     /// Stable document ULID — never changes after creation.
     pub document_id: String,
@@ -1383,7 +1383,7 @@ pub struct QwyDocumentHeader {
 /// Canonical format is CBOR; this struct is the typed Rust projection.
 /// JSON is a derived human-readable encoding. Markdown is a render artifact.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct QwyDocument {
     pub header: QwyDocumentHeader,
     /// Ordered root-level block IDs (all blocks stored flat by block_id).
@@ -1407,7 +1407,7 @@ pub struct QwyDocument {
 /// Why a resource was cited. Maps to the BAML `CitationKind` enum.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum CitationKind {
     /// Researcher retrieved and pulled it into context.
     RetrievedContext,
@@ -1424,7 +1424,7 @@ pub enum CitationKind {
 /// Lifecycle state of a citation record.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum CitationStatus {
     /// Proposed by researcher or writer — not yet confirmed.
     Proposed,
@@ -1443,7 +1443,7 @@ pub enum CitationStatus {
 /// 2. Writer confirms → `status: Confirmed`, `confirmed_by: "writer"`, `confirmed_at: <ts>`
 /// 3. Writer rejects → `status: Rejected`
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct CitationRecord {
     pub citation_id: String,
     /// Artifact path, version_id, input_id, URL, or block_id.
@@ -1479,7 +1479,7 @@ pub struct CitationRecord {
 /// One record per `EventType::UserInput` on any surface.
 /// All surfaces share one collection — cross-app correlations are the point.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct UserInputRecord {
     pub input_id: String,
     /// Plain text of the user directive.
@@ -1500,7 +1500,7 @@ pub struct UserInputRecord {
 /// One record per `VersionSource::Writer` harness loop completion.
 /// Intermediate loop versions are NOT embedded — only final loop outputs.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct VersionSnapshotRecord {
     pub version_id: String,
     pub document_path: String,
@@ -1519,7 +1519,7 @@ pub struct VersionSnapshotRecord {
 ///
 /// One record per completed `AgentResult` from any harness.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct RunTrajectoryRecord {
     pub loop_id: String,
     pub run_id: String,
@@ -1538,7 +1538,7 @@ pub struct RunTrajectoryRecord {
 /// One record per document path, updated each time a new `VersionSnapshotRecord`
 /// is added for that path. Captures the strategic arc of a document over time.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct DocTrajectoryRecord {
     pub document_path: String,
     pub version_count: u32,
@@ -1554,7 +1554,7 @@ pub struct DocTrajectoryRecord {
 /// Never published directly — stripped of private fields before entering
 /// `GlobalExternalContentRecord`.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ExternalContentRecord {
     pub content_id: String,
     pub url: String,
@@ -1583,7 +1583,7 @@ pub struct ExternalContentRecord {
 /// the publish boundary. `content_id` is the `content_hash` for natural
 /// deduplication.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct GlobalExternalContentRecord {
     /// Natural dedup key — content_hash from the local record.
     pub content_id: String,
@@ -1610,7 +1610,7 @@ pub struct GlobalExternalContentRecord {
 /// Each item is a piece of text (e.g., a document excerpt, a prior
 /// run summary, or an external URL snippet) with provenance metadata.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ContextItem {
     /// Unique item identifier (ULID).
     pub item_id: String,
@@ -1627,7 +1627,7 @@ pub struct ContextItem {
 
 /// Citation reference included in a ContextSnapshot.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct CitationRef {
     pub cited_id: String,
     pub cite_kind: CitationKind,
@@ -1639,7 +1639,7 @@ pub struct CitationRef {
 ///
 /// Passed as the `context` bundle when spawning a `HarnessActor`.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ContextSnapshot {
     /// Unique snapshot identifier (ULID).
     pub snapshot_id: String,
@@ -1679,7 +1679,7 @@ pub const EVENT_TOPIC_TOOL_RESULT: &str = "tool.result";
 /// from yet. Written as part of `HarnessCheckpoint` so recovery can reconstruct
 /// what to wait for.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct PendingReply {
     /// Correlation ID assigned when the message was sent.
     pub corr_id: String,
@@ -1705,7 +1705,7 @@ pub struct PendingReply {
 /// that reply is already in and should be loaded from EventStore rather than
 /// waited on as a message.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct HarnessCheckpoint {
     /// Stable identifier for this execution run.
     pub run_id: String,
@@ -1728,7 +1728,7 @@ pub struct HarnessCheckpoint {
 
 /// Compact record of a single completed turn, stored inside `HarnessCheckpoint`.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct TurnSummary {
     pub turn_number: usize,
     pub action_kind: String,
@@ -1743,7 +1743,7 @@ pub struct TurnSummary {
 /// The harness reads this by `corr_id` on recovery rather than waiting for
 /// the message if the actor already completed.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ToolResult {
     /// Matches the `corr_id` in the original `PendingReply`.
     pub corr_id: String,
@@ -1777,7 +1777,7 @@ pub struct ToolResult {
 
 /// The kind of work being requested between workers.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum WorkerRequestKind {
     /// Ask the Terminal worker to execute a command and return the result.
     RunCommand {
@@ -1799,7 +1799,7 @@ pub enum WorkerRequestKind {
 /// The reply arrives later as a `WorkerMsg::Response` keyed by `corr_id`,
 /// which the sender's harness reads via `resolve_source(ToolOutput, corr_id)`.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct WorkerRequest {
     /// Sender-assigned correlation ID. Receiver echoes this in the Response.
     pub corr_id: String,
@@ -1818,7 +1818,7 @@ pub struct WorkerRequest {
 /// requester actor, which reads it via `resolve_source(ToolOutput, corr_id)`.
 /// The result is also written to EventStore so it survives crash/recovery.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct WorkerResponse {
     /// Echoed from the original `WorkerRequest`.
     pub corr_id: String,
@@ -1841,7 +1841,7 @@ pub struct WorkerResponse {
 /// Receivers may ignore signals. Signals are persisted to EventStore for
 /// post-hoc analysis and cultural learning.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum WorkerSignalKind {
     /// "I found something that may be relevant to your current objective."
     RelevantFinding,
@@ -1854,7 +1854,7 @@ pub enum WorkerSignalKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct WorkerSignal {
     pub from_actor_id: String,
     pub to_actor_id: String,

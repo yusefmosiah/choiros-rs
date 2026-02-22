@@ -548,7 +548,7 @@ Commits in window (16):
 6. `bf90464` - Stabilize terminal websocket lifecycle across reloads and multi-browser sessions
 7. `0e25530` - Add window drag and mobile layout
 8. `973ea53` - refactor: complete supervision cutover, remove ActorManager runtime
-9. `d9790c3` - docs: archive React migration docs and remove sandbox-ui directory
+9. `d9790c3` - docs: archive React migration docs and remove dioxus-desktop directory
 10. `0b7fc0b` - Document critical roadmap gaps
 11. `e53c1f9` - Act on roadmap progress update
 12. `f67ee36` - Document scoped roadmap progress
@@ -582,7 +582,7 @@ Commits in window (16):
    - Closed critical runtime and UI bugs (desktop connect/file-descriptor issues, panic fixes, terminal WS lifecycle hardening, drag/mobile behavior).
 2. **Architecture reset and cleanup (mid window):**
    - Completed supervision cutover and removed ActorManager runtime anti-patterns.
-   - Archived React migration artifacts and removed `sandbox-ui`, creating a large deletion-heavy cleanup commit.
+   - Archived React migration artifacts and removed `dioxus-desktop`, creating a large deletion-heavy cleanup commit.
 3. **Roadmap analysis to execution bridge (late window):**
    - Documented dependency tree + critical gaps, then converted roadmap items into actionable progress tasks.
    - Added scope hardening and chat-agent/context fixes in docs and code paths.
@@ -649,75 +649,75 @@ Commits in window (16):
 - Integrated `ts-rs` crate for automatic TypeScript type generation
 - Types derived directly from Rust structs (no manual sync needed)
 - Shared types between frontend and backend
-- Located in `sandbox-ui/src/types/generated/`
+- Located in `dioxus-desktop/src/types/generated/`
 
 **State Management:**
 - Implemented Zustand for global state management
 - Window state: create, minimize, maximize, restore, focus, close
 - Clean separation between UI state and business logic
-- Located in `sandbox-ui/src/stores/windows.ts`
+- Located in `dioxus-desktop/src/stores/windows.ts`
 
 **WebSocket Client:**
 - Singleton pattern for single connection across app
 - Automatic reconnection with exponential backoff
 - Message queue for offline buffering
 - Type-safe message handling
-- Located in `sandbox-ui/src/lib/ws/client.ts`
+- Located in `dioxus-desktop/src/lib/ws/client.ts`
 
 ### 2. UI Components Migrated
 
 **Desktop Shell:**
 - Icon grid with double-click to open apps
 - Background and layout preserved
-- Located in `sandbox-ui/src/components/desktop/Desktop.tsx`
+- Located in `dioxus-desktop/src/components/desktop/Desktop.tsx`
 
 **WindowManager:**
 - Full window lifecycle management
 - Minimize, maximize, restore, focus, close operations
 - Z-index management for proper stacking
 - Window positioning and sizing
-- Located in `sandbox-ui/src/components/window/WindowManager.tsx`
+- Located in `dioxus-desktop/src/components/window/WindowManager.tsx`
 
 **Window Chrome:**
 - Title bar with window controls (minimize, maximize, close)
 - Drag to move functionality
 - Visual states for active/inactive windows
-- Located in `sandbox-ui/src/components/window/Window.tsx`
+- Located in `dioxus-desktop/src/components/window/Window.tsx`
 
 **Chat App:**
 - Modern message bubbles (user vs AI)
 - Typing indicator
 - Message input with send button
 - WebSocket integration for real-time messages
-- Located in `sandbox-ui/src/components/apps/Chat/`
+- Located in `dioxus-desktop/src/components/apps/Chat/`
 
 **Terminal App:**
 - xterm.js integration for terminal emulation
 - WebSocket connection to backend TerminalActor
 - Proper terminal sizing and resizing
-- Located in `sandbox-ui/src/components/apps/Terminal/`
+- Located in `dioxus-desktop/src/components/apps/Terminal/`
 
 **PromptBar:**
 - Shell-like command input at bottom of screen
 - Command history and suggestions
-- Located in `sandbox-ui/src/components/prompt-bar/`
+- Located in `dioxus-desktop/src/components/prompt-bar/`
 
 ### 3. Bug Fixes
 
 **Fixed Duplicate Window Creation (17 Windows Bug):**
 - Root cause: Event handler registered multiple times
 - Solution: Proper cleanup and single registration
-- Files: `sandbox-ui/src/components/desktop/Desktop.tsx`
+- Files: `dioxus-desktop/src/components/desktop/Desktop.tsx`
 
 **Fixed WebSocket Race Conditions:**
 - Root cause: Multiple components creating separate connections
 - Solution: Singleton pattern with shared instance
-- Files: `sandbox-ui/src/lib/ws/client.ts`
+- Files: `dioxus-desktop/src/lib/ws/client.ts`
 
 **Fixed "Window Not Found" Errors:**
 - Root cause: Window state desync between components
 - Solution: Centralized Zustand store with proper updates
-- Files: `sandbox-ui/src/stores/windows.ts`
+- Files: `dioxus-desktop/src/stores/windows.ts`
 
 **Fixed React StrictMode Double-Render Issues:**
 - Root cause: StrictMode intentionally double-invokes certain functions
@@ -727,7 +727,7 @@ Commits in window (16):
 **Fixed Window Focus/Minimize Interaction:**
 - Root cause: Focus logic not respecting minimized state
 - Solution: Check minimized state before focusing
-- Files: `sandbox-ui/src/stores/windows.ts`
+- Files: `dioxus-desktop/src/stores/windows.ts`
 
 ### 4. Testing
 
@@ -736,7 +736,7 @@ Commits in window (16):
 - Component unit tests
 - WebSocket client tests
 - Store/state management tests
-- Run with: `npm test` in `sandbox-ui/`
+- Run with: `npm test` in `dioxus-desktop/`
 
 **Backend Tests:**
 - 21 tests passing
@@ -752,35 +752,35 @@ Commits in window (16):
 ## Files Created/Modified
 
 **Core Infrastructure:**
-- `sandbox-ui/package.json` - React 18 + Vite dependencies
-- `sandbox-ui/vite.config.ts` - Vite configuration
-- `sandbox-ui/tsconfig.json` - TypeScript configuration
-- `sandbox-ui/src/main.tsx` - React entry point
-- `sandbox-ui/src/App.tsx` - Root App component
+- `dioxus-desktop/package.json` - React 18 + Vite dependencies
+- `dioxus-desktop/vite.config.ts` - Vite configuration
+- `dioxus-desktop/tsconfig.json` - TypeScript configuration
+- `dioxus-desktop/src/main.tsx` - React entry point
+- `dioxus-desktop/src/App.tsx` - Root App component
 
 **State Management:**
-- `sandbox-ui/src/stores/windows.ts` - Zustand window store
+- `dioxus-desktop/src/stores/windows.ts` - Zustand window store
 
 **WebSocket:**
-- `sandbox-ui/src/lib/ws/client.ts` - Singleton WebSocket client
-- `sandbox-ui/src/hooks/useWebSocket.ts` - React hook for WebSocket
+- `dioxus-desktop/src/lib/ws/client.ts` - Singleton WebSocket client
+- `dioxus-desktop/src/hooks/useWebSocket.ts` - React hook for WebSocket
 
 **Components:**
-- `sandbox-ui/src/components/desktop/Desktop.tsx` - Desktop shell
-- `sandbox-ui/src/components/window/Window.tsx` - Window chrome
-- `sandbox-ui/src/components/window/WindowManager.tsx` - Window management
-- `sandbox-ui/src/components/apps/Chat/ChatApp.tsx` - Chat application
-- `sandbox-ui/src/components/apps/Chat/ChatMessage.tsx` - Message bubbles
-- `sandbox-ui/src/components/apps/Terminal/TerminalApp.tsx` - Terminal app
-- `sandbox-ui/src/components/prompt-bar/PromptBar.tsx` - Command input
+- `dioxus-desktop/src/components/desktop/Desktop.tsx` - Desktop shell
+- `dioxus-desktop/src/components/window/Window.tsx` - Window chrome
+- `dioxus-desktop/src/components/window/WindowManager.tsx` - Window management
+- `dioxus-desktop/src/components/apps/Chat/ChatApp.tsx` - Chat application
+- `dioxus-desktop/src/components/apps/Chat/ChatMessage.tsx` - Message bubbles
+- `dioxus-desktop/src/components/apps/Terminal/TerminalApp.tsx` - Terminal app
+- `dioxus-desktop/src/components/prompt-bar/PromptBar.tsx` - Command input
 
 **Types:**
-- `sandbox-ui/src/types/generated/` - Auto-generated from Rust
-- `sandbox-ui/src/types/index.ts` - Type exports
+- `dioxus-desktop/src/types/generated/` - Auto-generated from Rust
+- `dioxus-desktop/src/types/index.ts` - Type exports
 
 **Tests:**
-- `sandbox-ui/src/**/*.test.tsx` - Component tests
-- `sandbox-ui/src/lib/ws/client.test.ts` - WebSocket tests
+- `dioxus-desktop/src/**/*.test.tsx` - Component tests
+- `dioxus-desktop/src/lib/ws/client.test.ts` - WebSocket tests
 
 **Backend (Type Generation):**
 - `sandbox/Cargo.toml` - Added ts-rs dependency
@@ -832,7 +832,7 @@ Commits in window (16):
 
 ### Rollback Decision
 
-**Decision:** Keep `dioxus-desktop/` as active frontend, archive `sandbox-ui/` (React)
+**Decision:** Keep `dioxus-desktop/` as active frontend, archive `dioxus-desktop/` (React)
 
 **Rationale:**
 - Dioxus has stable WebSocket implementation
@@ -1003,7 +1003,7 @@ Commits in window (16):
 - **WebSocket:** Connection works and stays alive
 - **Chat processing:** Messages reach ChatAgent and AI responses return
 
-### Frontend (sandbox-ui) ✅
+### Frontend (dioxus-desktop) ✅
 - **Framework:** Dioxus 0.7 (WASM)
 - **Desktop UI:** dock, floating windows, prompt bar
 - **Chat UI:** modern bubbles, typing indicator, input affordances

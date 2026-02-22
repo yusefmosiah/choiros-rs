@@ -42,7 +42,7 @@
 
 ### Current Project State
 
-**Frontend (sandbox-ui):**
+**Frontend (dioxus-desktop):**
 - React 18 + TypeScript + Vite (complete)
 - Type generation via ts-rs (complete)
 - WebSocket client with singleton pattern (complete)

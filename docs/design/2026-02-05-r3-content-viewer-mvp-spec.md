@@ -21,11 +21,11 @@ Define a production-implementable viewer framework MVP for ChoirOS desktop windo
 
 ## Repository Evidence (Current State)
 
-1. `sandbox-ui/src/desktop_window.rs`
+1. `dioxus-desktop/src/desktop_window.rs`
 - Window content only renders `chat` and `terminal`; all other apps show `"App not yet implemented"`.
 - Confirms viewer apps are currently absent and require explicit routing.
 
-2. `sandbox-ui/src/desktop.rs`
+2. `dioxus-desktop/src/desktop.rs`
 - Desktop registers core apps including `writer` and `files`, but no matching content implementation exists.
 - Confirms shell already supports app launch/open-window flow we can reuse.
 
@@ -50,7 +50,7 @@ Define a production-implementable viewer framework MVP for ChoirOS desktop windo
 8. `docs/ARCHITECTURE_SPECIFICATION.md`
 - Architectural principle explicitly states actor-owned state and UI as projection.
 
-9. `sandbox-ui/src/terminal.rs` and `sandbox-ui/public/terminal.js`
+9. `dioxus-desktop/src/terminal.rs` and `dioxus-desktop/public/terminal.js`
 - Proven pattern for Rust<->JS bridge, script loading, runtime handles, and disposal API naming.
 - Reused as the interop pattern baseline for viewer plugins.
 
@@ -263,7 +263,7 @@ Rationale:
 1. Rich editing UX is difficult to replicate in pure Dioxus quickly.
 2. Existing terminal integration already validates a Rust<->`window.*` bridge pattern.
 
-Bridge API (new `sandbox-ui/public/viewer-text.js`):
+Bridge API (new `dioxus-desktop/public/viewer-text.js`):
 
 ```js
 window.createTextViewer(container, options) -> handle
@@ -273,7 +273,7 @@ window.onTextViewerChange(handle, cb)
 window.disposeTextViewer(handle)
 ```
 
-Rust externs in `sandbox-ui/src/interop.rs` follow existing terminal naming and lifecycle style.
+Rust externs in `dioxus-desktop/src/interop.rs` follow existing terminal naming and lifecycle style.
 
 ## Decision 2: Image Viewer MVP Stays Mostly Native
 
@@ -283,7 +283,7 @@ Rust externs in `sandbox-ui/src/interop.rs` follow existing terminal naming and 
 
 ## Decision 3: One Interop Loader Pattern
 
-1. Script loading uses `ensure_script(id, src)` style already used in `sandbox-ui/src/terminal.rs`.
+1. Script loading uses `ensure_script(id, src)` style already used in `dioxus-desktop/src/terminal.rs`.
 2. Bridge availability check mirrors `wait_for_terminal_bridge()` pattern.
 3. Every created handle must have explicit `dispose*` invocation on unmount/close.
 
@@ -315,10 +315,10 @@ Rust externs in `sandbox-ui/src/interop.rs` follow existing terminal naming and 
 ## Implementation Slices
 
 1. Slice A: Viewer shell and `WindowState.props.viewer` parsing in UI.
-- Touchpoints: `sandbox-ui/src/desktop_window.rs`, new viewer modules.
+- Touchpoints: `dioxus-desktop/src/desktop_window.rs`, new viewer modules.
 
 2. Slice B: Text viewer bridge and lifecycle wiring.
-- Touchpoints: `sandbox-ui/src/interop.rs`, `sandbox-ui/public/viewer-text.js`, new `TextViewer` component.
+- Touchpoints: `dioxus-desktop/src/interop.rs`, `dioxus-desktop/public/viewer-text.js`, new `TextViewer` component.
 
 3. Slice C: Backend viewer content endpoints + EventStore append path.
 - Touchpoints: `sandbox/src/api/mod.rs`, new `sandbox/src/api/viewer.rs`, backend service module.
@@ -332,9 +332,9 @@ Rust externs in `sandbox-ui/src/interop.rs` follow existing terminal naming and 
 
 | Layer | Scenario | Expected Result | Target File(s) |
 |---|---|---|---|
-| UI unit | Shell renders loading/ready/error/dirty states | Correct region visibility and action enablement | `sandbox-ui/src/viewers/shell.rs` (new tests) |
-| UI unit | Viewer descriptor parse from `WindowState.props` | Invalid/missing descriptor yields shell error | `sandbox-ui/src/viewers/types.rs` (new tests) |
-| UI unit | Text viewer lifecycle dispose on unmount | `disposeTextViewer` invoked once per handle | `sandbox-ui/src/viewers/text.rs` (new tests) |
+| UI unit | Shell renders loading/ready/error/dirty states | Correct region visibility and action enablement | `dioxus-desktop/src/viewers/shell.rs` (new tests) |
+| UI unit | Viewer descriptor parse from `WindowState.props` | Invalid/missing descriptor yields shell error | `dioxus-desktop/src/viewers/types.rs` (new tests) |
+| UI unit | Text viewer lifecycle dispose on unmount | `disposeTextViewer` invoked once per handle | `dioxus-desktop/src/viewers/text.rs` (new tests) |
 | API integration | Open viewer window with `props.viewer` | Returned `window.props.viewer` preserved | `sandbox/tests/desktop_api_test.rs` (extend) |
 | API integration | `GET /viewer/content` happy path | Canonical payload + revision returned | `sandbox/tests/viewer_api_test.rs` (new) |
 | API integration | `PATCH /viewer/content` with valid `base_rev` | Save success + revision increments | `sandbox/tests/viewer_api_test.rs` (new) |

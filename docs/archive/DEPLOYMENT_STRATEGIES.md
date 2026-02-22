@@ -58,7 +58,7 @@ This document summarizes how ChoirOS is deployed today and outlines upgrade path
 
 **Approach**
 - `dx build --release`
-- Serve `/opt/choiros/sandbox-ui/dist` via Caddy `file_server`
+- Serve `/opt/choiros/dioxus-desktop/dist` via Caddy `file_server`
 - Stop running `dx serve` in production
 
 **Pros**

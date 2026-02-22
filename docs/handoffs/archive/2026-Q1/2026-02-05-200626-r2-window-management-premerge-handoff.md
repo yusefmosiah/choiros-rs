@@ -22,9 +22,9 @@ No unrelated features were intentionally changed.
 - `sandbox/tests/desktop_api_test.rs`
 - `sandbox/tests/desktop_ws_test.rs` (new)
 - `sandbox/Cargo.toml`
-- `sandbox-ui/src/api.rs`
-- `sandbox-ui/src/desktop.rs`
-- `sandbox-ui/src/desktop_window.rs`
+- `dioxus-desktop/src/api.rs`
+- `dioxus-desktop/src/desktop.rs`
+- `dioxus-desktop/src/desktop_window.rs`
 
 ## Backend Contract Changes
 ### New DesktopActor operations
@@ -134,10 +134,10 @@ Status: pass (20 passed)
 4. `cargo test -p sandbox --test desktop_ws_test -- --nocapture`  
 Status: pass (2 passed)
 
-5. `cargo test -p sandbox-ui --lib -- --nocapture`  
+5. `cargo test -p dioxus-desktop --lib -- --nocapture`  
 Status: pass (1 passed)
 
-6. `cargo check -p sandbox-ui`  
+6. `cargo check -p dioxus-desktop`  
 Status: pass
 
 ## Premerge Checklist For Merge Agent
@@ -147,13 +147,13 @@ Status: pass
    - `cargo test -p sandbox --test desktop_api_test`
    - `cargo test -p sandbox --test desktop_ws_test`
    - `cargo test -p sandbox --lib actors::desktop`
-   - `cargo check -p sandbox-ui`
+   - `cargo check -p dioxus-desktop`
 3. Verify no contract regressions in downstream consumers of websocket `window_resized` (signed ints now used in delta payload).
 4. Verify route table includes new minimize/maximize/restore endpoints.
 5. Verify no conflicts in concurrent edits to:
    - `sandbox/src/api/desktop.rs`
-   - `sandbox-ui/src/desktop.rs`
-   - `sandbox-ui/src/desktop_window.rs`
+   - `dioxus-desktop/src/desktop.rs`
+   - `dioxus-desktop/src/desktop_window.rs`
 
 ## Compatibility / Migration Notes
 - Additive REST endpoints; existing clients continue to function.

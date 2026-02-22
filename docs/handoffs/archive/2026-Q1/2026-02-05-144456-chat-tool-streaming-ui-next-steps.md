@@ -37,7 +37,7 @@ Chat was upgraded to a working multi-turn/tool-calling flow across HTTP and WebS
 | `../sandbox/src/actors/chat_agent.rs` | Stateful chat agent, model switching, event logging, history load | Multi-turn correctness and tool execution |
 | `../sandbox/src/api/websocket_chat.rs` | WebSocket chat protocol and live chunk emission | Real-time tool streaming fix |
 | `../sandbox/src/api/chat.rs` | HTTP send/get message path and persistence behavior | Consistency with agent/event model |
-| `../sandbox-ui/src/components.rs` | Chat UI rendering and stream handling | Expandable tool call/result sections |
+| `../dioxus-desktop/src/components.rs` | Chat UI rendering and stream handling | Expandable tool call/result sections |
 | `ARCHITECTURE_SPECIFICATION.md` | Canonical architecture contract | Reconciliation baseline |
 | `window-management-research.md` | New UI research for window mgmt | Mostly aligned, needs policy framing |
 | `content-viewer-research.md` | New UI research for viewers | Contains storage guidance that conflicts |
@@ -65,7 +65,7 @@ Chat was upgraded to a working multi-turn/tool-calling flow across HTTP and WebS
 | `../sandbox/src/actors/chat_agent.rs` | Moved mutable conversation/model/tool registry state into `ChatAgentState`; loaded prior messages from EventStore; synchronous-in-actor processing instead of clone-per-call pattern | Fix broken multi-turn behavior and make model switching persistent |
 | `../sandbox/src/api/chat.rs` | Ensured HTTP path appends user event immediately, then triggers agent async | Maintain responsiveness and ordered event history |
 | `../sandbox/src/api/websocket_chat.rs` | Added polling event streamer for incremental tool events with seq cursor + completion drain; removed delayed tool replay from final response path | Tool calls/results now appear in UI as they happen |
-| `../sandbox-ui/src/components.rs` | Added tool payload tagging and expandable rendering via `<details>` sections for calls/results; styled system/tool message rows | Better tool transparency and usable debug UX |
+| `../dioxus-desktop/src/components.rs` | Added tool payload tagging and expandable rendering via `<details>` sections for calls/results; styled system/tool message rows | Better tool transparency and usable debug UX |
 
 ### Decisions Made
 | Decision | Options Considered | Rationale |
@@ -158,7 +158,7 @@ The immediate priority is not implementing new UI features blindly from research
 - `../design/2026-02-05-ui-implementation-backlog.md`
 - `../sandbox/src/api/websocket_chat.rs`
 - `../sandbox/src/actors/chat_agent.rs`
-- `../sandbox-ui/src/components.rs`
+- `../dioxus-desktop/src/components.rs`
 
 ---
 

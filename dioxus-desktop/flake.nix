@@ -59,7 +59,7 @@ EOF
       in {
         packages.desktop = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
-          cargoExtraArgs = "--bin sandbox-ui";
+          cargoExtraArgs = "--bin dioxus-desktop";
         });
 
         packages.default = self.packages.${system}.desktop;

@@ -2,13 +2,13 @@
 
 ## Overview
 
-This report provides a thorough analysis of the WebSocket implementation across the React TypeScript frontend (`sandbox-ui/src/lib/ws/`) compared to the Dioxus Rust backup (`sandbox-ui-backup/src/desktop/ws.rs`) and backend WebSocket handler (`sandbox/src/api/websocket.rs`).
+This report provides a thorough analysis of the WebSocket implementation across the React TypeScript frontend (`dioxus-desktop/src/lib/ws/`) compared to the Dioxus Rust backup (`dioxus-desktop-backup/src/desktop/ws.rs`) and backend WebSocket handler (`sandbox/src/api/websocket.rs`).
 
 ## Bugs Found
 
 ### 1. Critical: Missing z_index in Dioxus WindowFocused Event
 **Severity:** HIGH
-**File:** `sandbox-ui-backup/src/desktop/ws.rs:26`
+**File:** `dioxus-desktop-backup/src/desktop/ws.rs:26`
 **Issue:** The Dioxus `WsEvent::WindowFocused` variant only takes a `String` (window_id) but the backend sends `z_index` field.
 ```rust
 // Dioxus backup - INCORRECT
@@ -24,7 +24,7 @@ WindowFocused { window_id: String, z_index: u32 },
 
 ### 2. Critical: Missing AppRegistered Event in Dioxus
 **Severity:** HIGH
-**File:** `sandbox-ui-backup/src/desktop/ws.rs`
+**File:** `dioxus-desktop-backup/src/desktop/ws.rs`
 **Issue:** The Dioxus `WsEvent` enum is missing `AppRegistered` variant entirely.
 ```rust
 // React has it - types.ts:28
@@ -40,7 +40,7 @@ AppRegistered { app: shared_types::AppDefinition },
 
 ### 3. Medium: Race Condition in useWebSocket Hook Status State
 **Severity:** MEDIUM
-**File:** `sandbox-ui/src/hooks/useWebSocket.ts:148`
+**File:** `dioxus-desktop/src/hooks/useWebSocket.ts:148`
 **Issue:** The hook returns a derived status that can be stale. Client status is set immediately, but React state is set in effect.
 ```typescript
 return {
@@ -59,7 +59,7 @@ return {
 
 ### 4. Medium: Multiple useWebSocket Hooks with Single Client Instance
 **Severity:** MEDIUM
-**File:** `sandbox-ui/src/hooks/useWebSocket.ts:8-14`
+**File:** `dioxus-desktop/src/hooks/useWebSocket.ts:8-14`
 **Issue:** The client is a singleton shared across all hook instances, but each hook manages its own subscription/unsubscription.
 ```typescript
 let wsClientInstance: DesktopWebSocketClient | null = null;
@@ -80,7 +80,7 @@ function getWsClient(): DesktopWebSocketClient {
 
 ### 5. Medium: Status Override Bug in useWebSocket Return Value
 **Severity:** MEDIUM
-**File:** `sandbox-ui/src/hooks/useWebSocket.ts:148`
+**File:** `dioxus-desktop/src/hooks/useWebSocket.ts:148`
 **Issue:** The returned status overrides client status with desktop store value.
 ```typescript
 return {
@@ -104,7 +104,7 @@ Actually this might be okay, BUT:
 
 ### 6. Medium: Silent Message Send Failures
 **Severity:** MEDIUM
-**File:** `sandbox-ui/src/lib/ws/client.ts:71-77`
+**File:** `dioxus-desktop/src/lib/ws/client.ts:71-77`
 **Issue:** `send()` method silently drops messages if socket is not open, with no feedback to caller.
 ```typescript
 send(message: WsClientMessage): void {
@@ -139,7 +139,7 @@ let _ = send_json(&tx, &WsMessage::Pong);
 
 ### 9. Low: Weak Type Validation in parseWsServerMessage
 **Severity:** LOW
-**File:** `sandbox-ui/src/lib/ws/types.ts:31-47`
+**File:** `dioxus-desktop/src/lib/ws/types.ts:31-47`
 **Issue:** Parser only validates `type` field, not the actual message structure.
 ```typescript
 export function parseWsServerMessage(raw: string): WsServerMessage | null {
@@ -161,7 +161,7 @@ This will pass validation but TypeScript won't catch missing `z_index` at runtim
 
 ### 10. Info: WebSocket URL Construction Inconsistency
 **Severity:** INFO
-**Files:** `sandbox-ui/src/lib/ws/client.ts:193-209` vs `sandbox/src/api/websocket.rs`
+**Files:** `dioxus-desktop/src/lib/ws/client.ts:193-209` vs `sandbox/src/api/websocket.rs`
 **Issue:** Client expects URL without `/ws` suffix, appends it internally.
 ```typescript
 // client.ts:201
@@ -176,7 +176,7 @@ This is actually correct behavior, but worth documenting to ensure config consis
 
 ### 11. Info: No Connection Timeout
 **Severity:** INFO
-**File:** `sandbox-ui/src/lib/ws/client.ts`
+**File:** `dioxus-desktop/src/lib/ws/client.ts`
 **Issue:** No timeout for WebSocket connection. If `CONNECTING` state persists indefinitely, no fallback occurs.
 ```typescript
 this.socket = new WebSocket(this.wsUrl);
@@ -187,7 +187,7 @@ this.socket.onopen = () => { /* ... */ };
 
 ### 12. Info: No Keep-Alive/Ping Interval
 **Severity:** INFO
-**Files:** `sandbox-ui/src/lib/ws/client.ts`, `sandbox-ui/src/hooks/useWebSocket.ts`
+**Files:** `dioxus-desktop/src/lib/ws/client.ts`, `dioxus-desktop/src/hooks/useWebSocket.ts`
 **Issue:** There's a `ping()` method but no automatic keep-alive mechanism.
 ```typescript
 // client.ts:79-81
@@ -205,7 +205,7 @@ sendPing: () => {
 ## Refactoring Opportunities
 
 ### 1. Use Shared Types from shared-types
-**File:** `sandbox-ui/src/lib/ws/types.ts`
+**File:** `dioxus-desktop/src/lib/ws/types.ts`
 **Current:** Defines `WsServerMessage` separately from backend `WsMessage`
 **Recommendation:** Use TypeScript types generated by `ts_rs` from `shared_types::WsMessage`
 
@@ -232,7 +232,7 @@ The React client uses protocol 1, which is correct. However, there's no TypeScri
 - Ensure single source of truth
 
 ### 2. Improve Message Validation
-**File:** `sandbox-ui/src/lib/ws/types.ts:31-47`
+**File:** `dioxus-desktop/src/lib/ws/types.ts:31-47`
 **Current:** Minimal validation
 **Recommendation:** Use Zod or io-ts for runtime type validation
 ```typescript
@@ -253,7 +253,7 @@ export function parseWsServerMessage(raw: string): WsServerMessage | null {
 ```
 
 ### 3. Add Message Queue with Retry
-**File:** `sandbox-ui/src/lib/ws/client.ts`
+**File:** `dioxus-desktop/src/lib/ws/client.ts`
 **Current:** Messages dropped when not connected
 **Recommendation:** Queue messages when disconnected, send on reconnect with TTL
 ```typescript
@@ -285,7 +285,7 @@ class DesktopWebSocketClient {
 ```
 
 ### 4. Fix Client State Return Value
-**File:** `sandbox-ui/src/hooks/useWebSocket.ts:148`
+**File:** `dioxus-desktop/src/hooks/useWebSocket.ts:148`
 **Current:** Overrides client status
 **Recommendation:** Return client status directly, add separate `isConnected` prop
 ```typescript
@@ -298,7 +298,7 @@ return {
 ```
 
 ### 5. Extract WebSocket Client Management
-**File:** `sandbox-ui/src/hooks/useWebSocket.ts`
+**File:** `dioxus-desktop/src/hooks/useWebSocket.ts`
 **Current:** Singleton client in hook file
 **Recommendation:** Move to separate module with proper lifecycle
 ```typescript
@@ -331,7 +331,7 @@ export class WebSocketClientManager {
 ```
 
 ### 6. Add Connection Timeout
-**File:** `sandbox-ui/src/lib/ws/client.ts`
+**File:** `dioxus-desktop/src/lib/ws/client.ts`
 **Recommendation:**
 ```typescript
 export class DesktopWebSocketClient {
@@ -372,7 +372,7 @@ export class DesktopWebSocketClient {
 ```
 
 ### 7. Add Keep-Alive Mechanism
-**File:** `sandbox-ui/src/hooks/useWebSocket.ts`
+**File:** `dioxus-desktop/src/hooks/useWebSocket.ts`
 **Recommendation:**
 ```typescript
 export function useWebSocket(desktopId: string | null): UseWebSocketResult {
@@ -445,7 +445,7 @@ _ => {
 ## Test Coverage Gaps
 
 ### 1. Missing: Connection Failure Tests
-**File:** `sandbox-ui/src/lib/ws/client.test.ts`
+**File:** `dioxus-desktop/src/lib/ws/client.test.ts`
 **Issue:** Mock WebSocket always succeeds. No tests for:
 - Connection timeout
 - Immediate connection failure
@@ -466,7 +466,7 @@ it('handles connection timeout', async () => {
 ```
 
 ### 2. Missing: Message Validation Tests
-**File:** `sandbox-ui/src/lib/ws/types.ts`
+**File:** `dioxus-desktop/src/lib/ws/types.ts`
 **Issue:** No tests for `parseWsServerMessage` edge cases:
 - Valid JSON with missing required fields
 - Wrong field types
@@ -497,14 +497,14 @@ describe('parseWsServerMessage', () => {
 - Verify client handles error messages
 
 ### 4. Missing: Multiple Clients Tests
-**File:** `sandbox-ui/src/lib/ws/client.test.ts`
+**File:** `dioxus-desktop/src/lib/ws/client.test.ts`
 **Issue:** No tests for:
 - Multiple `useWebSocket` hooks with same desktop
 - Different desktop IDs
 - Race conditions on simultaneous connect/disconnect
 
 ### 5. Missing: Reconnection Edge Cases
-**File:** `sandbox-ui/src/lib/ws/client.test.ts`
+**File:** `dioxus-desktop/src/lib/ws/client.test.ts`
 **Current:** Tests exist but limited
 **Missing:**
 - Reconnect during already reconnecting
@@ -529,7 +529,7 @@ async fn test_websocket_subscription_flow() {
 ```
 
 ### 7. Missing: Message Queue Tests
-**File:** `sandbox-ui/src/lib/ws/client.ts`
+**File:** `dioxus-desktop/src/lib/ws/client.ts`
 **Issue:** No tests for proposed message queue feature (if implemented).
 
 ## Integration Issues
@@ -545,7 +545,7 @@ async fn test_websocket_subscription_flow() {
 **Recommendation:** Clearly document which protocol is used where. Consider consolidating or clearly separating.
 
 ### 2. Type Duplication
-**Files:** `sandbox-ui/src/lib/ws/types.ts`, `shared-types/src/lib.rs`
+**Files:** `dioxus-desktop/src/lib/ws/types.ts`, `shared-types/src/lib.rs`
 **Issue:** `WsServerMessage` in frontend duplicates fields from backend `WsMessage`. If backend changes, frontend must be manually updated.
 
 **Impact:** Maintenance burden. Type drift possible.
@@ -555,7 +555,7 @@ async fn test_websocket_subscription_flow() {
 // shared-types/src/lib.rs - Add this export
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "type")]
-#[ts(export, export_to = "../../sandbox-ui/src/types/generated.ts")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub enum DesktopWsMessage {
     // ... all WsMessage variants from websocket.rs
 }
@@ -568,7 +568,7 @@ export type WsServerMessage = DesktopWsMessage;
 ```
 
 ### 3. z_index Type Inconsistency
-**Files:** `sandbox-ui/src/lib/ws/types.ts`, `shared-types/src/lib.rs`
+**Files:** `dioxus-desktop/src/lib/ws/types.ts`, `shared-types/src/lib.rs`
 **Issue:** Frontend uses `number`, backend uses `u32`. This is fine at runtime (both are numbers) but worth noting.
 
 **Recommendation:** Document this in type comments.
@@ -580,7 +580,7 @@ export type WsServerMessage = DesktopWsMessage;
 **Potential Issue:** What happens if backend sends negative values? Frontend might not validate.
 
 ### 5. Error Message Handling
-**Files:** `sandbox-ui/src/lib/ws/types.ts:29`, `sandbox/src/api/websocket.rs:83-84`
+**Files:** `dioxus-desktop/src/lib/ws/types.ts:29`, `sandbox/src/api/websocket.rs:83-84`
 **Issue:** Both have `{ type: 'error', message: string }`, but error handling is inconsistent.
 - Frontend: Logs to store (useWebSocket.ts:124-125)
 - Backend: Sends but doesn't guarantee error state persists
@@ -588,7 +588,7 @@ export type WsServerMessage = DesktopWsMessage;
 **Recommendation:** Ensure error messages are displayed to users appropriately.
 
 ### 6. Desktop State Sync
-**Files:** `sandbox-ui/src/hooks/useWebSocket.ts:25-28`, `sandbox/src/api/websocket.rs:136-150`
+**Files:** `dioxus-desktop/src/hooks/useWebSocket.ts:25-28`, `sandbox/src/api/websocket.rs:136-150`
 **Issue:** When subscribing, backend sends full desktop state. Frontend applies it to both desktop and windows stores.
 
 **Potential Issue:** If desktop state is large, this could be slow. No incremental sync or diffing.
@@ -596,13 +596,13 @@ export type WsServerMessage = DesktopWsMessage;
 **Recommendation:** Consider sending deltas for state changes, not full state on every event. But full state on initial subscribe is good.
 
 ### 7. App Registration Flow
-**Files:** `sandbox-ui/src/hooks/useWebSocket.ts:80-82`, `shared-types/src/lib.rs:167-177`
+**Files:** `dioxus-desktop/src/hooks/useWebSocket.ts:80-82`, `shared-types/src/lib.rs:167-177`
 **Issue:** `AppDefinition` includes `component_code` (source code or WASM path). This is potentially large.
 
 **Recommendation:** Ensure app registration doesn't send huge payloads over WebSocket. Consider sending just metadata, with code loaded separately.
 
 ### 8. Browser Compatibility
-**File:** `sandbox-ui/src/lib/ws/client.ts`
+**File:** `dioxus-desktop/src/lib/ws/client.ts`
 **Issue:** Uses modern WebSocket API. No polyfills or fallbacks.
 
 **Recommendation:** Document browser requirements. WebSocket is well-supported (IE 10+), so this is likely fine.
@@ -615,7 +615,7 @@ export type WsServerMessage = DesktopWsMessage;
 **Recommendation:** Ensure `VITE_WS_URL` or `VITE_API_URL` are properly configured in production.
 
 ### 10. Server-Side Rendering
-**File:** `sandbox-ui/src/lib/ws/client.ts`
+**File:** `dioxus-desktop/src/lib/ws/client.ts`
 **Issue:** Client checks `typeof window !== 'undefined'` (client.ts:204). But what if this code runs in SSR context?
 
 **Current Behavior:** Falls back to `ws://localhost:8080/ws` (line 209).

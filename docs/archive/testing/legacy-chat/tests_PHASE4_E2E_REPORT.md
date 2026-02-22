@@ -116,7 +116,7 @@ cargo test -p sandbox --test integration_chat_e2e test_e2e_basic_chat_flow -- --
 cargo run -p sandbox
 
 # Terminal 2: Frontend  
-cargo run -p sandbox-ui
+cargo run -p dioxus-desktop
 
 # Terminal 3: Quick test
 cd skills/dev-browser && ./server.sh &

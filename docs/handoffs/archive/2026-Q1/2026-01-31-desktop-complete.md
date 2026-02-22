@@ -53,10 +53,10 @@ POST   /desktop/{id}/apps         # Register app
 ### 2. Frontend - Desktop UI ✅
 
 **Files Created:**
-- `sandbox-ui/src/desktop.rs` (300 lines) - Desktop component with mobile-first layout
-- Updated `sandbox-ui/src/api.rs` (250+ lines added) - Desktop API functions
-- Updated `sandbox-ui/src/lib.rs` - Export desktop module
-- Updated `sandbox-ui/src/main.rs` - Use Desktop instead of ChatView
+- `dioxus-desktop/src/desktop.rs` (300 lines) - Desktop component with mobile-first layout
+- Updated `dioxus-desktop/src/api.rs` (250+ lines added) - Desktop API functions
+- Updated `dioxus-desktop/src/lib.rs` - Export desktop module
+- Updated `dioxus-desktop/src/main.rs` - Use Desktop instead of ChatView
 
 **Components:**
 - `Desktop` - Main container with mobile-first responsive layout
@@ -108,10 +108,10 @@ cargo run -p sandbox
 cargo test -p sandbox
 
 # Build UI
-cargo build -p sandbox-ui
+cargo build -p dioxus-desktop
 
 # Run UI dev server (requires dioxus-cli)
-cd sandbox-ui && dx serve
+cd dioxus-desktop && dx serve
 
 # Test everything
 ./test.sh
@@ -140,7 +140,7 @@ curl http://localhost:8080/desktop/test-desktop
 ```
 sandbox/src/actors/desktop.rs        (852 lines)
 sandbox/src/api/desktop.rs           (361 lines)
-sandbox-ui/src/desktop.rs            (301 lines)
+dioxus-desktop/src/desktop.rs            (301 lines)
 docs/TESTING_STRATEGY.md             (835 lines)
 docs/handoffs/2026-01-31-desktop-complete.md  (this file)
 test-report.md                       (405 lines)
@@ -154,9 +154,9 @@ shared-types/src/lib.rs              (+18 lines)
 sandbox/src/actors/mod.rs            (+2 lines)
 sandbox/src/actor_manager.rs         (+28 lines)
 sandbox/src/api/mod.rs               (+13 lines)
-sandbox-ui/src/api.rs                (+252 lines)
-sandbox-ui/src/lib.rs                (+2 lines)
-sandbox-ui/src/main.rs               (-6 lines, +2 lines)
+dioxus-desktop/src/api.rs                (+252 lines)
+dioxus-desktop/src/lib.rs                (+2 lines)
+dioxus-desktop/src/main.rs               (-6 lines, +2 lines)
 progress.md                          (+21/-8 lines)
 ```
 
@@ -261,7 +261,7 @@ async def test_open_chat_window():
 cargo run -p sandbox  # localhost:8080
 
 # Terminal 2: Frontend
-cd sandbox-ui && dx serve  # localhost:5173
+cd dioxus-desktop && dx serve  # localhost:5173
 ```
 
 ---
@@ -436,10 +436,10 @@ async def test_first_time_user():
 - Tests: `sandbox/src/actors/*/tests` (inline)
 
 **Frontend:**
-- Components: `sandbox-ui/src/`
-- Desktop: `sandbox-ui/src/desktop.rs`
-- API client: `sandbox-ui/src/api.rs`
-- Components: `sandbox-ui/src/components.rs`
+- Components: `dioxus-desktop/src/`
+- Desktop: `dioxus-desktop/src/desktop.rs`
+- API client: `dioxus-desktop/src/api.rs`
+- Components: `dioxus-desktop/src/components.rs`
 
 **Tests:**
 - Strategy: `docs/TESTING_STRATEGY.md`

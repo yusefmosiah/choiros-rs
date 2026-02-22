@@ -325,7 +325,7 @@ cat << 'EOF' | sudo tee /etc/caddy/Caddyfile
 
     # Static files (if serving directly)
     # handle_path /static/* {
-    #     root * /opt/choiros/sandbox-ui/dist/static
+    #     root * /opt/choiros/dioxus-desktop/dist/static
     #     file_server
     # }
 
@@ -398,7 +398,7 @@ Wants=choiros-backend.service
 Type=simple
 User=choiros
 Group=choiros
-WorkingDirectory=/opt/choiros/sandbox-ui
+WorkingDirectory=/opt/choiros/dioxus-desktop
 Environment=PATH=/home/choiros/.cargo/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/home/choiros/.cargo/bin/dx serve
 Restart=on-failure
@@ -491,7 +491,7 @@ jobs:
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Build frontend
       run: |
-        cd sandbox-ui
+        cd dioxus-desktop
         cargo build --verbose
 
   deploy:
@@ -538,7 +538,7 @@ cargo build -p sandbox --release
 
 # Build frontend
 echo "Building frontend..."
-cd sandbox-ui
+cd dioxus-desktop
 dx build --release
 cd ..
 
@@ -619,7 +619,7 @@ cd /opt/choiros
 # Initial build (will take a while)
 cargo build -p sandbox --release
 
-cd sandbox-ui
+cd dioxus-desktop
 dx build --release
 cd ..
 

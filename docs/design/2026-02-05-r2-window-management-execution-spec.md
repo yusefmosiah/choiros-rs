@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-05  
 **Status:** Finalized for implementation  
-**Owners:** Sandbox backend (`sandbox`) + Dioxus frontend (`sandbox-ui`)
+**Owners:** Sandbox backend (`sandbox`) + Dioxus frontend (`dioxus-desktop`)
 
 ## 1. Scope
 
@@ -35,15 +35,15 @@ It also defines event semantics, pointer interaction lifecycle, throttling, acce
 
 ### 2.3 Frontend behavior currently implemented
 
-- Window rendering and callbacks exist in `/Users/wiz/choiros-rs/sandbox-ui/src/desktop.rs` and `/Users/wiz/choiros-rs/sandbox-ui/src/desktop_window.rs`.
-- Drag/resize wiring is incomplete: `start_drag` and `start_resize` are stubs in `/Users/wiz/choiros-rs/sandbox-ui/src/desktop_window.rs`.
-- Minimize/maximize/restore controls are not present in window chrome (`close` only) in `/Users/wiz/choiros-rs/sandbox-ui/src/desktop_window.rs`.
+- Window rendering and callbacks exist in `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop.rs` and `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop_window.rs`.
+- Drag/resize wiring is incomplete: `start_drag` and `start_resize` are stubs in `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop_window.rs`.
+- Minimize/maximize/restore controls are not present in window chrome (`close` only) in `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop_window.rs`.
 
 ### 2.4 WebSocket behavior currently implemented
 
 - Server supports `/ws`, subscribe, ping/pong, and desktop snapshot (`desktop_state`) in `/Users/wiz/choiros-rs/sandbox/src/api/websocket.rs`.
 - Server defines window delta message variants and `broadcast_event`, but there is no wiring from desktop mutations to broadcast in `/Users/wiz/choiros-rs/sandbox/src/api/websocket.rs`.
-- Client parses `window_opened/window_closed/window_moved/window_resized/window_focused` in `/Users/wiz/choiros-rs/sandbox-ui/src/desktop.rs`.
+- Client parses `window_opened/window_closed/window_moved/window_resized/window_focused` in `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop.rs`.
 
 ### 2.5 Existing tests
 
@@ -132,7 +132,7 @@ Implementation note: maximize/restore requires persisted previous bounds. Store 
 
 ## 7. Pointer Interaction Lifecycle
 
-This section is normative for `/Users/wiz/choiros-rs/sandbox-ui/src/desktop_window.rs` implementation.
+This section is normative for `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop_window.rs` implementation.
 
 ### 7.1 Interaction state machine
 
@@ -166,7 +166,7 @@ Transitions:
 
 ### 7.4 Mobile behavior
 
-1. For mobile mode (`vw <= 1024`), drag and resize are disabled (matches current structure in `/Users/wiz/choiros-rs/sandbox-ui/src/desktop_window.rs`).
+1. For mobile mode (`vw <= 1024`), drag and resize are disabled (matches current structure in `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop_window.rs`).
 2. Maximize should map to full-screen work area; restore returns to prior bounds when returning to desktop mode.
 
 ## 8. Throttling Strategy
@@ -197,7 +197,7 @@ Transitions:
 
 ### 9.1 Roles and labels
 
-For `/Users/wiz/choiros-rs/sandbox-ui/src/desktop_window.rs`:
+For `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop_window.rs`:
 
 1. Window container MUST expose `role="dialog"` and `aria-label="{title}"`.
 2. Active window MUST expose `aria-modal="false"` and clear focus styling.
@@ -218,8 +218,8 @@ For `/Users/wiz/choiros-rs/sandbox-ui/src/desktop_window.rs`:
 ### 9.3 Focus order
 
 1. Tab order inside each window: titlebar controls, then content.
-2. Closing active window moves focus to next active window titlebar; if none, focus prompt input in `/Users/wiz/choiros-rs/sandbox-ui/src/desktop.rs`.
-3. Minimized windows are removed from tab sequence but remain available through running-app indicators in `/Users/wiz/choiros-rs/sandbox-ui/src/desktop.rs`.
+2. Closing active window moves focus to next active window titlebar; if none, focus prompt input in `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop.rs`.
+3. Minimized windows are removed from tab sequence but remain available through running-app indicators in `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop.rs`.
 
 ## 10. Implementation Requirements by File
 
@@ -243,16 +243,16 @@ For `/Users/wiz/choiros-rs/sandbox-ui/src/desktop_window.rs`:
 
 ### 10.2 Frontend
 
-- `/Users/wiz/choiros-rs/sandbox-ui/src/desktop_window.rs`
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop_window.rs`
 - Replace mouse-only stub logic with pointer event lifecycle and capture.
 - Add minimize/maximize/restore controls and keyboard handling.
 - Introduce local transient interaction state and throttled backend persistence.
 
-- `/Users/wiz/choiros-rs/sandbox-ui/src/desktop.rs`
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop.rs`
 - Handle new websocket messages and active-window/focus reconciliation.
 - Ensure minimized windows are excluded from canvas render and included in running-app strip.
 
-- `/Users/wiz/choiros-rs/sandbox-ui/src/api.rs`
+- `/Users/wiz/choiros-rs/dioxus-desktop/src/api.rs`
 - Add API calls for minimize/maximize/restore.
 
 ## 11. Detailed Test Matrix
@@ -287,14 +287,14 @@ For `/Users/wiz/choiros-rs/sandbox-ui/src/desktop_window.rs`:
 
 | ID | File | Scenario | Expected |
 |---|---|---|---|
-| FE-01 | `/Users/wiz/choiros-rs/sandbox-ui/src/desktop_window.rs` (component/unit) | pointer drag lifecycle | local movement per frame + final commit fired |
-| FE-02 | `/Users/wiz/choiros-rs/sandbox-ui/src/desktop_window.rs` (component/unit) | pointer resize lifecycle | local resize + constraints enforced |
-| FE-03 | `/Users/wiz/choiros-rs/sandbox-ui/src/desktop_window.rs` (component/unit) | pointercancel during drag | state reverts to last committed |
-| FE-04 | `/Users/wiz/choiros-rs/sandbox-ui/src/desktop_window.rs` (component/unit) | throttle/coalescing | <= 1 request per 50ms and latest payload wins |
-| FE-05 | `/Users/wiz/choiros-rs/sandbox-ui/src/desktop.rs` (integration) | ws `window_moved`/`window_resized` | projected state updates correctly |
-| FE-06 | `/Users/wiz/choiros-rs/sandbox-ui/src/desktop.rs` (integration) | ws minimize/maximize/restore | canvas/running-app and active state consistent |
-| FE-07 | `/Users/wiz/choiros-rs/sandbox-ui/src/desktop_window.rs` (a11y) | ARIA labels and roles | required attributes present |
-| FE-08 | `/Users/wiz/choiros-rs/sandbox-ui/src/desktop_window.rs` (keyboard) | shortcuts (`Alt+F4`, `Ctrl+M`, toggle maximize) | correct callbacks invoked |
+| FE-01 | `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop_window.rs` (component/unit) | pointer drag lifecycle | local movement per frame + final commit fired |
+| FE-02 | `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop_window.rs` (component/unit) | pointer resize lifecycle | local resize + constraints enforced |
+| FE-03 | `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop_window.rs` (component/unit) | pointercancel during drag | state reverts to last committed |
+| FE-04 | `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop_window.rs` (component/unit) | throttle/coalescing | <= 1 request per 50ms and latest payload wins |
+| FE-05 | `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop.rs` (integration) | ws `window_moved`/`window_resized` | projected state updates correctly |
+| FE-06 | `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop.rs` (integration) | ws minimize/maximize/restore | canvas/running-app and active state consistent |
+| FE-07 | `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop_window.rs` (a11y) | ARIA labels and roles | required attributes present |
+| FE-08 | `/Users/wiz/choiros-rs/dioxus-desktop/src/desktop_window.rs` (keyboard) | shortcuts (`Alt+F4`, `Ctrl+M`, toggle maximize) | correct callbacks invoked |
 
 ### 11.4 Manual E2E checklist
 

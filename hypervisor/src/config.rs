@@ -150,7 +150,7 @@ pub fn frontend_dist_from_env() -> String {
         .unwrap_or_else(|| PathBuf::from("."));
 
     workspace_root
-        .join("dioxus-desktop/target/dx/sandbox-ui/debug/web/public")
+        .join("dioxus-desktop/target/dx/dioxus-desktop/debug/web/public")
         .to_string_lossy()
         .to_string()
 }

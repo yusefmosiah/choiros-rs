@@ -56,7 +56,7 @@ Successfully ran a docs-gap research task that:
 The docs-gap analysis found 20 documentation issues:
 
 **Missing READMEs:**
-- sandbox-ui/, hypervisor/, shared-types/ packages
+- dioxus-desktop/, hypervisor/, shared-types/ packages
 - skills/multi-terminal/, skills/session-handoff/
 
 **Missing Project Files:**

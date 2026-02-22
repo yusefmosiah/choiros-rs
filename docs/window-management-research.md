@@ -17,10 +17,10 @@ This document provides comprehensive technical requirements, design patterns, an
 - WebSocket events: `window_opened`, `window_closed`, `window_moved`, `window_resized`, `window_focused`
 
 **Frontend (Dioxus):**
-- `FloatingWindow` component (`sandbox-ui/src/desktop.rs:432-536`)
+- `FloatingWindow` component (`dioxus-desktop/src/desktop.rs:432-536`)
 - Positioning via inline styles: `left`, `top`, `width`, `height`, `z-index`
 - Stub drag/resize handlers (`desktop.rs:828-838`)
-- Partial JS interop in `sandbox-ui/src/interop.rs`
+- Partial JS interop in `dioxus-desktop/src/interop.rs`
 
 **Shared Types (`shared-types/src/lib.rs`):**
 ```rust
@@ -525,7 +525,7 @@ Body: { resizes: [{window_id, width, height}, ...] }
 **Dioxus Interop Pattern:**
 
 ```rust
-// sandbox-ui/src/interop.rs
+// dioxus-desktop/src/interop.rs
 
 use dioxus::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -659,7 +659,7 @@ pub fn start_window_resize(
 ### 5.2 Dioxus Integration
 
 ```rust
-// sandbox-ui/src/desktop.rs
+// dioxus-desktop/src/desktop.rs
 
 #[component]
 pub fn FloatingWindow(

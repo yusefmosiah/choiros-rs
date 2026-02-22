@@ -94,7 +94,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Dioxus WASM frontend — served from the dx build output directory.
     // Default matches `dx build` debug output. Override with FRONTEND_DIST in prod.
-    // Release path: dioxus-desktop/target/dx/sandbox-ui/release/web/public
+    // Release path: dioxus-desktop/target/dx/dioxus-desktop/release/web/public
     let frontend_dist = config::frontend_dist_from_env();
     info!(path = %frontend_dist, "serving frontend assets from");
 

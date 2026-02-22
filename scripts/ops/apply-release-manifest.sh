@@ -74,11 +74,11 @@ capture_link() {
 
 capture_link sandbox
 capture_link hypervisor
-capture_link sandbox-ui
+capture_link dioxus-desktop
 
 ln -sfn "$SANDBOX_BIN" /opt/choiros/bin/sandbox
 ln -sfn "$HYPERVISOR_BIN" /opt/choiros/bin/hypervisor
-ln -sfn "$DESKTOP_BIN" /opt/choiros/bin/sandbox-ui
+ln -sfn "$DESKTOP_BIN" /opt/choiros/bin/dioxus-desktop
 
 cp "$MANIFEST_PATH" "${BACKUP_DIR}/applied-release.env"
 

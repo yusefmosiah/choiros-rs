@@ -1,5 +1,5 @@
 [package]
-name = "sandbox-ui"
+name = "dioxus-desktop"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.76"
@@ -11,7 +11,7 @@ description = "Dioxus UI for ChoirOS sandbox"
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]
-name = "sandbox-ui"
+name = "dioxus-desktop"
 path = "src/main.rs"
 
 [dependencies]

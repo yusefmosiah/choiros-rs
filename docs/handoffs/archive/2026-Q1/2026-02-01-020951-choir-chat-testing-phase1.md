@@ -43,7 +43,7 @@
 - ToolRegistry (bash, read_file, write_file, list_files, search_files)
 - EventStoreActor with SQLite persistence
 
-**Frontend (sandbox-ui/)**:
+**Frontend (dioxus-desktop/)**:
 - Dioxus-based web UI
 - Desktop environment with app icons
 - Chat window component
@@ -60,7 +60,7 @@
 |------|---------|-----------|
 | `sandbox/src/api/websocket_chat.rs` | WebSocket handler | Core chat protocol - tests pass but real connection fails |
 | `sandbox/src/actors/chat_agent.rs` | BAML agent | Processes messages - works in tests, not in UI |
-| `sandbox-ui/src/main.rs` | Frontend entry | Chat UI - opens from prompt but not from icon click |
+| `dioxus-desktop/src/main.rs` | Frontend entry | Chat UI - opens from prompt but not from icon click |
 | `sandbox/src/tools/mod.rs` | Tool registry | All tools work in tests |
 | `tests/websocket_chat_test.rs` | WS tests | 17 passing - protocol layer works |
 | `tests/e2e/test_e2e_basic_chat_flow.ts` | E2E tests | Created but reveals actual breakage |
@@ -174,7 +174,7 @@
    just dev-sandbox  # or: cargo run -p sandbox
    
    # Terminal 2: Frontend  
-   just dev-ui  # or: cd sandbox-ui && cargo run
+   just dev-ui  # or: cd dioxus-desktop && cargo run
    
    # Terminal 3: Browser automation
    ./skills/dev-browser/server.sh

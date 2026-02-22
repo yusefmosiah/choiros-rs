@@ -77,8 +77,8 @@ Phase 1 of the BAML chat agent implementation is **complete and committed**. The
 | `sandbox/src/actors/chat_agent.rs` | ChatAgent actor | Core agent logic |
 | `sandbox/src/tools/mod.rs` | Tool implementations | Add/modify tools |
 | `sandbox/src/api/websocket_chat.rs` | WebSocket handlers | Frontend integration |
-| `sandbox-ui/src/desktop.rs` | Desktop UI | Chat UI needs building |
-| `sandbox-ui/src/components.rs` | UI components | Where ChatView lives |
+| `dioxus-desktop/src/desktop.rs` | Desktop UI | Chat UI needs building |
+| `dioxus-desktop/src/components.rs` | UI components | Where ChatView lives |
 
 ### Key Patterns Discovered
 
@@ -153,7 +153,7 @@ Phase 1 of the BAML chat agent implementation is **complete and committed**. The
 ### Blockers/Open Questions
 
 - [ ] Database path issue: `/opt/choiros/data/events.db` requires directory creation (use `DATABASE_URL` env var to override)
-- [ ] Chat UI location: Need to build it in `sandbox-ui/src/` - where exactly?
+- [ ] Chat UI location: Need to build it in `dioxus-desktop/src/` - where exactly?
 - [ ] How to display tool calls in UI? Progress indicators? Collapsible sections?
 
 ### Deferred Items

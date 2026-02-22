@@ -970,7 +970,7 @@ in pkgs.dockerTools.buildImage {
   # Static web UI
   copyToRoot = pkgs.buildEnv {
     name = "choiros-static";
-    paths = [ (serveStatic ./sandbox-ui/dist) ];
+    paths = [ (serveStatic ./dioxus-desktop/dist) ];
   };
 
   config = {
