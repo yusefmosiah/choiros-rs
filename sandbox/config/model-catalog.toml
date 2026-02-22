@@ -12,10 +12,10 @@ allowed_models = [
 ]
 
 [callsite_defaults]
-terminal = "ClaudeBedrockSonnet46"
+terminal = "KimiK25"
 conductor = "KimiK25"
 writer = "KimiK25"
-researcher = "ZaiGLM5"
+researcher = "ZaiGLM47"
 summarizer = "ZaiGLM47Flash"
 watcher = "ZaiGLM47Flash"
 
