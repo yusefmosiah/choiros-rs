@@ -4,18 +4,16 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: build-release-manifest.sh [--manifest <path>] [--allow-dirty]
+Usage: build-release-manifest.sh [--manifest <path>]
 
 Builds sandbox, hypervisor, and desktop flake outputs and writes a release manifest.
 
 Options:
   --manifest <path>  Output manifest path (default: artifacts/releases/<sha>.env)
-  --allow-dirty      Allow manifest generation from a dirty git tree
 EOF
 }
 
 EXTRA_NIX_FLAGS=(--extra-experimental-features nix-command --extra-experimental-features flakes)
-ALLOW_DIRTY="false"
 MANIFEST_PATH=""
 
 while [ "$#" -gt 0 ]; do
@@ -27,10 +25,6 @@ while [ "$#" -gt 0 ]; do
       fi
       MANIFEST_PATH="$2"
       shift 2
-      ;;
-    --allow-dirty)
-      ALLOW_DIRTY="true"
-      shift
       ;;
     -h|--help)
       usage
@@ -63,9 +57,9 @@ RELEASE_SHA="$(git rev-parse HEAD)"
 SHORT_SHA="$(git rev-parse --short HEAD)"
 GIT_DIRTY="$( [ -n "$(git status --porcelain)" ] && echo "true" || echo "false" )"
 
-if [ "$ALLOW_DIRTY" != "true" ] && [ "$GIT_DIRTY" = "true" ]; then
+if [ "$GIT_DIRTY" = "true" ]; then
   echo "Refusing to build release manifest from dirty tree."
-  echo "Commit/stash changes or re-run with --allow-dirty."
+  echo "Commit/stash changes and retry."
   exit 1
 fi
 

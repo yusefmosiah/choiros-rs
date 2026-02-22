@@ -11,8 +11,9 @@ Flow:
 3. Run one promote command from Mac.
 4. Verify public health/login.
 
-Promotion copies exact store closures from grind to prod, then applies them on prod.
-That avoids surprise recompiles and keeps prod aligned with what was built on grind.
+Promotion now enforces clean `main` on both hosts, builds only from a clean tree on grind,
+copies exact store closures to prod, then applies them on prod.
+That avoids surprise recompiles and ensures binaries are actually updated from the release manifest.
 
 ## What Changed
 
@@ -34,7 +35,8 @@ That avoids surprise recompiles and keeps prod aligned with what was built on gr
    - grind: `root@18.212.170.200`
    - prod: `root@172.31.93.29`
 3. Both hosts have repo at `/opt/choiros/workspace`.
-4. Repo tree on grind is clean before release build.
+4. `origin/main` is up to date and deployable.
+5. Any uncommitted host changes are committed/stashed first (dirty trees are rejected).
 
 ## One-Time SSH Setup On Mac
 
@@ -80,10 +82,13 @@ git pull --ff-only
 ```
 
 What the command does:
-1. Builds flake outputs on grind and writes manifest.
-2. Copies exact closure paths grind -> prod via `nix copy`.
-3. Applies release manifest on prod (installs bins + `nixos-rebuild switch`).
-4. Runs post-switch health checks in host switch script.
+1. Syncs grind repo to `origin/main` and fails if still dirty.
+2. Syncs prod repo to `origin/main` and fails if still dirty.
+3. Verifies both hosts are on the same commit SHA.
+4. Builds flake outputs on grind and writes manifest (dirty build blocked).
+5. Copies exact closure paths grind -> prod via `nix copy`.
+6. Applies release manifest on prod (updates `/opt/choiros/bin/*` symlinks + restarts services).
+7. Runs health checks in `apply-release-manifest.sh`.
 
 ## Post-Deploy Verify
 
@@ -105,6 +110,14 @@ Dirty tree on grind:
 
 ```bash
 ssh choiros-grind 'cd /opt/choiros/workspace && git status --short --branch'
+```
+
+Fix by committing/stashing before retry.
+
+Dirty tree on prod:
+
+```bash
+ssh choiros-prod 'cd /opt/choiros/workspace && git status --short --branch'
 ```
 
 Fix by committing/stashing before retry.
