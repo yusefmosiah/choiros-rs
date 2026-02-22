@@ -124,7 +124,9 @@ jobs:
           install -m 0755 "$HYPERVISOR_OUT/bin/hypervisor" /opt/choiros/bin/hypervisor
           install -m 0755 "$DESKTOP_OUT/bin/sandbox-ui" /opt/choiros/bin/sandbox-ui
 
-          systemctl restart container@sandbox-live container@sandbox-dev hypervisor
+          export NIX_PATH="nixpkgs=$(nix --extra-experimental-features nix-command --extra-experimental-features flakes eval --raw nixpkgs#path)"
+          export NIXOS_CONFIG=/etc/nixos/configuration.nix
+          nixos-rebuild switch
 
           dump_runtime_diagnostics() {
             echo "===== deploy diagnostics: sandbox containers ====="
