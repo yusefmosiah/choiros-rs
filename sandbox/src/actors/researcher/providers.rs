@@ -32,6 +32,56 @@ pub(crate) struct ProviderSearchOutput {
     pub latency_ms: u64,
 }
 
+#[derive(Debug, Clone)]
+struct ProviderGatewayConfig {
+    base_url: String,
+    token: String,
+    sandbox_id: Option<String>,
+    user_id: Option<String>,
+}
+
+fn provider_gateway_config() -> Option<ProviderGatewayConfig> {
+    let base_url = std::env::var("CHOIR_PROVIDER_GATEWAY_BASE_URL")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())?;
+    let token = std::env::var("CHOIR_PROVIDER_GATEWAY_TOKEN")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())?;
+
+    Some(ProviderGatewayConfig {
+        base_url: base_url.trim_end_matches('/').to_string(),
+        token,
+        sandbox_id: std::env::var("CHOIR_SANDBOX_ID").ok(),
+        user_id: std::env::var("CHOIR_SANDBOX_USER_ID").ok(),
+    })
+}
+
+fn apply_provider_gateway_headers(
+    req: reqwest::RequestBuilder,
+    gateway: &ProviderGatewayConfig,
+    upstream_base_url: &str,
+    model_label: &str,
+) -> reqwest::RequestBuilder {
+    let mut req = req
+        .header(
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {}", gateway.token),
+        )
+        .header("x-choiros-upstream-base-url", upstream_base_url)
+        .header("x-choiros-model", model_label);
+
+    if let Some(sandbox_id) = gateway.sandbox_id.as_deref() {
+        req = req.header("x-choiros-sandbox-id", sandbox_id);
+    }
+    if let Some(user_id) = gateway.user_id.as_deref() {
+        req = req.header("x-choiros-user-id", user_id);
+    }
+
+    req
+}
+
 fn parse_provider_token(input: &str) -> Option<SearchProvider> {
     match input.trim().to_ascii_lowercase().as_str() {
         "tavily" => Some(SearchProvider::Tavily),
@@ -401,9 +451,6 @@ async fn search_tavily(
     include_domains: Option<&[String]>,
     exclude_domains: Option<&[String]>,
 ) -> Result<ProviderSearchOutput, ResearcherError> {
-    let api_key = std::env::var("TAVILY_API_KEY")
-        .map_err(|_| ResearcherError::MissingApiKey("TAVILY_API_KEY".to_string()))?;
-
     let mut body = serde_json::json!({
         "query": query,
         "search_depth": "basic",
@@ -423,13 +470,23 @@ async fn search_tavily(
             serde_json::to_value(exclude_domains).unwrap_or_else(|_| Value::Array(Vec::new()));
     }
 
-    let response = http
-        .post("https://api.tavily.com/search")
-        .bearer_auth(api_key)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| ResearcherError::ProviderRequest("tavily".to_string(), e.to_string()))?;
+    let response = if let Some(gateway) = provider_gateway_config() {
+        let req = http.post(format!("{}/provider/v1/search/search", gateway.base_url));
+        apply_provider_gateway_headers(req, &gateway, "https://api.tavily.com", "search:tavily")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ResearcherError::ProviderRequest("tavily".to_string(), e.to_string()))?
+    } else {
+        let api_key = std::env::var("TAVILY_API_KEY")
+            .map_err(|_| ResearcherError::MissingApiKey("TAVILY_API_KEY".to_string()))?;
+        http.post("https://api.tavily.com/search")
+            .bearer_auth(api_key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ResearcherError::ProviderRequest("tavily".to_string(), e.to_string()))?
+    };
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -502,13 +559,27 @@ async fn search_brave(
     max_results: u32,
     time_range: Option<&str>,
 ) -> Result<ProviderSearchOutput, ResearcherError> {
-    let api_key = std::env::var("BRAVE_API_KEY")
-        .map_err(|_| ResearcherError::MissingApiKey("BRAVE_API_KEY".to_string()))?;
-    let mut req = http
-        .get("https://api.search.brave.com/res/v1/web/search")
-        .header("Accept", "application/json")
-        .header("X-Subscription-Token", api_key)
-        .query(&[("q", query), ("count", &max_results.to_string())]);
+    let mut req = if let Some(gateway) = provider_gateway_config() {
+        let req = http
+            .get(format!(
+                "{}/provider/v1/search/res/v1/web/search",
+                gateway.base_url
+            ))
+            .header("Accept", "application/json");
+        apply_provider_gateway_headers(
+            req,
+            &gateway,
+            "https://api.search.brave.com",
+            "search:brave",
+        )
+    } else {
+        let api_key = std::env::var("BRAVE_API_KEY")
+            .map_err(|_| ResearcherError::MissingApiKey("BRAVE_API_KEY".to_string()))?;
+        http.get("https://api.search.brave.com/res/v1/web/search")
+            .header("Accept", "application/json")
+            .header("X-Subscription-Token", api_key)
+    }
+    .query(&[("q", query), ("count", &max_results.to_string())]);
     if let Some(tf) = map_time_range_to_brave(time_range) {
         req = req.query(&[("freshness", tf)]);
     }
@@ -587,9 +658,6 @@ async fn search_exa(
     include_domains: Option<&[String]>,
     exclude_domains: Option<&[String]>,
 ) -> Result<ProviderSearchOutput, ResearcherError> {
-    let api_key = std::env::var("EXA_API_KEY")
-        .map_err(|_| ResearcherError::MissingApiKey("EXA_API_KEY".to_string()))?;
-
     let mut body = serde_json::json!({
         "query": query,
         "numResults": max_results,
@@ -605,14 +673,26 @@ async fn search_exa(
             serde_json::to_value(exclude_domains).unwrap_or_else(|_| Value::Array(Vec::new()));
     }
 
-    let response = http
-        .post("https://api.exa.ai/search")
-        .header("x-api-key", api_key)
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| ResearcherError::ProviderRequest("exa".to_string(), e.to_string()))?;
+    let response = if let Some(gateway) = provider_gateway_config() {
+        let req = http
+            .post(format!("{}/provider/v1/search/search", gateway.base_url))
+            .header("Content-Type", "application/json");
+        apply_provider_gateway_headers(req, &gateway, "https://api.exa.ai", "search:exa")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ResearcherError::ProviderRequest("exa".to_string(), e.to_string()))?
+    } else {
+        let api_key = std::env::var("EXA_API_KEY")
+            .map_err(|_| ResearcherError::MissingApiKey("EXA_API_KEY".to_string()))?;
+        http.post("https://api.exa.ai/search")
+            .header("x-api-key", api_key)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ResearcherError::ProviderRequest("exa".to_string(), e.to_string()))?
+    };
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();

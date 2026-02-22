@@ -96,6 +96,10 @@ impl Config {
                 &[
                     "https://api.z.ai/api/anthropic",
                     "https://api.kimi.com/coding/",
+                    "https://api.openai.com",
+                    "https://api.tavily.com",
+                    "https://api.search.brave.com",
+                    "https://api.exa.ai",
                 ],
             ),
             provider_gateway_rate_limit_per_minute: env_parse(

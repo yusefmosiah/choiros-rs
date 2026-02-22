@@ -22,6 +22,12 @@ struct GatewayCallerContext {
     model: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpstreamAuthMode {
+    Bearer,
+    Header(&'static str),
+}
+
 pub async fn forward_provider_request(
     State(state): State<Arc<AppState>>,
     Path((provider, _rest)): Path<(String, String)>,
@@ -96,7 +102,7 @@ pub async fn forward_provider_request(
             .into_response();
     }
 
-    let provider_api_key = match provider_key_for_upstream(upstream_base_url) {
+    let (provider_api_key, auth_mode) = match provider_key_for_upstream(upstream_base_url) {
         Ok(v) => v,
         Err((status, msg)) => return (status, msg).into_response(),
     };
@@ -132,8 +138,11 @@ pub async fn forward_provider_request(
         .provider_gateway
         .client
         .request(method, &upstream_url)
-        .bearer_auth(provider_api_key)
         .body(body_bytes.clone());
+    upstream_req = match auth_mode {
+        UpstreamAuthMode::Bearer => upstream_req.bearer_auth(provider_api_key),
+        UpstreamAuthMode::Header(header_name) => upstream_req.header(header_name, provider_api_key),
+    };
     upstream_req = copy_request_headers(upstream_req, &parts.headers);
 
     let upstream_res = match upstream_req.send().await {
@@ -381,23 +390,34 @@ fn caller_context_from_headers(headers: &HeaderMap) -> GatewayCallerContext {
 
 fn provider_key_for_upstream(
     upstream_base_url: &str,
-) -> Result<String, (StatusCode, &'static str)> {
-    let key_env = if upstream_base_url.contains("api.z.ai") {
-        "ZAI_API_KEY"
+) -> Result<(String, UpstreamAuthMode), (StatusCode, &'static str)> {
+    let (key_env, auth_mode) = if upstream_base_url.contains("api.z.ai") {
+        ("ZAI_API_KEY", UpstreamAuthMode::Bearer)
     } else if upstream_base_url.contains("api.kimi.com") {
-        "KIMI_API_KEY"
+        ("KIMI_API_KEY", UpstreamAuthMode::Bearer)
     } else if upstream_base_url.contains("api.openai.com") {
-        "OPENAI_API_KEY"
+        ("OPENAI_API_KEY", UpstreamAuthMode::Bearer)
+    } else if upstream_base_url.contains("api.tavily.com") {
+        ("TAVILY_API_KEY", UpstreamAuthMode::Bearer)
+    } else if upstream_base_url.contains("api.search.brave.com") {
+        (
+            "BRAVE_API_KEY",
+            UpstreamAuthMode::Header("X-Subscription-Token"),
+        )
+    } else if upstream_base_url.contains("api.exa.ai") {
+        ("EXA_API_KEY", UpstreamAuthMode::Header("x-api-key"))
     } else {
         return Err((StatusCode::FORBIDDEN, "unsupported provider upstream"));
     };
 
-    std::env::var(key_env).map_err(|_| {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "provider api key missing on hypervisor",
-        )
-    })
+    std::env::var(key_env)
+        .map(|key| (key, auth_mode))
+        .map_err(|_| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "provider api key missing on hypervisor",
+            )
+        })
 }
 
 fn copy_request_headers(
@@ -495,8 +515,12 @@ fn dump_401_debug_artifact(
     );
 
     match fs::write(&path, payload) {
-        Ok(_) => warn!(path = %path, provider = %provider, model = %context.model, "dumped provider 401 debug artifact"),
-        Err(err) => warn!(error = %err, path = %path, "failed to write provider 401 debug artifact"),
+        Ok(_) => {
+            warn!(path = %path, provider = %provider, model = %context.model, "dumped provider 401 debug artifact")
+        }
+        Err(err) => {
+            warn!(error = %err, path = %path, "failed to write provider 401 debug artifact")
+        }
     }
 }
 
@@ -590,5 +614,30 @@ mod tests {
             .expect("expected region and path");
         assert_eq!(region, "us-east-1");
         assert_eq!(path, "/model/x/converse");
+    }
+
+    #[test]
+    fn provider_key_for_upstream_uses_expected_env_and_auth_mode() {
+        std::env::set_var("TAVILY_API_KEY", "t-key");
+        std::env::set_var("BRAVE_API_KEY", "b-key");
+        std::env::set_var("EXA_API_KEY", "e-key");
+
+        let (tavily, tavily_mode) =
+            provider_key_for_upstream("https://api.tavily.com").expect("tavily key");
+        assert_eq!(tavily, "t-key");
+        assert_eq!(tavily_mode, UpstreamAuthMode::Bearer);
+
+        let (brave, brave_mode) =
+            provider_key_for_upstream("https://api.search.brave.com").expect("brave key");
+        assert_eq!(brave, "b-key");
+        assert_eq!(brave_mode, UpstreamAuthMode::Header("X-Subscription-Token"));
+
+        let (exa, exa_mode) = provider_key_for_upstream("https://api.exa.ai").expect("exa key");
+        assert_eq!(exa, "e-key");
+        assert_eq!(exa_mode, UpstreamAuthMode::Header("x-api-key"));
+
+        std::env::remove_var("TAVILY_API_KEY");
+        std::env::remove_var("BRAVE_API_KEY");
+        std::env::remove_var("EXA_API_KEY");
     }
 }
