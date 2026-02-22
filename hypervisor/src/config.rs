@@ -33,8 +33,6 @@ pub struct Config {
     pub sandbox_container_image: String,
     /// Host directory root for sandbox data mounts in podman mode.
     pub sandbox_data_root: String,
-    /// Optional env-file passed through to podman runs.
-    pub sandbox_env_file: Option<String>,
     /// Port the live sandbox listens on (hypervisor assigns this)
     pub sandbox_live_port: u16,
     /// Port the dev sandbox listens on
@@ -82,7 +80,6 @@ impl Config {
             sandbox_podman_binary: env_str("SANDBOX_PODMAN_BINARY", "podman"),
             sandbox_container_image: env_str("SANDBOX_CONTAINER_IMAGE", "choir-sandbox:latest"),
             sandbox_data_root: env_str("SANDBOX_DATA_ROOT", "./data/sandboxes"),
-            sandbox_env_file: std::env::var("SANDBOX_ENV_FILE").ok(),
             sandbox_live_port: env_parse("SANDBOX_LIVE_PORT", 8080)?,
             sandbox_dev_port: env_parse("SANDBOX_DEV_PORT", 8081)?,
             sandbox_idle_timeout: Duration::from_secs(env_parse(

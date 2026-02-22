@@ -1,9 +1,5 @@
 use std::{
-    collections::HashMap,
-    fs,
-    process::Stdio,
-    sync::Arc,
-    time::{Duration, Instant},
+    collections::HashMap, fs, process::Stdio, sync::Arc, time::{Duration, Instant},
 };
 
 use tokio::{
@@ -15,19 +11,6 @@ use tokio::{
 use tracing::{error, info, warn};
 
 use crate::config::SandboxRuntime;
-
-const FORBIDDEN_SANDBOX_ENV_KEYS: &[&str] = &[
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "ZAI_API_KEY",
-    "KIMI_API_KEY",
-    "GOOGLE_API_KEY",
-    "MISTRAL_API_KEY",
-    "AWS_BEARER_TOKEN_BEDROCK",
-    "AWS_SECRET_ACCESS_KEY",
-    "AWS_ACCESS_KEY_ID",
-    "AWS_SESSION_TOKEN",
-];
 
 /// The role of a sandbox instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -76,7 +59,6 @@ pub struct SandboxRegistry {
     podman_binary: String,
     container_image: String,
     data_root: String,
-    env_file: Option<String>,
     idle_timeout: Duration,
     /// user_id → role → entry
     entries: Mutex<HashMap<String, HashMap<SandboxRole, SandboxEntry>>>,
@@ -91,7 +73,6 @@ impl SandboxRegistry {
         podman_binary: String,
         container_image: String,
         data_root: String,
-        env_file: Option<String>,
         live_port: u16,
         dev_port: u16,
         idle_timeout: Duration,
@@ -102,7 +83,6 @@ impl SandboxRegistry {
             podman_binary,
             container_image,
             data_root,
-            env_file,
             idle_timeout,
             entries: Mutex::new(HashMap::new()),
             live_port,
@@ -294,8 +274,6 @@ impl SandboxRegistry {
         // Brief wait for the port to become available after a prior process exits.
         sleep(Duration::from_millis(200)).await;
 
-        let mut file_env = load_env_file(self.env_file.as_deref())?;
-        inject_provider_gateway_env(&mut file_env);
         let mut child_cmd = Command::new(&self.binary);
         child_cmd
             .env("PORT", port.to_string())
@@ -303,17 +281,6 @@ impl SandboxRegistry {
             .env("SQLX_OFFLINE", "true")
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit());
-
-        if !file_env.is_empty() {
-            child_cmd.envs(&file_env);
-            info!(
-                %role,
-                port,
-                env_file = ?self.env_file,
-                loaded_keys = file_env.len(),
-                "loaded sandbox process env-file overrides"
-            );
-        }
 
         let child = child_cmd.spawn().map_err(|e| {
             error!(%role, port, binary = %self.binary, "failed to spawn sandbox: {e}");
@@ -375,11 +342,6 @@ impl SandboxRegistry {
             "-e",
             "SQLX_OFFLINE=true",
         ]);
-        let mut file_env = load_env_file(self.env_file.as_deref())?;
-        inject_provider_gateway_env(&mut file_env);
-        for (key, value) in &file_env {
-            cmd.args(["-e", &format!("{key}={value}")]);
-        }
         cmd.arg(&self.container_image);
 
         let output = cmd.output().await.map_err(|e| {
@@ -477,48 +439,6 @@ impl SandboxRegistry {
     }
 }
 
-fn load_env_file(path: Option<&str>) -> anyhow::Result<HashMap<String, String>> {
-    let Some(path) = path else {
-        return Ok(HashMap::new());
-    };
-
-    let iter = dotenvy::from_path_iter(path)
-        .map_err(|e| anyhow::anyhow!("failed to read sandbox env file {path}: {e}"))?;
-    let mut envs = HashMap::new();
-
-    for entry in iter {
-        let (key, value) =
-            entry.map_err(|e| anyhow::anyhow!("failed to parse sandbox env file {path}: {e}"))?;
-        if FORBIDDEN_SANDBOX_ENV_KEYS
-            .iter()
-            .any(|forbidden| forbidden.eq_ignore_ascii_case(&key))
-        {
-            warn!(
-                env_key = %key,
-                env_file = path,
-                "filtered provider credential from sandbox env"
-            );
-            continue;
-        }
-        envs.insert(key, value);
-    }
-
-    Ok(envs)
-}
-
-fn inject_provider_gateway_env(envs: &mut HashMap<String, String>) {
-    if let Ok(base_url) = std::env::var("CHOIR_PROVIDER_GATEWAY_BASE_URL") {
-        envs.insert("CHOIR_PROVIDER_GATEWAY_BASE_URL".to_string(), base_url);
-    }
-    if let Ok(token) = std::env::var("CHOIR_PROVIDER_GATEWAY_TOKEN") {
-        envs.insert("CHOIR_PROVIDER_GATEWAY_TOKEN".to_string(), token);
-    }
-    envs.insert(
-        "CHOIR_SANDBOX_KEYLESS_ENFORCED".to_string(),
-        "true".to_string(),
-    );
-}
-
 fn sanitize_label(raw: &str) -> String {
     raw.chars()
         .map(|c| {
@@ -529,36 +449,6 @@ fn sanitize_label(raw: &str) -> String {
             }
         })
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::load_env_file;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    #[test]
-    fn load_env_file_parses_key_values() {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("choiros-hypervisor-test-{nonce}"));
-        std::fs::create_dir_all(&dir).expect("create temp dir");
-        let env_path = dir.join("sandbox.env");
-        std::fs::write(
-            &env_path,
-            "OPENAI_API_KEY=test-openai\nAWS_BEARER_TOKEN_BEDROCK=test-bedrock\nCHOIR_ENV=test\n",
-        )
-        .expect("write env file");
-
-        let envs = load_env_file(Some(env_path.to_string_lossy().as_ref())).expect("load env");
-        assert!(envs.get("OPENAI_API_KEY").is_none());
-        assert!(envs.get("AWS_BEARER_TOKEN_BEDROCK").is_none());
-        assert_eq!(envs.get("CHOIR_ENV").map(String::as_str), Some("test"));
-
-        let _ = std::fs::remove_file(&env_path);
-        let _ = std::fs::remove_dir(&dir);
-    }
 }
 
 #[derive(Debug, serde::Serialize)]

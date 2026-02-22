@@ -63,14 +63,6 @@ fn load_env_file() {
 }
 
 fn assert_keyless_sandbox_env() -> std::io::Result<()> {
-    if std::env::var("CHOIR_SANDBOX_KEYLESS_ENFORCED")
-        .ok()
-        .as_deref()
-        != Some("true")
-    {
-        return Ok(());
-    }
-
     for key in FORBIDDEN_PROVIDER_KEY_ENVS {
         if std::env::var(key).is_ok() {
             let message = format!(
@@ -82,18 +74,6 @@ fn assert_keyless_sandbox_env() -> std::io::Result<()> {
                 message,
             ));
         }
-    }
-
-    if std::env::var("CHOIR_PROVIDER_GATEWAY_BASE_URL").is_err()
-        || std::env::var("CHOIR_PROVIDER_GATEWAY_TOKEN").is_err()
-    {
-        let message =
-            "Keyless sandbox policy requires CHOIR_PROVIDER_GATEWAY_BASE_URL and CHOIR_PROVIDER_GATEWAY_TOKEN";
-        tracing::error!("{message}");
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            message,
-        ));
     }
 
     Ok(())
