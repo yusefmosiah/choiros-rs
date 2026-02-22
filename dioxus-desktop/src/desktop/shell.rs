@@ -223,6 +223,15 @@ pub fn DesktopShell(desktop_id: String) -> Element {
     {
         let ws_event_queue = ws_event_queue.clone();
         use_effect(move || {
+            let auth_state = auth.read().clone();
+            if !matches!(auth_state, AuthState::Authenticated(_)) {
+                if desktop_ws_runtime.read().is_some() {
+                    desktop_ws_runtime.set(None);
+                }
+                ws_connected.set(false);
+                return;
+            }
+
             let desktop_id = desktop_id_signal.read().clone();
             if desktop_ws_runtime.read().is_some() {
                 return;
@@ -310,10 +319,14 @@ pub fn DesktopShell(desktop_id: String) -> Element {
     let core_apps = core_apps();
 
     {
-        let desktop_id = desktop_id_signal.read().clone();
         let apps = core_apps.clone();
         use_effect(move || {
-            let desktop_id = desktop_id.clone();
+            let auth_state = auth.read().clone();
+            if !matches!(auth_state, AuthState::Authenticated(_)) {
+                return;
+            }
+
+            let desktop_id = desktop_id_signal.read().clone();
             let apps = apps.clone();
             spawn(async move {
                 effects::register_core_apps_once(desktop_id, apps, apps_registered).await;

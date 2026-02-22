@@ -128,10 +128,42 @@ pub async fn register_core_apps_once(
     if apps_registered() {
         return;
     }
+    const MAX_ATTEMPTS: u32 = 3;
 
-    apps_registered.set(true);
+    for attempt in 1..=MAX_ATTEMPTS {
+        let mut success_count = 0usize;
 
-    for app in apps {
-        let _ = register_app(&desktop_id, &app).await;
+        for app in &apps {
+            match register_app(&desktop_id, app).await {
+                Ok(()) => {
+                    success_count += 1;
+                }
+                Err(e) => {
+                    dioxus_logger::tracing::warn!(
+                        "register_app failed (desktop_id={}, app_id={}, attempt={}): {}",
+                        desktop_id,
+                        app.id,
+                        attempt,
+                        e
+                    );
+                }
+            }
+        }
+
+        if success_count > 0 {
+            apps_registered.set(true);
+            return;
+        }
+
+        if attempt < MAX_ATTEMPTS {
+            // Allow auth/session and proxy startup to settle before retrying.
+            gloo_timers::future::TimeoutFuture::new(250 * attempt).await;
+        }
     }
+
+    dioxus_logger::tracing::warn!(
+        "Failed to register any core apps for desktop_id={} after {} attempts",
+        desktop_id,
+        MAX_ATTEMPTS
+    );
 }
