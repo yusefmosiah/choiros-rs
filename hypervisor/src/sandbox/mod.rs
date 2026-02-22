@@ -334,6 +334,12 @@ impl SandboxRegistry {
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit());
 
+        // Pass frontend dist explicitly for process-runtime sandboxes.
+        // This avoids relying solely on ambient env allowlist propagation.
+        if let Ok(frontend_dist) = std::env::var("FRONTEND_DIST") {
+            child_cmd.env("FRONTEND_DIST", frontend_dist);
+        }
+
         if let Some(base_url) = self.provider_gateway_base_url.as_ref() {
             child_cmd.env("CHOIR_PROVIDER_GATEWAY_BASE_URL", base_url);
         }
