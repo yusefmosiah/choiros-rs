@@ -16,9 +16,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect relevant changes
+    runs-on: ubuntu-latest
+    outputs:
+      build_all: ${{ steps.filter.outputs.build_all }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Filter changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            build_all:
+              - '.github/workflows/nix-ci-draft.yml'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'flake.nix'
+              - 'flake.lock'
+              - 'sandbox/**'
+              - 'hypervisor/**'
+              - 'dioxus-desktop/**'
+              - 'shared-types/**'
+              - 'nixos/**'
+
   build-sandbox:
     name: Build sandbox flake
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.build_all == 'true'
     outputs:
       store_path: ${{ steps.build.outputs.store_path }}
 
@@ -50,6 +78,8 @@ jobs:
   build-hypervisor:
     name: Build hypervisor flake
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.build_all == 'true'
     outputs:
       store_path: ${{ steps.build.outputs.store_path }}
     steps:
@@ -80,6 +110,8 @@ jobs:
   build-desktop:
     name: Build desktop flake
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.build_all == 'true'
     outputs:
       store_path: ${{ steps.build.outputs.store_path }}
     steps:
@@ -110,8 +142,8 @@ jobs:
   deploy-ec2:
     name: Deploy EC2 via AWS SSM
     runs-on: ubuntu-latest
-    needs: [build-sandbox, build-hypervisor, build-desktop]
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [changes, build-sandbox, build-hypervisor, build-desktop]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.build_all == 'true')
     environment: production
     env:
       AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
