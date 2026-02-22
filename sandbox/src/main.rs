@@ -79,6 +79,34 @@ fn assert_keyless_sandbox_env() -> std::io::Result<()> {
     Ok(())
 }
 
+fn env_var_truthy(key: &str) -> Option<bool> {
+    match std::env::var(key) {
+        Ok(value) => {
+            let normalized = value.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "1" | "true" | "yes" | "on" => Some(true),
+                "0" | "false" | "no" | "off" => Some(false),
+                _ => {
+                    tracing::warn!(env_var = key, value = %value, "Unrecognized boolean env value");
+                    None
+                }
+            }
+        }
+        Err(_) => None,
+    }
+}
+
+fn should_enforce_keyless_policy() -> bool {
+    if let Some(explicit) = env_var_truthy("CHOIR_ENFORCE_KEYLESS_SANDBOX") {
+        return explicit;
+    }
+
+    // Enforce in managed sandbox runtime (spawned by hypervisor).
+    std::env::var("CHOIR_SANDBOX_ID").is_ok()
+        || std::env::var("CHOIR_SANDBOX_ROLE").is_ok()
+        || std::env::var("CHOIR_SANDBOX_USER_ID").is_ok()
+}
+
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     // Initialize logging
@@ -88,7 +116,14 @@ async fn main() -> std::io::Result<()> {
     // Search the current directory and ancestors so running from `sandbox/` still
     // picks up repo-root `.env`.
     load_env_file();
-    assert_keyless_sandbox_env()?;
+    if should_enforce_keyless_policy() {
+        assert_keyless_sandbox_env()?;
+    } else {
+        tracing::warn!(
+            "Keyless sandbox env enforcement disabled (standalone mode). \
+             Set CHOIR_ENFORCE_KEYLESS_SANDBOX=true to enable strict checks."
+        );
+    }
     match sandbox::runtime_env::ensure_tls_cert_env() {
         Some(path) => tracing::info!(path = %path, "Configured SSL_CERT_FILE for TLS clients"),
         None => tracing::warn!(

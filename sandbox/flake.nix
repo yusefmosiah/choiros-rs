@@ -36,9 +36,8 @@
           version = "0.1.0";
           strictDeps = true;
           nativeBuildInputs = with pkgs; [ pkg-config protobuf ];
-          buildInputs = with pkgs; [ openssl onnxruntime ];
+          buildInputs = with pkgs; [ openssl ];
           cargoExtraArgs = "-p sandbox";
-          ORT_DYLIB_PATH = "${pkgs.onnxruntime}/lib/libonnxruntime${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
           SQLX_OFFLINE = "true";
         };
 
@@ -64,10 +63,8 @@
             pkg-config
             protobuf
             openssl
-            onnxruntime
           ];
           SQLX_OFFLINE = "true";
-          ORT_DYLIB_PATH = "${pkgs.onnxruntime}/lib/libonnxruntime${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
         };
       });
 }

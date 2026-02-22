@@ -9,21 +9,24 @@ use shared_types::{
 use std::sync::OnceLock;
 
 /// Get the API base URL based on current environment
-/// - In development (localhost): use http://localhost:8080
-/// - In production: use same origin (API serves static files)
+/// - In frontend dev-server mode (:3000): use http://<host>:8080
+/// - In hypervisor/prod served mode (including :9090): use same origin
 fn get_api_base() -> String {
-    // Get the current hostname from the browser
-    let hostname = web_sys::window()
-        .and_then(|w| w.location().hostname().ok())
-        .unwrap_or_default();
+    let Some(window) = web_sys::window() else {
+        return "".to_string();
+    };
 
-    // If running on localhost or Tailscale IP (100.x.x.x), point to the API server on port 8080
-    if hostname == "localhost" || hostname == "127.0.0.1" || hostname.starts_with("100.") {
-        format!("http://{}:8080", hostname)
-    } else {
-        // In production, use same origin
-        "".to_string()
+    let location = window.location();
+    let hostname = location.hostname().unwrap_or_default();
+    let port = location.port().unwrap_or_default();
+
+    // UI dev server: app on :3000, sandbox API on :8080.
+    if port == "3000" {
+        return format!("http://{}:8080", hostname);
     }
+
+    // Hypervisor-served app (e.g. :9090) and production: same origin.
+    "".to_string()
 }
 
 /// Lazy-static equivalent for WASM - computed at first use

@@ -118,7 +118,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/auth/recovery", post(auth::handlers::recovery))
         .route("/auth/me", get(auth::handlers::me))
         .route(
-            "/provider/v1/{provider}/*rest",
+            "/provider/v1/{provider}/{*rest}",
             any(provider_gateway::forward_provider_request),
         )
         // Admin sandbox management
