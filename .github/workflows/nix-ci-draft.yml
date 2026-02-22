@@ -16,22 +16,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  nix-build:
-    name: Build ${{ matrix.name }} flake
+  build-sandbox:
+    name: Build sandbox flake
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: sandbox
-            path: sandbox
-            attr: sandbox
-          - name: desktop
-            path: dioxus-desktop
-            attr: desktop
-          - name: hypervisor
-            path: hypervisor
-            attr: hypervisor
+    outputs:
+      store_path: ${{ steps.build.outputs.store_path }}
 
     steps:
       - name: Checkout
@@ -48,28 +37,24 @@ jobs:
           FLAKEHUB_AUTH_TOKEN: ${{ secrets.FLAKEHUB_AUTH_TOKEN }}
 
       - name: Build flake package
-        run: nix build "./${{ matrix.path }}#${{ matrix.attr }}" --print-build-logs
+        id: build
+        run: |
+          set -euo pipefail
+          OUT_PATH="$(nix build ./sandbox#sandbox --no-link --json --print-build-logs | jq -r '.[0].outputs.out')"
+          if [ -z "$OUT_PATH" ] || [ "$OUT_PATH" = "null" ]; then
+            echo "Failed to resolve sandbox store path"
+            exit 1
+          fi
+          echo "store_path=$OUT_PATH" >> "$GITHUB_OUTPUT"
 
-  deploy-ec2:
-    name: Deploy EC2 via AWS SSM
+  build-hypervisor:
+    name: Build hypervisor flake
     runs-on: ubuntu-latest
-    needs: [nix-build]
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    environment: production
-    env:
-      AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
-      DEPLOY_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
-      DEPLOY_SHA: ${{ github.sha }}
+    outputs:
+      store_path: ${{ steps.build.outputs.store_path }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
 
       - name: Install Nix
         uses: DeterminateSystems/determinate-nix-action@v3
@@ -80,6 +65,68 @@ jobs:
           flakehub-flake-name: choir/choiros-rs
         env:
           FLAKEHUB_AUTH_TOKEN: ${{ secrets.FLAKEHUB_AUTH_TOKEN }}
+
+      - name: Build flake package
+        id: build
+        run: |
+          set -euo pipefail
+          OUT_PATH="$(nix build ./hypervisor#hypervisor --no-link --json --print-build-logs | jq -r '.[0].outputs.out')"
+          if [ -z "$OUT_PATH" ] || [ "$OUT_PATH" = "null" ]; then
+            echo "Failed to resolve hypervisor store path"
+            exit 1
+          fi
+          echo "store_path=$OUT_PATH" >> "$GITHUB_OUTPUT"
+
+  build-desktop:
+    name: Build desktop flake
+    runs-on: ubuntu-latest
+    outputs:
+      store_path: ${{ steps.build.outputs.store_path }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/determinate-nix-action@v3
+
+      - name: Configure FlakeHub cache
+        uses: DeterminateSystems/flakehub-cache-action@v3
+        with:
+          flakehub-flake-name: choir/choiros-rs
+        env:
+          FLAKEHUB_AUTH_TOKEN: ${{ secrets.FLAKEHUB_AUTH_TOKEN }}
+
+      - name: Build flake package
+        id: build
+        run: |
+          set -euo pipefail
+          OUT_PATH="$(nix build ./dioxus-desktop#desktop --no-link --json --print-build-logs | jq -r '.[0].outputs.out')"
+          if [ -z "$OUT_PATH" ] || [ "$OUT_PATH" = "null" ]; then
+            echo "Failed to resolve desktop store path"
+            exit 1
+          fi
+          echo "store_path=$OUT_PATH" >> "$GITHUB_OUTPUT"
+
+  deploy-ec2:
+    name: Deploy EC2 via AWS SSM
+    runs-on: ubuntu-latest
+    needs: [build-sandbox, build-hypervisor, build-desktop]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    environment: production
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+      DEPLOY_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
+      DEPLOY_SHA: ${{ github.sha }}
+      SANDBOX_STORE_PATH: ${{ needs.build-sandbox.outputs.store_path }}
+      HYPERVISOR_STORE_PATH: ${{ needs.build-hypervisor.outputs.store_path }}
+      DESKTOP_STORE_PATH: ${{ needs.build-desktop.outputs.store_path }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Validate SSM target
         run: |
@@ -104,9 +151,15 @@ jobs:
           RELEASE_SHA="${DEPLOY_SHA}"
           WORKDIR='/opt/choiros/deploy-repo'
           REPO_URL='https://github.com/yusefmosiah/choiros-rs.git'
-          SANDBOX_OUT="$WORKDIR/result-sandbox"
-          HYPERVISOR_OUT="$WORKDIR/result-hypervisor"
-          DESKTOP_OUT="$WORKDIR/result-desktop"
+          SANDBOX_STORE_PATH="${SANDBOX_STORE_PATH:-}"
+          HYPERVISOR_STORE_PATH="${HYPERVISOR_STORE_PATH:-}"
+          DESKTOP_STORE_PATH="${DESKTOP_STORE_PATH:-}"
+
+          if [ -z "$SANDBOX_STORE_PATH" ] || [ -z "$HYPERVISOR_STORE_PATH" ] || [ -z "$DESKTOP_STORE_PATH" ]; then
+            echo "Missing one or more store paths from build jobs"
+            exit 1
+          fi
+
           if [ ! -d "$WORKDIR/.git" ]; then
             rm -rf "$WORKDIR"
             git clone "$REPO_URL" "$WORKDIR"
@@ -115,14 +168,14 @@ jobs:
           git fetch origin
           git checkout -f "$RELEASE_SHA"
 
-          rm -f "$SANDBOX_OUT" "$HYPERVISOR_OUT" "$DESKTOP_OUT"
-          nix --extra-experimental-features nix-command --extra-experimental-features flakes build ./sandbox#sandbox --out-link "$SANDBOX_OUT"
-          nix --extra-experimental-features nix-command --extra-experimental-features flakes build ./hypervisor#hypervisor --out-link "$HYPERVISOR_OUT"
-          nix --extra-experimental-features nix-command --extra-experimental-features flakes build ./dioxus-desktop#desktop --out-link "$DESKTOP_OUT"
+          export NIX_CONFIG="fallback = false"
+          nix-store --realise "$SANDBOX_STORE_PATH"
+          nix-store --realise "$HYPERVISOR_STORE_PATH"
+          nix-store --realise "$DESKTOP_STORE_PATH"
 
-          install -m 0755 "$SANDBOX_OUT/bin/sandbox" /opt/choiros/bin/sandbox
-          install -m 0755 "$HYPERVISOR_OUT/bin/hypervisor" /opt/choiros/bin/hypervisor
-          install -m 0755 "$DESKTOP_OUT/bin/sandbox-ui" /opt/choiros/bin/sandbox-ui
+          install -m 0755 "$SANDBOX_STORE_PATH/bin/sandbox" /opt/choiros/bin/sandbox
+          install -m 0755 "$HYPERVISOR_STORE_PATH/bin/hypervisor" /opt/choiros/bin/hypervisor
+          install -m 0755 "$DESKTOP_STORE_PATH/bin/sandbox-ui" /opt/choiros/bin/sandbox-ui
 
           export NIX_PATH="nixpkgs=$(nix --extra-experimental-features nix-command --extra-experimental-features flakes eval --raw nixpkgs#path)"
           export NIXOS_CONFIG=/etc/nixos/configuration.nix
@@ -201,7 +254,7 @@ jobs:
             --instance-ids "${DEPLOY_INSTANCE_ID}" \
             --document-name 'AWS-RunShellScript' \
             --comment "choiros deploy ${DEPLOY_SHA}" \
-            --parameters "$(jq -cn --arg cmd "echo ${SCRIPT_B64} | base64 -d | DEPLOY_SHA='${DEPLOY_SHA}' bash" '{commands: [$cmd]}')" \
+            --parameters "$(jq -cn --arg cmd "echo ${SCRIPT_B64} | base64 -d | DEPLOY_SHA='${DEPLOY_SHA}' SANDBOX_STORE_PATH='${SANDBOX_STORE_PATH}' HYPERVISOR_STORE_PATH='${HYPERVISOR_STORE_PATH}' DESKTOP_STORE_PATH='${DESKTOP_STORE_PATH}' bash" '{commands: [$cmd]}')" \
             --query 'Command.CommandId' \
             --output text)"
 
