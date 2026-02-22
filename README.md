@@ -76,7 +76,10 @@ nix run .#standup-grind
 2. Run `just grind-check` from local (or equivalent commands on grind).
 3. Commit and push from grind using SSH remote (`git@github.com:yusefmosiah/choiros-rs.git`).
 4. Pull locally to stay in sync after push.
-5. Let GitHub Actions perform Nix build matrix and deploy.
+5. Build a release manifest on grind (`just release-build-manifest`).
+6. Promote exact closures to prod (`just release-promote <grind-host> <prod-host>`).
+
+This avoids rebuild drift between grind and prod by copying the same Nix store paths.
 
 ## FlakeHub Cache + Releases
 
@@ -142,6 +145,7 @@ choiros-rs/
 - **Entry point:** `docs/architecture/NARRATIVE_INDEX.md`
 - **Dev guide:** `AGENTS.md`
 - **Platform secrets runbook:** `docs/runbooks/platform-secrets-sops-nix.md`
+- **Release flow runbook:** `docs/runbooks/grind-to-prod-release-flow.md`
 - **Active handoffs:** `docs/handoffs/` (7 files)
 - **Architecture specs:** `docs/architecture/` (47 files)
 

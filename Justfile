@@ -140,6 +140,18 @@ deploy-ec2:
 grind-check:
     ssh -i "$HOME/.ssh/choiros-grind.pem" -o StrictHostKeyChecking=accept-new root@18.212.170.200 'set -e; cd /opt/choiros/workspace; git status --short --branch; nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./hypervisor --command cargo check -p hypervisor; nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./sandbox --command cargo check -p sandbox; git status --short --branch'
 
+# Build a deterministic release manifest from current commit
+release-build-manifest:
+    ./scripts/ops/build-release-manifest.sh
+
+# Promote exact grind closures to prod
+release-promote GRIND PROD:
+    ./scripts/ops/promote-grind-to-prod.sh --grind {{GRIND}} --prod {{PROD}}
+
+# Capture host state for drift debugging
+ops-host-snapshot OUT:
+    ./scripts/ops/host-state-snapshot.sh --output {{OUT}}
+
 # System Monitor
 # View actor network as ASCII diagram
 monitor:
