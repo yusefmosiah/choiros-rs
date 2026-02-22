@@ -21,6 +21,7 @@ This runbook introduces scripts that:
 2. Copy those store paths from grind to prod without rebuilding.
 3. Apply the release on prod by updating `/opt/choiros/bin/*` symlinks.
 4. Capture host state snapshots for drift debugging.
+5. Fail fast if deploy store paths are missing/unrealizable unless host fallback is explicitly enabled.
 
 ## What Changed
 
@@ -92,6 +93,7 @@ validation, not authoritative promotion.
    - Playwright smoke against grind URL.
 2. Build release manifest on grind:
    - `./scripts/ops/build-release-manifest.sh`
+   - Optional cache sanity check first: `just cache-check`
 3. Promote exact outputs to prod:
    - `./scripts/ops/promote-grind-to-prod.sh --grind <grind-host> --prod <prod-host>`
 4. Capture snapshots on both hosts:

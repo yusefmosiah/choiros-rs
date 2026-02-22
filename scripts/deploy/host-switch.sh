@@ -11,6 +11,7 @@ REPO_URL="${REPO_URL:-https://github.com/yusefmosiah/choiros-rs.git}"
 SANDBOX_STORE_PATH="${SANDBOX_STORE_PATH:-}"
 HYPERVISOR_STORE_PATH="${HYPERVISOR_STORE_PATH:-}"
 DESKTOP_STORE_PATH="${DESKTOP_STORE_PATH:-}"
+ALLOW_HOST_BUILD_FALLBACK="${ALLOW_HOST_BUILD_FALLBACK:-false}"
 
 if [[ -z "${RELEASE_SHA}" ]]; then
   echo "error: RELEASE_SHA is required"
@@ -129,12 +130,25 @@ resolve_or_build_store_path() {
   local flake_attr="$2"
   local label="$3"
 
-  if [[ -n "${store_path}" ]]; then
-    if nix-store --realise "${store_path}" >/dev/null 2>&1; then
-      echo "${store_path}"
-      return 0
+  if [[ -n "${store_path}" ]] && nix-store --realise "${store_path}" >/dev/null 2>&1; then
+    echo "${store_path}"
+    return 0
+  fi
+
+  if [[ "${ALLOW_HOST_BUILD_FALLBACK}" != "true" ]]; then
+    if [[ -z "${store_path}" ]]; then
+      echo "error: ${label} store path missing and ALLOW_HOST_BUILD_FALLBACK=false"
+    else
+      echo "error: could not realize ${label} store path ${store_path} and ALLOW_HOST_BUILD_FALLBACK=false"
     fi
+    echo "error: build release outputs on grind, copy closures, and pass *_STORE_PATH values"
+    exit 1
+  fi
+
+  if [[ -n "${store_path}" ]]; then
     echo "warn: could not realize ${label} store path ${store_path}; building ${flake_attr} on host"
+  else
+    echo "warn: ${label} store path missing; building ${flake_attr} on host"
   fi
 
   nix --extra-experimental-features nix-command \

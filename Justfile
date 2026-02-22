@@ -129,6 +129,14 @@ podman-run:
 deploy-aws-ssm:
     ./scripts/deploy/aws-ssm-deploy.sh
 
+# Verify FlakeHub cache configuration/auth on current host.
+cache-check:
+    ./scripts/ops/check-flakehub-cache.sh
+
+# Build canonical release manifest (flake outputs only).
+release-manifest:
+    ./scripts/ops/build-release-manifest.sh
+
 # Legacy alias retained to avoid silent stale usage.
 deploy-ec2:
     @echo "ERROR: 'deploy-ec2' is deprecated and removed."
