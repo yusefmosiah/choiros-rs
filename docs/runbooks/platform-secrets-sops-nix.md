@@ -35,7 +35,7 @@ This configuration treats LLM, search, and resend/email keys as required platfor
 
 ## Host Config Example
 
-Use this in your NixOS host config (or flake module list):
+Use this in `/etc/nixos/configuration.nix` (or equivalent flake host module list):
 
 ```nix
 {
@@ -51,6 +51,13 @@ Use this in your NixOS host config (or flake module list):
 }
 ```
 
+This module now also renders `/run/secrets/rendered/choiros-flakehub-token` and runs a
+one-shot systemd service (`choiros-flakehub-login`) that executes:
+
+```bash
+determinate-nixd login token --token-file /run/secrets/rendered/choiros-flakehub-token
+```
+
 The secret key names in the encrypted SOPS file should match runtime env names exactly:
 
 - `AWS_BEARER_TOKEN_BEDROCK`
@@ -62,6 +69,7 @@ The secret key names in the encrypted SOPS file should match runtime env names e
 - `TAVILY_API_KEY`
 - `BRAVE_API_KEY`
 - `EXA_API_KEY`
+- `FLAKEHUB_TOKEN`
 
 ## One-Time Bootstrap
 
@@ -89,8 +97,10 @@ After `nixos-rebuild switch`:
 
 ```bash
 systemctl show hypervisor --property=EnvironmentFiles
+systemctl status choiros-flakehub-login --no-pager
 systemctl restart hypervisor
 journalctl -u hypervisor -n 120 --no-pager
+journalctl -u choiros-flakehub-login -n 120 --no-pager
 ```
 
 Confirm model provider calls succeed from the running stack, then ensure no secret values

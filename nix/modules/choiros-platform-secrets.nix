@@ -1,6 +1,7 @@
-{ config, lib, ... }:
+{ config, lib, pkgs, ... }:
 let
   cfg = config.services.choiros.platformSecrets;
+  flakehubTokenFile = config.sops.templates."choiros-flakehub-token".path;
 in
 {
   options.services.choiros.platformSecrets = {
@@ -21,6 +22,18 @@ in
       type = lib.types.str;
       default = "hypervisor";
       description = "Systemd service name for the ChoirOS hypervisor.";
+    };
+
+    flakehubLoginService = lib.mkOption {
+      type = lib.types.str;
+      default = "choiros-flakehub-login";
+      description = "Systemd one-shot service that logs determinate-nixd into FlakeHub.";
+    };
+
+    enableFlakehubLogin = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable one-shot determinate-nixd login using FLAKEHUB_TOKEN from sops-nix.";
     };
 
   };
@@ -47,6 +60,7 @@ in
         TAVILY_API_KEY = { };
         BRAVE_API_KEY = { };
         EXA_API_KEY = { };
+        FLAKEHUB_TOKEN = { };
       };
 
       templates = {
@@ -65,6 +79,11 @@ in
           '';
         };
 
+        # Dedicated raw token file for determinate-nixd login.
+        "choiros-flakehub-token" = {
+          mode = "0400";
+          content = "${config.sops.placeholder."FLAKEHUB_TOKEN"}";
+        };
       };
     };
 
@@ -72,6 +91,31 @@ in
       serviceConfig.EnvironmentFile = [
         config.sops.templates."choiros-platform.env".path
       ];
+    };
+
+    systemd.services.${cfg.flakehubLoginService} = lib.mkIf cfg.enableFlakehubLogin {
+      description = "Login determinate-nixd to FlakeHub from sops-nix token";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "network-online.target" "sops-nix.service" ];
+      wants = [ "network-online.target" ];
+      restartIfChanged = true;
+      restartTriggers = [ flakehubTokenFile ];
+      serviceConfig = {
+        Type = "oneshot";
+        User = "root";
+        Group = "root";
+        UMask = "0077";
+        ExecStart = ''
+          ${pkgs.bash}/bin/bash -euo pipefail -c '
+            token_file="${flakehubTokenFile}"
+            if [[ ! -s "$token_file" ]]; then
+              echo "FLAKEHUB token file is missing or empty: $token_file" >&2
+              exit 1
+            fi
+            exec determinate-nixd login token --token-file "$token_file"
+          '
+        '';
+      };
     };
   };
 }
