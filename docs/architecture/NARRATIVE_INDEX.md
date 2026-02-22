@@ -1,6 +1,6 @@
 # ChoirOS Narrative Index (Read This First)
 
-Date: 2026-02-20
+Date: 2026-02-22
 Purpose: Human-readable map of the architecture docs, in plain language.
 
 ## 60-Second Story
@@ -17,7 +17,7 @@ Conductor treats workers/apps as logical subagents, but turns are non-blocking a
 Current reset priority: simplify runtime authority, enforce headless verification, and make live run observability trustworthy.
 Immediate app pattern: human UX first, then headless API, then app-agent harness. Tracing follows this sequence next.
 
-## Latest Checkpoint (2026-02-20)
+## Latest Checkpoint (2026-02-22)
 
 - Tracing UX upgraded: light/dark mode fixed, title bar reduced (51px→32px),
   multi-run overview added as root view, `trace.rs` split into 8-module package.
@@ -33,6 +33,12 @@ Immediate app pattern: human UX first, then headless API, then app-agent harness
   the gate suite is passing.
 - Immediate execution target: wire conductor wake to a bounded ALM harness turn
   without violating non-blocking conductor constraints.
+- New boundary decision (2026-02-22): authenticated desktop runtime ownership shifts
+  to sandbox roles (`live`/`dev`) end-to-end. Hypervisor remains auth/control-plane
+  and role-aware router only.
+- New docs:
+  - `2026-02-22-sandbox-owned-ui-runtime-spec.md`
+  - `adr-0004-hypervisor-sandbox-ui-runtime-boundary.md`
 
 ## What We Are Building Right Now
 
@@ -74,7 +80,11 @@ Immediate app pattern: human UX first, then headless API, then app-agent harness
      cross-compilation).
 
 0. `/Users/wiz/choiros-rs/docs/architecture/2026-02-17-rlm-actor-network-concept.md`
-   - Recursive Language Models in actor networks: RLM as default execution mode, model-composed context, self-prompting, and the microVM security boundary.
+  - Recursive Language Models in actor networks: RLM as default execution mode, model-composed context, self-prompting, and the microVM security boundary.
+0. `/Users/wiz/choiros-rs/docs/architecture/2026-02-22-sandbox-owned-ui-runtime-spec.md`
+   - New runtime boundary spec: hypervisor is auth/control-plane only; sandbox owns authenticated desktop runtime (`/`, assets, APIs, websocket) by `live`/`dev` role.
+0. `/Users/wiz/choiros-rs/docs/architecture/adr-0004-hypervisor-sandbox-ui-runtime-boundary.md`
+   - ADR locking strict sandbox ownership for authenticated UI/runtime surfaces and promotion-by-routing semantics.
 1. `/Users/wiz/choiros-rs/docs/architecture/2026-02-16-memory-agent-architecture.md`
    - MemoryAgent: episodic memory (per-user HNSW + SONA learning) + global knowledge store for published IP. Filesystem is truth, memory is resonance.
 1. `/Users/wiz/choiros-rs/docs/architecture/2026-02-14-living-document-human-interface-pillar.md`
@@ -154,10 +164,14 @@ Immediate app pattern: human UX first, then headless API, then app-agent harness
 - Self-prompting replaces role-based prompting: the model queries memory to construct effective prompts, rather than relying on static system prompts.
 - RLM security boundary is the microVM, not an internal sandbox — recursive calls become actor messages that may cross security domains.
 - ChoirOS defines capability contracts at three levels: System (ALM harness semantics), Harness (Conductor/Terminal/Researcher specialization), and Task (objective-specific context). These are API documentation, not role assignments.
+- Authenticated desktop runtime ownership is sandbox-first by role (`live`/`dev`);
+  hypervisor no longer serves authenticated runtime static assets in the target model.
 
 ## One-Line Summary Per Core Doc
 
 - `2026-02-17-rlm-actor-network-concept.md`: "RLM as default execution mode — model composes its own context and controls topology (linear/parallel/recursive), capability contracts replace role-based prompting, self-prompting from episodic memory, microVM is the security boundary, three-level contract hierarchy (System/Harness/Task)."
+- `2026-02-22-sandbox-owned-ui-runtime-spec.md`: "Define strict runtime ownership boundary: hypervisor as control plane, sandbox as authenticated runtime plane (assets + API + WS), with live/dev swap as routing-only promotion."
+- `adr-0004-hypervisor-sandbox-ui-runtime-boundary.md`: "Decision record for sandbox-owned authenticated runtime boundary and rejection of split static/runtime ownership."
 - `2026-02-16-memory-agent-architecture.md`: "Episodic memory layer — filesystem is deterministic truth, vector memory is associative resonance across sessions, sqlite-vec for in-process ANN storage (Phase 5), SONA learning deferred, global store lets users benefit from each other's published learnings."
 - `2026-02-14-living-document-human-interface-pillar.md`: "Human interaction runs through living documents first; conductor remains orchestration authority behind the interface."
 - `2026-02-14-conductor-non-blocking-subagent-pillar.md`: "Conductor treats workers/apps as logical subagents via actor messaging with no polling, no blocking, and bounded agent-tree wake context."
