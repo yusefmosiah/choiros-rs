@@ -68,6 +68,13 @@ fn describe_http_error_from_body(status: u16, body: &str) -> String {
     format!("HTTP error: {status} ({body})")
 }
 
+fn response_looks_like_html(body: &str) -> bool {
+    let trimmed = body.trim_start();
+    trimmed.starts_with("<!DOCTYPE html")
+        || trimmed.starts_with("<!doctype html")
+        || trimmed.starts_with("<html")
+}
+
 #[cfg(test)]
 mod tests {
     use super::describe_http_error_from_body;
@@ -322,13 +329,25 @@ pub async fn fetch_desktop_state(desktop_id: &str) -> Result<DesktopState, Strin
         .map_err(|e| format!("Request failed: {e}"))?;
 
     if !response.ok() {
-        return Err(format!("HTTP error: {}", response.status()));
+        return Err(describe_http_error(response).await);
     }
 
-    let data: GetDesktopStateResponse = response
-        .json()
+    let body = response
+        .text()
         .await
-        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
+        .map_err(|e| format!("Failed to read response body: {e}"))?;
+
+    if response_looks_like_html(&body) {
+        return Err(
+            "Desktop API returned HTML instead of JSON (likely auth redirect or proxy fallback)"
+                .to_string(),
+        );
+    }
+
+    let data: GetDesktopStateResponse = serde_json::from_str(&body).map_err(|e| {
+        let preview = body.trim().chars().take(120).collect::<String>();
+        format!("Failed to parse JSON: {e} (body preview: {preview})")
+    })?;
 
     if !data.success {
         return Err("API returned success=false".to_string());

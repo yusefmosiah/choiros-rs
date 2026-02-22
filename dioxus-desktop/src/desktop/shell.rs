@@ -27,7 +27,7 @@ pub fn DesktopShell(desktop_id: String) -> Element {
     let require_auth_from_url = use_signal(should_require_auth_from_url);
 
     let mut desktop_state = use_signal(|| None::<DesktopState>);
-    let loading = use_signal(|| true);
+    let mut loading = use_signal(|| true);
     let mut error = use_signal(|| None::<String>);
     let mut ws_connected = use_signal(|| false);
     let mut desktop_ws_runtime = use_signal(|| None::<DesktopWsRuntime>);
@@ -135,7 +135,18 @@ pub fn DesktopShell(desktop_id: String) -> Element {
         });
     });
 
+    // Desktop API currently requires an authenticated session through hypervisor middleware.
+    // Avoid loading desktop state pre-auth (which returns HTML redirects and stale parse errors),
+    // then load/reload once auth is established.
     use_effect(move || {
+        let auth_state = auth.read().clone();
+        if !matches!(auth_state, AuthState::Authenticated(_)) {
+            loading.set(false);
+            error.set(None);
+            desktop_state.set(None);
+            return;
+        }
+
         let desktop_id = desktop_id_signal.read().clone();
         spawn(async move {
             effects::load_initial_desktop_state(desktop_id, loading, error, desktop_state).await;
