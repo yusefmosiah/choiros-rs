@@ -433,6 +433,10 @@ fn add_provider_client(
             let mut options = HashMap::new();
             options.insert("model".to_string(), json!(model));
             options.insert("region".to_string(), json!(region));
+            if let Some(gateway_endpoint_url) = provider_gateway_override_bedrock(region) {
+                // Keep aws-bedrock provider semantics, but route transport through hypervisor.
+                options.insert("endpoint_url".to_string(), json!(gateway_endpoint_url));
+            }
             registry.add_llm_client(client_name, "aws-bedrock", options);
             Ok(())
         }
@@ -524,6 +528,13 @@ fn provider_gateway_override(
 
     let routed_url = format!("{gateway_base}/provider/v1/forward/");
     Some((routed_url, gateway_token, forwarded_headers))
+}
+
+fn provider_gateway_override_bedrock(region: &str) -> Option<String> {
+    let gateway_base = std::env::var("CHOIR_PROVIDER_GATEWAY_BASE_URL").ok()?;
+    let gateway_base = gateway_base.trim_end_matches('/');
+    let _gateway_token = std::env::var("CHOIR_PROVIDER_GATEWAY_TOKEN").ok()?;
+    Some(format!("{gateway_base}/provider/v1/aws-bedrock/{region}"))
 }
 
 fn load_model_catalog_configs() -> Option<(
@@ -1211,6 +1222,22 @@ aliases = ["ZaiGLM47Flash"]
         let override_result =
             provider_gateway_override("https://api.z.ai/api/anthropic", "glm-5", &headers);
         assert!(override_result.is_none());
+
+        restore_env("CHOIR_PROVIDER_GATEWAY_BASE_URL", prev_gateway_base);
+        restore_env("CHOIR_PROVIDER_GATEWAY_TOKEN", prev_gateway_token);
+    }
+
+    #[test]
+    fn test_provider_gateway_override_bedrock_sets_endpoint_url() {
+        let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let prev_gateway_base = set_env("CHOIR_PROVIDER_GATEWAY_BASE_URL", "http://127.0.0.1:9090");
+        let prev_gateway_token = set_env("CHOIR_PROVIDER_GATEWAY_TOKEN", "gateway-token");
+        let endpoint = provider_gateway_override_bedrock("us-east-1")
+            .expect("gateway override should be enabled");
+        assert_eq!(
+            endpoint,
+            "http://127.0.0.1:9090/provider/v1/aws-bedrock/us-east-1"
+        );
 
         restore_env("CHOIR_PROVIDER_GATEWAY_BASE_URL", prev_gateway_base);
         restore_env("CHOIR_PROVIDER_GATEWAY_TOKEN", prev_gateway_token);

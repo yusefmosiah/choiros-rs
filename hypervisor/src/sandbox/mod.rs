@@ -355,6 +355,10 @@ impl SandboxRegistry {
         }
         if let Some(token) = self.provider_gateway_token.as_ref() {
             child_cmd.env("CHOIR_PROVIDER_GATEWAY_TOKEN", token);
+            // Keep sandboxes keyless for real provider creds while allowing
+            // BAML aws-bedrock auth plumbing to present a non-provider token
+            // to the local hypervisor gateway.
+            child_cmd.env("AWS_BEARER_TOKEN_BEDROCK", token);
         }
         child_cmd
             .env("CHOIR_SANDBOX_USER_ID", user_id)

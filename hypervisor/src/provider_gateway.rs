@@ -41,25 +41,7 @@ pub async fn forward_provider_request(
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default();
-    let x_api_key = req
-        .headers()
-        .get("x-api-key")
-        .and_then(|v| v.to_str().ok())
-        .map(str::trim)
-        .filter(|v| !v.is_empty());
-    let api_key = req
-        .headers()
-        .get("api-key")
-        .and_then(|v| v.to_str().ok())
-        .map(str::trim)
-        .filter(|v| !v.is_empty());
-    let provided_token = auth_header
-        .strip_prefix("Bearer ")
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .or(x_api_key)
-        .or(api_key)
-        .unwrap_or_default();
+    let provided_token = extract_provided_token(req.headers());
     if provided_token != expected_token {
         let provided_prefix = provided_token.chars().take(8).collect::<String>();
         let expected_prefix = expected_token.chars().take(8).collect::<String>();
@@ -74,15 +56,16 @@ pub async fn forward_provider_request(
         return (StatusCode::UNAUTHORIZED, "invalid provider gateway token").into_response();
     }
 
-    let context = match caller_context_from_headers(req.headers()) {
-        Ok(ctx) => ctx,
-        Err((status, msg)) => return (status, msg).into_response(),
-    };
+    let context = caller_context_from_headers(req.headers());
 
     if let Err(response) =
         enforce_per_sandbox_rate_limit(&state.provider_gateway, &context.sandbox_id).await
     {
         return response;
+    }
+
+    if provider == "aws-bedrock" {
+        return forward_bedrock_request(state, provider, req, context, started_at).await;
     }
 
     let upstream_base_url = match req
@@ -187,6 +170,126 @@ pub async fn forward_provider_request(
     response
 }
 
+async fn forward_bedrock_request(
+    state: Arc<AppState>,
+    provider: String,
+    req: Request,
+    context: GatewayCallerContext,
+    started_at: Instant,
+) -> Response {
+    let provider_api_key = match std::env::var("AWS_BEARER_TOKEN_BEDROCK") {
+        Ok(v) if !v.trim().is_empty() => v,
+        _ => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "provider api key missing on hypervisor",
+            )
+                .into_response();
+        }
+    };
+    let path_and_query = req
+        .uri()
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/");
+    let region_and_path = path_and_query
+        .strip_prefix("/provider/v1/aws-bedrock/")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_default();
+    let Some((region, upstream_suffix)) = split_region_and_upstream_path(region_and_path) else {
+        return (StatusCode::BAD_REQUEST, "missing bedrock region in path").into_response();
+    };
+    let upstream_url = format!("https://bedrock-runtime.{region}.amazonaws.com{upstream_suffix}");
+    let (parts, body) = req.into_parts();
+    let body_bytes = match body.collect().await {
+        Ok(collected) => collected.to_bytes(),
+        Err(e) => {
+            error!(error = %e, "failed to read provider gateway request body");
+            return (StatusCode::BAD_REQUEST, "invalid request body").into_response();
+        }
+    };
+
+    let mut upstream_req = state
+        .provider_gateway
+        .client
+        .post(&upstream_url)
+        .bearer_auth(provider_api_key)
+        .body(body_bytes);
+    upstream_req = copy_request_headers(upstream_req, &parts.headers);
+
+    let upstream_res = match upstream_req.send().await {
+        Ok(res) => res,
+        Err(e) => {
+            error!(provider = %provider, upstream_url = %upstream_url, error = %e, "provider gateway upstream request failed");
+            return (StatusCode::BAD_GATEWAY, "provider upstream request failed").into_response();
+        }
+    };
+
+    let status = upstream_res.status();
+    let headers = upstream_res.headers().clone();
+    let bytes = match upstream_res.bytes().await {
+        Ok(b) => b,
+        Err(e) => {
+            error!(provider = %provider, upstream_url = %upstream_url, error = %e, "provider gateway failed to read upstream response body");
+            return (StatusCode::BAD_GATEWAY, "invalid upstream response").into_response();
+        }
+    };
+
+    let mut response = Response::new(Body::from(bytes));
+    *response.status_mut() = status;
+    copy_response_headers(response.headers_mut(), &headers);
+
+    info!(
+        sandbox_id = %context.sandbox_id,
+        user_id = %context.user_id,
+        provider = %provider,
+        model = %context.model,
+        status = status.as_u16(),
+        latency_ms = started_at.elapsed().as_millis() as u64,
+        "provider gateway proxied request"
+    );
+
+    response
+}
+
+fn split_region_and_upstream_path(region_and_path: &str) -> Option<(&str, String)> {
+    let mut split = region_and_path.splitn(2, '/');
+    let region = split.next()?.trim();
+    if region.is_empty() {
+        return None;
+    }
+    let path = match split.next() {
+        Some(rest) if !rest.is_empty() => format!("/{rest}"),
+        _ => "/".to_string(),
+    };
+    Some((region, path))
+}
+
+fn extract_provided_token(headers: &HeaderMap) -> &str {
+    let auth_header = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    let x_api_key = headers
+        .get("x-api-key")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let api_key = headers
+        .get("api-key")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+
+    auth_header
+        .strip_prefix("Bearer ")
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .or(x_api_key)
+        .or(api_key)
+        .unwrap_or_default()
+}
+
 async fn enforce_per_sandbox_rate_limit(
     state: &ProviderGatewayState,
     sandbox_id: &str,
@@ -219,15 +322,13 @@ async fn enforce_per_sandbox_rate_limit(
     Ok(())
 }
 
-fn caller_context_from_headers(
-    headers: &HeaderMap,
-) -> Result<GatewayCallerContext, (StatusCode, &'static str)> {
+fn caller_context_from_headers(headers: &HeaderMap) -> GatewayCallerContext {
     let sandbox_id = headers
         .get("x-choiros-sandbox-id")
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .ok_or((StatusCode::BAD_REQUEST, "missing sandbox rate-limit key"))?
+        .unwrap_or("unknown")
         .to_string();
 
     let user_id = headers
@@ -246,11 +347,11 @@ fn caller_context_from_headers(
         .unwrap_or("unknown")
         .to_string();
 
-    Ok(GatewayCallerContext {
+    GatewayCallerContext {
         sandbox_id,
         user_id,
         model,
-    })
+    }
 }
 
 fn provider_key_for_upstream(
@@ -282,7 +383,10 @@ fn copy_request_headers(
         if name == header::HOST
             || name == header::CONTENT_LENGTH
             || name == header::AUTHORIZATION
+            || name.as_str().eq_ignore_ascii_case("x-api-key")
+            || name.as_str().eq_ignore_ascii_case("api-key")
             || name == "x-choiros-upstream-base-url"
+            || name.as_str().starts_with("x-choiros-")
             || name == header::CONNECTION
             || name.as_str().eq_ignore_ascii_case("proxy-connection")
             || name.as_str().eq_ignore_ascii_case("keep-alive")
@@ -321,17 +425,14 @@ mod tests {
     use super::*;
     use std::{collections::HashMap, sync::Arc};
 
-    use axum::http::HeaderValue;
+    use axum::http::{HeaderName, HeaderValue};
     use tokio::sync::Mutex;
 
     #[test]
     fn caller_context_rejects_missing_sandbox_id() {
         let headers = HeaderMap::new();
         let result = caller_context_from_headers(&headers);
-        assert_eq!(
-            result,
-            Err((StatusCode::BAD_REQUEST, "missing sandbox rate-limit key"))
-        );
+        assert_eq!(result.sandbox_id, "unknown");
     }
 
     #[test]
@@ -339,7 +440,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("x-choiros-sandbox-id", HeaderValue::from_static("u1:live"));
 
-        let result = caller_context_from_headers(&headers).expect("context should parse");
+        let result = caller_context_from_headers(&headers);
         assert_eq!(result.sandbox_id, "u1:live");
         assert_eq!(result.user_id, "unknown");
         assert_eq!(result.model, "unknown");
@@ -367,5 +468,37 @@ mod tests {
         assert!(third.is_err());
         let response = third.err().expect("third call should be rate limited");
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[test]
+    fn extract_provided_token_supports_bearer_and_api_key_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer tok-a"),
+        );
+        assert_eq!(extract_provided_token(&headers), "tok-a");
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("x-api-key"),
+            HeaderValue::from_static("tok-b"),
+        );
+        assert_eq!(extract_provided_token(&headers), "tok-b");
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("api-key"),
+            HeaderValue::from_static("tok-c"),
+        );
+        assert_eq!(extract_provided_token(&headers), "tok-c");
+    }
+
+    #[test]
+    fn split_region_and_upstream_path_parses_region_prefix() {
+        let (region, path) = split_region_and_upstream_path("us-east-1/model/x/converse")
+            .expect("expected region and path");
+        assert_eq!(region, "us-east-1");
+        assert_eq!(path, "/model/x/converse");
     }
 }
