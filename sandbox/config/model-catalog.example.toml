@@ -92,7 +92,7 @@ name = "Kimi K2.5 (coding)"
 provider = "anthropic"
 base_url = "https://api.kimi.com/coding/"
 api_key_env = "KIMI_API_KEY"
-model = "kimi-for-coding/k2p5"
+model = "kimi-for-coding"
 aliases = ["KimiK25", "KimiK25OpenAI"]
 
 [models.KimiK25.headers]
