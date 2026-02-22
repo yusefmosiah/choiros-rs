@@ -123,11 +123,17 @@ podman-build:
 podman-run:
     podman run --rm -it --name choir-sandbox -p 8080:8080 -v ./data:/data:Z choir-sandbox:latest
 
-# Deployment
-# Deploy to EC2 instance at 3.83.131.245 (push code + build)
+# Deployment (current AWS path)
+# Uses AWS SSM + host-side nixos-rebuild switch flow.
+# Required env: DEPLOY_INSTANCE_ID (or EC2_INSTANCE_ID)
+deploy-aws-ssm:
+    ./scripts/deploy/aws-ssm-deploy.sh
+
+# Legacy alias retained to avoid silent stale usage.
 deploy-ec2:
-    rsync -avz --delete ./ ubuntu@3.83.131.245:~/choiros-rs/
-    ssh ubuntu@3.83.131.245 'cd ~/choiros-rs && just build-sandbox'
+    @echo "ERROR: 'deploy-ec2' is deprecated and removed."
+    @echo "Use: just deploy-aws-ssm"
+    @exit 1
 
 # Grind host
 # Run canonical pre-push checks directly on grind.

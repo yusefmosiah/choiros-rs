@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use axum::{
     body::Body,
@@ -7,15 +10,24 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use http_body_util::BodyExt;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
-use crate::AppState;
+use crate::{state::ProviderGatewayState, AppState};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GatewayCallerContext {
+    sandbox_id: String,
+    user_id: String,
+    model: String,
+}
 
 pub async fn forward_provider_request(
     State(state): State<Arc<AppState>>,
     Path((provider, _rest)): Path<(String, String)>,
     req: Request,
 ) -> Response {
+    let started_at = Instant::now();
+
     let Some(expected_token) = state.provider_gateway.token.as_deref() else {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -35,6 +47,17 @@ pub async fn forward_provider_request(
         .unwrap_or_default();
     if provided_token != expected_token {
         return (StatusCode::UNAUTHORIZED, "invalid provider gateway token").into_response();
+    }
+
+    let context = match caller_context_from_headers(req.headers()) {
+        Ok(ctx) => ctx,
+        Err((status, msg)) => return (status, msg).into_response(),
+    };
+
+    if let Err(response) =
+        enforce_per_sandbox_rate_limit(&state.provider_gateway, &context.sandbox_id).await
+    {
+        return response;
     }
 
     let upstream_base_url = match req
@@ -125,7 +148,84 @@ pub async fn forward_provider_request(
     let mut response = Response::new(Body::from(bytes));
     *response.status_mut() = status;
     copy_response_headers(response.headers_mut(), &headers);
+
+    info!(
+        sandbox_id = %context.sandbox_id,
+        user_id = %context.user_id,
+        provider = %provider,
+        model = %context.model,
+        status = status.as_u16(),
+        latency_ms = started_at.elapsed().as_millis() as u64,
+        "provider gateway proxied request"
+    );
+
     response
+}
+
+async fn enforce_per_sandbox_rate_limit(
+    state: &ProviderGatewayState,
+    sandbox_id: &str,
+) -> Result<(), Response> {
+    let limit = state.rate_limit_per_minute;
+    if limit == 0 {
+        return Ok(());
+    }
+
+    let window = Duration::from_secs(60);
+    let now = Instant::now();
+    let mut guard = state.rate_limit_state.lock().await;
+    let bucket = guard.entry(sandbox_id.to_string()).or_default();
+
+    bucket.retain(|stamp| now.duration_since(*stamp) < window);
+    if bucket.len() >= limit {
+        warn!(
+            sandbox_id = %sandbox_id,
+            limit_per_minute = limit,
+            "provider gateway rate limit exceeded"
+        );
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "provider gateway rate limit exceeded",
+        )
+            .into_response());
+    }
+
+    bucket.push(now);
+    Ok(())
+}
+
+fn caller_context_from_headers(
+    headers: &HeaderMap,
+) -> Result<GatewayCallerContext, (StatusCode, &'static str)> {
+    let sandbox_id = headers
+        .get("x-choiros-sandbox-id")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or((StatusCode::BAD_REQUEST, "missing sandbox rate-limit key"))?
+        .to_string();
+
+    let user_id = headers
+        .get("x-choiros-user-id")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let model = headers
+        .get("x-choiros-model")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or("unknown")
+        .to_string();
+
+    Ok(GatewayCallerContext {
+        sandbox_id,
+        user_id,
+        model,
+    })
 }
 
 fn provider_key_for_upstream(
@@ -188,5 +288,59 @@ fn copy_response_headers(dest: &mut HeaderMap, src: &HeaderMap) {
         if let Ok(header_value) = HeaderValue::from_bytes(value.as_bytes()) {
             dest.insert(name, header_value);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{collections::HashMap, sync::Arc};
+
+    use axum::http::HeaderValue;
+    use tokio::sync::Mutex;
+
+    #[test]
+    fn caller_context_rejects_missing_sandbox_id() {
+        let headers = HeaderMap::new();
+        let result = caller_context_from_headers(&headers);
+        assert_eq!(
+            result,
+            Err((StatusCode::BAD_REQUEST, "missing sandbox rate-limit key"))
+        );
+    }
+
+    #[test]
+    fn caller_context_defaults_user_and_model() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-choiros-sandbox-id", HeaderValue::from_static("u1:live"));
+
+        let result = caller_context_from_headers(&headers).expect("context should parse");
+        assert_eq!(result.sandbox_id, "u1:live");
+        assert_eq!(result.user_id, "unknown");
+        assert_eq!(result.model, "unknown");
+    }
+
+    #[tokio::test]
+    async fn rate_limit_blocks_after_budget() {
+        let state = ProviderGatewayState {
+            token: None,
+            base_url: None,
+            allowed_upstreams: Vec::new(),
+            client: reqwest::Client::new(),
+            rate_limit_per_minute: 2,
+            rate_limit_state: Arc::new(Mutex::new(HashMap::new())),
+        };
+
+        assert!(enforce_per_sandbox_rate_limit(&state, "u1:live")
+            .await
+            .is_ok());
+        assert!(enforce_per_sandbox_rate_limit(&state, "u1:live")
+            .await
+            .is_ok());
+
+        let third = enforce_per_sandbox_rate_limit(&state, "u1:live").await;
+        assert!(third.is_err());
+        let response = third.err().expect("third call should be rate limited");
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     }
 }

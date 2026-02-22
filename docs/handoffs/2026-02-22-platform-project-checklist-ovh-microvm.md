@@ -31,8 +31,17 @@ optimization because user VMs share large amounts of identical code and Nix clos
 5. Performance plan is now explicit:
    - Add quantitative targets (SLO hypotheses) and benchmark gates.
    - Compare estimates against real OVH load tests and revise.
+6. Deployment contract cleanup started:
+   - Legacy `scripts/deploy.sh` removed.
+   - Canonical AWS path documented as SSM -> host `nixos-rebuild switch`.
+   - In-repo deploy scripts now live under `scripts/deploy/`.
 
 ## What To Do Next
+
+- [ ] Update CI and operator runbooks to use `scripts/deploy/aws-ssm-deploy.sh` and
+      `scripts/deploy/host-switch.sh` only (no inline deploy shells).
+- [ ] Add OVH deploy wrapper (SSH/remote-exec) that calls the same host-switch contract,
+      then remove AWS-specific deploy paths after cutover.
 
 ## Phase 0 - Lock Architecture Contract (No Fallback Paths)
 

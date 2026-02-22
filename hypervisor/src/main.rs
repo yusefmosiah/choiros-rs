@@ -66,6 +66,8 @@ async fn main() -> anyhow::Result<()> {
         config.sandbox_live_port,
         config.sandbox_dev_port,
         config.sandbox_idle_timeout,
+        config.provider_gateway_base_url.clone(),
+        config.provider_gateway_token.clone(),
     );
 
     // Spawn idle watchdog
@@ -80,10 +82,13 @@ async fn main() -> anyhow::Result<()> {
         sandbox_registry,
         provider_gateway: state::ProviderGatewayState {
             token: config.provider_gateway_token.clone(),
+            base_url: config.provider_gateway_base_url.clone(),
             allowed_upstreams: config.provider_gateway_allowed_upstreams.clone(),
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(120))
                 .build()?,
+            rate_limit_per_minute: config.provider_gateway_rate_limit_per_minute,
+            rate_limit_state: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         },
     });
 

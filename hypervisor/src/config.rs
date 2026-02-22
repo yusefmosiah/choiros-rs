@@ -41,16 +41,26 @@ pub struct Config {
     pub webauthn_rp_name: String,
     /// Shared token used by sandbox-to-hypervisor provider gateway requests.
     pub provider_gateway_token: Option<String>,
+    /// Base URL sandboxes use to reach the hypervisor provider gateway.
+    pub provider_gateway_base_url: Option<String>,
     /// Allowed upstream provider base URLs for the gateway.
     pub provider_gateway_allowed_upstreams: Vec<String>,
+    /// Per-sandbox request budget over a rolling 60s window.
+    pub provider_gateway_rate_limit_per_minute: usize,
 }
 
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
         dotenvy::dotenv().ok();
 
+        let port = env_parse("HYPERVISOR_PORT", 9090)?;
+        let provider_gateway_token = std::env::var("CHOIR_PROVIDER_GATEWAY_TOKEN").ok();
+        let provider_gateway_base_url = std::env::var("CHOIR_PROVIDER_GATEWAY_BASE_URL")
+            .ok()
+            .or_else(|| Some(format!("http://127.0.0.1:{port}")));
+
         Ok(Self {
-            port: env_parse("HYPERVISOR_PORT", 9090)?,
+            port,
             sandbox_binary: {
                 // Default: workspace root /target/debug/sandbox (resolved at compile time).
                 // The hypervisor may be launched from any directory, so use an absolute path.
@@ -79,7 +89,8 @@ impl Config {
             webauthn_rp_id: env_str("WEBAUTHN_RP_ID", "localhost"),
             webauthn_rp_origin: env_str("WEBAUTHN_RP_ORIGIN", "http://localhost:9090"),
             webauthn_rp_name: env_str("WEBAUTHN_RP_NAME", "ChoirOS"),
-            provider_gateway_token: std::env::var("CHOIR_PROVIDER_GATEWAY_TOKEN").ok(),
+            provider_gateway_token,
+            provider_gateway_base_url,
             provider_gateway_allowed_upstreams: env_csv(
                 "CHOIR_PROVIDER_GATEWAY_ALLOWED_UPSTREAMS",
                 &[
@@ -87,6 +98,10 @@ impl Config {
                     "https://api.kimi.com/coding/",
                 ],
             ),
+            provider_gateway_rate_limit_per_minute: env_parse(
+                "CHOIR_PROVIDER_GATEWAY_RATE_LIMIT_PER_MINUTE",
+                120,
+            )?,
         })
     }
 }

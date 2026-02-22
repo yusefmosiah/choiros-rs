@@ -63,6 +63,8 @@ pub struct SandboxRegistry {
     entries: Mutex<HashMap<String, HashMap<SandboxRole, SandboxEntry>>>,
     live_port: u16,
     dev_port: u16,
+    provider_gateway_base_url: Option<String>,
+    provider_gateway_token: Option<String>,
 }
 
 impl SandboxRegistry {
@@ -72,6 +74,8 @@ impl SandboxRegistry {
         live_port: u16,
         dev_port: u16,
         idle_timeout: Duration,
+        provider_gateway_base_url: Option<String>,
+        provider_gateway_token: Option<String>,
     ) -> Arc<Self> {
         Arc::new(Self {
             binary,
@@ -80,6 +84,8 @@ impl SandboxRegistry {
             entries: Mutex::new(HashMap::new()),
             live_port,
             dev_port,
+            provider_gateway_base_url,
+            provider_gateway_token,
         })
     }
 
@@ -250,19 +256,24 @@ impl SandboxRegistry {
 
     async fn spawn_instance(
         &self,
-        _user_id: &str,
+        user_id: &str,
         role: SandboxRole,
         port: u16,
     ) -> anyhow::Result<SandboxHandle> {
         match self.runtime {
             SandboxRuntime::Process => self
-                .spawn_process(role, port)
+                .spawn_process(user_id, role, port)
                 .await
                 .map(SandboxHandle::Process),
         }
     }
 
-    async fn spawn_process(&self, role: SandboxRole, port: u16) -> anyhow::Result<Child> {
+    async fn spawn_process(
+        &self,
+        user_id: &str,
+        role: SandboxRole,
+        port: u16,
+    ) -> anyhow::Result<Child> {
         // Brief wait for the port to become available after a prior process exits.
         sleep(Duration::from_millis(200)).await;
 
@@ -292,6 +303,17 @@ impl SandboxRegistry {
             .env("SQLX_OFFLINE", "true")
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit());
+
+        if let Some(base_url) = self.provider_gateway_base_url.as_ref() {
+            child_cmd.env("CHOIR_PROVIDER_GATEWAY_BASE_URL", base_url);
+        }
+        if let Some(token) = self.provider_gateway_token.as_ref() {
+            child_cmd.env("CHOIR_PROVIDER_GATEWAY_TOKEN", token);
+        }
+        child_cmd
+            .env("CHOIR_SANDBOX_USER_ID", user_id)
+            .env("CHOIR_SANDBOX_ROLE", role.to_string())
+            .env("CHOIR_SANDBOX_ID", format!("{user_id}:{role}"));
 
         let child = child_cmd.spawn().map_err(|e| {
             error!(%role, port, binary = %self.binary, "failed to spawn sandbox: {e}");

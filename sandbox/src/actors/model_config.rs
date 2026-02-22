@@ -444,7 +444,7 @@ fn add_provider_client(
         } => {
             let (resolved_base_url, api_key, resolved_headers) =
                 if let Some((gateway_url, gateway_token, gateway_headers)) =
-                    provider_gateway_override(base_url, headers)
+                    provider_gateway_override(base_url, model, headers)
                 {
                     (gateway_url, gateway_token, gateway_headers)
                 } else {
@@ -470,7 +470,7 @@ fn add_provider_client(
         } => {
             let (resolved_base_url, api_key, resolved_headers) =
                 if let Some((gateway_url, gateway_token, gateway_headers)) =
-                    provider_gateway_override(base_url, headers)
+                    provider_gateway_override(base_url, model, headers)
                 {
                     (gateway_url, gateway_token, gateway_headers)
                 } else {
@@ -493,6 +493,7 @@ fn add_provider_client(
 
 fn provider_gateway_override(
     upstream_base_url: &str,
+    model: &str,
     headers: &HashMap<String, String>,
 ) -> Option<(String, String, HashMap<String, String>)> {
     let gateway_base = std::env::var("CHOIR_PROVIDER_GATEWAY_BASE_URL").ok()?;
@@ -503,6 +504,24 @@ fn provider_gateway_override(
         "x-choiros-upstream-base-url".to_string(),
         upstream_base_url.to_string(),
     );
+    forwarded_headers.insert("x-choiros-model".to_string(), model.to_string());
+
+    if let Ok(sandbox_id) = std::env::var("CHOIR_SANDBOX_ID") {
+        if !sandbox_id.trim().is_empty() {
+            forwarded_headers.insert("x-choiros-sandbox-id".to_string(), sandbox_id);
+        }
+    }
+    if let Ok(user_id) = std::env::var("CHOIR_SANDBOX_USER_ID") {
+        if !user_id.trim().is_empty() {
+            forwarded_headers.insert("x-choiros-user-id".to_string(), user_id);
+        }
+    }
+    if let Ok(role) = std::env::var("CHOIR_SANDBOX_ROLE") {
+        if !role.trim().is_empty() {
+            forwarded_headers.insert("x-choiros-sandbox-role".to_string(), role);
+        }
+    }
+
     let routed_url = format!("{gateway_base}/provider/v1/forward/");
     Some((routed_url, gateway_token, forwarded_headers))
 }
@@ -1115,5 +1134,85 @@ aliases = ["ZaiGLM47Flash"]
 
         restore_env("CHOIR_MODEL_CONFIG_PATH", previous_config);
         restore_env("CHOIR_MODEL_CATALOG_PATH", previous_catalog);
+    }
+
+    #[test]
+    fn test_provider_gateway_override_includes_context_headers() {
+        let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let prev_gateway_base = set_env("CHOIR_PROVIDER_GATEWAY_BASE_URL", "http://127.0.0.1:9090");
+        let prev_gateway_token = set_env("CHOIR_PROVIDER_GATEWAY_TOKEN", "gateway-token");
+        let prev_sandbox_id = set_env("CHOIR_SANDBOX_ID", "user-1:live");
+        let prev_user_id = set_env("CHOIR_SANDBOX_USER_ID", "user-1");
+        let prev_role = set_env("CHOIR_SANDBOX_ROLE", "live");
+
+        let mut initial_headers = HashMap::new();
+        initial_headers.insert("x-extra".to_string(), "1".to_string());
+
+        let override_result =
+            provider_gateway_override("https://api.z.ai/api/anthropic", "glm-5", &initial_headers)
+                .expect("gateway override should be enabled");
+
+        assert_eq!(
+            override_result.0,
+            "http://127.0.0.1:9090/provider/v1/forward/"
+        );
+        assert_eq!(override_result.1, "gateway-token");
+        assert_eq!(
+            override_result
+                .2
+                .get("x-choiros-upstream-base-url")
+                .map(String::as_str),
+            Some("https://api.z.ai/api/anthropic")
+        );
+        assert_eq!(
+            override_result.2.get("x-choiros-model").map(String::as_str),
+            Some("glm-5")
+        );
+        assert_eq!(
+            override_result
+                .2
+                .get("x-choiros-sandbox-id")
+                .map(String::as_str),
+            Some("user-1:live")
+        );
+        assert_eq!(
+            override_result
+                .2
+                .get("x-choiros-user-id")
+                .map(String::as_str),
+            Some("user-1")
+        );
+        assert_eq!(
+            override_result
+                .2
+                .get("x-choiros-sandbox-role")
+                .map(String::as_str),
+            Some("live")
+        );
+        assert_eq!(
+            override_result.2.get("x-extra").map(String::as_str),
+            Some("1")
+        );
+
+        restore_env("CHOIR_PROVIDER_GATEWAY_BASE_URL", prev_gateway_base);
+        restore_env("CHOIR_PROVIDER_GATEWAY_TOKEN", prev_gateway_token);
+        restore_env("CHOIR_SANDBOX_ID", prev_sandbox_id);
+        restore_env("CHOIR_SANDBOX_USER_ID", prev_user_id);
+        restore_env("CHOIR_SANDBOX_ROLE", prev_role);
+    }
+
+    #[test]
+    fn test_provider_gateway_override_disabled_without_required_env() {
+        let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let prev_gateway_base = clear_env("CHOIR_PROVIDER_GATEWAY_BASE_URL");
+        let prev_gateway_token = clear_env("CHOIR_PROVIDER_GATEWAY_TOKEN");
+
+        let headers = HashMap::new();
+        let override_result =
+            provider_gateway_override("https://api.z.ai/api/anthropic", "glm-5", &headers);
+        assert!(override_result.is_none());
+
+        restore_env("CHOIR_PROVIDER_GATEWAY_BASE_URL", prev_gateway_base);
+        restore_env("CHOIR_PROVIDER_GATEWAY_TOKEN", prev_gateway_token);
     }
 }
