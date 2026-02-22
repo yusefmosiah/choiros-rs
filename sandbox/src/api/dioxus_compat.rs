@@ -18,9 +18,7 @@ async fn handle_hmr_socket(socket: WebSocket) {
     // Tell the client the socket is alive; no hot-reload events are sent.
     if sender
         .send(Message::Text(
-            r#"{"type":"connected","mode":"static","hmr":false}"#
-                .to_string()
-                .into(),
+            r#"{"type":"connected","mode":"static","hmr":false}"#.to_string().into(),
         ))
         .await
         .is_err()

@@ -83,12 +83,43 @@ ln -sfn "$DESKTOP_BIN" /opt/choiros/bin/dioxus-desktop
 cp "$MANIFEST_PATH" "${BACKUP_DIR}/applied-release.env"
 
 systemctl restart container@sandbox-live container@sandbox-dev hypervisor
-sleep 3
 
-curl -fsS http://127.0.0.1:9090/health >/dev/null
-curl -fsS http://127.0.0.1:8080/health >/dev/null
-curl -fsS http://127.0.0.1:8081/health >/dev/null
+wait_for_url() {
+  local url="$1"
+  local attempts="${2:-20}"
+  local delay="${3:-1}"
+  local i
+  for ((i = 1; i <= attempts; i++)); do
+    if curl -fsS "$url" >/dev/null; then
+      return 0
+    fi
+    sleep "$delay"
+  done
+  return 1
+}
+
+check_one_of() {
+  local label="$1"
+  shift
+  local url
+  for url in "$@"; do
+    if wait_for_url "$url"; then
+      echo "$label health passed via $url"
+      return 0
+    fi
+  done
+  echo "$label health failed for all candidate endpoints: $*"
+  return 1
+}
+
+wait_for_url "http://127.0.0.1:9090/health"
+check_one_of "sandbox-live" \
+  "http://127.0.0.1:8080/health" \
+  "http://10.233.1.2:8080/health"
+check_one_of "sandbox-dev" \
+  "http://127.0.0.1:8081/health" \
+  "http://10.233.2.2:8080/health"
 
 echo "Applied release ${RELEASE_SHA}"
 echo "Backup: ${BACKUP_DIR}"
-echo "Health checks passed on :9090, :8080, :8081"
+echo "Health checks passed"

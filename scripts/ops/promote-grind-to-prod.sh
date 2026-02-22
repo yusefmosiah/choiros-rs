@@ -13,6 +13,8 @@ Options:
   --grind <ssh-host>      SSH target for grind (required)
   --prod <ssh-host>       SSH target for prod (required)
   --repo <path>           Repo path on both hosts (default: /opt/choiros/workspace)
+  --grind-repo <path>     Repo path on grind only (overrides --repo for grind)
+  --prod-repo <path>      Repo path on prod only (overrides --repo for prod)
   --manifest <path>       Manifest path on grind/prod (default: /tmp/choiros-release.env)
   --allow-dirty           Allow building release manifest from dirty grind tree
 EOF
@@ -20,7 +22,8 @@ EOF
 
 GRIND_HOST=""
 PROD_HOST=""
-REPO_PATH="/opt/choiros/workspace"
+GRIND_REPO_PATH="/opt/choiros/workspace"
+PROD_REPO_PATH="/opt/choiros/workspace"
 MANIFEST_PATH="/tmp/choiros-release.env"
 ALLOW_DIRTY="false"
 
@@ -35,7 +38,16 @@ while [ "$#" -gt 0 ]; do
       shift 2
       ;;
     --repo)
-      REPO_PATH="$2"
+      GRIND_REPO_PATH="$2"
+      PROD_REPO_PATH="$2"
+      shift 2
+      ;;
+    --grind-repo)
+      GRIND_REPO_PATH="$2"
+      shift 2
+      ;;
+    --prod-repo)
+      PROD_REPO_PATH="$2"
       shift 2
       ;;
     --manifest)
@@ -90,7 +102,7 @@ if [ "$ALLOW_DIRTY" = "true" ]; then
 fi
 
 echo "Building release manifest on grind (${GRIND_HOST})"
-ssh "$GRIND_HOST" "set -euo pipefail; cd '$REPO_PATH'; ./scripts/ops/build-release-manifest.sh --manifest '$MANIFEST_PATH' ${ALLOW_DIRTY_FLAG}"
+ssh "$GRIND_HOST" "set -euo pipefail; cd '$GRIND_REPO_PATH'; ./scripts/ops/build-release-manifest.sh --manifest '$MANIFEST_PATH' ${ALLOW_DIRTY_FLAG}"
 
 echo "Fetching manifest from grind"
 scp "${GRIND_HOST}:${MANIFEST_PATH}" "$TMP_MANIFEST"
@@ -108,6 +120,6 @@ echo "Uploading manifest to prod"
 scp "$TMP_MANIFEST" "${PROD_HOST}:${MANIFEST_PATH}"
 
 echo "Applying release on prod (${PROD_HOST})"
-ssh "$PROD_HOST" "set -euo pipefail; cd '$REPO_PATH'; ./scripts/ops/apply-release-manifest.sh '$MANIFEST_PATH'"
+ssh "$PROD_HOST" "set -euo pipefail; cd '$PROD_REPO_PATH'; ./scripts/ops/apply-release-manifest.sh '$MANIFEST_PATH'"
 
 echo "Promotion complete: ${RELEASE_SHA}"

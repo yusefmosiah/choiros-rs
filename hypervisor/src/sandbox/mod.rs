@@ -15,6 +15,42 @@ use tracing::{error, info, warn};
 
 use crate::config::SandboxRuntime;
 
+const SANDBOX_PARENT_ENV_ALLOWLIST: &[&str] = &[
+    "PATH",
+    "HOME",
+    "USER",
+    "LANG",
+    "LC_ALL",
+    "TZDIR",
+    "SSL_CERT_FILE",
+    "NIX_SSL_CERT_FILE",
+    "RUST_LOG",
+    "RUST_BACKTRACE",
+];
+
+const FORBIDDEN_PROVIDER_KEY_ENVS: &[&str] = &[
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "ZAI_API_KEY",
+    "KIMI_API_KEY",
+    "GOOGLE_API_KEY",
+    "MISTRAL_API_KEY",
+    "AWS_BEARER_TOKEN_BEDROCK",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SESSION_TOKEN",
+];
+
+fn sanitized_parent_env(parent_env: &HashMap<String, String>) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for key in SANDBOX_PARENT_ENV_ALLOWLIST {
+        if let Some(value) = parent_env.get(*key) {
+            out.push(((*key).to_string(), value.clone()));
+        }
+    }
+    out
+}
+
 /// The role of a sandbox instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SandboxRole {
@@ -280,21 +316,14 @@ impl SandboxRegistry {
         let mut child_cmd = Command::new(&self.binary);
         child_cmd.env_clear();
 
-        for key in [
-            "PATH",
-            "HOME",
-            "USER",
-            "LANG",
-            "LC_ALL",
-            "TZDIR",
-            "SSL_CERT_FILE",
-            "NIX_SSL_CERT_FILE",
-            "RUST_LOG",
-            "RUST_BACKTRACE",
-        ] {
-            if let Ok(value) = std::env::var(key) {
-                child_cmd.env(key, value);
-            }
+        let parent_env: HashMap<String, String> = std::env::vars().collect();
+        for (key, value) in sanitized_parent_env(&parent_env) {
+            child_cmd.env(key, value);
+        }
+        // Defense in depth: keep explicit key removals even though env_clear()
+        // already empties inherited environment for sandbox children.
+        for key in FORBIDDEN_PROVIDER_KEY_ENVS {
+            child_cmd.env_remove(key);
         }
 
         child_cmd
@@ -356,6 +385,48 @@ impl SandboxRegistry {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{sanitized_parent_env, FORBIDDEN_PROVIDER_KEY_ENVS};
+    use std::collections::HashMap;
+
+    #[test]
+    fn sanitized_parent_env_keeps_allowlist_only() {
+        let parent = HashMap::from([
+            ("PATH".to_string(), "/usr/bin".to_string()),
+            ("HOME".to_string(), "/home/test".to_string()),
+            ("RUST_LOG".to_string(), "info".to_string()),
+            ("OPENAI_API_KEY".to_string(), "secret".to_string()),
+            ("RANDOM_VAR".to_string(), "value".to_string()),
+        ]);
+
+        let env = sanitized_parent_env(&parent);
+        let env_map: HashMap<String, String> = env.into_iter().collect();
+
+        assert_eq!(env_map.get("PATH").map(String::as_str), Some("/usr/bin"));
+        assert_eq!(env_map.get("HOME").map(String::as_str), Some("/home/test"));
+        assert_eq!(env_map.get("RUST_LOG").map(String::as_str), Some("info"));
+        assert!(!env_map.contains_key("RANDOM_VAR"));
+    }
+
+    #[test]
+    fn sanitized_parent_env_never_includes_forbidden_provider_keys() {
+        let mut parent = HashMap::new();
+        for key in FORBIDDEN_PROVIDER_KEY_ENVS {
+            parent.insert((*key).to_string(), "secret".to_string());
+        }
+        parent.insert("PATH".to_string(), "/usr/bin".to_string());
+
+        let env = sanitized_parent_env(&parent);
+        let env_map: HashMap<String, String> = env.into_iter().collect();
+
+        for key in FORBIDDEN_PROVIDER_KEY_ENVS {
+            assert!(!env_map.contains_key(*key));
+        }
+        assert_eq!(env_map.get("PATH").map(String::as_str), Some("/usr/bin"));
     }
 }
 
