@@ -442,14 +442,22 @@ fn add_provider_client(
             model,
             headers,
         } => {
-            let api_key = std::env::var(api_key_env)
-                .map_err(|_| ModelConfigError::MissingApiKey(api_key_env.clone()))?;
+            let (resolved_base_url, api_key, resolved_headers) =
+                if let Some((gateway_url, gateway_token, gateway_headers)) =
+                    provider_gateway_override(base_url, headers)
+                {
+                    (gateway_url, gateway_token, gateway_headers)
+                } else {
+                    let api_key = std::env::var(api_key_env)
+                        .map_err(|_| ModelConfigError::MissingApiKey(api_key_env.clone()))?;
+                    (base_url.clone(), api_key, headers.clone())
+                };
             let mut options = HashMap::new();
             options.insert("api_key".to_string(), json!(api_key));
-            options.insert("base_url".to_string(), json!(base_url));
+            options.insert("base_url".to_string(), json!(resolved_base_url));
             options.insert("model".to_string(), json!(model));
-            if !headers.is_empty() {
-                options.insert("headers".to_string(), json!(headers));
+            if !resolved_headers.is_empty() {
+                options.insert("headers".to_string(), json!(resolved_headers));
             }
             registry.add_llm_client(client_name, "anthropic", options);
             Ok(())
@@ -460,19 +468,43 @@ fn add_provider_client(
             model,
             headers,
         } => {
-            let api_key = std::env::var(api_key_env)
-                .map_err(|_| ModelConfigError::MissingApiKey(api_key_env.clone()))?;
+            let (resolved_base_url, api_key, resolved_headers) =
+                if let Some((gateway_url, gateway_token, gateway_headers)) =
+                    provider_gateway_override(base_url, headers)
+                {
+                    (gateway_url, gateway_token, gateway_headers)
+                } else {
+                    let api_key = std::env::var(api_key_env)
+                        .map_err(|_| ModelConfigError::MissingApiKey(api_key_env.clone()))?;
+                    (base_url.clone(), api_key, headers.clone())
+                };
             let mut options = HashMap::new();
             options.insert("api_key".to_string(), json!(api_key));
-            options.insert("base_url".to_string(), json!(base_url));
+            options.insert("base_url".to_string(), json!(resolved_base_url));
             options.insert("model".to_string(), json!(model));
-            if !headers.is_empty() {
-                options.insert("headers".to_string(), json!(headers));
+            if !resolved_headers.is_empty() {
+                options.insert("headers".to_string(), json!(resolved_headers));
             }
             registry.add_llm_client(client_name, "openai-generic", options);
             Ok(())
         }
     }
+}
+
+fn provider_gateway_override(
+    upstream_base_url: &str,
+    headers: &HashMap<String, String>,
+) -> Option<(String, String, HashMap<String, String>)> {
+    let gateway_base = std::env::var("CHOIR_PROVIDER_GATEWAY_BASE_URL").ok()?;
+    let gateway_token = std::env::var("CHOIR_PROVIDER_GATEWAY_TOKEN").ok()?;
+    let gateway_base = gateway_base.trim_end_matches('/');
+    let mut forwarded_headers = headers.clone();
+    forwarded_headers.insert(
+        "x-choiros-upstream-base-url".to_string(),
+        upstream_base_url.to_string(),
+    );
+    let routed_url = format!("{gateway_base}/provider/v1/forward/");
+    Some((routed_url, gateway_token, forwarded_headers))
 }
 
 fn load_model_catalog_configs() -> Option<(

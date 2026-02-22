@@ -97,10 +97,18 @@ async fn run_capability_call(
 ) -> Result<CapabilityWorkerOutput, ConductorError> {
     let capability = state.capability.to_ascii_lowercase();
     if capability == "immediate_response" {
-        let message = state
-            .model_gateway
-            .immediate_response(Some(&state.run_id), &state.objective)
-            .await?;
+        let message = tokio::time::timeout(
+            std::time::Duration::from_secs(45),
+            state
+                .model_gateway
+                .immediate_response(Some(&state.run_id), &state.objective),
+        )
+        .await
+        .map_err(|_| {
+            ConductorError::ModelGatewayError(
+                "Immediate response model-gateway call timed out after 45s".to_string(),
+            )
+        })??;
         return Ok(CapabilityWorkerOutput::ImmediateResponse(message));
     }
 

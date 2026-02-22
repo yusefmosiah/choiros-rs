@@ -16,6 +16,19 @@ use tracing::{error, info, warn};
 
 use crate::config::SandboxRuntime;
 
+const FORBIDDEN_SANDBOX_ENV_KEYS: &[&str] = &[
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "ZAI_API_KEY",
+    "KIMI_API_KEY",
+    "GOOGLE_API_KEY",
+    "MISTRAL_API_KEY",
+    "AWS_BEARER_TOKEN_BEDROCK",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SESSION_TOKEN",
+];
+
 /// The role of a sandbox instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SandboxRole {
@@ -281,7 +294,8 @@ impl SandboxRegistry {
         // Brief wait for the port to become available after a prior process exits.
         sleep(Duration::from_millis(200)).await;
 
-        let file_env = load_env_file(self.env_file.as_deref())?;
+        let mut file_env = load_env_file(self.env_file.as_deref())?;
+        inject_provider_gateway_env(&mut file_env);
         let mut child_cmd = Command::new(&self.binary);
         child_cmd
             .env("PORT", port.to_string())
@@ -361,8 +375,10 @@ impl SandboxRegistry {
             "-e",
             "SQLX_OFFLINE=true",
         ]);
-        if let Some(env_file) = self.env_file.as_deref() {
-            cmd.args(["--env-file", env_file]);
+        let mut file_env = load_env_file(self.env_file.as_deref())?;
+        inject_provider_gateway_env(&mut file_env);
+        for (key, value) in &file_env {
+            cmd.args(["-e", &format!("{key}={value}")]);
         }
         cmd.arg(&self.container_image);
 
@@ -473,10 +489,34 @@ fn load_env_file(path: Option<&str>) -> anyhow::Result<HashMap<String, String>> 
     for entry in iter {
         let (key, value) =
             entry.map_err(|e| anyhow::anyhow!("failed to parse sandbox env file {path}: {e}"))?;
+        if FORBIDDEN_SANDBOX_ENV_KEYS
+            .iter()
+            .any(|forbidden| forbidden.eq_ignore_ascii_case(&key))
+        {
+            warn!(
+                env_key = %key,
+                env_file = path,
+                "filtered provider credential from sandbox env"
+            );
+            continue;
+        }
         envs.insert(key, value);
     }
 
     Ok(envs)
+}
+
+fn inject_provider_gateway_env(envs: &mut HashMap<String, String>) {
+    if let Ok(base_url) = std::env::var("CHOIR_PROVIDER_GATEWAY_BASE_URL") {
+        envs.insert("CHOIR_PROVIDER_GATEWAY_BASE_URL".to_string(), base_url);
+    }
+    if let Ok(token) = std::env::var("CHOIR_PROVIDER_GATEWAY_TOKEN") {
+        envs.insert("CHOIR_PROVIDER_GATEWAY_TOKEN".to_string(), token);
+    }
+    envs.insert(
+        "CHOIR_SANDBOX_KEYLESS_ENFORCED".to_string(),
+        "true".to_string(),
+    );
 }
 
 fn sanitize_label(raw: &str) -> String {
@@ -507,19 +547,14 @@ mod tests {
         let env_path = dir.join("sandbox.env");
         std::fs::write(
             &env_path,
-            "OPENAI_API_KEY=test-openai\nAWS_BEARER_TOKEN_BEDROCK=test-bedrock\n",
+            "OPENAI_API_KEY=test-openai\nAWS_BEARER_TOKEN_BEDROCK=test-bedrock\nCHOIR_ENV=test\n",
         )
         .expect("write env file");
 
         let envs = load_env_file(Some(env_path.to_string_lossy().as_ref())).expect("load env");
-        assert_eq!(
-            envs.get("OPENAI_API_KEY").map(String::as_str),
-            Some("test-openai")
-        );
-        assert_eq!(
-            envs.get("AWS_BEARER_TOKEN_BEDROCK").map(String::as_str),
-            Some("test-bedrock")
-        );
+        assert!(envs.get("OPENAI_API_KEY").is_none());
+        assert!(envs.get("AWS_BEARER_TOKEN_BEDROCK").is_none());
+        assert_eq!(envs.get("CHOIR_ENV").map(String::as_str), Some("test"));
 
         let _ = std::fs::remove_file(&env_path);
         let _ = std::fs::remove_dir(&dir);

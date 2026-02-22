@@ -49,6 +49,10 @@ pub struct Config {
     pub webauthn_rp_origin: String,
     /// RP display name for WebAuthn
     pub webauthn_rp_name: String,
+    /// Shared token used by sandbox-to-hypervisor provider gateway requests.
+    pub provider_gateway_token: Option<String>,
+    /// Allowed upstream provider base URLs for the gateway.
+    pub provider_gateway_allowed_upstreams: Vec<String>,
 }
 
 impl Config {
@@ -89,6 +93,14 @@ impl Config {
             webauthn_rp_id: env_str("WEBAUTHN_RP_ID", "localhost"),
             webauthn_rp_origin: env_str("WEBAUTHN_RP_ORIGIN", "http://localhost:9090"),
             webauthn_rp_name: env_str("WEBAUTHN_RP_NAME", "ChoirOS"),
+            provider_gateway_token: std::env::var("CHOIR_PROVIDER_GATEWAY_TOKEN").ok(),
+            provider_gateway_allowed_upstreams: env_csv(
+                "CHOIR_PROVIDER_GATEWAY_ALLOWED_UPSTREAMS",
+                &[
+                    "https://api.z.ai/api/anthropic",
+                    "https://api.kimi.com/coding/",
+                ],
+            ),
         })
     }
 }
@@ -106,6 +118,18 @@ where
             .parse::<T>()
             .map_err(|e| anyhow::anyhow!("Failed to parse env var {key}={val}: {e}")),
         Err(_) => Ok(default),
+    }
+}
+
+fn env_csv(key: &str, default: &[&str]) -> Vec<String> {
+    match std::env::var(key) {
+        Ok(raw) => raw
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToString::to_string)
+            .collect(),
+        Err(_) => default.iter().map(|s| (*s).to_string()).collect(),
     }
 }
 

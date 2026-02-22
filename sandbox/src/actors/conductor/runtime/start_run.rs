@@ -353,10 +353,20 @@ impl ConductorActor {
                     ),
                     None => request.objective.clone(),
                 };
-                let conduct_output = state
-                    .model_gateway
-                    .conduct_assignments(Some(run_id), &enriched_objective, &available_capabilities)
-                    .await?;
+                let conduct_output = tokio::time::timeout(
+                    std::time::Duration::from_secs(45),
+                    state.model_gateway.conduct_assignments(
+                        Some(run_id),
+                        &enriched_objective,
+                        &available_capabilities,
+                    ),
+                )
+                .await
+                .map_err(|_| {
+                    ConductorError::ModelGatewayError(
+                        "Conductor routing model-gateway call timed out after 45s".to_string(),
+                    )
+                })??;
                 let mut selected = Vec::new();
                 for cap in conduct_output.dispatch_capabilities {
                     let normalized = cap.trim().to_ascii_lowercase();

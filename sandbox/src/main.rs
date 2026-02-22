@@ -10,6 +10,19 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
+const FORBIDDEN_PROVIDER_KEY_ENVS: &[&str] = &[
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "ZAI_API_KEY",
+    "KIMI_API_KEY",
+    "GOOGLE_API_KEY",
+    "MISTRAL_API_KEY",
+    "AWS_BEARER_TOKEN_BEDROCK",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SESSION_TOKEN",
+];
+
 fn load_env_file() {
     let cwd = match std::env::current_dir() {
         Ok(dir) => dir,
@@ -49,6 +62,43 @@ fn load_env_file() {
     );
 }
 
+fn assert_keyless_sandbox_env() -> std::io::Result<()> {
+    if std::env::var("CHOIR_SANDBOX_KEYLESS_ENFORCED")
+        .ok()
+        .as_deref()
+        != Some("true")
+    {
+        return Ok(());
+    }
+
+    for key in FORBIDDEN_PROVIDER_KEY_ENVS {
+        if std::env::var(key).is_ok() {
+            let message = format!(
+                "Keyless sandbox policy violation: forbidden provider credential present in env: {key}"
+            );
+            tracing::error!("{message}");
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                message,
+            ));
+        }
+    }
+
+    if std::env::var("CHOIR_PROVIDER_GATEWAY_BASE_URL").is_err()
+        || std::env::var("CHOIR_PROVIDER_GATEWAY_TOKEN").is_err()
+    {
+        let message =
+            "Keyless sandbox policy requires CHOIR_PROVIDER_GATEWAY_BASE_URL and CHOIR_PROVIDER_GATEWAY_TOKEN";
+        tracing::error!("{message}");
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            message,
+        ));
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     // Initialize logging
@@ -58,6 +108,7 @@ async fn main() -> std::io::Result<()> {
     // Search the current directory and ancestors so running from `sandbox/` still
     // picks up repo-root `.env`.
     load_env_file();
+    assert_keyless_sandbox_env()?;
     match sandbox::runtime_env::ensure_tls_cert_env() {
         Some(path) => tracing::info!(path = %path, "Configured SSL_CERT_FILE for TLS clients"),
         None => tracing::warn!(

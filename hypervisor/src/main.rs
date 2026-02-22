@@ -3,6 +3,7 @@ mod auth;
 mod config;
 mod db;
 mod middleware;
+mod provider_gateway;
 mod proxy;
 mod sandbox;
 mod session_store;
@@ -12,7 +13,7 @@ use std::sync::Arc;
 
 use axum::{
     middleware as axum_middleware,
-    routing::{get, post},
+    routing::{any, get, post},
     Router,
 };
 use tower_http::{services::ServeDir, trace::TraceLayer};
@@ -81,6 +82,13 @@ async fn main() -> anyhow::Result<()> {
         db,
         webauthn,
         sandbox_registry,
+        provider_gateway: state::ProviderGatewayState {
+            token: config.provider_gateway_token.clone(),
+            allowed_upstreams: config.provider_gateway_allowed_upstreams.clone(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(120))
+                .build()?,
+        },
     });
 
     // Dioxus WASM frontend — served from the dx build output directory.
@@ -108,6 +116,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/auth/logout", post(auth::handlers::logout))
         .route("/auth/recovery", post(auth::handlers::recovery))
         .route("/auth/me", get(auth::handlers::me))
+        .route(
+            "/provider/v1/{provider}/*rest",
+            any(provider_gateway::forward_provider_request),
+        )
         // Admin sandbox management
         .route("/admin/sandboxes", get(api::list_sandboxes))
         .route(
