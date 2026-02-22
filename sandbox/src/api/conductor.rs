@@ -137,14 +137,58 @@ fn writer_window_props_for_run_document(document_path: &str, run_id: &str) -> Wr
     }
 }
 
-fn run_error_for_status(status: ConductorRunStatus) -> Option<ConductorError> {
-    if status == ConductorRunStatus::Blocked {
+fn run_error_from_artifacts(run: &ConductorRunState) -> Option<ConductorError> {
+    for artifact in run.artifacts.iter().rev() {
+        let Some(metadata) = artifact.metadata.as_ref() else {
+            continue;
+        };
+        let Some(event_type) = metadata.get("event_type").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        if event_type != "conductor.task.failed" {
+            continue;
+        }
+
+        let Some(payload) = metadata.get("event_payload") else {
+            continue;
+        };
+        let code = payload
+            .get("error_code")
+            .and_then(|value| value.as_str())
+            .unwrap_or("RUN_FAILED")
+            .to_string();
+        let message = payload
+            .get("error_message")
+            .and_then(|value| value.as_str())
+            .unwrap_or("Run failed")
+            .to_string();
+        let failure_kind = payload
+            .get("failure_kind")
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok());
+
+        return Some(ConductorError {
+            code,
+            message,
+            failure_kind,
+        });
+    }
+
+    None
+}
+
+fn run_error_for_status(run: &ConductorRunState) -> Option<ConductorError> {
+    if let Some(error) = run_error_from_artifacts(run) {
+        return Some(error);
+    }
+
+    if run.status == ConductorRunStatus::Blocked {
         Some(ConductorError {
             code: "RUN_BLOCKED".to_string(),
             message: "Run blocked by conductor model gateway".to_string(),
             failure_kind: Some(shared_types::FailureKind::Unknown),
         })
-    } else if status == ConductorRunStatus::Failed {
+    } else if run.status == ConductorRunStatus::Failed {
         Some(ConductorError {
             code: "RUN_FAILED".to_string(),
             message: "Run failed".to_string(),
@@ -219,7 +263,7 @@ fn run_state_to_execute_response(run: ConductorRunState) -> ConductorExecuteResp
         None
     };
     let toast = toast_from_run(&run, report_path.as_deref());
-    let error = run_error_for_status(run.status);
+    let error = run_error_for_status(&run);
     let (document_path, writer_window_props) = match run.status {
         ConductorRunStatus::Running => {
             let path = run.document_path.clone();
@@ -272,6 +316,7 @@ fn run_state_to_status_response(run: ConductorRunState) -> ConductorRunStatusRes
         None
     };
     let toast = toast_from_run(&run, report_path.as_deref());
+    let error = run_error_for_status(&run);
 
     ConductorRunStatusResponse {
         run_id: run.run_id,
@@ -285,7 +330,7 @@ fn run_state_to_status_response(run: ConductorRunState) -> ConductorRunStatusRes
         document_path: run.document_path,
         report_path,
         toast,
-        error: run_error_for_status(run.status),
+        error,
     }
 }
 
@@ -893,6 +938,50 @@ mod tests {
             Some("conductor/runs/run_456/draft.md")
         );
         assert!(response.writer_window_props.is_none());
+    }
+
+    #[test]
+    fn test_run_state_to_status_response_uses_failed_event_error_details() {
+        let now = Utc::now();
+        let run = ConductorRunState {
+            run_id: "run_failed".to_string(),
+            status: ConductorRunStatus::Failed,
+            objective: "test".to_string(),
+            desktop_id: "desktop-1".to_string(),
+            output_mode: ConductorOutputMode::Auto,
+            created_at: now,
+            updated_at: now,
+            completed_at: Some(now),
+            agenda: vec![],
+            active_calls: vec![],
+            artifacts: vec![shared_types::ConductorArtifact {
+                artifact_id: "artifact-1".to_string(),
+                kind: shared_types::ArtifactKind::JsonData,
+                reference: "event://conductor.task.failed".to_string(),
+                mime_type: Some("application/json".to_string()),
+                created_at: now,
+                source_call_id: "event".to_string(),
+                metadata: Some(serde_json::json!({
+                    "event_type": "conductor.task.failed",
+                    "event_payload": {
+                        "error_code": "MODEL_GATEWAY_ERROR",
+                        "error_message": "Missing API key: OPENAI_API_KEY",
+                        "failure_kind": "provider"
+                    }
+                })),
+            }],
+            decision_log: vec![],
+            document_path: "conductor/runs/run_failed/draft.md".to_string(),
+        };
+
+        let response = run_state_to_status_response(run);
+        let error = response.error.expect("error details");
+        assert_eq!(error.code, "MODEL_GATEWAY_ERROR");
+        assert_eq!(error.message, "Missing API key: OPENAI_API_KEY");
+        assert_eq!(
+            error.failure_kind,
+            Some(shared_types::FailureKind::Provider)
+        );
     }
 
     #[test]

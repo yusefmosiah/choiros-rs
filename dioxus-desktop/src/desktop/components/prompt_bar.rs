@@ -561,11 +561,34 @@ pub fn PromptBar(props: PromptBarProps) -> Element {
                         gloo_timers::future::TimeoutFuture::new(250).await;
                     }
 
-                    state.set(ConductorSubmissionState::Failed {
-                        code: "RUN_STATUS_TIMEOUT".to_string(),
-                        message: "Run accepted but did not produce toast or writer state in time"
-                            .to_string(),
-                    });
+                    match conductor_get_run_status(&run_id).await {
+                        Ok(run_status) => {
+                            let decision = classify_run_status(run_status.status);
+                            match decision {
+                                TaskLifecycleDecision::Failed => {
+                                    let (code, message) = failure_from_error(run_status.error);
+                                    state.set(ConductorSubmissionState::Failed { code, message });
+                                }
+                                _ => {
+                                    state.set(ConductorSubmissionState::Failed {
+                                        code: "RUN_STATUS_TIMEOUT".to_string(),
+                                        message: format!(
+                                            "Run accepted but did not produce toast or writer state in time (last status: {:?})",
+                                            run_status.status
+                                        ),
+                                    });
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            state.set(ConductorSubmissionState::Failed {
+                                code: "RUN_STATUS_TIMEOUT".to_string(),
+                                message:
+                                    "Run accepted but did not produce toast or writer state in time"
+                                        .to_string(),
+                            });
+                        }
+                    }
                 }
             }
             TaskLifecycleDecision::Completed => {

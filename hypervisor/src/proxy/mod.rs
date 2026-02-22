@@ -1,7 +1,7 @@
 use axum::{
     body::Body,
     extract::{Request, WebSocketUpgrade},
-    http::{HeaderValue, StatusCode, Uri},
+    http::{header, HeaderValue, StatusCode, Uri},
     response::{IntoResponse, Response},
 };
 use http_body_util::BodyExt;
@@ -58,6 +58,15 @@ pub async fn proxy_http(req: Request, target_port: u16) -> Response {
     let (parts, body) = req.into_parts();
     let mut proxy_req = hyper::Request::from_parts(parts, body);
     *proxy_req.uri_mut() = target_uri;
+
+    // Remove hop-by-hop headers before forwarding.
+    proxy_req.headers_mut().remove(header::CONNECTION);
+    proxy_req.headers_mut().remove("proxy-connection");
+    proxy_req.headers_mut().remove("keep-alive");
+    proxy_req.headers_mut().remove(header::TE);
+    proxy_req.headers_mut().remove(header::TRAILER);
+    proxy_req.headers_mut().remove(header::TRANSFER_ENCODING);
+    proxy_req.headers_mut().remove(header::UPGRADE);
 
     // Fix the Host header so the sandbox sees the correct host
     proxy_req.headers_mut().insert(

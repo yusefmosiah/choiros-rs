@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Request, State},
-    http::StatusCode,
+    http::{header, HeaderValue, StatusCode},
     middleware::Next,
     response::{IntoResponse, Redirect, Response},
 };
@@ -81,6 +81,8 @@ pub async fn proxy_to_sandbox(
         .map(|v| v.eq_ignore_ascii_case("websocket"))
         .unwrap_or(false);
 
+    let req = sanitize_and_tag_proxy_request(req, &user_id, role);
+
     if is_ws {
         let path_with_query = req
             .uri()
@@ -116,4 +118,31 @@ pub async fn proxy_to_sandbox(
     }
 
     crate::proxy::proxy_http(req, port).await
+}
+
+fn sanitize_and_tag_proxy_request(req: Request, user_id: &str, role: SandboxRole) -> Request {
+    let (mut parts, body) = req.into_parts();
+
+    // Never forward browser session credentials or client auth headers into sandbox.
+    parts.headers.remove(header::COOKIE);
+    parts.headers.remove(header::AUTHORIZATION);
+    parts.headers.remove(header::PROXY_AUTHORIZATION);
+
+    if let Ok(v) = HeaderValue::from_str(user_id) {
+        parts.headers.insert("x-choiros-user-id", v);
+    }
+    let role_value = match role {
+        SandboxRole::Live => "live",
+        SandboxRole::Dev => "dev",
+    };
+    parts.headers.insert(
+        "x-choiros-sandbox-role",
+        HeaderValue::from_static(role_value),
+    );
+    parts.headers.insert(
+        "x-choiros-proxy-authenticated",
+        HeaderValue::from_static("true"),
+    );
+
+    Request::from_parts(parts, body)
 }

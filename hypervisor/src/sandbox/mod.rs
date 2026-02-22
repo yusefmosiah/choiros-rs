@@ -281,17 +281,30 @@ impl SandboxRegistry {
         // Brief wait for the port to become available after a prior process exits.
         sleep(Duration::from_millis(200)).await;
 
-        let child = Command::new(&self.binary)
+        let file_env = load_env_file(self.env_file.as_deref())?;
+        let mut child_cmd = Command::new(&self.binary);
+        child_cmd
             .env("PORT", port.to_string())
             .env("DATABASE_URL", format!("sqlite:./data/sandbox_{role}.db"))
             .env("SQLX_OFFLINE", "true")
             .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|e| {
-                error!(%role, port, binary = %self.binary, "failed to spawn sandbox: {e}");
-                e
-            })?;
+            .stderr(Stdio::inherit());
+
+        if !file_env.is_empty() {
+            child_cmd.envs(&file_env);
+            info!(
+                %role,
+                port,
+                env_file = ?self.env_file,
+                loaded_keys = file_env.len(),
+                "loaded sandbox process env-file overrides"
+            );
+        }
+
+        let child = child_cmd.spawn().map_err(|e| {
+            error!(%role, port, binary = %self.binary, "failed to spawn sandbox: {e}");
+            e
+        })?;
 
         // TCP readiness probe: poll until the sandbox accepts connections or deadline.
         let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
@@ -448,6 +461,24 @@ impl SandboxRegistry {
     }
 }
 
+fn load_env_file(path: Option<&str>) -> anyhow::Result<HashMap<String, String>> {
+    let Some(path) = path else {
+        return Ok(HashMap::new());
+    };
+
+    let iter = dotenvy::from_path_iter(path)
+        .map_err(|e| anyhow::anyhow!("failed to read sandbox env file {path}: {e}"))?;
+    let mut envs = HashMap::new();
+
+    for entry in iter {
+        let (key, value) =
+            entry.map_err(|e| anyhow::anyhow!("failed to parse sandbox env file {path}: {e}"))?;
+        envs.insert(key, value);
+    }
+
+    Ok(envs)
+}
+
 fn sanitize_label(raw: &str) -> String {
     raw.chars()
         .map(|c| {
@@ -458,6 +489,41 @@ fn sanitize_label(raw: &str) -> String {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::load_env_file;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn load_env_file_parses_key_values() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("choiros-hypervisor-test-{nonce}"));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let env_path = dir.join("sandbox.env");
+        std::fs::write(
+            &env_path,
+            "OPENAI_API_KEY=test-openai\nAWS_BEARER_TOKEN_BEDROCK=test-bedrock\n",
+        )
+        .expect("write env file");
+
+        let envs = load_env_file(Some(env_path.to_string_lossy().as_ref())).expect("load env");
+        assert_eq!(
+            envs.get("OPENAI_API_KEY").map(String::as_str),
+            Some("test-openai")
+        );
+        assert_eq!(
+            envs.get("AWS_BEARER_TOKEN_BEDROCK").map(String::as_str),
+            Some("test-bedrock")
+        );
+
+        let _ = std::fs::remove_file(&env_path);
+        let _ = std::fs::remove_dir(&dir);
+    }
 }
 
 #[derive(Debug, serde::Serialize)]
