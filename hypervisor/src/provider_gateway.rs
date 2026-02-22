@@ -41,19 +41,36 @@ pub async fn forward_provider_request(
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default();
+    let x_api_key = req
+        .headers()
+        .get("x-api-key")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let api_key = req
+        .headers()
+        .get("api-key")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
     let provided_token = auth_header
         .strip_prefix("Bearer ")
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .or_else(|| {
-            req.headers()
-                .get("x-api-key")
-                .and_then(|v| v.to_str().ok())
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-        })
+        .or(x_api_key)
+        .or(api_key)
         .unwrap_or_default();
     if provided_token != expected_token {
+        let provided_prefix = provided_token.chars().take(8).collect::<String>();
+        let expected_prefix = expected_token.chars().take(8).collect::<String>();
+        warn!(
+            has_authorization = !auth_header.is_empty(),
+            has_x_api_key = req.headers().contains_key("x-api-key"),
+            has_api_key = req.headers().contains_key("api-key"),
+            provided_prefix = %provided_prefix,
+            expected_prefix = %expected_prefix,
+            "invalid provider gateway token"
+        );
         return (StatusCode::UNAUTHORIZED, "invalid provider gateway token").into_response();
     }
 
