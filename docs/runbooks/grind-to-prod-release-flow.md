@@ -41,6 +41,55 @@ This runbook introduces scripts that:
    declarative.
 5. Split CI policy into "validate" and "manual release" lanes (details below).
 
+## Nix 101 (ChoirOS)
+
+If you are new to Nix, keep this mental model:
+
+1. Source commit: immutable app code state in git.
+2. Derivation: the exact build recipe for an output.
+3. Store path: content-addressed output under `/nix/store/<hash>-name`.
+4. Closure: a store path plus all transitive runtime dependencies it needs.
+5. Activation: point runtime symlinks/services at those exact store paths.
+
+Why closures matter for deploy:
+
+1. You build once on grind.
+2. You copy the exact closures to prod.
+3. Prod does not recompile different bits and does not drift.
+
+Quick closure inspection commands:
+
+```bash
+# Build and print output path without mutating ./result symlink.
+nix --extra-experimental-features nix-command --extra-experimental-features flakes \
+  build ./hypervisor#hypervisor --no-link --print-out-paths
+
+# Show closure size.
+nix path-info -Sh /nix/store/<hash>-hypervisor-*
+
+# Show transitive dependency tree.
+nix-store -q --tree /nix/store/<hash>-hypervisor-*
+```
+
+## Closure Promotion Diagram
+
+```text
+git commit (main)
+      |
+      v
+grind: nix build (sandbox/hypervisor/desktop)
+      |
+      v
+store paths + full closures in /nix/store
+      |
+      | nix copy --from ssh://grind --to ssh://prod <paths...>
+      v
+prod: exact same closures present
+      |
+      v
+apply-release-manifest -> /opt/choiros/bin/* -> systemd restart/health checks
+```
+
 ## Operating Model (Two Identical Servers)
 
 1. Host parity:
