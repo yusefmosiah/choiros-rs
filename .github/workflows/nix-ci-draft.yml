@@ -242,9 +242,38 @@ jobs:
             done
           }
 
+          wait_http_healthy() {
+            local url="$1"
+            local timeout_secs="$2"
+            local label="$3"
+            local started_at
+            local body_file
+            started_at="$(date +%s)"
+            body_file="/tmp/${label}-health.json"
+
+            while true; do
+              status_code="$(curl -sS -o "$body_file" -w '%{http_code}' "$url" || true)"
+              if [ "$status_code" = "200" ] && grep -q '"status"[[:space:]]*:[[:space:]]*"healthy"' "$body_file"; then
+                return 0
+              fi
+
+              if [ $(( $(date +%s) - started_at )) -ge "$timeout_secs" ]; then
+                echo "Timed out waiting for healthy response from ${label} (${url}); last status=${status_code}"
+                echo "Last response body:"
+                cat "$body_file" || true
+                dump_runtime_diagnostics
+                return 1
+              fi
+
+              sleep 2
+            done
+          }
+
           wait_http http://127.0.0.1:9090/login 120
           wait_container_port sandbox-live 8080 120
           wait_container_port sandbox-dev 8080 120
+          wait_http_healthy http://127.0.0.1:8080/health 120 sandbox-live
+          wait_http_healthy http://127.0.0.1:8081/health 120 sandbox-dev
           echo "Deploy OK for $RELEASE_SHA"
           EOF
           )"
