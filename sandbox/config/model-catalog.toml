@@ -88,9 +88,6 @@ api_key_env = "KIMI_API_KEY"
 model = "kimi-for-coding"
 aliases = ["KimiK25", "KimiK25OpenAI"]
 
-[models.KimiK25.headers]
-User-Agent = "claude-code/1.0"
-
 # [models.KimiK25Fallback]
 # name = "Kimi K2.5 Fallback"
 # provider = "anthropic"
