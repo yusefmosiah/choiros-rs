@@ -100,21 +100,24 @@ in
       wants = [ "network-online.target" ];
       restartIfChanged = true;
       restartTriggers = [ flakehubTokenFile ];
+      script = ''
+        set -euo pipefail
+        if ! command -v determinate-nixd >/dev/null 2>&1; then
+          echo "determinate-nixd not found on PATH; skipping FlakeHub login"
+          exit 0
+        fi
+        token_file='${flakehubTokenFile}'
+        if [[ ! -s "$token_file" ]]; then
+          echo "FLAKEHUB token file is missing or empty: $token_file" >&2
+          exit 1
+        fi
+        exec determinate-nixd auth login token --token-file "$token_file"
+      '';
       serviceConfig = {
         Type = "oneshot";
         User = "root";
         Group = "root";
         UMask = "0077";
-        ExecStart = ''
-          ${pkgs.bash}/bin/bash -euo pipefail -c '
-            token_file="${flakehubTokenFile}"
-            if [[ ! -s "$token_file" ]]; then
-              echo "FLAKEHUB token file is missing or empty: $token_file" >&2
-              exit 1
-            fi
-            exec determinate-nixd login token --token-file "$token_file"
-          '
-        '';
       };
     };
   };

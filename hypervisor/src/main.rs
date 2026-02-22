@@ -104,6 +104,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/auth/logout", post(auth::handlers::logout))
         .route("/auth/recovery", post(auth::handlers::recovery))
         .route("/auth/me", get(auth::handlers::me))
+        // Public auth shell pages.
+        .route("/login", get(auth::handlers::login_page))
+        .route("/register", get(auth::handlers::register_page))
+        .route("/recovery", get(auth::handlers::recovery_page))
         .route(
             "/provider/v1/{provider}/{*rest}",
             any(provider_gateway::forward_provider_request),
