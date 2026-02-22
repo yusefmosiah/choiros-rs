@@ -38,6 +38,15 @@ That avoids surprise recompiles and ensures binaries are actually updated from t
 4. `origin/main` is up to date and deployable.
 5. Any uncommitted host changes are committed/stashed first (dirty trees are rejected).
 
+## Domain/TLS Note (Current State)
+
+Host Caddy config still lives in `/etc/nixos/configuration.nix` on each host (not yet tracked in this repo).
+Keep host vhosts aligned manually until host config is moved into repo/flake outputs.
+
+Current grind expectation:
+- `os.choir.chat` -> `reverse_proxy 127.0.0.1:9090`
+- `choir.chat` -> `redir https://os.choir.chat{uri} 308`
+
 ## One-Time SSH Setup On Mac
 
 Add to `~/.ssh/config`:
