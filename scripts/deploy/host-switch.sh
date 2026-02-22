@@ -124,21 +124,33 @@ cd "${WORKDIR}"
 git fetch origin
 git checkout -f "${RELEASE_SHA}"
 
-if [[ -n "${SANDBOX_STORE_PATH}" || -n "${HYPERVISOR_STORE_PATH}" || -n "${DESKTOP_STORE_PATH}" ]]; then
-  if [[ -z "${SANDBOX_STORE_PATH}" || -z "${HYPERVISOR_STORE_PATH}" || -z "${DESKTOP_STORE_PATH}" ]]; then
-    echo "error: either set all store paths or none"
-    exit 2
+resolve_or_build_store_path() {
+  local store_path="$1"
+  local flake_attr="$2"
+  local label="$3"
+
+  if [[ -n "${store_path}" ]]; then
+    if nix-store --realise "${store_path}" >/dev/null 2>&1; then
+      echo "${store_path}"
+      return 0
+    fi
+    echo "warn: could not realize ${label} store path ${store_path}; building ${flake_attr} on host"
   fi
 
-  export NIX_CONFIG="fallback = false"
-  nix-store --realise "${SANDBOX_STORE_PATH}"
-  nix-store --realise "${HYPERVISOR_STORE_PATH}"
-  nix-store --realise "${DESKTOP_STORE_PATH}"
+  nix --extra-experimental-features nix-command \
+      --extra-experimental-features flakes \
+      build "${flake_attr}" \
+      --no-link \
+      --print-out-paths | tail -n 1
+}
 
-  install -m 0755 "${SANDBOX_STORE_PATH}/bin/sandbox" /opt/choiros/bin/sandbox
-  install -m 0755 "${HYPERVISOR_STORE_PATH}/bin/hypervisor" /opt/choiros/bin/hypervisor
-  install -m 0755 "${DESKTOP_STORE_PATH}/bin/sandbox-ui" /opt/choiros/bin/sandbox-ui
-fi
+sandbox_out="$(resolve_or_build_store_path "${SANDBOX_STORE_PATH}" './sandbox#sandbox' 'sandbox')"
+hypervisor_out="$(resolve_or_build_store_path "${HYPERVISOR_STORE_PATH}" './hypervisor#hypervisor' 'hypervisor')"
+desktop_out="$(resolve_or_build_store_path "${DESKTOP_STORE_PATH}" './dioxus-desktop#desktop' 'desktop')"
+
+install -m 0755 "${sandbox_out}/bin/sandbox" /opt/choiros/bin/sandbox
+install -m 0755 "${hypervisor_out}/bin/hypervisor" /opt/choiros/bin/hypervisor
+install -m 0755 "${desktop_out}/bin/sandbox-ui" /opt/choiros/bin/sandbox-ui
 
 export NIX_PATH="nixpkgs=$(nix --extra-experimental-features nix-command --extra-experimental-features flakes eval --raw nixpkgs#path)"
 export NIXOS_CONFIG=/etc/nixos/configuration.nix
