@@ -69,7 +69,7 @@ The secret key names in the encrypted SOPS file should match runtime env names e
 - `TAVILY_API_KEY`
 - `BRAVE_API_KEY`
 - `EXA_API_KEY`
-- `FLAKEHUB_TOKEN`
+- `FLAKEHUB_AUTH_TOKEN`
 
 ## One-Time Bootstrap
 

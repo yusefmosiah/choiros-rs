@@ -33,7 +33,7 @@ in
     enableFlakehubLogin = lib.mkOption {
       type = lib.types.bool;
       default = true;
-      description = "Enable one-shot determinate-nixd login using FLAKEHUB_TOKEN from sops-nix.";
+      description = "Enable one-shot determinate-nixd login using FLAKEHUB_AUTH_TOKEN from sops-nix.";
     };
 
   };
@@ -60,7 +60,7 @@ in
         TAVILY_API_KEY = { };
         BRAVE_API_KEY = { };
         EXA_API_KEY = { };
-        FLAKEHUB_TOKEN = { };
+        FLAKEHUB_AUTH_TOKEN = { };
       };
 
       templates = {
@@ -82,7 +82,7 @@ in
         # Dedicated raw token file for determinate-nixd login.
         "choiros-flakehub-token" = {
           mode = "0400";
-          content = "${config.sops.placeholder."FLAKEHUB_TOKEN"}";
+          content = "${config.sops.placeholder."FLAKEHUB_AUTH_TOKEN"}";
         };
       };
     };
