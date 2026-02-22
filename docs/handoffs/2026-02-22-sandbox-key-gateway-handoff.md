@@ -1,4 +1,4 @@
-# Handoff: Sandbox Keyless + Gateway 80/20
+# Handoff: Sandbox Key + Gateway 80/20
 
 Date: 2026-02-22  
 Owner: runtime/security  
