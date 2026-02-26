@@ -56,8 +56,15 @@ Full local deployment was started through the new path, health checks passed, an
 5. Individual plane commands verified:
    - `just dev-control-plane` -> hypervisor healthy on `:9090/login`
    - `just dev-runtime-plane` -> sandbox healthy on `:8080/health`
+6. Added hypervisor-path concurrency regression skeleton:
+   - `tests/playwright/writer-concurrency-hypervisor.spec.ts`
+   - Included in hypervisor Playwright project match list
+   - Currently marked `fixme` pending a stable active-run UI assertion surface
+7. Hypervisor Playwright suite after cutover command changes:
+   - `12 passed, 1 skipped`
 
 ## Notes
 
 1. Browser auth tests must target `http://localhost:9090` (not `127.0.0.1`) for RP/origin consistency.
 2. New plane processes take a few seconds to warm up; early `dev-status` checks can show `down` before compile/start completes.
+3. Concurrency assertion via Trace run state is currently flaky due UI selection/state ambiguity with existing windows; next step is to expose a deterministic active-run signal for E2E.

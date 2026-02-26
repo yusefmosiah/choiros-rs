@@ -92,7 +92,7 @@ Immediate execution checklist:
 
 1. Define canonical prod-like local startup command path (`just` recipes only). [done]
 2. Verify prompt flow on full local deployment path (`localhost:9090`) with auth.
-3. Add/enable one Playwright spec that asserts Writer opens during active delegated run (not after completion).
+3. Add/enable one Playwright spec that asserts Writer opens during active delegated run (not after completion). [in progress: spec added as `fixme`, needs stable active-run UI signal]
 4. Record pass/fail outputs in a dated report under `docs/reports/`. [done]
 
 ## Phase 2: Local Service Orchestration (`just` + tmux)

@@ -18,7 +18,11 @@ export default defineConfig({
   projects: [
     {
       name: "hypervisor",
-      testMatch: ["bios-auth.spec.ts", "proxy-integration.spec.ts"],
+      testMatch: [
+        "bios-auth.spec.ts",
+        "proxy-integration.spec.ts",
+        "writer-concurrency-hypervisor.spec.ts",
+      ],
       use: {
         baseURL: hypervisorBaseUrl,
         trace: "on",
