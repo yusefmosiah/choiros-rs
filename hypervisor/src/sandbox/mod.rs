@@ -355,10 +355,6 @@ impl SandboxRegistry {
         }
         if let Some(token) = self.provider_gateway_token.as_ref() {
             child_cmd.env("CHOIR_PROVIDER_GATEWAY_TOKEN", token);
-            // Keep sandboxes keyless for real provider creds while allowing
-            // BAML aws-bedrock auth plumbing to present a non-provider token
-            // to the local hypervisor gateway.
-            child_cmd.env("AWS_BEARER_TOKEN_BEDROCK", token);
         }
         child_cmd
             .env("CHOIR_SANDBOX_USER_ID", user_id)
@@ -421,7 +417,7 @@ mod tests {
             ("HOME".to_string(), "/home/test".to_string()),
             (
                 "FRONTEND_DIST".to_string(),
-                "/opt/choiros/workspace/dioxus-desktop/target/dx/sandbox-ui/release/web/public"
+                "/opt/choiros/workspace/dioxus-desktop/target/dx/dioxus-desktop/release/web/public"
                     .to_string(),
             ),
             ("RUST_LOG".to_string(), "info".to_string()),
@@ -436,7 +432,9 @@ mod tests {
         assert_eq!(env_map.get("HOME").map(String::as_str), Some("/home/test"));
         assert_eq!(
             env_map.get("FRONTEND_DIST").map(String::as_str),
-            Some("/opt/choiros/workspace/dioxus-desktop/target/dx/sandbox-ui/release/web/public")
+            Some(
+                "/opt/choiros/workspace/dioxus-desktop/target/dx/dioxus-desktop/release/web/public"
+            )
         );
         assert_eq!(env_map.get("RUST_LOG").map(String::as_str), Some("info"));
         assert!(!env_map.contains_key("RANDOM_VAR"));

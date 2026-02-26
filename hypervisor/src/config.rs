@@ -153,8 +153,18 @@ pub fn frontend_dist_from_env() -> String {
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
 
-    workspace_root
-        .join("dioxus-desktop/target/dx/dioxus-desktop/debug/web/public")
-        .to_string_lossy()
-        .to_string()
+    // Keep frontend dist resolution in lockstep with sandbox runtime so auth
+    // shell HTML and proxied static asset routes always agree.
+    let release = workspace_root.join("dioxus-desktop/target/dx/dioxus-desktop/release/web/public");
+    if release.join("index.html").exists() {
+        return release.to_string_lossy().to_string();
+    }
+
+    let debug = workspace_root.join("dioxus-desktop/target/dx/dioxus-desktop/debug/web/public");
+    if debug.join("index.html").exists() {
+        return debug.to_string_lossy().to_string();
+    }
+
+    // Final fallback for environments that provide dist through runtime wiring.
+    debug.to_string_lossy().to_string()
 }

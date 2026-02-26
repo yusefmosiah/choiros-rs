@@ -1,61 +1,14 @@
-# Handoff: Auth Onboarding Flow Regression
+# Handoff Archived
 
-Date: 2026-02-21  
-Owner: auth/runtime  
-Status: resolved (auth UX fix shipped to production); CI/CD + cache-backed deploy scaffolded
+Date: 2026-02-26
+Status: archived (AWS/grind-era context)
 
-## Narrative Summary (1-minute read)
+This handoff moved to:
+`docs/handoffs/archive/2026-02-deprecated-aws-grind-handoffs/2026-02-21-auth-onboarding-flow.md`
 
-Runtime deployment is live on AWS with NixOS native containers, hypervisor,
-public domain, and TLS. The auth onboarding mismatch on `/register` has now
-been fixed in the Dioxus modal UX and deployed to production assets.
+Use active docs:
 
-The next workstream is CI/CD hardening and cache-backed build/deploy automation
-to remove manual artifact sync steps.
-
-## What Changed
-
-1. Production host is served at `https://os.choir-ip.com` with Caddy -> hypervisor.
-2. Apex `https://choir-ip.com` redirects to `https://os.choir-ip.com`.
-3. WebAuthn RP config remains:
-   - `WEBAUTHN_RP_ID=os.choir-ip.com`
-   - `WEBAUTHN_RP_ORIGIN=https://os.choir-ip.com`
-4. Auth modal now has explicit login/signup modes with email-first prompt and
-   route-aware intent (`/login` vs `/register`), no implicit login->register fallback.
-5. Public Playwright smoke passed on HTTPS domain for:
-   - `tests/playwright/bios-auth.spec.ts`
-   - `tests/playwright/proxy-integration.spec.ts`
-   - latest result: 12/12 passing on `https://os.choir-ip.com`
-
-## What To Do Next
-
-1. Configure repo secrets/vars used by the new workflow:
-   - required: `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, optional `EC2_SSH_PORT`
-   - optional repo var `PLAYWRIGHT_HYPERVISOR_BASE_URL`
-2. Keep Playwright domain-mode auth/proxy smoke as release-gate evidence.
-3. Move EC2 host config into repo flake outputs so deploy can switch generations
-   declaratively from git SHA instead of mutable host config.
-
-## Verification Notes
-
-- `/register` now renders signup mode label and email prompt.
-- `/login` now renders login mode label and email prompt.
-- Login with unknown email now returns inline error and does not auto-create account.
-- Keep tests on production hostname mode; avoid localhost-only assumptions.
-
-## Guardrails for Next Phase
-
-- Keep RP origin/domain unchanged unless root-cause proves WebAuthn config defect.
-- Do not introduce deterministic orchestration fallbacks in conductor/runtime paths.
-- Preserve current NixOS container substrate and hypervisor reverse-proxy topology.
-
-## Rollback Notes (Generation-Tied)
-
-- Check host generations:
-  `sudo nix-env --list-generations --profile /nix/var/nix/profiles/system`
-- Roll back NixOS generation:
-  `sudo nixos-rebuild switch --rollback`
-- Reconcile services after rollback:
-  `sudo systemctl restart container@sandbox-live container@sandbox-dev hypervisor`
-- Artifact-level fallback remains available at:
-  `/opt/choiros/backups/<github-sha>/`
+1. `docs/architecture/2026-02-26-local-first-ovh-execution-plan.md`
+2. `docs/architecture/roadmap-dependency-tree.md`
+3. `docs/architecture/2026-02-20-bootstrap-execution-checklists.md`
+4. `docs/handoffs/2026-02-22-platform-project-checklist-ovh-microvm.md`

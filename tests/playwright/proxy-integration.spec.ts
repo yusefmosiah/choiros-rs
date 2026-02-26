@@ -147,7 +147,7 @@ test.describe.serial("proxy integration", () => {
 
   test("unauthenticated request to proxied path is redirected to login", async ({ page }) => {
     // Explicitly do NOT log in.
-    const resp = await page.request.get("/", { maxRedirects: 0 });
+    const resp = await page.request.get("/logs/events", { maxRedirects: 0 });
     expect(resp.status()).toBe(303);
     expect(resp.headers()["location"]).toContain("/login");
   });

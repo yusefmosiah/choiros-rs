@@ -1,181 +1,162 @@
-# ChoirOS Bootstrap Execution Checklists
+# Bootstrap Execution Checklists (Choir Builds Choir)
 
-Date: 2026-02-20  
-Status: Active checklist  
-Owner: ChoirOS runtime and deployment
+Date: 2026-02-26
+Status: active checklist
+Owner: platform/runtime
 
 ## Narrative Summary (1-minute read)
 
-These checklists translate the deployment runbook into gate-based execution items.
-Each phase can be run as a GitHub issue. Do not advance phases without gate evidence.
+For ChoirOS, `bootstrap` means using Choir itself as the coding agent to build Choir.
+Bootstrap is only activated after the local 3-tier architecture is stable.
+Sequence is strict:
+
+1. Build and validate local 3-tier runtime.
+2. Lock git workflow + CI/CD gates for safe live changes and rollback.
+3. Activate and prove the Choir-on-Choir dev loop.
+4. Build memory system to improve the agentic build loop.
+5. Deploy to OVH using the same contract.
 
 ## What Changed
 
-1. Added phase-by-phase issue-ready checklists.
-2. Made bootstrap objective explicit in execution criteria.
-3. Added evidence and rollback requirements to every phase.
+1. Replaced AWS-era bootstrap assumptions with local-first bootstrap order.
+2. Added explicit memory-system phase before OVH rollout.
+3. Added git/CI/CD phase before infrastructure promotion.
 
 ## What To Do Next
 
-1. Open one GitHub issue per phase using these checklists.
-2. Execute in order; attach evidence before closing each issue.
-3. Stop phase progression if gate criteria are not met.
+1. Complete Phase 1 and Phase 2 locally.
+2. Do not start bootstrap until Phase 2 is complete.
+3. Do not start OVH rollout until Phase 4 is complete.
+4. Use this checklist with `docs/architecture/roadmap-dependency-tree.md`.
+5. Keep execution aligned with `docs/architecture/2026-02-26-comprehensive-cutover-plan.md`.
 
-## Current Blocker (2026-02-21)
+## Global Definition of Done
 
-- Deployment, public HTTPS routing, and auth onboarding UX are now validated on
-  production hostname mode.
-- Remaining blocker for reliable iteration is CI/CD automation with cache-backed
-  builds and reproducible deploy steps.
+- [ ] Local 3-tier runtime is stable and reproducible.
+- [ ] Memory system works end-to-end with observable correctness.
+- [ ] Git and CI/CD enforce clean, deterministic release behavior.
+- [ ] OVH deployment reproduces local architecture with rollback safety.
 
-## Global Definition of Done (Bootstrap)
-
-- [ ] One user can run `live` and `dev` sandboxes concurrently behind hypervisor.
-- [ ] Hypervisor can route/swap between live/dev for rollback.
-- [ ] Prior known-good config/image can be restored in bounded time.
-
-## Phase 1 Issue: NixOS Container Substrate Smoke
+## Phase 1: Local 3-Tier Runtime Stabilization
 
 ### Outcome
 
-Host runs `live` and `dev` sandbox instances as native NixOS containers with the
-same contract intended for production.
+Local architecture is stable enough to serve as the substrate for Choir-on-Choir bootstrap.
 
 ### Gate
 
-- [ ] `containers.sandbox-live` and `containers.sandbox-dev` start/restart cleanly.
-- [ ] Auth + proxy path works through hypervisor.
-- [ ] WebSocket task flow works end-to-end.
-
-### Tasks
-
-- [ ] Enable host container module options (`boot.enableContainers`, `virtualisation.containers.enable`).
-- [ ] Define `containers.sandbox-live` and `containers.sandbox-dev` networking and mounts.
-- [ ] Validate env, mounts, and ports for live/dev roles.
-- [ ] Capture one successful end-to-end user task.
+- [ ] Hypervisor control plane starts and routes reliably.
+- [ ] User runtime boundary is enforced (VM/container isolation contract).
+- [ ] `live` and `dev` sandbox surfaces run concurrently.
+- [ ] login -> desktop -> prompt execution loop passes.
 
 ### Evidence
 
-- [ ] `nixos-container list` and `systemctl status container@sandbox-live` outputs attached.
-- [ ] `systemctl status container@sandbox-dev` output attached.
-- [ ] Hypervisor logs for spawn/stop transitions attached.
-- [ ] E2E smoke result attached.
+- [ ] Service/process health snapshots.
+- [ ] E2E run artifact (Playwright or equivalent).
+- [ ] Event trace confirming scoped routing and worker lifecycle.
 
-### Rollback
-
-- [ ] Document and verify fallback to previous NixOS generation.
-
-## Phase 2 Issue: CI + FlakeHub Cache
+## Phase 2: Git + CI/CD Safety Bootstrap
 
 ### Outcome
 
-Flake builds are repeatable and accelerated by managed binary cache.
+Code changes during live runtime are safe, traceable, and reversible.
 
 ### Gate
 
-- [ ] CI builds `sandbox`, `desktop`, and `hypervisor` flakes successfully.
-- [ ] Repeat build shows improved duration with cache hits.
-
-### Tasks
-
-- [ ] Enable FlakeHub cache in workflow with OIDC permissions.
-- [ ] Keep workflow non-blocking initially; then promote to required checks.
-- [ ] Capture baseline and post-cache build times.
+- [ ] Protected mainline path with required checks.
+- [ ] Clean-tree enforcement for release builds.
+- [ ] Provider matrix validation is a required gate.
+- [ ] Artifact/version traceability is captured per release.
+- [ ] Branching policy is defined and enforced (`branch-per-sandbox` default).
+- [ ] Commit/rollback workflow is validated while runtime is live.
 
 ### Evidence
 
-- [ ] Workflow run links attached.
-- [ ] Cache hit/miss summary attached.
-- [ ] Build duration comparison attached.
+- [ ] CI config links and passing run IDs.
+- [ ] Release checklist with commit SHA + artifact mapping.
+- [ ] Rollback instruction validated once.
+- [ ] Branch lifecycle spec documented (create, lock, merge, prune).
+- [ ] One successful hot-change + rollback drill report.
 
-### Rollback
+### Branching Policy (Recommended)
 
-- [ ] Document fallback path if cache integration fails.
+1. Default unit is one branch per sandbox container, not per user.
+2. A single user can own multiple sandbox branches for parallel experiments.
+3. Each sandbox branch has metadata:
+   - owner user id
+   - sandbox id
+   - base commit
+   - TTL/expiry
+4. Merge path is sandbox branch -> reviewed integration branch -> main.
 
-## Phase 3 Issue: Hypervisor NixOS Module
+### Local Orchestration Milestone (Before Phase 3)
+
+1. Add `just` entrypoints for split local topology:
+   - `dev-control-plane`
+   - `dev-runtime-plane`
+   - `dev-all`
+   - `stop-all`
+2. Add tmux script for service windows and log capture.
+3. Make these commands the daily bootstrap loop.
+
+## Phase 3: Choir-on-Choir Loop Bootstrap
 
 ### Outcome
 
-Host runtime is encoded declaratively and builds reproducibly.
+Choir can modify, test, and validate Choir locally with traceable runs.
 
 ### Gate
 
-- [ ] NixOS system closure builds for target host config.
-- [ ] Hypervisor service starts reliably under systemd.
-
-### Tasks
-
-- [ ] Implement `nixosModules.default` in `hypervisor/flake.nix`.
-- [ ] Define hypervisor systemd service.
-- [ ] Define container runtime/service integration for sandbox lifecycle.
-- [ ] Externalize env and secrets file references.
+- [ ] Core coding-agent loop works end-to-end (`request -> code change -> test -> report`).
+- [ ] Failures are visible and actionable (no silent fallback path).
+- [ ] Run traces clearly show plan/delegation/tool/result flow.
 
 ### Evidence
 
-- [ ] `nix build` toplevel result attached.
-- [ ] Service status/log output attached.
+- [ ] At least one successful real feature/fix built by Choir on this repo.
+- [ ] At least one failed run with useful debugging trace.
+- [ ] Report artifact captured in `docs/reports/`.
 
-### Rollback
-
-- [ ] Document previous generation fallback path.
-
-## Phase 4 Issue: EC2 NixOS Provisioning
+## Phase 4: Local Memory System Bootstrap
 
 ### Outcome
 
-AWS host is provisioned and converged from NixOS flake config.
+Memory layer is functional and safe on top of local runtime.
 
 ### Gate
 
-- [ ] EC2 host converges from declarative config.
-- [ ] Hypervisor remains healthy across reboot.
-
-### Tasks
-
-- [ ] Launch initial target host (`t3a.large`, `us-east-1`, `gp3` volume).
-- [ ] Configure network policy, DNS, and TLS routing.
-- [ ] Deploy NixOS host config via CLI.
+- [ ] Ingestion and retrieval work for expected task paths.
+- [ ] Memory writes/reads are scoped correctly by user/session.
+- [ ] Memory failures are observable and fail loudly (no silent fallback).
 
 ### Evidence
 
-- [ ] Deployment command transcript attached.
-- [ ] Post-reboot health output attached.
+- [ ] Integration tests for memory ingestion/retrieval.
+- [ ] Trace logs showing memory calls in real runs.
+- [ ] Documented known limits and deferred items.
 
-### Rollback
-
-- [ ] Verify generation rollback and service recovery.
-
-## Phase 5 Issue: Production Validation
+## Phase 5: OVH Deployment Bootstrap
 
 ### Outcome
 
-MVP traffic path is usable and recoverable in production.
+OVH runtime matches validated local architecture.
 
 ### Gate
 
-- [ ] Auth/register/login/recovery flow passes.
-- [ ] live/dev sandbox lifecycle works and route swap succeeds.
-- [ ] Rollback rehearsal passes.
-
-### Tasks
-
-- [ ] Run smoke suite against deployed host.
-- [ ] Validate logs, restart behavior, and disk/memory headroom.
-- [ ] Record first operational playbook.
+- [ ] Single OVH node passes full user flow.
+- [ ] Two-node active/passive handoff passes.
+- [ ] Rollback to prior generation passes.
 
 ### Evidence
 
-- [ ] Smoke suite results attached.
-- [ ] Runtime metrics snapshot attached.
-- [ ] Rollback rehearsal output attached.
-
-### Rollback
-
-- [ ] Confirm rollback from current prod generation to previous known-good.
+- [ ] Host convergence logs.
+- [ ] Public domain E2E artifacts.
+- [ ] Failover and rollback drill results.
 
 ## Execution Rules
 
 1. One active phase at a time.
-2. No gate bypasses.
-3. Evidence required for close.
-4. If gate fails, open defect issue and stop forward progression.
+2. No gate bypass.
+3. Every gate requires evidence.
+4. Failures become explicit defects before forward movement.

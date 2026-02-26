@@ -8,11 +8,11 @@ default:
 # Development commands
 # Run backend API server with local database
 dev-sandbox:
-    cd sandbox && DATABASE_URL="sqlite:../data/events.db" SQLX_OFFLINE=true CARGO_INCREMENTAL=0 cargo run
+    cd sandbox && FRONTEND_DIST="$(pwd)/../dioxus-desktop/target/dx/dioxus-desktop/release/web/public" DATABASE_URL="sqlite:../data/events.db" SQLX_OFFLINE=true CARGO_INCREMENTAL=0 cargo run
 
 # Run hypervisor component (build release UI first so sandbox serves non-HMR assets)
 dev-hypervisor: build-ui-release
-    cd hypervisor && SQLX_OFFLINE=true DATABASE_URL="sqlite:../data/hypervisor.db" cargo run
+    cd hypervisor && FRONTEND_DIST="$(pwd)/../dioxus-desktop/target/dx/dioxus-desktop/release/web/public" SQLX_OFFLINE=true HYPERVISOR_DATABASE_URL="sqlite:../data/hypervisor.db" cargo run
 
 # Build the Dioxus WASM frontend (debug) into target/dx/dioxus-desktop/debug/web/public
 build-ui:
@@ -27,7 +27,14 @@ build-ui-release:
 # The sandbox serves desktop runtime assets; hypervisor handles auth + proxying.
 dev-full: build-ui-release
     cargo build -p sandbox
-    cd hypervisor && SQLX_OFFLINE=true DATABASE_URL="sqlite:../data/hypervisor.db" cargo run
+    cd hypervisor && FRONTEND_DIST="$(pwd)/../dioxus-desktop/target/dx/dioxus-desktop/release/web/public" SQLX_OFFLINE=true HYPERVISOR_DATABASE_URL="sqlite:../data/hypervisor.db" cargo run
+
+# Prod-like local mode:
+# - Builds static release UI
+# - Starts sandbox + hypervisor with the same FRONTEND_DIST
+# - Verifies served asset path from /register resolves correctly
+dev-prod-like:
+    ./scripts/ops/dev-prod-like-up.sh
 
 # Run Dioxus frontend development server (port 3000)
 dev-ui:
@@ -52,7 +59,8 @@ build:
 # Backend builds in sandbox/
 build-sandbox:
     cd dioxus-desktop && dx build --release
-    cp -r dioxus-desktop/dist/* sandbox/static/
+    mkdir -p sandbox/static
+    cp -r dioxus-desktop/target/dx/dioxus-desktop/release/web/public/* sandbox/static/
     cd sandbox && cargo build --release
 
 # Testing
