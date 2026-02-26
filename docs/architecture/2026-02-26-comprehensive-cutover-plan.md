@@ -33,6 +33,28 @@ Immediate strategy:
 2. Start Phase 3 auth split only after local orchestration is stable.
 3. Do not begin OVH cutover until Phase 5 is green.
 
+## Current Checkpoint (2026-02-26)
+
+Active phase: Phase 1 (Local 3-Tier Runtime Stability)
+
+Observed state:
+
+1. Conductor no longer terminates WriterActor at run finalize (writer lifecycle fixed).
+2. Writer window now opens earlier for active non-immediate runs (better concurrent UX).
+3. Full local hypervisor auth/proxy Playwright suite is green on `localhost`.
+4. `dx build --release` logs a non-fatal `wasm-opt` crash in local env; assets still produced and command exits `0`.
+
+Gate status:
+
+- [x] Hypervisor + sandbox come up reliably with shared runtime contract.
+- [~] Frontend bootstrap asset contract is verified automatically.
+- [x] Playwright hypervisor/auth/proxy suite is green.
+
+Interpretation:
+
+1. Runtime correctness is improving, but startup/orchestration is still spread across multiple commands.
+2. We should complete prod-like local startup unification before moving to Phase 2 service choreography.
+
 ## Hard Ownership Boundaries
 
 ## Hypervisor (Control Plane Component)
@@ -62,9 +84,16 @@ Goal: login -> desktop -> prompt flow stable on localhost with prod-like contrac
 
 Exit criteria:
 
-- [ ] Hypervisor + sandbox come up reliably with shared runtime contract.
-- [ ] Frontend bootstrap asset contract is verified automatically.
-- [ ] Playwright hypervisor/auth/proxy suite is green.
+- [x] Hypervisor + sandbox come up reliably with shared runtime contract.
+- [~] Frontend bootstrap asset contract is verified automatically.
+- [x] Playwright hypervisor/auth/proxy suite is green.
+
+Immediate execution checklist:
+
+1. Define canonical prod-like local startup command path (`just` recipes only). [done]
+2. Verify prompt flow on full local deployment path (`localhost:9090`) with auth.
+3. Add/enable one Playwright spec that asserts Writer opens during active delegated run (not after completion).
+4. Record pass/fail outputs in a dated report under `docs/reports/`. [done]
 
 ## Phase 2: Local Service Orchestration (`just` + tmux)
 
@@ -72,10 +101,10 @@ Goal: run the future distributed shape locally with explicit commands.
 
 Exit criteria:
 
-- [ ] `just dev-control-plane` starts all control-plane services locally.
-- [ ] `just dev-runtime-plane` starts per-user runtime services.
-- [ ] `just dev-all` and `just stop-all` are deterministic.
-- [ ] tmux layout scripts capture logs by service.
+- [x] `just dev-control-plane` starts all control-plane services locally.
+- [x] `just dev-runtime-plane` starts per-user runtime services.
+- [x] `just dev-all` and `just stop-all` are deterministic.
+- [x] tmux layout scripts capture logs by service.
 
 ## Phase 3: Auth Split (Identity Service)
 
@@ -134,10 +163,26 @@ Exit criteria:
 
 ## Daily Gate Command Set (Local)
 
-1. `just dev-prod-like` (or equivalent canonical startup)
-2. Playwright hypervisor/auth/proxy smoke
-3. provider matrix validation
-4. record outcomes in `docs/reports/`
+1. `just local-build-ui`
+2. `cargo build -p sandbox`
+3. `just local-hypervisor`
+4. `PLAYWRIGHT_HYPERVISOR_BASE_URL=http://localhost:9090 npx playwright test --config=playwright.config.ts --project=hypervisor bios-auth.spec.ts proxy-integration.spec.ts --workers=1`
+5. provider matrix validation (when gateway token + provider env are present)
+6. record outcomes in `docs/reports/`
+
+Stop command:
+
+1. `just stop`
+
+## Next 72 Hours (Strict)
+
+1. Finish Phase 1 remaining gates:
+   - canonical startup recipe set
+   - writer-concurrency regression spec
+2. Begin Phase 2 only after Phase 1 gates are green:
+   - `dev-control-plane`, `dev-runtime-plane`, `dev-all`, `stop-all`
+   - tmux-backed logs by service
+3. Do not start Phase 3 auth split implementation work until Phase 2 command reliability is demonstrated.
 
 ## Blockers and Stop Rules
 

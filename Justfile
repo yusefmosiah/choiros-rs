@@ -18,6 +18,28 @@ local-sandbox:
 local-hypervisor:
     cd hypervisor && FRONTEND_DIST="$(pwd)/../dioxus-desktop/target/dx/dioxus-desktop/release/web/public" SQLX_OFFLINE=true HYPERVISOR_DATABASE_URL="sqlite:../data/hypervisor.db" cargo run
 
+# Cutover topology commands (tmux-backed)
+dev-control-plane:
+    ./scripts/dev-cutover.sh start-control
+
+dev-runtime-plane:
+    ./scripts/dev-cutover.sh start-runtime
+
+dev-all:
+    ./scripts/dev-cutover.sh start-all
+
+dev-all-foreground:
+    ./scripts/dev-cutover.sh start-all-fg
+
+dev-status:
+    ./scripts/dev-cutover.sh status
+
+dev-attach:
+    ./scripts/dev-cutover.sh attach
+
+stop-all:
+    ./scripts/dev-cutover.sh stop
+
 # Build the Dioxus WASM frontend (debug) into target/dx/dioxus-desktop/debug/web/public
 build-ui:
     cd dioxus-desktop && dx build
@@ -39,14 +61,7 @@ dev-ui:
 
 # Stop/kill running development processes
 stop:
-    @echo "Stopping ChoirOS development processes..."
-    @pkill -9 -f "/target/debug/sandbox" 2>/dev/null || true
-    @pkill -9 -f "/target/debug/hypervisor" 2>/dev/null || true
-    @pkill -9 -f "cargo run.*sandbox" 2>/dev/null || true
-    @pkill -9 -f "cargo run.*hypervisor" 2>/dev/null || true
-    @pkill -9 -f "dx serve --port 3000" 2>/dev/null || true
-    @pkill -9 -f "vite --port 3000" 2>/dev/null || true
-    @echo "✓ All processes stopped"
+    @just stop-all
 
 # Build commands
 # Build all packages in release mode
