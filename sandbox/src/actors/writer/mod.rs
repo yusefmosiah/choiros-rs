@@ -858,6 +858,50 @@ impl WriterActor {
             });
         }
 
+        // Worker/conductor-originated updates are already structured content for the
+        // run document. Apply them directly so the UI updates immediately and avoid
+        // routing every incremental worker update through writer synthesis.
+        if inbound.envelope.source != WriterSource::User {
+            let revision = Self::set_section_content(
+                state,
+                inbound.envelope.run_id.clone(),
+                inbound.envelope.section_id.clone(),
+                inbound.envelope.source,
+                inbound.envelope.content.clone(),
+            )
+            .await?;
+
+            Self::remember_message_id(state, &inbound.envelope.message_id);
+            Self::emit_event(
+                state,
+                "writer.actor.inbox.applied_direct",
+                serde_json::json!({
+                    "run_id": inbound.envelope.run_id.clone(),
+                    "section_id": inbound.envelope.section_id.clone(),
+                    "source": inbound.envelope.source.as_str(),
+                    "kind": inbound.envelope.kind.clone(),
+                    "message_id": inbound.envelope.message_id.clone(),
+                    "queue_len": state.inbox_queue.len(),
+                    "revision": revision,
+                    "correlation_id": inbound.envelope.correlation_id.clone(),
+                    "base_version_id": inbound.envelope.base_version_id,
+                    "overlay_id": inbound.envelope.overlay_id.clone(),
+                    "session_id": inbound.envelope.session_id.clone(),
+                    "thread_id": inbound.envelope.thread_id.clone(),
+                    "call_id": inbound.envelope.call_id.clone(),
+                    "origin_actor": inbound.envelope.origin_actor.clone(),
+                }),
+            );
+
+            return Ok(WriterQueueAck {
+                message_id: inbound.envelope.message_id,
+                accepted: true,
+                duplicate: false,
+                queue_len: state.inbox_queue.len(),
+                revision,
+            });
+        }
+
         let initial_revision = if inbound.envelope.source == WriterSource::User {
             let base_version_id = inbound.envelope.base_version_id.ok_or_else(|| {
                 WriterError::Validation("base_version_id is required for user prompt".to_string())
