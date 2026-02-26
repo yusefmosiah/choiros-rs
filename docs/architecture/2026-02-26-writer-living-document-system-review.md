@@ -24,10 +24,9 @@ This review maps the current system, identifies failure modes, and defines a sim
 
 Immediate corrective changes implemented in this pass:
 
-1. Researcher adapter now emits `WriterMsg::ReportProgress` during harness progress updates.
-2. Terminal adapter now emits `WriterMsg::ReportProgress` during harness progress updates.
-3. Researcher default max loop steps reduced from `100` to `20` when no explicit override is provided.
-4. Writer UI now renders a run-progress placeholder when document content is empty but run state is active.
+1. Researcher default max loop steps reduced from `100` to `20` when no explicit override is provided.
+2. Writer UI now renders a run-progress placeholder when document content is empty but run state is active.
+3. Messaging contract clarified: Writer updates must come through explicit message-passing (`message_writer` tool calls / actor completion messages), not adapter-side auto-progress forwarding.
 
 ## What To Do Next
 
@@ -40,7 +39,7 @@ Immediate corrective changes implemented in this pass:
    - non-empty early Writer state
    - bounded delegated weather run budget
    - monotonic revision progression for one run document.
-5. Standardize this as a worker contract: every delegated worker adapter must mirror `emit_progress` into Writer progress/state events when run context exists.
+5. Standardize strict message-passing contract: workers are responsible for explicit Writer updates via `message_writer` and completion envelopes.
 
 ## Current System Map
 

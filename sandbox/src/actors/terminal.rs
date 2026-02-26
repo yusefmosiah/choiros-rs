@@ -129,32 +129,6 @@ impl TerminalAdapter {
             .any(|exec| exec.tool_name == "message_writer" && exec.success)
     }
 
-    async fn writer_set_state(&self, state: SectionState) {
-        let Some((writer_actor, run_id)) = self.writer_context() else {
-            return;
-        };
-        let _ = ractor::call!(writer_actor, |reply| WriterMsg::SetSectionState {
-            run_id,
-            section_id: "terminal".to_string(),
-            state,
-            reply,
-        });
-    }
-
-    async fn writer_report_progress(&self, phase: String, message: String) {
-        let Some((writer_actor, run_id)) = self.writer_context() else {
-            return;
-        };
-        let _ = ractor::call!(writer_actor, |reply| WriterMsg::ReportProgress {
-            run_id,
-            section_id: "terminal".to_string(),
-            source: WriterSource::Terminal,
-            phase,
-            message,
-            reply,
-        });
-    }
-
     async fn execute_message_writer(
         &self,
         tool_call: &MessageWriterToolCall,
@@ -678,18 +652,6 @@ Writer mode contract:
             progress.step_index,
             progress.step_total,
         );
-
-        // Mirror terminal worker progress into writer run events so UI can show
-        // live state before final completion content arrives.
-        self.writer_report_progress(progress.phase.clone(), progress.message.clone())
-            .await;
-
-        match progress.phase.as_str() {
-            "started" => self.writer_set_state(SectionState::Running).await,
-            "completed" => self.writer_set_state(SectionState::Complete).await,
-            "failed" => self.writer_set_state(SectionState::Failed).await,
-            _ => {}
-        }
 
         Ok(())
     }
