@@ -12,16 +12,8 @@ use crate::actors::conductor::{
 };
 use crate::actors::writer::SectionState;
 use crate::actors::writer::WriterMsg;
-use crate::supervisor::writer::WriterSupervisorMsg;
 
 impl ConductorActor {
-    fn stop_run_writer_actor(&self, state: &ConductorState, run_id: &str) {
-        if let Some(writer_supervisor) = state.writer_supervisor.as_ref() {
-            let writer_id = registry::run_writer_id(run_id);
-            let _ = writer_supervisor.cast(WriterSupervisorMsg::RemoveWriter { writer_id });
-        }
-    }
-
     pub(crate) async fn finalize_run_as_completed(
         &self,
         state: &mut ConductorState,
@@ -76,7 +68,6 @@ impl ConductorActor {
                 reply,
             });
         }
-        self.stop_run_writer_actor(state, run_id);
 
         Ok(())
     }
@@ -115,7 +106,6 @@ impl ConductorActor {
                 reply,
             });
         }
-        self.stop_run_writer_actor(state, run_id);
         Ok(())
     }
 

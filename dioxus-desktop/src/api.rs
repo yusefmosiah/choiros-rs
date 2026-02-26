@@ -1660,8 +1660,20 @@ pub async fn execute_conductor(
         return Err(describe_http_error(response).await);
     }
 
-    response
-        .json::<ConductorExecuteResponse>()
+    let body = response
+        .text()
         .await
-        .map_err(|e| format!("Failed to parse JSON: {e}"))
+        .map_err(|e| format!("Failed to read response body: {e}"))?;
+
+    if response_looks_like_html(&body) {
+        return Err(
+            "Conductor execute returned HTML instead of JSON (likely not authenticated)."
+                .to_string(),
+        );
+    }
+
+    serde_json::from_str::<ConductorExecuteResponse>(&body).map_err(|e| {
+        let preview = body.trim().chars().take(120).collect::<String>();
+        format!("Failed to parse JSON: {e} (body preview: {preview})")
+    })
 }

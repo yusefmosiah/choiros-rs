@@ -341,6 +341,17 @@ fn failure_from_error(error: Option<ConductorError>) -> (String, String) {
 }
 
 fn run_state_requires_writer(run: &shared_types::ConductorRunState) -> bool {
+    // Open writer as soon as there is active orchestration work for this run.
+    // Agenda population can lag behind active call registration, which made
+    // writer UI appear late even while workers were already running.
+    if run
+        .active_calls
+        .iter()
+        .any(|call| !call.capability.eq_ignore_ascii_case("immediate_response"))
+    {
+        return true;
+    }
+
     run.agenda
         .iter()
         .any(|item| !item.capability.eq_ignore_ascii_case("immediate_response"))
@@ -1104,6 +1115,72 @@ mod tests {
         };
 
         assert!(run_state_requires_writer(&run));
+    }
+
+    #[test]
+    fn run_state_requires_writer_is_true_for_active_calls() {
+        let now = chrono::Utc::now();
+        let run = shared_types::ConductorRunState {
+            run_id: "run-3".to_string(),
+            objective: "weather".to_string(),
+            status: ConductorRunStatus::WaitingForCalls,
+            created_at: now,
+            updated_at: now,
+            completed_at: None,
+            agenda: vec![],
+            active_calls: vec![shared_types::ConductorCapabilityCall {
+                call_id: "call-1".to_string(),
+                capability: "writer".to_string(),
+                objective: "delegate weather".to_string(),
+                status: shared_types::CapabilityCallStatus::Running,
+                started_at: now,
+                completed_at: None,
+                parent_call_id: None,
+                agenda_item_id: Some("item-1".to_string()),
+                artifact_ids: vec![],
+                error: None,
+            }],
+            artifacts: vec![],
+            decision_log: vec![],
+            document_path: "conductor/runs/run-3/draft.md".to_string(),
+            output_mode: ConductorOutputMode::Auto,
+            desktop_id: "desktop-1".to_string(),
+        };
+
+        assert!(run_state_requires_writer(&run));
+    }
+
+    #[test]
+    fn run_state_requires_writer_is_false_for_immediate_only_active_calls() {
+        let now = chrono::Utc::now();
+        let run = shared_types::ConductorRunState {
+            run_id: "run-4".to_string(),
+            objective: "hi".to_string(),
+            status: ConductorRunStatus::Running,
+            created_at: now,
+            updated_at: now,
+            completed_at: None,
+            agenda: vec![],
+            active_calls: vec![shared_types::ConductorCapabilityCall {
+                call_id: "call-1".to_string(),
+                capability: "immediate_response".to_string(),
+                objective: "say hi".to_string(),
+                status: shared_types::CapabilityCallStatus::Running,
+                started_at: now,
+                completed_at: None,
+                parent_call_id: None,
+                agenda_item_id: Some("item-1".to_string()),
+                artifact_ids: vec![],
+                error: None,
+            }],
+            artifacts: vec![],
+            decision_log: vec![],
+            document_path: "conductor/runs/run-4/draft.md".to_string(),
+            output_mode: ConductorOutputMode::Auto,
+            desktop_id: "desktop-1".to_string(),
+        };
+
+        assert!(!run_state_requires_writer(&run));
     }
 }
 

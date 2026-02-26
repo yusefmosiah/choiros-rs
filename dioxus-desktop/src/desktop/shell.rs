@@ -62,14 +62,16 @@ pub fn DesktopShell(desktop_id: String) -> Element {
         });
     });
 
-    // If the app boots on /login or /register, force the auth modal.
-    // This keeps URL intent authoritative even after /auth/me reports unauthenticated.
+    // Force auth modal when unauthenticated so `/` does not sit in a blank shell.
+    // URL intent (/login or /register) still determines the initial mode label.
     use_effect(move || {
-        if !require_auth_from_url() {
+        let current = auth.read().clone();
+        if matches!(current, AuthState::Unauthenticated) {
+            auth.set(AuthState::Required);
             return;
         }
-        let current = auth.read().clone();
-        if matches!(current, AuthState::Unknown | AuthState::Unauthenticated) {
+
+        if require_auth_from_url() && matches!(current, AuthState::Unknown) {
             auth.set(AuthState::Required);
         }
     });

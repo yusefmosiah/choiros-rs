@@ -5,13 +5,17 @@
 default:
     @just --list
 
-# Development commands
-# Run backend API server with local database
-dev-sandbox:
+# Development commands (local cutover flow)
+# 1) Build static release frontend assets
+local-build-ui:
+    cd dioxus-desktop && dx build --release
+
+# 2) Run sandbox API/runtime against the release frontend dist
+local-sandbox:
     cd sandbox && FRONTEND_DIST="$(pwd)/../dioxus-desktop/target/dx/dioxus-desktop/release/web/public" DATABASE_URL="sqlite:../data/events.db" SQLX_OFFLINE=true CARGO_INCREMENTAL=0 cargo run
 
-# Run hypervisor component (build release UI first so sandbox serves non-HMR assets)
-dev-hypervisor: build-ui-release
+# 3) Run hypervisor against the same release frontend dist
+local-hypervisor:
     cd hypervisor && FRONTEND_DIST="$(pwd)/../dioxus-desktop/target/dx/dioxus-desktop/release/web/public" SQLX_OFFLINE=true HYPERVISOR_DATABASE_URL="sqlite:../data/hypervisor.db" cargo run
 
 # Build the Dioxus WASM frontend (debug) into target/dx/dioxus-desktop/debug/web/public
@@ -25,16 +29,9 @@ build-ui-release:
 # Build release UI then run hypervisor — full stack on port 9090
 # Builds the sandbox binary, the Dioxus WASM frontend, then starts the hypervisor.
 # The sandbox serves desktop runtime assets; hypervisor handles auth + proxying.
-dev-full: build-ui-release
+dev-full: local-build-ui
     cargo build -p sandbox
     cd hypervisor && FRONTEND_DIST="$(pwd)/../dioxus-desktop/target/dx/dioxus-desktop/release/web/public" SQLX_OFFLINE=true HYPERVISOR_DATABASE_URL="sqlite:../data/hypervisor.db" cargo run
-
-# Prod-like local mode:
-# - Builds static release UI
-# - Starts sandbox + hypervisor with the same FRONTEND_DIST
-# - Verifies served asset path from /register resolves correctly
-dev-prod-like:
-    ./scripts/ops/dev-prod-like-up.sh
 
 # Run Dioxus frontend development server (port 3000)
 dev-ui:
@@ -43,8 +40,10 @@ dev-ui:
 # Stop/kill running development processes
 stop:
     @echo "Stopping ChoirOS development processes..."
-    @pkill -9 -f "target/debug/sandbox" 2>/dev/null || true
-    @pkill -9 -f "target/debug/hypervisor" 2>/dev/null || true
+    @pkill -9 -f "/target/debug/sandbox" 2>/dev/null || true
+    @pkill -9 -f "/target/debug/hypervisor" 2>/dev/null || true
+    @pkill -9 -f "cargo run.*sandbox" 2>/dev/null || true
+    @pkill -9 -f "cargo run.*hypervisor" 2>/dev/null || true
     @pkill -9 -f "dx serve --port 3000" 2>/dev/null || true
     @pkill -9 -f "vite --port 3000" 2>/dev/null || true
     @echo "✓ All processes stopped"
