@@ -95,9 +95,24 @@ impl Default for RunDocument {
 
 impl RunDocument {
     pub fn new(objective: impl Into<String>) -> Self {
+        let objective = objective.into();
+        let seed = if objective.trim().is_empty() {
+            String::new()
+        } else {
+            format!("Run started.\n\nObjective: {}", objective.trim())
+        };
+        let now = Utc::now();
         Self {
-            objective: objective.into(),
-            ..Default::default()
+            objective,
+            versions: vec![DocumentVersion {
+                version_id: 0,
+                created_at: now,
+                source: VersionSource::System,
+                content: seed,
+                parent_version_id: None,
+            }],
+            overlays: Vec::new(),
+            head_version_id: 0,
         }
     }
 

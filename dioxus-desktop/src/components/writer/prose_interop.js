@@ -17,6 +17,10 @@
     out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
     out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
     out = out.replace(/_([^_]+)_/g, "<em>$1</em>");
+    out = out.replace(
+      /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
+    );
     return out;
   }
 
@@ -30,14 +34,24 @@
       if (!trimmed) {
         return "<p><br></p>";
       }
-      if (/^###\s+/.test(trimmed)) {
-        return "<h3>" + inlineMarkdownToHtml(trimmed.replace(/^###\s+/, "")) + "</h3>";
+      const lines = block.replace(/\r/g, "").split("\n");
+      const first = (lines[0] || "").trim();
+      const rest = lines.slice(1).join("\n").trim();
+
+      if (/^###\s+/.test(first)) {
+        const heading = "<h3>" + inlineMarkdownToHtml(first.replace(/^###\s+/, "")) + "</h3>";
+        if (!rest) return heading;
+        return heading + "<p>" + inlineMarkdownToHtml(rest).replace(/\n/g, "<br>") + "</p>";
       }
-      if (/^##\s+/.test(trimmed)) {
-        return "<h2>" + inlineMarkdownToHtml(trimmed.replace(/^##\s+/, "")) + "</h2>";
+      if (/^##\s+/.test(first)) {
+        const heading = "<h2>" + inlineMarkdownToHtml(first.replace(/^##\s+/, "")) + "</h2>";
+        if (!rest) return heading;
+        return heading + "<p>" + inlineMarkdownToHtml(rest).replace(/\n/g, "<br>") + "</p>";
       }
-      if (/^#\s+/.test(trimmed)) {
-        return "<h1>" + inlineMarkdownToHtml(trimmed.replace(/^#\s+/, "")) + "</h1>";
+      if (/^#\s+/.test(first)) {
+        const heading = "<h1>" + inlineMarkdownToHtml(first.replace(/^#\s+/, "")) + "</h1>";
+        if (!rest) return heading;
+        return heading + "<p>" + inlineMarkdownToHtml(rest).replace(/\n/g, "<br>") + "</p>";
       }
       return (
         "<p>" +
@@ -135,6 +149,13 @@
     }
     if (tag === "code") {
       return "`" + inner + "`";
+    }
+    if (tag === "a") {
+      const href = node.getAttribute("href") || "";
+      if (href) {
+        return "[" + inner + "](" + href + ")";
+      }
+      return inner;
     }
     if (tag === "br") {
       return "\n";

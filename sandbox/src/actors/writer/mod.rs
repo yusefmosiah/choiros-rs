@@ -858,18 +858,39 @@ impl WriterActor {
             });
         }
 
-        // Worker/conductor-originated updates are already structured content for the
-        // run document. Apply them directly so the UI updates immediately and avoid
-        // routing every incremental worker update through writer synthesis.
+        // Non-user messages are split into two lanes:
+        // - canonical content lane: researcher/terminal updates that should directly
+        //   update section content
+        // - marginalia/progress lane: writer/conductor control metadata that should
+        //   never replace canonical section content
         if inbound.envelope.source != WriterSource::User {
-            let revision = Self::set_section_content(
-                state,
-                inbound.envelope.run_id.clone(),
-                inbound.envelope.section_id.clone(),
-                inbound.envelope.source,
-                inbound.envelope.content.clone(),
-            )
-            .await?;
+            let revision = match inbound.envelope.source {
+                WriterSource::Researcher | WriterSource::Terminal => {
+                    Self::set_section_content(
+                        state,
+                        inbound.envelope.run_id.clone(),
+                        inbound.envelope.section_id.clone(),
+                        inbound.envelope.source,
+                        inbound.envelope.content.clone(),
+                    )
+                    .await?
+                }
+                WriterSource::Writer | WriterSource::Conductor => {
+                    Self::report_progress(
+                        state,
+                        inbound.envelope.run_id.clone(),
+                        inbound.envelope.section_id.clone(),
+                        inbound.envelope.source,
+                        inbound.envelope.kind.clone(),
+                        inbound.envelope.content.clone(),
+                    )
+                    .await?
+                }
+                WriterSource::User => {
+                    // unreachable by guard above
+                    0
+                }
+            };
 
             Self::remember_message_id(state, &inbound.envelope.message_id);
             Self::emit_event(
@@ -993,6 +1014,19 @@ impl WriterActor {
         } else {
             String::new()
         };
+
+        // If delegation is already running asynchronously for a user prompt,
+        // skip immediate writer synthesis to avoid duplicate LLM orchestration
+        // and let worker messages drive live document updates first.
+        if inbound.envelope.source == WriterSource::User
+            && delegation_context == "Delegation harness dispatched asynchronously."
+        {
+            state.inbox_processing = false;
+            if !state.inbox_queue.is_empty() {
+                let _ = myself.send_message(WriterMsg::ProcessInbox);
+            }
+            return;
+        }
 
         let synthesis = Self::synthesize_with_llm(state, &inbound, delegation_context).await;
         match synthesis {
@@ -1663,7 +1697,8 @@ impl WriterActor {
             model_registry,
             HarnessConfig {
                 timeout_budget_ms: 180_000,
-                max_steps: 100,
+                // Delegation planning should be quick; worker execution handles depth.
+                max_steps: 2,
                 emit_progress: true,
                 emit_worker_report: true,
             },
@@ -1817,7 +1852,8 @@ impl WriterActor {
             state.model_registry.clone(),
             HarnessConfig {
                 timeout_budget_ms: timeout_ms.unwrap_or(180_000),
-                max_steps: usize::from(max_steps.unwrap_or(100)),
+                // Keep writer orchestration shallow so workers are dispatched early.
+                max_steps: usize::from(max_steps.unwrap_or(100)).min(2),
                 emit_progress: true,
                 emit_worker_report: true,
             },
@@ -2142,7 +2178,7 @@ impl WriterActor {
 
     #[allow(clippy::too_many_arguments)]
     async fn handle_delegation_worker_completed(
-        myself: &ActorRef<WriterMsg>,
+        _myself: &ActorRef<WriterMsg>,
         state: &mut WriterState,
         capability: WriterDelegateCapability,
         run_id: Option<String>,
@@ -2165,7 +2201,7 @@ impl WriterActor {
 
         let section_id = Self::section_for_delegated_capability(capability);
         let source = Self::source_for_delegated_capability(capability);
-        let correlation_id = call_id.unwrap_or_else(|| dispatch_id.clone());
+        let _ = call_id;
 
         let (success, summary, proposed_citation_ids, proposed_citation_stubs) = match result {
             Ok(delegate_result) => {
@@ -2221,47 +2257,35 @@ impl WriterActor {
             );
         }
 
-        let kind = if success {
+        // Delegation completion is control-plane metadata. Keep it in marginalia/progress
+        // lane so the canonical document is reserved for actual worker content updates.
+        let phase = if success {
             "delegation_worker_completed"
         } else {
             "delegation_worker_failed"
         };
-        let content = if success {
-            format!(
-                "Delegated {:?} worker completed.\nSummary: {}",
-                capability, summary
-            )
+        let message = if success {
+            format!("Delegated {:?} worker completed. Summary: {}", capability, summary)
         } else {
-            format!(
-                "Delegated {:?} worker failed.\nError: {}",
-                capability, summary
-            )
+            format!("Delegated {:?} worker failed. Error: {}", capability, summary)
         };
-        let envelope = WriterInboundEnvelope {
-            message_id: format!("{run_id}:writer:{kind}:{dispatch_id}"),
-            correlation_id,
-            kind: kind.to_string(),
-            run_id,
-            section_id,
+        if let Err(error) = Self::report_progress(
+            state,
+            run_id.clone(),
+            section_id.clone(),
             source,
-            content,
-            base_version_id: None,
-            prompt_diff: None,
-            overlay_id: None,
-            session_id: None,
-            thread_id: None,
-            call_id: Some(dispatch_id.clone()),
-            origin_actor: Some("writer".to_string()),
-        };
-
-        if let Err(error) =
-            Self::enqueue_inbound(myself, state, WriterInboxMessage { envelope }).await
+            phase.to_string(),
+            message,
+        )
+        .await
         {
             Self::emit_event(
                 state,
-                "writer.actor.delegation_worker.enqueue_failed",
+                "writer.actor.delegation_worker.progress_failed",
                 serde_json::json!({
                     "dispatch_id": dispatch_id,
+                    "run_id": run_id,
+                    "section_id": section_id,
                     "error": error.to_string(),
                 }),
             );

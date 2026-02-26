@@ -129,6 +129,14 @@ impl TerminalAdapter {
             .any(|exec| exec.tool_name == "message_writer" && exec.success)
     }
 
+    fn content_has_sources_block(content: &str) -> bool {
+        let lower = content.to_ascii_lowercase();
+        lower.starts_with("sources:")
+            || lower.contains("\nsources:")
+            || lower.contains("\n## sources")
+            || lower.contains("\n### sources")
+    }
+
     async fn execute_message_writer(
         &self,
         tool_call: &MessageWriterToolCall,
@@ -152,6 +160,22 @@ impl TerminalAdapter {
         let content = args.content.clone();
         let mode = args.mode.trim().to_ascii_lowercase();
         let mode_arg = args.mode_arg.clone();
+
+        let requires_sources = matches!(
+            mode.as_str(),
+            "proposal_append" | "canon_append" | "completion"
+        );
+        if requires_sources && !Self::content_has_sources_block(&content) {
+            return Ok(ToolExecution {
+                tool_name: "message_writer".to_string(),
+                success: false,
+                output: String::new(),
+                error: Some(
+                    "message_writer content must include a `Sources:` section listing URLs or filesystem paths".to_string(),
+                ),
+                execution_time_ms: start_time.elapsed().as_millis() as u64,
+            });
+        }
 
         let result = match mode.as_str() {
             "progress" => {
@@ -484,6 +508,8 @@ Args:
 Writer mode contract:
 - If objective resolves in one step: send one message_writer mode=completion with final content.
 - If objective is multi-step: send proposal_append deltas, then one completion message.
+- Every proposal_append/canon_append/completion message MUST include a `Sources:` section
+  with concrete evidence references (URLs and/or filesystem paths).
 - After completion message is sent, call `finished` and return final response in message."#
             .to_string()
     }
@@ -505,6 +531,7 @@ Writer mode contract:
              - For research-oriented objectives, prefer read/inspect commands and writing findings to docs markdown.\n\
              - Only edit source code when the objective explicitly asks for implementation/refactor/bug-fix changes.\n\
              - If objective is local diagnostics/build/test/file operations, proceed with minimal safe commands.\n\
+             - For all writer-bound content updates (proposal_append/canon_append/completion), include a `Sources:` section with filesystem paths you used.\n\
              {}\n\
              Terminal ID: {}\n\
              Working Directory: {}\n\

@@ -218,6 +218,14 @@ impl ResearcherAdapter {
             .any(|exec| exec.tool_name == "message_writer" && exec.success)
     }
 
+    fn content_has_sources_block(content: &str) -> bool {
+        let lower = content.to_ascii_lowercase();
+        lower.starts_with("sources:")
+            || lower.contains("\nsources:")
+            || lower.contains("\n## sources")
+            || lower.contains("\n### sources")
+    }
+
     async fn writer_set_state(&self, state: SectionState) {
         let Some((writer_actor, run_id)) = self.writer_context() else {
             return;
@@ -265,6 +273,23 @@ impl ResearcherAdapter {
         let content = args.content.clone();
         let mode = args.mode.trim().to_ascii_lowercase();
         let mode_arg = args.mode_arg.clone();
+
+        let requires_sources = matches!(
+            mode.as_str(),
+            "proposal_append" | "canon_append" | "completion"
+        );
+        if requires_sources && !Self::content_has_sources_block(&content) {
+            return Ok(ToolExecution {
+                tool_name: "message_writer".to_string(),
+                success: false,
+                output: String::new(),
+                error: Some(
+                    "message_writer content must include a `Sources:` section listing URLs or filesystem paths"
+                        .to_string(),
+                ),
+                execution_time_ms: start_time.elapsed().as_millis() as u64,
+            });
+        }
 
         let result = match mode.as_str() {
             "progress" => {
@@ -501,6 +526,8 @@ impl WorkerPort for ResearcherAdapter {
    - When the objective is already answered with sufficient evidence, stop researching and call `finished`
    - Do not continue tool calling for extra redundancy once the objective is satisfied
    - Keep each update concise and incremental (delta from prior update), not a full report
+   - Every proposal_append/canon_append/completion update MUST include a `Sources:` section
+     listing concrete evidence references (URLs and/or filesystem paths)
    - If evidence conflicts with earlier claims, explicitly mark the old claim as superseded
    Examples:
    - Initial note:
@@ -564,6 +591,8 @@ Guidelines:
   - Do not output long, rigid report templates from researcher.
   - Send concise evidence deltas (what changed since last update).
   - Include source links for factual claims.
+  - Every message_writer proposal_append/canon_append/completion update must include a
+    `Sources:` section with concrete URLs and/or filesystem paths.
   - If a later fetch/search contradicts earlier text, explicitly mark the earlier claim as superseded.
   - Prefer uncertainty over false certainty when evidence is incomplete.
 - Maintain your working draft - it should evolve as you learn

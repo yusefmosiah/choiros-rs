@@ -593,11 +593,14 @@ impl WriterDocumentRuntime {
 
         self.persist_document().await?;
 
-        let full_doc = self.state.document.to_markdown();
+        // Emit the canonical version content (body) for live UI patching.
+        // The persisted markdown file may include wrapper/title formatting,
+        // but writer UI state should track version content directly.
+        let live_content = version.content.clone();
         self.emit_patch_event(
             event_source,
             section_id,
-            Self::full_document_ops(&full_doc),
+            Self::full_document_ops(&live_content),
             None,
             Some(parent),
             Some(version.version_id),

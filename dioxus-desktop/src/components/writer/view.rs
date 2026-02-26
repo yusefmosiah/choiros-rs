@@ -267,6 +267,9 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                     new_version_available.set(false);
                     right_margin_open.set(false);
                     mobile_sheet_note_idx.set(None);
+                    // Show the opened document immediately. Version/overlay hydration can
+                    // continue asynchronously without blocking first paint.
+                    loading.set(false);
 
                     if let Some(run_id) = extract_run_id_from_document_path(&opened_path) {
                         if let Some(status) =
@@ -325,7 +328,6 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                         selected_overlays.set(Vec::new());
                         run_status.set(None);
                     }
-                    loading.set(false);
                 }
                 Err(e) => {
                     save_state.set(SaveState::Error(e));
