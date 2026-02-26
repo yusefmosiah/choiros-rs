@@ -923,6 +923,18 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
             .map(|r| r.recent_changesets.clone())
             .unwrap_or_default()
     };
+    let (current_run_phase, current_run_message, current_run_objective) = {
+        let runs = ACTIVE_WRITER_RUNS.read();
+        if let Some(run) = runs.get(&current_path) {
+            (
+                run.phase.clone().unwrap_or_default(),
+                run.message.clone().unwrap_or_default(),
+                run.objective.clone().unwrap_or_default(),
+            )
+        } else {
+            (String::new(), String::new(), String::new())
+        }
+    };
 
     let mut current_notes = Vec::<MarginNote>::new();
     for changeset in &current_changesets {
@@ -1314,6 +1326,21 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                         }
                         div {
                             class: "writer-prose-container",
+                            if current_content.trim().is_empty() && current_run_status.is_some() {
+                                div { class: "writer-run-placeholder",
+                                    strong { "Run in progress" }
+                                    if !current_run_phase.is_empty() {
+                                        div { "Phase: {current_run_phase}" }
+                                    }
+                                    if !current_run_message.is_empty() {
+                                        div { "{current_run_message}" }
+                                    } else if !current_run_objective.is_empty() {
+                                        div { "{current_run_objective}" }
+                                    } else {
+                                        div { "Gathering updates..." }
+                                    }
+                                }
+                            }
                             div {
                                 id: "{prose_editor_id}",
                                 class: "writer-prose-body",

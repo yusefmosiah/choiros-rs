@@ -230,6 +230,20 @@ impl ResearcherAdapter {
         });
     }
 
+    async fn writer_report_progress(&self, phase: String, message: String) {
+        let Some((writer_actor, run_id)) = self.writer_context() else {
+            return;
+        };
+        let _ = ractor::call!(writer_actor, |reply| WriterMsg::ReportProgress {
+            run_id,
+            section_id: "researcher".to_string(),
+            source: WriterSource::Researcher,
+            phase,
+            message,
+            reply,
+        });
+    }
+
     async fn execute_message_writer(
         &self,
         tool_call: &MessageWriterToolCall,
@@ -1093,6 +1107,11 @@ Guidelines:
             "timestamp": &progress.timestamp,
         });
         self.emit_event("worker.task.progress", payload);
+
+        // Keep writer UI visibly alive during delegated research loops so runs don't
+        // appear blank while the worker is actively progressing.
+        self.writer_report_progress(progress.phase.clone(), progress.message.clone())
+            .await;
 
         match progress.phase.as_str() {
             "started" => self.writer_set_state(SectionState::Running).await,

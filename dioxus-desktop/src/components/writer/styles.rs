@@ -332,6 +332,22 @@ pub const WRITER_STYLES: &str = r#"
     padding: 0.8rem;
 }
 
+.writer-run-placeholder {
+    max-width: 680px;
+    margin: 0 auto 0.6rem;
+    padding: 0.65rem 0.8rem;
+    border: 1px dashed var(--border-color);
+    border-radius: 0.5rem;
+    background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    line-height: 1.4;
+}
+
+.writer-run-placeholder strong {
+    color: var(--text-primary);
+}
+
 .writer-prose-body {
     max-width: 680px;
     min-height: calc(100% - 1rem);
