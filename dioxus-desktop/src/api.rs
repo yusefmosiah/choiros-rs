@@ -1233,6 +1233,10 @@ pub struct OpenDocumentResponse {
     pub mime: String,
     pub revision: u64,
     pub readonly: bool,
+    #[serde(default)]
+    pub selected_source_refs: Vec<String>,
+    #[serde(default)]
+    pub observed_source_refs: Vec<String>,
 }
 
 /// Save document response
@@ -1266,6 +1270,10 @@ pub struct WriterVersion {
     pub source: String,
     pub content: String,
     pub parent_version_id: Option<u64>,
+    #[serde(default)]
+    pub selected_source_refs: Vec<String>,
+    #[serde(default)]
+    pub observed_source_refs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

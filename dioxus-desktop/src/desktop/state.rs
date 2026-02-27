@@ -39,6 +39,7 @@ pub struct ActiveWriterRun {
     pub phase: Option<String>,
     pub message: Option<String>,
     pub progress_pct: Option<u8>,
+    pub source_refs: Vec<String>,
     pub proposal: Option<String>,
     pub pending_patches: Vec<PendingPatch>,
     pub last_applied_revision: u64,
@@ -57,6 +58,7 @@ impl Default for ActiveWriterRun {
             phase: None,
             message: None,
             progress_pct: None,
+            source_refs: Vec::new(),
             proposal: None,
             pending_patches: Vec::new(),
             last_applied_revision: 0,
@@ -69,6 +71,41 @@ impl Default for ActiveWriterRun {
 pub static ACTIVE_WRITER_RUNS: dioxus::signals::GlobalSignal<
     std::collections::HashMap<String, ActiveWriterRun>,
 > = dioxus::signals::GlobalSignal::new(std::collections::HashMap::new);
+
+fn merge_source_refs(run: &mut ActiveWriterRun, incoming: &[String], prioritize: bool) {
+    if incoming.is_empty() {
+        return;
+    }
+
+    let mut normalized = Vec::new();
+    for source in incoming {
+        let trimmed = source.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !normalized.iter().any(|existing: &String| existing == trimmed) {
+            normalized.push(trimmed.to_string());
+        }
+    }
+    if normalized.is_empty() {
+        return;
+    }
+
+    if prioritize {
+        for source in normalized.iter().rev() {
+            if let Some(existing_idx) = run.source_refs.iter().position(|v| v == source) {
+                run.source_refs.remove(existing_idx);
+            }
+            run.source_refs.insert(0, source.clone());
+        }
+    } else {
+        for source in normalized {
+            if !run.source_refs.iter().any(|existing| existing == &source) {
+                run.source_refs.push(source);
+            }
+        }
+    }
+}
 
 /// Update the global writer runs state from a WsEvent
 pub fn update_writer_runs_from_event(event: &WsEvent) {
@@ -100,6 +137,7 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
                     phase: None,
                     message: None,
                     progress_pct: None,
+                    source_refs: Vec::new(),
                     proposal: payload.proposal.clone(),
                     pending_patches: vec![patch],
                     last_applied_revision: 0,
@@ -117,8 +155,9 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
                 objective: Some(objective.clone()),
                 phase: None,
                 message: None,
-                progress_pct: None,
-                proposal: None,
+            progress_pct: None,
+            source_refs: Vec::new(),
+            proposal: None,
                 pending_patches: Vec::new(),
                 last_applied_revision: 0,
                 recent_changesets: Vec::new(),
@@ -132,6 +171,7 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
             phase,
             message,
             progress_pct,
+            source_refs,
         } => {
             let mut runs = ACTIVE_WRITER_RUNS.write();
             if let Some(run) = runs.get_mut(&base.document_path) {
@@ -147,6 +187,8 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
                 run.phase = Some(phase.clone());
                 run.message = Some(message.clone());
                 run.progress_pct = *progress_pct;
+                let prioritize = phase.contains("source_refs");
+                merge_source_refs(run, source_refs, prioritize);
             } else {
                 runs.insert(
                     base.document_path.clone(),
@@ -159,6 +201,7 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
                         phase: Some(phase.clone()),
                         message: Some(message.clone()),
                         progress_pct: *progress_pct,
+                        source_refs: source_refs.clone(),
                         proposal: None,
                         pending_patches: Vec::new(),
                         last_applied_revision: 0,
@@ -191,6 +234,7 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
                         phase: None,
                         message: message.clone(),
                         progress_pct: None,
+                        source_refs: Vec::new(),
                         proposal: None,
                         pending_patches: Vec::new(),
                         last_applied_revision: 0,
@@ -222,6 +266,7 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
                         phase: None,
                         message: Some(error_message.clone()),
                         progress_pct: None,
+                        source_refs: Vec::new(),
                         proposal: None,
                         pending_patches: Vec::new(),
                         last_applied_revision: 0,

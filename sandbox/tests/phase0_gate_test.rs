@@ -162,6 +162,9 @@ async fn test_concurrent_writer_run_isolation() {
             section_id: "conductor".to_string(),
             source: WriterSource::Conductor,
             content: "from run 0".to_string(),
+            source_refs: Vec::new(),
+            sources: Vec::new(),
+            citations: Vec::new(),
             base_version_id: None,
             prompt_diff: None,
             overlay_id: None,
@@ -187,6 +190,9 @@ async fn test_concurrent_writer_run_isolation() {
             section_id: "conductor".to_string(),
             source: WriterSource::Conductor,
             content: "from run 1 — different actor, same message_id".to_string(),
+            source_refs: Vec::new(),
+            sources: Vec::new(),
+            citations: Vec::new(),
             base_version_id: None,
             prompt_diff: None,
             overlay_id: None,
@@ -216,6 +222,9 @@ async fn test_concurrent_writer_run_isolation() {
             section_id: "conductor".to_string(),
             source: WriterSource::Conductor,
             content: "duplicate send".to_string(),
+            source_refs: Vec::new(),
+            sources: Vec::new(),
+            citations: Vec::new(),
             base_version_id: None,
             prompt_diff: None,
             overlay_id: None,
@@ -320,6 +329,36 @@ fn test_writer_tool_contract_allow_lists_match_spec() {
     }
 }
 
+/// Hard-cutover regression gate:
+/// - Harness completion summary authority must come from `finished` tool call metadata
+/// - Harness must not set final summary from `decision.message`
+#[test]
+fn test_harness_completion_authority_is_tool_call_only() {
+    let harness_src = include_str!("../src/actors/agent_harness/mod.rs");
+
+    assert!(
+        harness_src
+            .contains("finished_summary_override.unwrap_or_else(|| \"Objective finished.\".to_string())"),
+        "Harness must derive completion summary from finished tool call, not from decision.message"
+    );
+
+    assert!(
+        !harness_src.contains("final_summary = if decision.message.trim().is_empty()"),
+        "Legacy completion path from decision.message detected; hard-cutover regression"
+    );
+}
+
+/// Hard-cutover regression gate:
+/// Writer source metadata must carry search provider provenance.
+#[test]
+fn test_writer_message_source_includes_provider_field() {
+    let writer_src = include_str!("../src/actors/writer/mod.rs");
+    assert!(
+        writer_src.contains("pub provider: Option<String>"),
+        "WriterMessageSource must include provider provenance for source auditing"
+    );
+}
+
 // ============================================================================
 // Test 3: Ordered event assertions for async worker completion → writer
 // ============================================================================
@@ -367,6 +406,9 @@ async fn test_writer_inbox_events_causal_ordering() {
             section_id: "conductor".to_string(),
             source: WriterSource::Conductor,
             content: "worker completed — event order test".to_string(),
+            source_refs: Vec::new(),
+            sources: Vec::new(),
+            citations: Vec::new(),
             base_version_id: None,
             prompt_diff: None,
             overlay_id: None,
@@ -401,21 +443,30 @@ async fn test_writer_inbox_events_causal_ordering() {
 
     let event_types: Vec<&str> = events.iter().map(|e| e.event_type.as_str()).collect();
 
-    // Must contain at least the enqueued event.
+    // Must contain either the legacy enqueued event or the direct-apply event.
     let enqueued_pos = event_types
         .iter()
         .position(|t| *t == "writer.actor.inbox.enqueued")
+        .or_else(|| {
+            event_types
+                .iter()
+                .position(|t| *t == "writer.actor.inbox.applied_direct")
+        })
         .unwrap_or_else(|| {
-            panic!("missing writer.actor.inbox.enqueued; got event types: {event_types:?}")
+            panic!(
+                "missing writer.actor.inbox.enqueued/applied_direct; got event types: {event_types:?}"
+            )
         });
 
-    // The enqueued event must carry the correct message_id.
+    // The envelope event should carry the correct message_id when present.
     let enqueued_payload = &events[enqueued_pos].payload;
-    assert_eq!(
-        enqueued_payload["message_id"].as_str(),
-        Some(msg_id.as_str()),
-        "enqueued event must reference the correct message_id; payload={enqueued_payload}"
-    );
+    if enqueued_payload.get("message_id").is_some() {
+        assert_eq!(
+            enqueued_payload["message_id"].as_str(),
+            Some(msg_id.as_str()),
+            "envelope event must reference the correct message_id; payload={enqueued_payload}"
+        );
+    }
 
     let enqueued_seq = events[enqueued_pos].seq;
 

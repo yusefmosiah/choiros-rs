@@ -230,6 +230,67 @@ pub struct OpenDocumentResponse {
     pub mime: String,
     pub revision: u64,
     pub readonly: bool,
+    pub selected_source_refs: Vec<String>,
+    pub observed_source_refs: Vec<String>,
+}
+
+fn is_run_draft_path(path: &str) -> bool {
+    let mut parts = path.split('/');
+    match (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) {
+        (Some("conductor"), Some("runs"), Some(run_id), Some("draft.md"), None)
+            if !run_id.trim().is_empty() => true,
+        _ => false,
+    }
+}
+
+async fn load_run_source_refs_from_sidecar(
+    file_path: &Path,
+) -> Result<(Vec<String>, Vec<String>), String> {
+    let Some(parent) = file_path.parent() else {
+        return Ok((Vec::new(), Vec::new()));
+    };
+    let sidecar_path = parent.join("draft.writer-state.json");
+    if !sidecar_path.exists() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let raw = fs::read_to_string(&sidecar_path)
+        .await
+        .map_err(|e| format!("failed to read writer sidecar: {e}"))?;
+    let json: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("failed to parse writer sidecar: {e}"))?;
+    let selected = json
+        .get("document")
+        .and_then(|v| v.get("selected_source_refs"))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| item.as_str())
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let observed = json
+        .get("document")
+        .and_then(|v| v.get("observed_source_refs"))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| item.as_str())
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    Ok((selected, observed))
 }
 
 /// Open a document for editing
@@ -307,6 +368,13 @@ pub async fn open_document(
     };
 
     let mime = get_mime_type(&user_path);
+    let (selected_source_refs, observed_source_refs) = if is_run_draft_path(&user_path) {
+        load_run_source_refs_from_sidecar(&file_path)
+            .await
+            .unwrap_or_default()
+    } else {
+        (Vec::new(), Vec::new())
+    };
 
     // Check if file is readonly
     let readonly = match fs::metadata(&file_path).await {
@@ -322,6 +390,8 @@ pub async fn open_document(
             mime,
             revision,
             readonly,
+            selected_source_refs,
+            observed_source_refs,
         }),
     )
         .into_response()

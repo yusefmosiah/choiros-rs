@@ -1009,6 +1009,7 @@ pub enum WriterRunEvent {
         phase: String,
         message: String,
         progress_pct: Option<u8>,
+        source_refs: Vec<String>,
     },
     #[serde(rename = "writer.run.patch")]
     Patch {

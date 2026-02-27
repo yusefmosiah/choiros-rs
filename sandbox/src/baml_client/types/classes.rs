@@ -18,7 +18,7 @@ pub struct AgentDecision {
 
 
 
-    pub message: String,
+    pub message: Option<String>,
 
 
 }

@@ -65,6 +65,34 @@ struct WriterInboxMessage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WriterMessageSourceKind {
+    Web,
+    File,
+    Other,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WriterMessageSource {
+    pub id: String,
+    pub kind: WriterMessageSourceKind,
+    pub provider: Option<String>,
+    pub url: Option<String>,
+    pub path: Option<String>,
+    pub title: Option<String>,
+    pub publisher: Option<String>,
+    pub published_at: Option<String>,
+    pub line_start: Option<u64>,
+    pub line_end: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WriterMessageCitation {
+    pub source_id: String,
+    pub anchor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WriterInboundEnvelope {
     pub message_id: String,
     pub correlation_id: String,
@@ -73,6 +101,9 @@ pub struct WriterInboundEnvelope {
     pub section_id: String,
     pub source: WriterSource,
     pub content: String,
+    pub source_refs: Vec<String>,
+    pub sources: Vec<WriterMessageSource>,
+    pub citations: Vec<WriterMessageCitation>,
     pub base_version_id: Option<u64>,
     pub prompt_diff: Option<Vec<shared_types::PatchOp>>,
     pub overlay_id: Option<String>,
@@ -155,6 +186,7 @@ pub enum WriterMsg {
         source: WriterSource,
         phase: String,
         message: String,
+        source_refs: Vec<String>,
         reply: RpcReplyPort<Result<u64, WriterError>>,
     },
     /// Update section state for writer UX.
@@ -582,10 +614,20 @@ impl Actor for WriterActor {
                 source,
                 phase,
                 message,
+                source_refs,
                 reply,
             } => {
                 let result =
-                    Self::report_progress(state, run_id, section_id, source, phase, message).await;
+                    Self::report_progress(
+                        state,
+                        run_id,
+                        section_id,
+                        source,
+                        phase,
+                        message,
+                        source_refs,
+                    )
+                    .await;
                 let _ = reply.send(result);
             }
             WriterMsg::SetSectionState {
@@ -826,6 +868,29 @@ impl WriterActor {
         )
     }
 
+    fn source_reference_strings(envelope: &WriterInboundEnvelope) -> Vec<String> {
+        let mut refs = Vec::new();
+        for source in &envelope.sources {
+            if let Some(url) = source.url.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()) {
+                if !refs.iter().any(|existing| existing == url) {
+                    refs.push(url.to_string());
+                }
+                continue;
+            }
+            if let Some(path) = source
+                .path
+                .as_ref()
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty())
+            {
+                if !refs.iter().any(|existing| existing == path) {
+                    refs.push(path.to_string());
+                }
+            }
+        }
+        refs
+    }
+
     async fn enqueue_inbound(
         myself: &ActorRef<WriterMsg>,
         state: &mut WriterState,
@@ -859,21 +924,74 @@ impl WriterActor {
         }
 
         // Non-user messages are split into two lanes:
-        // - canonical content lane: researcher/terminal updates that should directly
-        //   update section content
+        // - proposal+synthesis lane: researcher/terminal updates enqueue as proposals
+        //   and are synthesized by Writer before canonical mutation
         // - marginalia/progress lane: writer/conductor control metadata that should
         //   never replace canonical section content
         if inbound.envelope.source != WriterSource::User {
             let revision = match inbound.envelope.source {
                 WriterSource::Researcher | WriterSource::Terminal => {
-                    Self::set_section_content(
+                    // Do not allow worker actors to mutate canonical content directly.
+                    // They must enqueue proposal messages and let Writer synthesize.
+                    let initial_revision = Self::apply_text(
                         state,
                         inbound.envelope.run_id.clone(),
                         inbound.envelope.section_id.clone(),
                         inbound.envelope.source,
-                        inbound.envelope.content.clone(),
+                        Self::format_inbox_note(&inbound),
+                        true,
                     )
-                    .await?
+                    .await?;
+
+                    let selected_source_refs = Self::source_reference_strings(&inbound.envelope);
+                    if !selected_source_refs.is_empty() {
+                        let _ = Self::report_progress(
+                            state,
+                            inbound.envelope.run_id.clone(),
+                            inbound.envelope.section_id.clone(),
+                            inbound.envelope.source,
+                            format!("{}:source_refs", inbound.envelope.kind),
+                            "Updated source references".to_string(),
+                            selected_source_refs,
+                        )
+                        .await?;
+                    }
+
+                    Self::remember_message_id(state, &inbound.envelope.message_id);
+                    state.inbox_queue.push_back(inbound.clone());
+                    Self::emit_event(
+                        state,
+                        "writer.actor.inbox.enqueued",
+                        serde_json::json!({
+                            "run_id": inbound.envelope.run_id.clone(),
+                            "section_id": inbound.envelope.section_id.clone(),
+                            "source": inbound.envelope.source.as_str(),
+                            "kind": inbound.envelope.kind.clone(),
+                            "message_id": inbound.envelope.message_id.clone(),
+                            "queue_len": state.inbox_queue.len(),
+                            "revision": initial_revision,
+                            "correlation_id": inbound.envelope.correlation_id.clone(),
+                            "base_version_id": inbound.envelope.base_version_id,
+                            "overlay_id": inbound.envelope.overlay_id.clone(),
+                            "session_id": inbound.envelope.session_id.clone(),
+                            "thread_id": inbound.envelope.thread_id.clone(),
+                            "call_id": inbound.envelope.call_id.clone(),
+                            "origin_actor": inbound.envelope.origin_actor.clone(),
+                            "source_refs": inbound.envelope.source_refs.clone(),
+                            "sources": inbound.envelope.sources.clone(),
+                            "citations": inbound.envelope.citations.clone(),
+                        }),
+                    );
+                    if !state.inbox_processing {
+                        let _ = myself.send_message(WriterMsg::ProcessInbox);
+                    }
+                    return Ok(WriterQueueAck {
+                        message_id: inbound.envelope.message_id,
+                        accepted: true,
+                        duplicate: false,
+                        queue_len: state.inbox_queue.len(),
+                        revision: initial_revision,
+                    });
                 }
                 WriterSource::Writer | WriterSource::Conductor => {
                     Self::report_progress(
@@ -883,6 +1001,7 @@ impl WriterActor {
                         inbound.envelope.source,
                         inbound.envelope.kind.clone(),
                         inbound.envelope.content.clone(),
+                        Self::source_reference_strings(&inbound.envelope),
                     )
                     .await?
                 }
@@ -911,6 +1030,9 @@ impl WriterActor {
                     "thread_id": inbound.envelope.thread_id.clone(),
                     "call_id": inbound.envelope.call_id.clone(),
                     "origin_actor": inbound.envelope.origin_actor.clone(),
+                    "source_refs": inbound.envelope.source_refs.clone(),
+                    "sources": inbound.envelope.sources.clone(),
+                    "citations": inbound.envelope.citations.clone(),
                 }),
             );
 
@@ -981,6 +1103,9 @@ impl WriterActor {
                 "thread_id": inbound.envelope.thread_id.clone(),
                 "call_id": inbound.envelope.call_id.clone(),
                 "origin_actor": inbound.envelope.origin_actor.clone(),
+                "source_refs": inbound.envelope.source_refs.clone(),
+                "sources": inbound.envelope.sources.clone(),
+                "citations": inbound.envelope.citations.clone(),
             }),
         );
 
@@ -1068,6 +1193,11 @@ impl WriterActor {
         history: &str,
         delegation_context: &str,
     ) -> String {
+        let source_metadata = serde_json::to_string_pretty(&serde_json::json!({
+            "sources": &inbound.envelope.sources,
+            "citations": &inbound.envelope.citations,
+        }))
+        .unwrap_or_else(|_| "{}".to_string());
         let mut objective = format!(
             "You are WriterActor.\n\
              Produce a full revised document body (single coherent narrative) for this run.\n\
@@ -1082,6 +1212,10 @@ impl WriterActor {
              - do not include section headers like 'Conductor/Researcher/Terminal/User'\n\
              - do not include markdown title '# ...' (title is handled separately)\n\
              - do not include proposal metadata or actor message wrappers\n\
+             - do not output process/status narration (e.g. 'producing final draft', 'gathering evidence')\n\
+             - never describe what you are doing; only provide the actual revised content\n\
+             - do not emit planning/progress/meta lines under any circumstances\n\
+             - if uncertain, still output best-effort revised content, not status text\n\
              - output markdown only\n\
              - do not call tools; return the revised markdown in the final message\n\
              \n\
@@ -1089,12 +1223,14 @@ impl WriterActor {
              Message kind: {kind}\n\
              Message source: {source}\n\
              Message content:\n{message_content}\n\
+             Structured source metadata (JSON):\n{source_metadata}\n\
              \n\
              Current document excerpt:\n{history}",
             message_id = inbound.envelope.message_id,
             kind = inbound.envelope.kind,
             source = inbound.envelope.source.as_str(),
             message_content = message_content,
+            source_metadata = source_metadata,
             history = history
         );
         if !delegation_context.trim().is_empty() {
@@ -1160,7 +1296,7 @@ impl WriterActor {
             state.model_registry.clone(),
             HarnessConfig {
                 timeout_budget_ms: 90_000,
-                max_steps: 100,
+                max_steps: 2,
                 emit_progress: true,
                 emit_worker_report: true,
             },
@@ -1428,6 +1564,9 @@ impl WriterActor {
             section_id: "user".to_string(),
             source: WriterSource::User,
             content: "user_prompt_diff".to_string(),
+            source_refs: Vec::new(),
+            sources: Vec::new(),
+            citations: Vec::new(),
             base_version_id: Some(base_version_id),
             prompt_diff: Some(prompt_diff),
             overlay_id: None,
@@ -1657,6 +1796,9 @@ impl WriterActor {
                     "> [writer] forced delegation from prompt directive\n{}\n",
                     dispatch_summaries.join("\n")
                 ),
+                source_refs: Vec::new(),
+                sources: Vec::new(),
+                citations: Vec::new(),
                 base_version_id: None,
                 prompt_diff: None,
                 overlay_id: None,
@@ -1778,6 +1920,9 @@ impl WriterActor {
                 section_id,
                 source: WriterSource::Writer,
                 content: completion_message,
+                source_refs: Vec::new(),
+                sources: Vec::new(),
+                citations: Vec::new(),
                 base_version_id: None,
                 prompt_diff: None,
                 overlay_id: None,
@@ -2121,6 +2266,7 @@ impl WriterActor {
         source: WriterSource,
         phase: String,
         message: String,
+        source_refs: Vec<String>,
     ) -> Result<u64, WriterError> {
         Self::ensure_run_document_loaded(state, &run_id).await?;
         if message.trim().is_empty() {
@@ -2130,7 +2276,14 @@ impl WriterActor {
         }
         let run_doc = Self::resolve_run_document_mut(state, &run_id)?;
         let revision = run_doc
-            .report_section_progress(&run_id, source.as_str(), &section_id, &phase, &message)
+            .report_section_progress(
+                &run_id,
+                source.as_str(),
+                &section_id,
+                &phase,
+                &message,
+                source_refs.clone(),
+            )
             .await
             .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
         Self::emit_event(
@@ -2142,6 +2295,7 @@ impl WriterActor {
                 "source": source.as_str(),
                 "phase": phase,
                 "message": message,
+                "source_refs": source_refs,
                 "revision": revision,
             }),
         );
@@ -2276,6 +2430,7 @@ impl WriterActor {
             source,
             phase.to_string(),
             message,
+            Vec::new(),
         )
         .await
         {

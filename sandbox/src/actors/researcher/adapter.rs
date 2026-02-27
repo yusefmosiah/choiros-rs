@@ -17,6 +17,8 @@
 
 use async_trait::async_trait;
 use ractor::ActorRef;
+use serde::Deserialize;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 
@@ -26,7 +28,9 @@ use crate::actors::agent_harness::{
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::ModelRegistry;
 use crate::actors::writer::SectionState;
-use crate::actors::writer::{WriterInboundEnvelope, WriterMsg, WriterSource};
+use crate::actors::writer::{
+    WriterInboundEnvelope, WriterMessageCitation, WriterMessageSource, WriterMsg, WriterSource,
+};
 use crate::baml_client::types::{
     MessageWriterToolCall,
     Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall as AgentToolCall,
@@ -94,6 +98,20 @@ pub struct ResearcherAdapter {
     http_client: reqwest::Client,
     writer_actor: Option<ActorRef<WriterMsg>>,
     run_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WriterModeArgPayload {
+    #[serde(default)]
+    phase: Option<String>,
+    #[serde(default)]
+    state: Option<String>,
+    #[serde(default)]
+    source_refs: Vec<String>,
+    #[serde(default)]
+    sources: Vec<WriterMessageSource>,
+    #[serde(default)]
+    citations: Vec<WriterMessageCitation>,
 }
 
 impl ResearcherAdapter {
@@ -198,8 +216,10 @@ impl ResearcherAdapter {
         }
     }
 
-    fn parse_section_state(raw: Option<&str>) -> Option<SectionState> {
-        match raw.map(|s| s.trim().to_ascii_lowercase())?.as_str() {
+    fn parse_section_state(mode_arg: Option<&str>) -> Option<SectionState> {
+        let payload: WriterModeArgPayload =
+            serde_json::from_str(mode_arg?.trim()).ok()?;
+        match payload.state?.trim().to_ascii_lowercase().as_str() {
             "pending" => Some(SectionState::Pending),
             "running" => Some(SectionState::Running),
             "complete" | "completed" => Some(SectionState::Complete),
@@ -212,18 +232,129 @@ impl ResearcherAdapter {
         Some((self.writer_actor.clone()?, self.run_id.clone()?))
     }
 
+    async fn emit_observed_sources_progress(
+        &self,
+        section_id: String,
+        source_refs: Vec<String>,
+    ) -> Result<(), String> {
+        if source_refs.is_empty() {
+            return Ok(());
+        }
+        let Some((writer_actor, run_id)) = self.writer_context() else {
+            return Ok(());
+        };
+
+        let refs_count = source_refs.len();
+        ractor::call!(writer_actor, |reply| WriterMsg::ReportProgress {
+            run_id,
+            section_id,
+            source: WriterSource::Researcher,
+            phase: "observed_sources".to_string(),
+            message: format!("Observed {refs_count} candidate sources"),
+            source_refs,
+            reply,
+        })
+        .map_err(|e| format!("WriterActor call failed: {e}"))?
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     fn has_successful_message_writer_call(tool_executions: &[ToolExecution]) -> bool {
         tool_executions
             .iter()
             .any(|exec| exec.tool_name == "message_writer" && exec.success)
     }
 
-    fn content_has_sources_block(content: &str) -> bool {
-        let lower = content.to_ascii_lowercase();
-        lower.starts_with("sources:")
-            || lower.contains("\nsources:")
-            || lower.contains("\n## sources")
-            || lower.contains("\n### sources")
+    fn parse_mode_arg_payload(mode_arg: Option<&str>) -> Result<WriterModeArgPayload, String> {
+        let raw = mode_arg.ok_or_else(|| "message_writer mode_arg is required".to_string())?;
+        serde_json::from_str::<WriterModeArgPayload>(raw.trim())
+            .map_err(|_| "message_writer mode_arg must be JSON".to_string())
+    }
+
+    fn extract_source_refs(mode_arg: Option<&str>) -> Result<Vec<String>, String> {
+        let payload = Self::parse_mode_arg_payload(mode_arg)?;
+        let mut refs: Vec<String> = payload
+            .source_refs
+            .into_iter()
+            .map(|entry| entry.trim().to_string())
+            .filter(|entry| !entry.is_empty())
+            .collect();
+        for source in &payload.sources {
+            if let Some(url) = source.url.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()) {
+                if !refs.iter().any(|existing| existing == url) {
+                    refs.push(url.to_string());
+                }
+            } else if let Some(path) = source
+                .path
+                .as_ref()
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty())
+            {
+                if !refs.iter().any(|existing| existing == path) {
+                    refs.push(path.to_string());
+                }
+            }
+        }
+        if refs.is_empty() {
+            return Err("message_writer mode_arg must include non-empty sources/source_refs".to_string());
+        }
+        Ok(refs)
+    }
+
+    fn extract_message_metadata(
+        mode_arg: Option<&str>,
+    ) -> Result<(Vec<String>, Vec<WriterMessageSource>, Vec<WriterMessageCitation>), String> {
+        let payload = Self::parse_mode_arg_payload(mode_arg)?;
+        if payload.sources.is_empty() {
+            return Err("message_writer mode_arg.sources must be a non-empty array".to_string());
+        }
+        if payload.citations.is_empty() {
+            return Err("message_writer mode_arg.citations must be a non-empty array".to_string());
+        }
+        let mut refs: Vec<String> = payload
+            .source_refs
+            .iter()
+            .map(|entry| entry.trim().to_string())
+            .filter(|entry| !entry.is_empty())
+            .collect();
+        for source in &payload.sources {
+            if let Some(url) = source.url.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()) {
+                if !refs.iter().any(|existing| existing == url) {
+                    refs.push(url.to_string());
+                }
+            } else if let Some(path) = source
+                .path
+                .as_ref()
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty())
+            {
+                if !refs.iter().any(|existing| existing == path) {
+                    refs.push(path.to_string());
+                }
+            }
+        }
+        Ok((refs, payload.sources, payload.citations))
+    }
+
+    fn parse_progress_phase_and_sources(
+        mode_arg: Option<&str>,
+    ) -> Result<(String, Vec<String>), String> {
+        let payload = Self::parse_mode_arg_payload(mode_arg)?;
+        let phase = payload
+            .phase
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "message_writer progress mode requires mode_arg.phase".to_string())?;
+        let refs: Vec<String> = payload
+            .source_refs
+            .into_iter()
+            .map(|entry| entry.trim().to_string())
+            .filter(|entry| !entry.is_empty())
+            .collect();
+        if refs.is_empty() {
+            return Err("message_writer progress mode requires mode_arg.source_refs".to_string());
+        }
+        Ok((phase, refs))
     }
 
     async fn writer_set_state(&self, state: SectionState) {
@@ -274,55 +405,37 @@ impl ResearcherAdapter {
         let mode = args.mode.trim().to_ascii_lowercase();
         let mode_arg = args.mode_arg.clone();
 
-        let requires_sources = matches!(
-            mode.as_str(),
-            "proposal_append" | "canon_append" | "completion"
-        );
-        if requires_sources && !Self::content_has_sources_block(&content) {
-            return Ok(ToolExecution {
-                tool_name: "message_writer".to_string(),
-                success: false,
-                output: String::new(),
-                error: Some(
-                    "message_writer content must include a `Sources:` section listing URLs or filesystem paths"
-                        .to_string(),
-                ),
-                execution_time_ms: start_time.elapsed().as_millis() as u64,
-            });
-        }
-
         let result = match mode.as_str() {
             "progress" => {
-                let phase = mode_arg
-                    .clone()
-                    .unwrap_or_else(|| "update".to_string())
-                    .trim()
-                    .to_string();
                 if content.trim().is_empty() {
                     Err("message_writer progress mode requires content".to_string())
                 } else {
-                    ractor::call!(writer_actor, |reply| WriterMsg::ReportProgress {
-                        run_id: run_id.clone(),
-                        section_id: section_id.clone(),
-                        source: WriterSource::Researcher,
-                        phase,
-                        message: content.clone(),
-                        reply,
-                    })
-                    .map_err(|e| format!("WriterActor call failed: {e}"))
-                    .and_then(|inner| inner.map_err(|e| e.to_string()))
-                    .map(|rev| {
-                        serde_json::json!({
-                            "mode": "progress",
-                            "section_id": section_id,
-                            "revision": rev,
+                    match Self::parse_progress_phase_and_sources(mode_arg.as_deref()) {
+                        Ok((phase, source_refs)) => ractor::call!(writer_actor, |reply| WriterMsg::ReportProgress {
+                            run_id: run_id.clone(),
+                            section_id: section_id.clone(),
+                            source: WriterSource::Researcher,
+                            phase,
+                            message: content.clone(),
+                            source_refs,
+                            reply,
                         })
-                    })
+                        .map_err(|e| format!("WriterActor call failed: {e}"))
+                        .and_then(|inner| inner.map_err(|e| e.to_string()))
+                        .map(|rev| {
+                            serde_json::json!({
+                                "mode": "progress",
+                                "section_id": section_id,
+                                "revision": rev,
+                            })
+                        }),
+                        Err(error) => Err(error),
+                    }
                 }
             }
             "state" => {
                 let state = Self::parse_section_state(mode_arg.as_deref()).ok_or_else(|| {
-                    "message_writer state mode requires mode_arg in {pending|running|complete|failed}"
+                    "message_writer state mode requires mode_arg JSON with state in {pending|running|complete|failed}"
                         .to_string()
                 });
                 match state {
@@ -347,102 +460,143 @@ impl ResearcherAdapter {
                 if content.trim().is_empty() {
                     Err("message_writer canon_append mode requires content".to_string())
                 } else {
-                    ractor::call!(writer_actor, |reply| WriterMsg::ApplyText {
-                        run_id: run_id.clone(),
-                        section_id: section_id.clone(),
-                        source: WriterSource::Researcher,
-                        content: content.clone(),
-                        proposal: false,
-                        reply,
-                    })
-                    .map_err(|e| format!("WriterActor call failed: {e}"))
-                    .and_then(|inner| inner.map_err(|e| e.to_string()))
-                    .map(|revision| {
-                        serde_json::json!({
-                            "mode": "canon_append",
-                            "section_id": section_id,
-                            "revision": revision,
-                        })
-                    })
+                    match Self::extract_source_refs(mode_arg.as_deref()) {
+                        Ok(source_refs) => {
+                            let message_id =
+                                format!("{run_id}:researcher:tool:canon:{}", ulid::Ulid::new());
+                            let envelope = WriterInboundEnvelope {
+                                message_id,
+                                correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
+                                kind: "researcher_tool_canon_append".to_string(),
+                                run_id: run_id.clone(),
+                                section_id: section_id.clone(),
+                                source: WriterSource::Researcher,
+                                content: content.clone(),
+                                source_refs,
+                                sources: Vec::new(),
+                                citations: Vec::new(),
+                                base_version_id: None,
+                                prompt_diff: None,
+                                overlay_id: None,
+                                session_id: None,
+                                thread_id: None,
+                                call_id: None,
+                                origin_actor: Some(self.state.researcher_id.clone()),
+                            };
+                            ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+                                envelope,
+                                reply,
+                            })
+                            .map_err(|e| format!("WriterActor call failed: {e}"))
+                            .and_then(|inner| inner.map_err(|e| e.to_string()))
+                            .map(|ack| {
+                                serde_json::json!({
+                                    "mode": "canon_append",
+                                    "section_id": section_id,
+                                    "message_id": ack.message_id,
+                                    "revision": ack.revision,
+                                    "queue_len": ack.queue_len,
+                                    "duplicate": ack.duplicate,
+                                })
+                            })
+                        }
+                        Err(error) => Err(error),
+                    }
                 }
             }
             "proposal_append" => {
                 if content.trim().is_empty() {
                     Err("message_writer proposal_append mode requires content".to_string())
                 } else {
-                    let message_id = format!("{run_id}:researcher:tool:{}", ulid::Ulid::new());
-                    let envelope = WriterInboundEnvelope {
-                        message_id,
-                        correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
-                        kind: "researcher_tool_update".to_string(),
-                        run_id: run_id.clone(),
-                        section_id: section_id.clone(),
-                        source: WriterSource::Researcher,
-                        content: content.clone(),
-                        base_version_id: None,
-                        prompt_diff: None,
-                        overlay_id: None,
-                        session_id: None,
-                        thread_id: None,
-                        call_id: None,
-                        origin_actor: Some(self.state.researcher_id.clone()),
-                    };
-                    ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
-                        envelope,
-                        reply,
-                    })
-                    .map_err(|e| format!("WriterActor call failed: {e}"))
-                    .and_then(|inner| inner.map_err(|e| e.to_string()))
-                    .map(|ack| {
-                        serde_json::json!({
-                            "mode": "proposal_append",
-                            "section_id": section_id,
-                            "message_id": ack.message_id,
-                            "revision": ack.revision,
-                            "queue_len": ack.queue_len,
-                            "duplicate": ack.duplicate,
-                        })
-                    })
+                    match Self::extract_message_metadata(mode_arg.as_deref()) {
+                        Ok((source_refs, sources, citations)) => {
+                            let message_id = format!("{run_id}:researcher:tool:{}", ulid::Ulid::new());
+                            let envelope = WriterInboundEnvelope {
+                                message_id,
+                                correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
+                                kind: "researcher_tool_update".to_string(),
+                                run_id: run_id.clone(),
+                                section_id: section_id.clone(),
+                                source: WriterSource::Researcher,
+                                content: content.clone(),
+                                source_refs,
+                                sources,
+                                citations,
+                                base_version_id: None,
+                                prompt_diff: None,
+                                overlay_id: None,
+                                session_id: None,
+                                thread_id: None,
+                                call_id: None,
+                                origin_actor: Some(self.state.researcher_id.clone()),
+                            };
+                            ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+                                envelope,
+                                reply,
+                            })
+                            .map_err(|e| format!("WriterActor call failed: {e}"))
+                            .and_then(|inner| inner.map_err(|e| e.to_string()))
+                            .map(|ack| {
+                                serde_json::json!({
+                                    "mode": "proposal_append",
+                                    "section_id": section_id,
+                                    "message_id": ack.message_id,
+                                    "revision": ack.revision,
+                                    "queue_len": ack.queue_len,
+                                    "duplicate": ack.duplicate,
+                                })
+                            })
+                        }
+                        Err(error) => Err(error),
+                    }
                 }
             }
             "completion" => {
                 if content.trim().is_empty() {
                     Err("message_writer completion mode requires content".to_string())
                 } else {
-                    let message_id =
-                        format!("{run_id}:researcher:tool:completion:{}", ulid::Ulid::new());
-                    let envelope = WriterInboundEnvelope {
-                        message_id,
-                        correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
-                        kind: "researcher_tool_completion".to_string(),
-                        run_id: run_id.clone(),
-                        section_id: section_id.clone(),
-                        source: WriterSource::Researcher,
-                        content: content.clone(),
-                        base_version_id: None,
-                        prompt_diff: None,
-                        overlay_id: None,
-                        session_id: None,
-                        thread_id: None,
-                        call_id: None,
-                        origin_actor: Some(self.state.researcher_id.clone()),
-                    };
-                    ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
-                        envelope,
-                        reply,
-                    })
-                    .map_err(|e| format!("WriterActor call failed: {e}"))
-                    .and_then(|inner| inner.map_err(|e| e.to_string()))
-                    .map(|ack| {
-                        serde_json::json!({
-                            "mode": "completion",
-                            "section_id": section_id,
-                            "message_id": ack.message_id,
-                            "revision": ack.revision,
-                            "queue_len": ack.queue_len,
-                            "duplicate": ack.duplicate,
-                        })
-                    })
+                    match Self::extract_message_metadata(mode_arg.as_deref()) {
+                        Ok((source_refs, sources, citations)) => {
+                            let message_id =
+                                format!("{run_id}:researcher:tool:completion:{}", ulid::Ulid::new());
+                            let envelope = WriterInboundEnvelope {
+                                message_id,
+                                correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
+                                kind: "researcher_tool_completion".to_string(),
+                                run_id: run_id.clone(),
+                                section_id: section_id.clone(),
+                                source: WriterSource::Researcher,
+                                content: content.clone(),
+                                source_refs,
+                                sources,
+                                citations,
+                                base_version_id: None,
+                                prompt_diff: None,
+                                overlay_id: None,
+                                session_id: None,
+                                thread_id: None,
+                                call_id: None,
+                                origin_actor: Some(self.state.researcher_id.clone()),
+                            };
+                            ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+                                envelope,
+                                reply,
+                            })
+                            .map_err(|e| format!("WriterActor call failed: {e}"))
+                            .and_then(|inner| inner.map_err(|e| e.to_string()))
+                            .map(|ack| {
+                                serde_json::json!({
+                                    "mode": "completion",
+                                    "section_id": section_id,
+                                    "message_id": ack.message_id,
+                                    "revision": ack.revision,
+                                    "queue_len": ack.queue_len,
+                                    "duplicate": ack.duplicate,
+                                })
+                            })
+                        }
+                        Err(error) => Err(error),
+                    }
                 }
             }
             _ => Err(format!(
@@ -515,9 +669,14 @@ impl WorkerPort for ResearcherAdapter {
    - path: string (optional) - section_id: conductor|researcher|terminal|user (default: researcher)
    - content: string (required for append/progress/completion)
    - mode: string (required) - proposal_append|canon_append|progress|state|completion
-   - mode_arg: string (optional) - mode argument:
-     - progress: phase string
-     - state: pending|running|complete|failed
+   - mode_arg: string (required JSON)
+     - progress: {"phase":"...","source_refs":["https://...","conductor/runs/..."]}
+     - state: {"state":"pending|running|complete|failed"}
+     - proposal_append/canon_append/completion: {"sources":[...],"citations":[...]}
+       where sources entries are:
+       {"id":"s1","kind":"web|file|other","provider":"tavily|brave|exa|terminal|other","url":"...","path":"...","title":"...","publisher":"...","published_at":"...","line_start":1,"line_end":2}
+       and citations entries are:
+       {"source_id":"s1","anchor":"[^s1]"}
    Required behavior in writer document mode:
    - Use message_writer with mode=\"proposal_append\" for substantive incremental updates when needed
    - If research is multi-step, publish updates whenever findings materially change
@@ -526,8 +685,8 @@ impl WorkerPort for ResearcherAdapter {
    - When the objective is already answered with sufficient evidence, stop researching and call `finished`
    - Do not continue tool calling for extra redundancy once the objective is satisfied
    - Keep each update concise and incremental (delta from prior update), not a full report
-   - Every proposal_append/canon_append/completion update MUST include a `Sources:` section
-     listing concrete evidence references (URLs and/or filesystem paths)
+   - Every proposal_append/canon_append/completion update MUST include typed
+     `sources` and `citations` in mode_arg JSON (no inline source parsing)
    - If evidence conflicts with earlier claims, explicitly mark the old claim as superseded
    Examples:
    - Initial note:
@@ -535,10 +694,12 @@ impl WorkerPort for ResearcherAdapter {
      content=\"Plan: verify repo URL, compare architecture, then benchmark/runtime differences.\"
    - Findings update:
      tool=message_writer, path=\"researcher\", mode=\"proposal_append\",
-     content=\"New findings:\\n- ...\\n- ...\\nSources: [name](url)\"
+     mode_arg="{\"sources\":[{\"id\":\"s1\",\"kind\":\"web\",\"provider\":\"tavily\",\"url\":\"https://example.com\"}],\"citations\":[{\"source_id\":\"s1\",\"anchor\":\"[^s1]\"}]}",
+     content=\"New findings:\\n- ...\\n- ...\"
    - Final handoff:
      tool=message_writer, path=\"researcher\", mode=\"completion\",
-     content=\"Final delta summary:\\n- ...\\nUncertainty: ...\\nSources: ...\"
+     mode_arg="{\"sources\":[{\"id\":\"s1\",\"kind\":\"web\",\"provider\":\"tavily\",\"url\":\"https://example.com\"}],\"citations\":[{\"source_id\":\"s1\",\"anchor\":\"[^s1]\"}]}",
+     content=\"Final delta summary:\\n- ...\\nUncertainty: ...\"
 "#
         .to_string()
     }
@@ -590,14 +751,14 @@ Guidelines:
 - Content quality protocol:
   - Do not output long, rigid report templates from researcher.
   - Send concise evidence deltas (what changed since last update).
-  - Include source links for factual claims.
-  - Every message_writer proposal_append/canon_append/completion update must include a
-    `Sources:` section with concrete URLs and/or filesystem paths.
+  - Include source links for factual claims in typed metadata.
+  - Every message_writer proposal_append/canon_append/completion update must include
+    mode_arg.sources and mode_arg.citations with explicit source ids.
   - If a later fetch/search contradicts earlier text, explicitly mark the earlier claim as superseded.
   - Prefer uncertainty over false certainty when evidence is incomplete.
 - Maintain your working draft - it should evolve as you learn
 - Write findings immediately - don't wait until the end
-- Cite sources inline as markdown links: [title](url)
+- Keep source metadata in message_writer mode_arg.sources + mode_arg.citations (typed metadata).
 - Put the most important finding first (don't bury the lede)
 - Use freeform markdown - no forced structure
 - Recommended loop shape in writer document mode:
@@ -668,6 +829,16 @@ Guidelines:
 
                 let elapsed = start_time.elapsed().as_millis() as u64;
                 let citations = providers::merge_citations(&outputs);
+                let mut seen = HashSet::new();
+                let observed_source_refs: Vec<String> = citations
+                    .iter()
+                    .map(|citation| citation.url.trim().to_string())
+                    .filter(|url| !url.is_empty())
+                    .filter(|url| seen.insert(url.clone()))
+                    .collect();
+                let _ = self
+                    .emit_observed_sources_progress("researcher".to_string(), observed_source_refs)
+                    .await;
                 let success = !citations.is_empty();
                 let output = serde_json::json!({
                     "citations": citations,
@@ -715,6 +886,22 @@ Guidelines:
 
                 match providers::fetch_url(&request).await {
                     Ok(result) => {
+                        if result.success {
+                            let mut refs = vec![result.url.trim().to_string()];
+                            if !result.final_url.trim().is_empty() {
+                                let final_url = result.final_url.as_str();
+                                refs.push(final_url.trim().to_string());
+                            }
+                            let mut seen = HashSet::new();
+                            let refs: Vec<String> = refs
+                                .into_iter()
+                                .filter(|url| !url.is_empty())
+                                .filter(|url| seen.insert(url.clone()))
+                                .collect();
+                            let _ = self
+                                .emit_observed_sources_progress("researcher".to_string(), refs)
+                                .await;
+                        }
                         let elapsed = start_time.elapsed().as_millis() as u64;
                         let output = serde_json::json!({
                             "url": result.url,
@@ -1173,26 +1360,29 @@ mod tests {
     #[test]
     fn parse_section_state_handles_supported_values() {
         assert_eq!(
-            ResearcherAdapter::parse_section_state(Some("pending")),
+            ResearcherAdapter::parse_section_state(Some(r#"{"state":"pending"}"#)),
             Some(SectionState::Pending)
         );
         assert_eq!(
-            ResearcherAdapter::parse_section_state(Some("running")),
+            ResearcherAdapter::parse_section_state(Some(r#"{"state":"running"}"#)),
             Some(SectionState::Running)
         );
         assert_eq!(
-            ResearcherAdapter::parse_section_state(Some("complete")),
+            ResearcherAdapter::parse_section_state(Some(r#"{"state":"complete"}"#)),
             Some(SectionState::Complete)
         );
         assert_eq!(
-            ResearcherAdapter::parse_section_state(Some("completed")),
+            ResearcherAdapter::parse_section_state(Some(r#"{"state":"completed"}"#)),
             Some(SectionState::Complete)
         );
         assert_eq!(
-            ResearcherAdapter::parse_section_state(Some("failed")),
+            ResearcherAdapter::parse_section_state(Some(r#"{"state":"failed"}"#)),
             Some(SectionState::Failed)
         );
-        assert_eq!(ResearcherAdapter::parse_section_state(Some("bogus")), None);
+        assert_eq!(
+            ResearcherAdapter::parse_section_state(Some(r#"{"state":"bogus"}"#)),
+            None
+        );
     }
 
     #[test]

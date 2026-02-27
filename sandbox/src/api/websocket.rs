@@ -126,6 +126,7 @@ pub enum WsMessage {
         phase: String,
         message: String,
         progress_pct: Option<u8>,
+        source_refs: Vec<String>,
     },
 
     #[serde(rename = "writer.run.patch")]
@@ -333,6 +334,7 @@ struct WriterRunProgressPayload {
     phase: String,
     message: String,
     progress_pct: Option<u8>,
+    source_refs: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -416,6 +418,7 @@ fn writer_ws_message_from_event(
                     phase: parsed.phase,
                     message: parsed.message,
                     progress_pct: parsed.progress_pct,
+                    source_refs: parsed.source_refs,
                 },
             ))
         }

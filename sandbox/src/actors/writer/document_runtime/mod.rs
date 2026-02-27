@@ -164,6 +164,7 @@ impl WriterDocumentRuntime {
         self.emit_progress_event(
             "version_created",
             format!("Created version {}", version.version_id),
+            Vec::new(),
         )
         .await;
         Ok(version)
@@ -192,6 +193,7 @@ impl WriterDocumentRuntime {
         self.emit_progress_event(
             "overlay_created",
             format!("Created overlay {}", overlay.overlay_id),
+            Vec::new(),
         )
         .await;
         Ok(overlay)
@@ -213,6 +215,7 @@ impl WriterDocumentRuntime {
         self.emit_progress_event(
             "overlay_dismissed",
             format!("Dismissed overlay {overlay_id}"),
+            Vec::new(),
         )
         .await;
         Ok(())
@@ -253,6 +256,7 @@ impl WriterDocumentRuntime {
             self.emit_progress_event(
                 "patch_applied",
                 format!("Created proposal overlay for {section_id} via {source}"),
+                Vec::new(),
             )
             .await;
             return Ok(ApplyPatchResult {
@@ -276,6 +280,7 @@ impl WriterDocumentRuntime {
         self.emit_progress_event(
             "patch_applied",
             format!("Updated canonical version via {source}"),
+            Vec::new(),
         )
         .await;
 
@@ -295,11 +300,53 @@ impl WriterDocumentRuntime {
         section_id: &str,
         phase: &str,
         message: &str,
+        source_refs: Vec<String>,
     ) -> Result<u64, WriterDocumentError> {
         self.ensure_run_id(run_id)?;
+        let mut normalized_refs = Vec::<String>::new();
+        for entry in source_refs {
+            let trimmed = entry.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if !normalized_refs.iter().any(|existing| existing == trimmed) {
+                normalized_refs.push(trimmed.to_string());
+            }
+        }
+        if !normalized_refs.is_empty() {
+            if phase.contains("observed_sources") {
+                for value in normalized_refs.iter().rev() {
+                    if let Some(idx) = self
+                        .state
+                        .document
+                        .observed_source_refs
+                        .iter()
+                        .position(|existing| existing == value)
+                    {
+                        self.state.document.observed_source_refs.remove(idx);
+                    }
+                    self.state.document.observed_source_refs.insert(0, value.clone());
+                }
+            } else {
+                for value in normalized_refs.iter().rev() {
+                    if let Some(idx) = self
+                        .state
+                        .document
+                        .selected_source_refs
+                        .iter()
+                        .position(|existing| existing == value)
+                    {
+                        self.state.document.selected_source_refs.remove(idx);
+                    }
+                    self.state.document.selected_source_refs.insert(0, value.clone());
+                }
+            }
+            self.persist_sidecar().await?;
+        }
         self.emit_progress_event(
             format!("{source}:{section_id}:{phase}"),
             message.to_string(),
+            normalized_refs,
         )
         .await;
         Ok(self.state.revision)
@@ -424,6 +471,10 @@ impl WriterDocumentRuntime {
                 WriterDocumentError::WriteFailed(format!("Failed to rename temp file: {e}"))
             })?;
 
+        self.persist_sidecar().await
+    }
+
+    async fn persist_sidecar(&self) -> Result<(), WriterDocumentError> {
         let sidecar = PersistedWriterDocumentSnapshot {
             revision: self.state.revision,
             document: self.state.document.clone(),
@@ -581,6 +632,8 @@ impl WriterDocumentRuntime {
             source,
             content,
             parent_version_id: Some(parent),
+            selected_source_refs: self.state.document.selected_source_refs.clone(),
+            observed_source_refs: self.state.document.observed_source_refs.clone(),
         };
         self.state.document.versions.push(version.clone());
         self.state.document.head_version_id = version.version_id;
@@ -757,13 +810,22 @@ impl WriterDocumentRuntime {
         self.emit_event("writer.run.patch", payload).await;
     }
 
-    async fn emit_progress_event(&self, phase: impl Into<String>, message: impl Into<String>) {
+    async fn emit_progress_event(
+        &self,
+        phase: impl Into<String>,
+        message: impl Into<String>,
+        source_refs: Vec<String>,
+    ) {
         let mut payload = self.base_event_payload();
         if let Some(object) = payload.as_object_mut() {
             object.insert("phase".to_string(), serde_json::Value::String(phase.into()));
             object.insert(
                 "message".to_string(),
                 serde_json::Value::String(message.into()),
+            );
+            object.insert(
+                "source_refs".to_string(),
+                serde_json::to_value(source_refs).unwrap_or(serde_json::Value::Array(Vec::new())),
             );
         }
         self.emit_event("writer.run.progress", payload).await;

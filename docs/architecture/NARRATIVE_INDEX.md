@@ -13,14 +13,15 @@ Use the docs below in order. If a doc is not listed in `Active Read Order`, trea
 
 ## Active Read Order
 
-1. `docs/architecture/2026-02-26-comprehensive-cutover-plan.md`
-2. `docs/architecture/2026-02-26-local-first-ovh-execution-plan.md`
-3. `docs/architecture/roadmap-dependency-tree.md`
-4. `docs/architecture/2026-02-20-bootstrap-execution-checklists.md`
-5. `docs/runbooks/local-provider-matrix-validation.md`
-6. `docs/runbooks/platform-secrets-sops-nix.md`
-7. `docs/handoffs/2026-02-22-platform-project-checklist-ovh-microvm.md`
-8. `docs/architecture/2026-02-17-codesign-runbook.md`
+1. `docs/architecture/2026-02-27-agent-contract-hard-cutover.md`
+2. `docs/architecture/2026-02-26-comprehensive-cutover-plan.md`
+3. `docs/architecture/2026-02-26-local-first-ovh-execution-plan.md`
+4. `docs/architecture/roadmap-dependency-tree.md`
+5. `docs/architecture/2026-02-20-bootstrap-execution-checklists.md`
+6. `docs/runbooks/local-provider-matrix-validation.md`
+7. `docs/runbooks/platform-secrets-sops-nix.md`
+8. `docs/handoffs/2026-02-22-platform-project-checklist-ovh-microvm.md`
+9. `docs/architecture/2026-02-17-codesign-runbook.md`
 
 ## Current Decisions (Explicit)
 

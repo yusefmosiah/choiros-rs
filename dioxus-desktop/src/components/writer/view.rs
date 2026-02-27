@@ -12,7 +12,8 @@ use crate::api::{
 };
 use crate::desktop::state::{ActiveWriterRun, ACTIVE_WRITER_RUNS};
 use shared_types::{
-    ChangesetImpact, ConductorRunStatus, ConductorRunStatusResponse, PatchOp, WriterRunStatusKind,
+    ChangesetImpact, ConductorRunStatus, ConductorRunStatusResponse, PatchOp, PatchSource,
+    WriterRunStatusKind,
 };
 
 use super::dialogs::render_dialog;
@@ -152,6 +153,7 @@ async fn reconcile_run_state_on_open(
                 phase: None,
                 message: None,
                 progress_pct: Some(100),
+                source_refs: Vec::new(),
                 proposal: None,
                 pending_patches: Vec::new(),
                 last_applied_revision: revision,
@@ -222,6 +224,7 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
     let mut selected_version_id = use_signal(|| None::<u64>);
     let mut selected_version_content = use_signal(String::new);
     let mut selected_version_source = use_signal(String::new);
+    let mut selected_version_source_refs = use_signal(Vec::<String>::new);
     let mut selected_overlays = use_signal(|| Vec::<WriterOverlay>::new());
     let mut typing_locked = use_signal(|| false);
     let mut new_version_available = use_signal(|| false);
@@ -258,6 +261,13 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                     content.set(opened_content.clone());
                     prompt_base_content.set(opened_content.clone());
                     selected_version_content.set(opened_content);
+                    let mut refs = response.selected_source_refs.clone();
+                    for value in response.observed_source_refs {
+                        if !refs.iter().any(|existing| existing == &value) {
+                            refs.push(value);
+                        }
+                    }
+                    selected_version_source_refs.set(refs);
                     revision.set(response.revision);
                     last_applied_revision.set(response.revision);
                     mime.set(response.mime);
@@ -309,6 +319,16 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                                             .set(version_response.version.content.clone());
                                         selected_version_source
                                             .set(version_response.version.source.clone());
+                                        let mut refs =
+                                            version_response.version.selected_source_refs.clone();
+                                        for value in
+                                            version_response.version.observed_source_refs.clone()
+                                        {
+                                            if !refs.iter().any(|existing| existing == &value) {
+                                                refs.push(value);
+                                            }
+                                        }
+                                        selected_version_source_refs.set(refs);
                                         selected_overlays.set(version_response.overlays);
                                     }
                                     Err(_) => {
@@ -408,7 +428,6 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                         let mut current_content = content_for_effect();
                         let mut highest_revision = current_last_rev;
                         let mut latest_target_version = None::<u64>;
-                        let selected_base = selected_version_id_for_effect();
                         let mut overlay_updates = Vec::<WriterOverlay>::new();
 
                         for patch in patches_to_apply {
@@ -416,17 +435,20 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                                 current_content = apply_patch_ops(&current_content, &patch.ops);
                                 selected_overlays_for_effect.set(Vec::new());
                             } else if let Some(overlay_id) = patch.overlay_id.clone() {
-                                if selected_base == patch.base_version_id {
-                                    overlay_updates.push(WriterOverlay {
-                                        overlay_id,
-                                        base_version_id: patch.base_version_id.unwrap_or(0),
-                                        author: "unknown".to_string(),
-                                        kind: "proposal".to_string(),
-                                        diff_ops: patch.ops.clone(),
-                                        status: "pending".to_string(),
-                                        created_at: chrono::Utc::now(),
-                                    });
-                                }
+                                let author = match patch.source {
+                                    PatchSource::Agent => "agent",
+                                    PatchSource::User => "user",
+                                    PatchSource::System => "system",
+                                };
+                                overlay_updates.push(WriterOverlay {
+                                    overlay_id,
+                                    base_version_id: patch.base_version_id.unwrap_or(0),
+                                    author: author.to_string(),
+                                    kind: "proposal".to_string(),
+                                    diff_ops: patch.ops.clone(),
+                                    status: "pending".to_string(),
+                                    created_at: chrono::Utc::now(),
+                                });
                             }
                             highest_revision = patch.revision;
                             if let Some(target_version_id) = patch.target_version_id {
@@ -459,7 +481,25 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                             selected_version_id_for_effect.set(selected);
                         }
                         if !overlay_updates.is_empty() {
-                            selected_overlays_for_effect.set(overlay_updates);
+                            let mut merged_overlays = selected_overlays_for_effect();
+                            for incoming in overlay_updates {
+                                if let Some(existing) = merged_overlays
+                                    .iter_mut()
+                                    .find(|item| item.overlay_id == incoming.overlay_id)
+                                {
+                                    existing.base_version_id = incoming.base_version_id;
+                                    existing.diff_ops = incoming.diff_ops;
+                                    existing.status = incoming.status;
+                                    if existing.author.trim().is_empty()
+                                        || existing.author == "unknown"
+                                    {
+                                        existing.author = incoming.author;
+                                    }
+                                } else {
+                                    merged_overlays.push(incoming);
+                                }
+                            }
+                            selected_overlays_for_effect.set(merged_overlays);
                         }
                         new_version_available_for_effect.set(false);
 
@@ -547,6 +587,13 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                         selected_version_content.set(saved.version.content.clone());
                         prompt_base_content.set(saved.version.content.clone());
                         selected_version_source.set(saved.version.source.clone());
+                        let mut refs = saved.version.selected_source_refs.clone();
+                        for value in saved.version.observed_source_refs.clone() {
+                            if !refs.iter().any(|existing| existing == &value) {
+                                refs.push(value);
+                            }
+                        }
+                        selected_version_source_refs.set(refs);
                         let mut ids = version_ids();
                         if !ids.contains(&saved.version.version_id) {
                             ids.push(saved.version.version_id);
@@ -723,6 +770,13 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                     content.set(response.content.clone());
                     selected_version_content.set(response.content.clone());
                     prompt_base_content.set(response.content);
+                    let mut refs = response.selected_source_refs.clone();
+                    for value in response.observed_source_refs {
+                        if !refs.iter().any(|existing| existing == &value) {
+                            refs.push(value);
+                        }
+                    }
+                    selected_version_source_refs.set(refs);
                     revision.set(response.revision);
                     save_state.set(SaveState::Clean);
                     typing_locked.set(false);
@@ -752,6 +806,18 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                                 prompt_base_content.set(version_response.version.content.clone());
                                 selected_version_source
                                     .set(version_response.version.source.clone());
+                                let mut refs =
+                                    version_response.version.selected_source_refs.clone();
+                                for value in version_response
+                                    .version
+                                    .observed_source_refs
+                                    .clone()
+                                {
+                                    if !refs.iter().any(|existing| existing == &value) {
+                                        refs.push(value);
+                                    }
+                                }
+                                selected_version_source_refs.set(refs);
                                 selected_overlays.set(version_response.overlays);
                             }
                         }
@@ -780,6 +846,13 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                     prompt_base_content.set(response.version.content.clone());
                     selected_version_id.set(Some(target));
                     selected_version_source.set(response.version.source.clone());
+                    let mut refs = response.version.selected_source_refs.clone();
+                    for value in response.version.observed_source_refs.clone() {
+                        if !refs.iter().any(|existing| existing == &value) {
+                            refs.push(value);
+                        }
+                    }
+                    selected_version_source_refs.set(refs);
                     selected_overlays.set(response.overlays);
                     typing_locked.set(false);
                     save_state.set(SaveState::Clean);
@@ -807,6 +880,13 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                     prompt_base_content.set(response.version.content.clone());
                     selected_version_id.set(Some(target));
                     selected_version_source.set(response.version.source.clone());
+                    let mut refs = response.version.selected_source_refs.clone();
+                    for value in response.version.observed_source_refs.clone() {
+                        if !refs.iter().any(|existing| existing == &value) {
+                            refs.push(value);
+                        }
+                    }
+                    selected_version_source_refs.set(refs);
                     selected_overlays.set(response.overlays);
                     typing_locked.set(false);
                     save_state.set(SaveState::Clean);
@@ -850,6 +930,13 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                     selected_version_content.set(saved.version.content.clone());
                     prompt_base_content.set(saved.version.content.clone());
                     selected_version_source.set(saved.version.source.clone());
+                    let mut refs = saved.version.selected_source_refs.clone();
+                    for value in saved.version.observed_source_refs.clone() {
+                        if !refs.iter().any(|existing| existing == &value) {
+                            refs.push(value);
+                        }
+                    }
+                    selected_version_source_refs.set(refs);
                     selected_version_id.set(Some(saved.version.version_id));
                     let mut ids = version_ids();
                     if !ids.contains(&saved.version.version_id) {
@@ -919,26 +1006,107 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
     let current_selected_overlays = selected_overlays();
     let current_new_version_available = new_version_available();
 
-    let current_changesets = {
+    let current_run_state = {
         let runs = ACTIVE_WRITER_RUNS.read();
-        runs.get(&current_path)
-            .map(|r| r.recent_changesets.clone())
+        runs.get(&current_path).cloned()
+    };
+    let current_changesets = current_run_state
+        .as_ref()
+        .map(|r| r.recent_changesets.clone())
+        .unwrap_or_default();
+    let current_run_phase = current_run_state
+        .as_ref()
+        .and_then(|r| r.phase.clone())
+        .unwrap_or_default();
+    let current_run_message = current_run_state
+        .as_ref()
+        .and_then(|r| r.message.clone())
+        .unwrap_or_default();
+    let current_run_objective = current_run_state
+        .as_ref()
+        .and_then(|r| r.objective.clone())
+        .unwrap_or_default();
+    let current_source_refs = if !selected_version_source_refs().is_empty() {
+        selected_version_source_refs()
+    } else {
+        current_run_state
+            .as_ref()
+            .map(|r| r.source_refs.clone())
             .unwrap_or_default()
     };
-    let (current_run_phase, current_run_message, current_run_objective) = {
-        let runs = ACTIVE_WRITER_RUNS.read();
-        if let Some(run) = runs.get(&current_path) {
-            (
-                run.phase.clone().unwrap_or_default(),
-                run.message.clone().unwrap_or_default(),
-                run.objective.clone().unwrap_or_default(),
-            )
-        } else {
-            (String::new(), String::new(), String::new())
-        }
-    };
+    let current_pending_inbox = current_run_state
+        .as_ref()
+        .map(|r| r.pending_patches.iter().filter(|patch| !patch.applied).count())
+        .unwrap_or(0usize);
 
     let mut current_notes = Vec::<MarginNote>::new();
+    if let Some(run) = &current_run_state {
+        let status_label = match run.status {
+            WriterRunStatusKind::Initializing => "initializing",
+            WriterRunStatusKind::Running => "running",
+            WriterRunStatusKind::WaitingForWorker => "waiting_for_worker",
+            WriterRunStatusKind::Completing => "completing",
+            WriterRunStatusKind::Completed => "completed",
+            WriterRunStatusKind::Failed => "failed",
+            WriterRunStatusKind::Blocked => "blocked",
+        };
+        let mut state_lines = vec![
+            format!("run_id: {}", run.run_id),
+            format!("status: {}", status_label),
+            format!("revision: {}", run.revision),
+            format!("inbox_pending: {}", current_pending_inbox),
+            format!("sources: {}", run.source_refs.len()),
+            format!("changesets: {}", run.recent_changesets.len()),
+        ];
+        if let Some(progress) = run.progress_pct {
+            state_lines.push(format!("progress: {}%", progress));
+        }
+        if let Some(phase) = &run.phase {
+            if !phase.trim().is_empty() {
+                state_lines.push(format!("phase: {}", phase.trim()));
+            }
+        }
+        if let Some(message) = &run.message {
+            if !message.trim().is_empty() {
+                state_lines.push(format!("message: {}", message.trim()));
+            }
+        }
+        current_notes.push(MarginNote {
+            id: "writer-state".to_string(),
+            impact: None,
+            title: "Writer State".to_string(),
+            lines: state_lines,
+            overlay_id: None,
+        });
+
+        let mut inbox_lines = Vec::new();
+        for patch in run.pending_patches.iter().filter(|patch| !patch.applied) {
+            let source = match patch.source {
+                PatchSource::Agent => "agent",
+                PatchSource::User => "user",
+                PatchSource::System => "system",
+            };
+            let summary = patch
+                .proposal
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| format!("patch {}", patch.patch_id));
+            inbox_lines.push(format!("[{}] {}", source, summary));
+        }
+        if inbox_lines.is_empty() {
+            inbox_lines.push("No pending inbox items.".to_string());
+        }
+        current_notes.push(MarginNote {
+            id: "writer-inbox".to_string(),
+            impact: None,
+            title: format!("Inbox ({})", current_pending_inbox),
+            lines: inbox_lines,
+            overlay_id: None,
+        });
+    }
+
     for changeset in &current_changesets {
         current_notes.push(MarginNote {
             id: format!("changeset-{}", changeset.patch_id),
@@ -959,6 +1127,15 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
             title: format!("{} suggestion", overlay.author),
             lines,
             overlay_id: Some(overlay.overlay_id.clone()),
+        });
+    }
+    if !current_source_refs.is_empty() {
+        current_notes.push(MarginNote {
+            id: "source-refs".to_string(),
+            impact: None,
+            title: format!("Sources ({})", current_source_refs.len()),
+            lines: current_source_refs,
+            overlay_id: None,
         });
     }
 
@@ -1291,8 +1468,26 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                                         }
                                     }
                                     div { style: "font-weight: 600; margin-bottom: 0.2rem;", "{note.title}" }
-                                    for line in note.lines.iter().take(4) {
-                                        div { style: "line-height: 1.35;", "{line}" }
+                                    for line in note
+                                        .lines
+                                        .iter()
+                                        .take(if note.id == "source-refs" {
+                                            note.lines.len()
+                                        } else {
+                                            4
+                                        })
+                                    {
+                                        if line.starts_with("http://") || line.starts_with("https://") {
+                                            a {
+                                                style: "display: block; line-height: 1.35; color: var(--text-primary); text-decoration: underline; word-break: break-all;",
+                                                href: "{line}",
+                                                target: "_blank",
+                                                rel: "noopener noreferrer",
+                                                "{line}"
+                                            }
+                                        } else {
+                                            div { style: "line-height: 1.35;", "{line}" }
+                                        }
                                     }
                                     if let Some(overlay_id) = note.overlay_id.clone() {
                                         div { class: "writer-margin-card-actions",
@@ -1404,7 +1599,17 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                                         }
                                     }
                                     for line in note.lines {
-                                        p { style: "margin: 0.25rem 0; font-size: 0.82rem;", "{line}" }
+                                        if line.starts_with("http://") || line.starts_with("https://") {
+                                            a {
+                                                style: "display: block; margin: 0.25rem 0; font-size: 0.82rem; color: var(--text-primary); text-decoration: underline; word-break: break-all;",
+                                                href: "{line}",
+                                                target: "_blank",
+                                                rel: "noopener noreferrer",
+                                                "{line}"
+                                            }
+                                        } else {
+                                            p { style: "margin: 0.25rem 0; font-size: 0.82rem;", "{line}" }
+                                        }
                                     }
                                     if let Some(overlay_id) = note.overlay_id {
                                         div { class: "writer-margin-card-actions",

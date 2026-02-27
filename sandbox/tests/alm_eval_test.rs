@@ -548,8 +548,9 @@ async fn tier1_decide_eval() {
                     Ok(decision) => {
                         let tool_names: Vec<String> =
                             decision.tool_calls.iter().map(extract_tool_name).collect();
+                        let decision_message = decision.message.as_deref().unwrap_or("");
                         let grade =
-                            grade_decide(expect_tc, &acceptable, &tool_names, &decision.message);
+                            grade_decide(expect_tc, &acceptable, &tool_names, decision_message);
                         EvalResult {
                             model_id,
                             scenario: name.to_string(),
@@ -557,7 +558,7 @@ async fn tier1_decide_eval() {
                             latency_ms,
                             detail: format!(
                                 "tools={tool_names:?} msg='{}'",
-                                truncate(&decision.message, 80),
+                                truncate(decision_message, 80),
                             ),
                         }
                     }

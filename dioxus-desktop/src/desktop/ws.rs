@@ -79,6 +79,7 @@ pub enum WsEvent {
         phase: String,
         message: String,
         progress_pct: Option<u8>,
+        source_refs: Vec<String>,
     },
     /// Writer run patch event for live document updates
     WriterRunPatch {
@@ -325,11 +326,18 @@ fn parse_writer_run_progress(json: &serde_json::Value) -> Option<WsEvent> {
         .get("progress_pct")
         .and_then(|v| v.as_u64())
         .map(|v| v as u8);
+    let source_refs = json
+        .get("source_refs")?
+        .as_array()?
+        .iter()
+        .filter_map(|value| value.as_str().map(ToString::to_string))
+        .collect::<Vec<_>>();
     Some(WsEvent::WriterRunProgress {
         base,
         phase,
         message,
         progress_pct,
+        source_refs,
     })
 }
 

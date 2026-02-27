@@ -857,7 +857,7 @@ impl<W: WorkerPort> AgentHarness<W> {
                             .await?;
                             messages.push(BamlMessage {
                                 role: "assistant".to_string(),
-                                content: "Previous output was invalid AgentDecision JSON. Retry with strict JSON object including both required fields: tool_calls (array) and message (string).".to_string(),
+                                content: "Previous output was invalid AgentDecision JSON. Retry with strict JSON object including required field: tool_calls (array). Optional: message (string).".to_string(),
                             });
                             continue;
                         }
@@ -1146,11 +1146,8 @@ impl<W: WorkerPort> AgentHarness<W> {
                     continue;
                 }
 
-                final_summary = if decision.message.trim().is_empty() {
-                    finished_summary_override.unwrap_or_else(|| "Objective finished.".to_string())
-                } else {
-                    decision.message.clone()
-                };
+                final_summary =
+                    finished_summary_override.unwrap_or_else(|| "Objective finished.".to_string());
                 completion_reason = "Model called finished tool".to_string();
                 objective_status = ObjectiveStatus::Complete;
                 loop_state = AgentLoopState::Complete;

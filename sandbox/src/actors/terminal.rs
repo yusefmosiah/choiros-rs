@@ -19,7 +19,10 @@
 use async_trait::async_trait;
 use portable_pty::{ChildKiller, CommandBuilder, PtySize};
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
+use serde::Deserialize;
+use std::collections::HashSet;
 use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 use tokio::sync::{broadcast, mpsc};
 
 use crate::actors::agent_harness::{
@@ -30,7 +33,7 @@ use crate::actors::event_store::EventStoreMsg;
 use crate::actors::model_config::ModelRegistry;
 use crate::actors::writer::{
     SectionState, WriterDelegateCapability, WriterDelegateResult, WriterError,
-    WriterInboundEnvelope, WriterMsg, WriterSource,
+    WriterInboundEnvelope, WriterMessageCitation, WriterMessageSource, WriterMsg, WriterSource,
 };
 use crate::baml_client::types::{
     MessageWriterToolCall,
@@ -56,6 +59,20 @@ pub struct TerminalAdapter {
     progress_tx: Option<mpsc::UnboundedSender<TerminalAgentProgress>>,
     writer_actor: Option<ActorRef<WriterMsg>>,
     run_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WriterModeArgPayload {
+    #[serde(default)]
+    phase: Option<String>,
+    #[serde(default)]
+    state: Option<String>,
+    #[serde(default)]
+    source_refs: Vec<String>,
+    #[serde(default)]
+    sources: Vec<WriterMessageSource>,
+    #[serde(default)]
+    citations: Vec<WriterMessageCitation>,
 }
 
 fn tool_call_name(tool_call: &AgentToolCall) -> &str {
@@ -113,8 +130,9 @@ impl TerminalAdapter {
         }
     }
 
-    fn parse_section_state(raw: Option<&str>) -> Option<SectionState> {
-        match raw.map(|s| s.trim().to_ascii_lowercase())?.as_str() {
+    fn parse_section_state(mode_arg: Option<&str>) -> Option<SectionState> {
+        let payload: WriterModeArgPayload = serde_json::from_str(mode_arg?.trim()).ok()?;
+        match payload.state?.trim().to_ascii_lowercase().as_str() {
             "pending" => Some(SectionState::Pending),
             "running" => Some(SectionState::Running),
             "complete" | "completed" => Some(SectionState::Complete),
@@ -129,12 +147,96 @@ impl TerminalAdapter {
             .any(|exec| exec.tool_name == "message_writer" && exec.success)
     }
 
-    fn content_has_sources_block(content: &str) -> bool {
-        let lower = content.to_ascii_lowercase();
-        lower.starts_with("sources:")
-            || lower.contains("\nsources:")
-            || lower.contains("\n## sources")
-            || lower.contains("\n### sources")
+    fn parse_mode_arg_payload(mode_arg: Option<&str>) -> Result<WriterModeArgPayload, String> {
+        let raw = mode_arg.ok_or_else(|| "message_writer mode_arg is required".to_string())?;
+        serde_json::from_str::<WriterModeArgPayload>(raw.trim())
+            .map_err(|_| "message_writer mode_arg must be JSON".to_string())
+    }
+
+    fn extract_source_refs(mode_arg: Option<&str>) -> Result<Vec<String>, String> {
+        let payload = Self::parse_mode_arg_payload(mode_arg)?;
+        let mut refs: Vec<String> = payload
+            .source_refs
+            .into_iter()
+            .map(|entry| entry.trim().to_string())
+            .filter(|entry| !entry.is_empty())
+            .collect();
+        for source in &payload.sources {
+            if let Some(url) = source.url.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()) {
+                if !refs.iter().any(|existing| existing == url) {
+                    refs.push(url.to_string());
+                }
+            } else if let Some(path) = source
+                .path
+                .as_ref()
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty())
+            {
+                if !refs.iter().any(|existing| existing == path) {
+                    refs.push(path.to_string());
+                }
+            }
+        }
+        if refs.is_empty() {
+            return Err("message_writer mode_arg must include non-empty sources/source_refs".to_string());
+        }
+        Ok(refs)
+    }
+
+    fn extract_message_metadata(
+        mode_arg: Option<&str>,
+    ) -> Result<(Vec<String>, Vec<WriterMessageSource>, Vec<WriterMessageCitation>), String> {
+        let payload = Self::parse_mode_arg_payload(mode_arg)?;
+        if payload.sources.is_empty() {
+            return Err("message_writer mode_arg.sources must be a non-empty array".to_string());
+        }
+        if payload.citations.is_empty() {
+            return Err("message_writer mode_arg.citations must be a non-empty array".to_string());
+        }
+        let mut refs: Vec<String> = payload
+            .source_refs
+            .iter()
+            .map(|entry| entry.trim().to_string())
+            .filter(|entry| !entry.is_empty())
+            .collect();
+        for source in &payload.sources {
+            if let Some(url) = source.url.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()) {
+                if !refs.iter().any(|existing| existing == url) {
+                    refs.push(url.to_string());
+                }
+            } else if let Some(path) = source
+                .path
+                .as_ref()
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty())
+            {
+                if !refs.iter().any(|existing| existing == path) {
+                    refs.push(path.to_string());
+                }
+            }
+        }
+        Ok((refs, payload.sources, payload.citations))
+    }
+
+    fn parse_progress_phase_and_sources(
+        mode_arg: Option<&str>,
+    ) -> Result<(String, Vec<String>), String> {
+        let payload = Self::parse_mode_arg_payload(mode_arg)?;
+        let phase = payload
+            .phase
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "message_writer progress mode requires mode_arg.phase".to_string())?;
+        let refs: Vec<String> = payload
+            .source_refs
+            .into_iter()
+            .map(|entry| entry.trim().to_string())
+            .filter(|entry| !entry.is_empty())
+            .collect();
+        if refs.is_empty() {
+            return Err("message_writer progress mode requires mode_arg.source_refs".to_string());
+        }
+        Ok((phase, refs))
     }
 
     async fn execute_message_writer(
@@ -161,54 +263,37 @@ impl TerminalAdapter {
         let mode = args.mode.trim().to_ascii_lowercase();
         let mode_arg = args.mode_arg.clone();
 
-        let requires_sources = matches!(
-            mode.as_str(),
-            "proposal_append" | "canon_append" | "completion"
-        );
-        if requires_sources && !Self::content_has_sources_block(&content) {
-            return Ok(ToolExecution {
-                tool_name: "message_writer".to_string(),
-                success: false,
-                output: String::new(),
-                error: Some(
-                    "message_writer content must include a `Sources:` section listing URLs or filesystem paths".to_string(),
-                ),
-                execution_time_ms: start_time.elapsed().as_millis() as u64,
-            });
-        }
-
         let result = match mode.as_str() {
             "progress" => {
                 if content.trim().is_empty() {
                     Err("message_writer progress mode requires content".to_string())
                 } else {
-                    let phase = mode_arg
-                        .clone()
-                        .unwrap_or_else(|| "update".to_string())
-                        .trim()
-                        .to_string();
-                    ractor::call!(writer_actor, |reply| WriterMsg::ReportProgress {
-                        run_id: run_id.clone(),
-                        section_id: section_id.clone(),
-                        source: WriterSource::Terminal,
-                        phase,
-                        message: content.clone(),
-                        reply,
-                    })
-                    .map_err(|e| format!("WriterActor call failed: {e}"))
-                    .and_then(|inner| inner.map_err(|e| e.to_string()))
-                    .map(|revision| {
-                        serde_json::json!({
-                            "mode": "progress",
-                            "section_id": section_id,
-                            "revision": revision,
+                    match Self::parse_progress_phase_and_sources(mode_arg.as_deref()) {
+                        Ok((phase, source_refs)) => ractor::call!(writer_actor, |reply| WriterMsg::ReportProgress {
+                            run_id: run_id.clone(),
+                            section_id: section_id.clone(),
+                            source: WriterSource::Terminal,
+                            phase,
+                            message: content.clone(),
+                            source_refs,
+                            reply,
                         })
-                    })
+                        .map_err(|e| format!("WriterActor call failed: {e}"))
+                        .and_then(|inner| inner.map_err(|e| e.to_string()))
+                        .map(|revision| {
+                            serde_json::json!({
+                                "mode": "progress",
+                                "section_id": section_id,
+                                "revision": revision,
+                            })
+                        }),
+                        Err(error) => Err(error),
+                    }
                 }
             }
             "state" => {
                 let state = Self::parse_section_state(mode_arg.as_deref()).ok_or_else(|| {
-                    "message_writer state mode requires mode_arg in {pending|running|complete|failed}"
+                    "message_writer state mode requires mode_arg JSON with state in {pending|running|complete|failed}"
                         .to_string()
                 });
                 match state {
@@ -233,102 +318,143 @@ impl TerminalAdapter {
                 if content.trim().is_empty() {
                     Err("message_writer canon_append mode requires content".to_string())
                 } else {
-                    ractor::call!(writer_actor, |reply| WriterMsg::ApplyText {
-                        run_id: run_id.clone(),
-                        section_id: section_id.clone(),
-                        source: WriterSource::Terminal,
-                        content: content.clone(),
-                        proposal: false,
-                        reply,
-                    })
-                    .map_err(|e| format!("WriterActor call failed: {e}"))
-                    .and_then(|inner| inner.map_err(|e| e.to_string()))
-                    .map(|revision| {
-                        serde_json::json!({
-                            "mode": "canon_append",
-                            "section_id": section_id,
-                            "revision": revision,
-                        })
-                    })
+                    match Self::extract_source_refs(mode_arg.as_deref()) {
+                        Ok(source_refs) => {
+                            let message_id =
+                                format!("{run_id}:terminal:tool:canon:{}", ulid::Ulid::new());
+                            let envelope = WriterInboundEnvelope {
+                                message_id,
+                                correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
+                                kind: "terminal_tool_canon_append".to_string(),
+                                run_id: run_id.clone(),
+                                section_id: section_id.clone(),
+                                source: WriterSource::Terminal,
+                                content: content.clone(),
+                                source_refs,
+                                sources: Vec::new(),
+                                citations: Vec::new(),
+                                base_version_id: None,
+                                prompt_diff: None,
+                                overlay_id: None,
+                                session_id: None,
+                                thread_id: None,
+                                call_id: None,
+                                origin_actor: Some(self.terminal_id.clone()),
+                            };
+                            ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+                                envelope,
+                                reply,
+                            })
+                            .map_err(|e| format!("WriterActor call failed: {e}"))
+                            .and_then(|inner| inner.map_err(|e| e.to_string()))
+                            .map(|ack| {
+                                serde_json::json!({
+                                    "mode": "canon_append",
+                                    "section_id": section_id,
+                                    "message_id": ack.message_id,
+                                    "revision": ack.revision,
+                                    "queue_len": ack.queue_len,
+                                    "duplicate": ack.duplicate,
+                                })
+                            })
+                        }
+                        Err(error) => Err(error),
+                    }
                 }
             }
             "proposal_append" => {
                 if content.trim().is_empty() {
                     Err("message_writer proposal_append mode requires content".to_string())
                 } else {
-                    let message_id = format!("{run_id}:terminal:tool:{}", ulid::Ulid::new());
-                    let envelope = WriterInboundEnvelope {
-                        message_id,
-                        correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
-                        kind: "terminal_tool_update".to_string(),
-                        run_id: run_id.clone(),
-                        section_id: section_id.clone(),
-                        source: WriterSource::Terminal,
-                        content: content.clone(),
-                        base_version_id: None,
-                        prompt_diff: None,
-                        overlay_id: None,
-                        session_id: None,
-                        thread_id: None,
-                        call_id: None,
-                        origin_actor: Some(self.terminal_id.clone()),
-                    };
-                    ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
-                        envelope,
-                        reply,
-                    })
-                    .map_err(|e| format!("WriterActor call failed: {e}"))
-                    .and_then(|inner| inner.map_err(|e| e.to_string()))
-                    .map(|ack| {
-                        serde_json::json!({
-                            "mode": "proposal_append",
-                            "section_id": section_id,
-                            "message_id": ack.message_id,
-                            "revision": ack.revision,
-                            "queue_len": ack.queue_len,
-                            "duplicate": ack.duplicate,
-                        })
-                    })
+                    match Self::extract_message_metadata(mode_arg.as_deref()) {
+                        Ok((source_refs, sources, citations)) => {
+                            let message_id = format!("{run_id}:terminal:tool:{}", ulid::Ulid::new());
+                            let envelope = WriterInboundEnvelope {
+                                message_id,
+                                correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
+                                kind: "terminal_tool_update".to_string(),
+                                run_id: run_id.clone(),
+                                section_id: section_id.clone(),
+                                source: WriterSource::Terminal,
+                                content: content.clone(),
+                                source_refs,
+                                sources,
+                                citations,
+                                base_version_id: None,
+                                prompt_diff: None,
+                                overlay_id: None,
+                                session_id: None,
+                                thread_id: None,
+                                call_id: None,
+                                origin_actor: Some(self.terminal_id.clone()),
+                            };
+                            ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+                                envelope,
+                                reply,
+                            })
+                            .map_err(|e| format!("WriterActor call failed: {e}"))
+                            .and_then(|inner| inner.map_err(|e| e.to_string()))
+                            .map(|ack| {
+                                serde_json::json!({
+                                    "mode": "proposal_append",
+                                    "section_id": section_id,
+                                    "message_id": ack.message_id,
+                                    "revision": ack.revision,
+                                    "queue_len": ack.queue_len,
+                                    "duplicate": ack.duplicate,
+                                })
+                            })
+                        }
+                        Err(error) => Err(error),
+                    }
                 }
             }
             "completion" => {
                 if content.trim().is_empty() {
                     Err("message_writer completion mode requires content".to_string())
                 } else {
-                    let message_id =
-                        format!("{run_id}:terminal:tool:completion:{}", ulid::Ulid::new());
-                    let envelope = WriterInboundEnvelope {
-                        message_id,
-                        correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
-                        kind: "terminal_tool_completion".to_string(),
-                        run_id: run_id.clone(),
-                        section_id: section_id.clone(),
-                        source: WriterSource::Terminal,
-                        content: content.clone(),
-                        base_version_id: None,
-                        prompt_diff: None,
-                        overlay_id: None,
-                        session_id: None,
-                        thread_id: None,
-                        call_id: None,
-                        origin_actor: Some(self.terminal_id.clone()),
-                    };
-                    ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
-                        envelope,
-                        reply,
-                    })
-                    .map_err(|e| format!("WriterActor call failed: {e}"))
-                    .and_then(|inner| inner.map_err(|e| e.to_string()))
-                    .map(|ack| {
-                        serde_json::json!({
-                            "mode": "completion",
-                            "section_id": section_id,
-                            "message_id": ack.message_id,
-                            "revision": ack.revision,
-                            "queue_len": ack.queue_len,
-                            "duplicate": ack.duplicate,
-                        })
-                    })
+                    match Self::extract_message_metadata(mode_arg.as_deref()) {
+                        Ok((source_refs, sources, citations)) => {
+                            let message_id =
+                                format!("{run_id}:terminal:tool:completion:{}", ulid::Ulid::new());
+                            let envelope = WriterInboundEnvelope {
+                                message_id,
+                                correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
+                                kind: "terminal_tool_completion".to_string(),
+                                run_id: run_id.clone(),
+                                section_id: section_id.clone(),
+                                source: WriterSource::Terminal,
+                                content: content.clone(),
+                                source_refs,
+                                sources,
+                                citations,
+                                base_version_id: None,
+                                prompt_diff: None,
+                                overlay_id: None,
+                                session_id: None,
+                                thread_id: None,
+                                call_id: None,
+                                origin_actor: Some(self.terminal_id.clone()),
+                            };
+                            ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+                                envelope,
+                                reply,
+                            })
+                            .map_err(|e| format!("WriterActor call failed: {e}"))
+                            .and_then(|inner| inner.map_err(|e| e.to_string()))
+                            .map(|ack| {
+                                serde_json::json!({
+                                    "mode": "completion",
+                                    "section_id": section_id,
+                                    "message_id": ack.message_id,
+                                    "revision": ack.revision,
+                                    "queue_len": ack.queue_len,
+                                    "duplicate": ack.duplicate,
+                                })
+                            })
+                        }
+                        Err(error) => Err(error),
+                    }
                 }
             }
             _ => Err(format!(
@@ -503,13 +629,20 @@ Args:
 - mode: proposal_append|canon_append|progress|state|completion
 - content: required for proposal_append|canon_append|progress|completion
 - path: optional section_id override (default terminal)
-- mode_arg: required for state (pending|running|complete|failed), optional for progress phase
+- mode_arg: required JSON payload
+  - progress: {"phase":"...","source_refs":["conductor/runs/...","/tmp/file"]}
+  - state: {"state":"pending|running|complete|failed"}
+  - proposal_append/canon_append/completion: {"sources":[...],"citations":[...]}
+    where sources entries are:
+    {"id":"s1","kind":"web|file|other","provider":"tavily|brave|exa|terminal|other","url":"...","path":"...","title":"...","publisher":"...","published_at":"...","line_start":1,"line_end":2}
+    and citations entries are:
+    {"source_id":"s1","anchor":"[^s1]"}
 
 Writer mode contract:
 - If objective resolves in one step: send one message_writer mode=completion with final content.
 - If objective is multi-step: send proposal_append deltas, then one completion message.
-- Every proposal_append/canon_append/completion message MUST include a `Sources:` section
-  with concrete evidence references (URLs and/or filesystem paths).
+- Every proposal_append/canon_append/completion message MUST include
+  mode_arg.sources and mode_arg.citations with explicit source ids.
 - After completion message is sent, call `finished` and return final response in message."#
             .to_string()
     }
@@ -531,7 +664,7 @@ Writer mode contract:
              - For research-oriented objectives, prefer read/inspect commands and writing findings to docs markdown.\n\
              - Only edit source code when the objective explicitly asks for implementation/refactor/bug-fix changes.\n\
              - If objective is local diagnostics/build/test/file operations, proceed with minimal safe commands.\n\
-             - For all writer-bound content updates (proposal_append/canon_append/completion), include a `Sources:` section with filesystem paths you used.\n\
+             - For all writer-bound proposal_append/canon_append/completion updates, include mode_arg.sources + mode_arg.citations.\n\
              {}\n\
              Terminal ID: {}\n\
              Working Directory: {}\n\
@@ -571,6 +704,10 @@ Writer mode contract:
                     Ok((output, exit_code)) => {
                         let _execution_time_ms = start_time.elapsed().as_millis() as u64;
                         let success = exit_code == 0;
+                        let touched_paths = self.extract_touched_paths_from_command(command);
+                        let _ = self
+                            .emit_observed_sources_progress("terminal".to_string(), touched_paths)
+                            .await;
 
                         self.emit_terminal_progress(
                             "terminal_tool_result",
@@ -728,6 +865,88 @@ Writer mode contract:
 }
 
 impl TerminalAdapter {
+    async fn emit_observed_sources_progress(
+        &self,
+        section_id: String,
+        source_refs: Vec<String>,
+    ) -> Result<(), String> {
+        if source_refs.is_empty() {
+            return Ok(());
+        }
+        let Some((writer_actor, run_id)) = self.writer_context() else {
+            return Ok(());
+        };
+        let refs_count = source_refs.len();
+        ractor::call!(writer_actor, |reply| WriterMsg::ReportProgress {
+            run_id,
+            section_id,
+            source: WriterSource::Terminal,
+            phase: "observed_sources".to_string(),
+            message: format!("Observed {refs_count} touched filesystem paths"),
+            source_refs,
+            reply,
+        })
+        .map_err(|e| format!("WriterActor call failed: {e}"))?
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn normalize_command_path_ref(&self, raw: &str) -> Option<String> {
+        let token = raw
+            .trim_matches(|c: char| c == '"' || c == '\'' || c == ',' || c == ';' || c == ')');
+        if token.is_empty() || token.starts_with('-') || token.contains('*') {
+            return None;
+        }
+        if token.starts_with("http://") || token.starts_with("https://") {
+            return None;
+        }
+
+        let path = PathBuf::from(token);
+        let candidate = if path.is_absolute() {
+            path
+        } else {
+            Path::new(&self.working_dir).join(path)
+        };
+        if !candidate.exists() {
+            return None;
+        }
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        if let Ok(relative) = candidate.strip_prefix(root) {
+            return Some(relative.to_string_lossy().to_string());
+        }
+        Some(candidate.to_string_lossy().to_string())
+    }
+
+    fn extract_touched_paths_from_command(&self, command: &str) -> Vec<String> {
+        let mut refs = Vec::new();
+        let mut seen = HashSet::new();
+        let tokens: Vec<&str> = command.split_whitespace().collect();
+
+        let mut idx = 0usize;
+        while idx < tokens.len() {
+            let token = tokens[idx];
+            if (token == ">" || token == ">>" || token == "<") && idx + 1 < tokens.len() {
+                if let Some(path) = self.normalize_command_path_ref(tokens[idx + 1]) {
+                    if seen.insert(path.clone()) {
+                        refs.push(path);
+                    }
+                }
+                idx += 2;
+                continue;
+            }
+
+            if let Some(path) = self.normalize_command_path_ref(token) {
+                if seen.insert(path.clone()) {
+                    refs.push(path);
+                }
+            }
+            idx += 1;
+        }
+
+        refs
+    }
+
     fn truncate_excerpt(text: &str) -> String {
         let max_len = 1200;
         let mut excerpt: String = text.chars().take(max_len).collect();

@@ -1,6 +1,6 @@
 //! Markdown Parsing and Rendering Module
 //!
-//! This module provides markdown parsing capabilities for ChoirOS chat messages.
+//! This module provides markdown parsing capabilities for ChoirOS document text.
 //! Uses pulldown-cmark for parsing CommonMark-compliant markdown.
 //!
 //! ## Features

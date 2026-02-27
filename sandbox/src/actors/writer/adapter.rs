@@ -355,7 +355,14 @@ impl WorkerPort for WriterSynthesisAdapter {
     fn get_system_context(&self, ctx: &ExecutionContext) -> String {
         format!(
             "You are WriterActor synthesis mode.\n\
-             Produce the revised markdown directly in message.\n\
+             Produce the revised markdown body directly in your final message.\n\
+             Content contract:\n\
+             - output revised document content only\n\
+             - never output process/progress/planning/meta narration\n\
+             - never output lines like 'producing draft', 'gathering evidence', or similar status text\n\
+             - do not wrap content in actor/message metadata\n\
+             - do not include markdown title '# ...' (title is handled by document objective)\n\
+             - if uncertain, return best-effort revised content instead of status text\n\
              Do not call work tools.\n\
              Completion requires a `finished` tool call in the final decision.\n\
              \n\

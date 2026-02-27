@@ -311,7 +311,7 @@ async fn live_decide_matrix() {
                     match tokio::time::timeout(Duration::from_secs(30), decide_call).await {
                         Ok(Ok(decision)) => {
                             let decision_kind = if decision.tool_calls.is_empty() {
-                                if decision.message.trim().is_empty() {
+                                if decision.message.as_deref().unwrap_or("").trim().is_empty() {
                                     return Err(
                                         "completion decision returned empty message".to_string()
                                     );

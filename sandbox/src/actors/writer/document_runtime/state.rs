@@ -53,6 +53,10 @@ pub struct DocumentVersion {
     pub source: VersionSource,
     pub content: String,
     pub parent_version_id: Option<u64>,
+    #[serde(default)]
+    pub selected_source_refs: Vec<String>,
+    #[serde(default)]
+    pub observed_source_refs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,6 +76,10 @@ pub struct RunDocument {
     pub versions: Vec<DocumentVersion>,
     pub overlays: Vec<Overlay>,
     pub head_version_id: u64,
+    #[serde(default)]
+    pub selected_source_refs: Vec<String>,
+    #[serde(default)]
+    pub observed_source_refs: Vec<String>,
 }
 
 impl Default for RunDocument {
@@ -83,12 +91,16 @@ impl Default for RunDocument {
             source: VersionSource::System,
             content: String::new(),
             parent_version_id: None,
+            selected_source_refs: Vec::new(),
+            observed_source_refs: Vec::new(),
         };
         Self {
             objective: String::new(),
             versions: vec![base],
             overlays: Vec::new(),
             head_version_id: 0,
+            selected_source_refs: Vec::new(),
+            observed_source_refs: Vec::new(),
         }
     }
 }
@@ -96,11 +108,6 @@ impl Default for RunDocument {
 impl RunDocument {
     pub fn new(objective: impl Into<String>) -> Self {
         let objective = objective.into();
-        let seed = if objective.trim().is_empty() {
-            String::new()
-        } else {
-            format!("Run started.\n\nObjective: {}", objective.trim())
-        };
         let now = Utc::now();
         Self {
             objective,
@@ -108,11 +115,15 @@ impl RunDocument {
                 version_id: 0,
                 created_at: now,
                 source: VersionSource::System,
-                content: seed,
+                content: String::new(),
                 parent_version_id: None,
+                selected_source_refs: Vec::new(),
+                observed_source_refs: Vec::new(),
             }],
             overlays: Vec::new(),
             head_version_id: 0,
+            selected_source_refs: Vec::new(),
+            observed_source_refs: Vec::new(),
         }
     }
 
@@ -208,9 +219,13 @@ impl RunDocument {
                 source: VersionSource::System,
                 content: canonical.clone(),
                 parent_version_id: None,
+                selected_source_refs: Vec::new(),
+                observed_source_refs: Vec::new(),
             }],
             overlays: Vec::new(),
             head_version_id: 1,
+            selected_source_refs: Vec::new(),
+            observed_source_refs: Vec::new(),
         };
 
         let proposal = proposal_lines.join("\n").trim().to_string();
