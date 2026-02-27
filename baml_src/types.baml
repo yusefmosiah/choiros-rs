@@ -1,5 +1,5 @@
 // ChoirOS Chat Agent Types
-// Core types for BAML-powered chat agent with tool execution
+// Core types for BAML-powered role agents with tool execution
 
 // Message in conversation
 class Message {

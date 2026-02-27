@@ -6,7 +6,7 @@
 - Branch: main
 
 ## Handoff Chain
-- **Continues from**: `docs/handoffs/2026-02-05-144456-chat-tool-streaming-ui-next-steps.md`
+- **Continues from**: previous theme persistence handoff
 - **Focus of this session**: finish small preference-contract hardening and connect UI toggle to backend theme persistence.
 
 ## Current State Summary
@@ -28,7 +28,6 @@ User-global theme preference is now fully wired end-to-end for `light|dark` with
 - `dioxus-desktop/src/api.rs` - frontend fetch/patch helpers for user theme preference.
 - `dioxus-desktop/src/desktop.rs` - theme init/toggle wiring and prompt bar control.
 - `sandbox/tests/desktop_api_test.rs` - preference API integration tests.
-- `sandbox/tests/chat_api_test.rs` - tool history hydration integration test for HTTP path parity.
 
 ## Files Modified
 - `sandbox/tests/desktop_api_test.rs`
@@ -40,7 +39,6 @@ User-global theme preference is now fully wired end-to-end for `light|dark` with
   - Added `update_user_theme_preference` (`PATCH /user/{user_id}/preferences`).
 - Already in prior step and now validated in this flow:
   - `sandbox/src/api/user.rs`, `sandbox/src/api/mod.rs`, `shared-types/src/lib.rs`.
-  - `sandbox/tests/chat_api_test.rs` tool hydration test.
 
 ## Decisions Made
 1. Keep theme scope user-global for now; defer sandbox-level overrides.
@@ -52,7 +50,6 @@ User-global theme preference is now fully wired end-to-end for `light|dark` with
 - `cargo check -p dioxus-desktop`
 - `cargo test -p sandbox --test desktop_api_test test_update_user_preferences_rejects_invalid_theme`
 - `cargo test -p sandbox --test desktop_api_test`
-- `cargo test -p sandbox --test chat_api_test`
 
 All passed in this session (existing non-blocking warnings remain in sandbox actor modules).
 
@@ -80,5 +77,3 @@ This session intentionally prioritized contract hardening and end-to-end complet
 ## Related Resources
 - `docs/design/2026-02-05-ui-storage-reconciliation.md`
 - `docs/design/2026-02-05-ui-implementation-backlog.md`
-- `docs/handoffs/2026-02-05-144456-chat-tool-streaming-ui-next-steps.md`
-

@@ -140,10 +140,10 @@ async fn test_desktop_ws_emits_window_delta_after_mutation() {
     let client = reqwest::Client::new();
 
     let register = json!({
-        "id": "test-chat",
-        "name": "Test Chat",
-        "icon": "💬",
-        "component_code": "ChatView",
+        "id": "test-app",
+        "name": "Test App",
+        "icon": "🧩",
+        "component_code": "TestAppView",
         "default_width": 400,
         "default_height": 600
     });
@@ -176,8 +176,8 @@ async fn test_desktop_ws_emits_window_delta_after_mutation() {
         server.addr,
         &format!("/desktop/{desktop_id}/windows"),
         json!({
-            "app_id": "test-chat",
-            "title": "Chat",
+            "app_id": "test-app",
+            "title": "Test App",
             "props": null
         }),
     )
@@ -218,10 +218,10 @@ async fn test_desktop_ws_delta_order_matches_mutation_order() {
         server.addr,
         &format!("/desktop/{desktop_id}/apps"),
         json!({
-            "id": "test-chat",
-            "name": "Test Chat",
-            "icon": "💬",
-            "component_code": "ChatView",
+            "id": "test-app",
+            "name": "Test App",
+            "icon": "🧩",
+            "component_code": "TestAppView",
             "default_width": 400,
             "default_height": 600
         }),
@@ -249,8 +249,8 @@ async fn test_desktop_ws_delta_order_matches_mutation_order() {
         server.addr,
         &format!("/desktop/{desktop_id}/windows"),
         json!({
-            "app_id": "test-chat",
-            "title": "Chat",
+            "app_id": "test-app",
+            "title": "Test App",
             "props": null
         }),
     )

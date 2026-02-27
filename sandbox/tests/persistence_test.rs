@@ -37,7 +37,7 @@ fn create_user_message_event(seq: i64, actor_id: &str, text: &str) -> shared_typ
         event_id: test_event_id(),
         timestamp: chrono::Utc::now(),
         actor_id: shared_types::ActorId(actor_id.to_string()),
-        event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
+        event_type: "interaction.user_msg".to_string(),
         payload: serde_json::json!(text),
         user_id: test_user_id(),
     }
@@ -50,7 +50,7 @@ fn create_assistant_message_event(seq: i64, actor_id: &str, text: &str) -> share
         event_id: test_event_id(),
         timestamp: chrono::Utc::now(),
         actor_id: shared_types::ActorId(actor_id.to_string()),
-        event_type: shared_types::EVENT_CHAT_ASSISTANT_MSG.to_string(),
+        event_type: "interaction.assistant_msg".to_string(),
         payload: serde_json::json!({"text": text}),
         user_id: "system".to_string(),
     }
@@ -68,7 +68,7 @@ fn create_tool_call_event(
         event_id: test_event_id(),
         timestamp: chrono::Utc::now(),
         actor_id: shared_types::ActorId(actor_id.to_string()),
-        event_type: shared_types::EVENT_CHAT_TOOL_CALL.to_string(),
+        event_type: "interaction.tool_call".to_string(),
         payload: serde_json::json!({
             "tool_name": tool_name,
             "tool_args": tool_args,
@@ -106,7 +106,7 @@ async fn test_event_store_append_event() {
 
     let event = ractor::call!(store_ref, |reply| EventStoreMsg::Append {
         event: AppendEvent {
-            event_type: "chat.user_msg".to_string(),
+            event_type: "interaction.user_msg".to_string(),
             payload: serde_json::json!("Hello, world!"),
             actor_id: test_actor_id(),
             user_id: test_user_id(),
@@ -117,7 +117,7 @@ async fn test_event_store_append_event() {
     .unwrap();
 
     assert!(event.seq > 0, "Event should have positive sequence number");
-    assert_eq!(event.event_type, "chat.user_msg");
+    assert_eq!(event.event_type, "interaction.user_msg");
     assert!(
         !event.event_id.is_empty(),
         "Event should have ULID event_id"
@@ -136,7 +136,7 @@ async fn test_event_store_get_events() {
     for i in 0..3 {
         ractor::call!(store_ref, |reply| EventStoreMsg::Append {
             event: AppendEvent {
-                event_type: "chat.user_msg".to_string(),
+                event_type: "interaction.user_msg".to_string(),
                 payload: serde_json::json!(format!("Message {}", i)),
                 actor_id: actor_id.clone(),
                 user_id: test_user_id(),
@@ -171,7 +171,7 @@ async fn test_event_store_get_events_for_actor() {
     // Add events for actor 1
     ractor::call!(store_ref, |reply| EventStoreMsg::Append {
         event: AppendEvent {
-            event_type: "chat.user_msg".to_string(),
+            event_type: "interaction.user_msg".to_string(),
             payload: serde_json::json!("Actor 1 message"),
             actor_id: actor_id_1.clone(),
             user_id: test_user_id(),
@@ -184,7 +184,7 @@ async fn test_event_store_get_events_for_actor() {
     // Add events for actor 2
     ractor::call!(store_ref, |reply| EventStoreMsg::Append {
         event: AppendEvent {
-            event_type: "chat.user_msg".to_string(),
+            event_type: "interaction.user_msg".to_string(),
             payload: serde_json::json!("Actor 2 message"),
             actor_id: actor_id_2.clone(),
             user_id: test_user_id(),
@@ -220,7 +220,7 @@ async fn test_event_store_get_events_since_seq() {
     for i in 0..5 {
         let event = ractor::call!(store_ref, |reply| EventStoreMsg::Append {
             event: AppendEvent {
-                event_type: "chat.user_msg".to_string(),
+                event_type: "interaction.user_msg".to_string(),
                 payload: serde_json::json!(format!("Message {}", i)),
                 actor_id: actor_id.clone(),
                 user_id: test_user_id(),
@@ -260,7 +260,7 @@ async fn test_event_store_event_ordering() {
     for i in 0..5 {
         ractor::call!(store_ref, |reply| EventStoreMsg::Append {
             event: AppendEvent {
-                event_type: "chat.user_msg".to_string(),
+                event_type: "interaction.user_msg".to_string(),
                 payload: serde_json::json!(format!("Message {}", i)),
                 actor_id: actor_id.clone(),
                 user_id: test_user_id(),
@@ -302,7 +302,7 @@ async fn test_event_store_multiple_actors() {
         for j in 0..3 {
             ractor::call!(store_ref, |reply| EventStoreMsg::Append {
                 event: AppendEvent {
-                    event_type: "chat.user_msg".to_string(),
+                    event_type: "interaction.user_msg".to_string(),
                     payload: serde_json::json!(format!("Actor {} Message {}", i, j)),
                     actor_id: actor_id.clone(),
                     user_id: test_user_id(),
@@ -354,7 +354,7 @@ async fn test_event_store_persistence_file() {
         for i in 0..5 {
             ractor::call!(store_ref, |reply| EventStoreMsg::Append {
                 event: AppendEvent {
-                    event_type: "chat.user_msg".to_string(),
+                    event_type: "interaction.user_msg".to_string(),
                     payload: serde_json::json!(format!("Persistent message {}", i)),
                     actor_id: actor_id.clone(),
                     user_id: test_user_id(),
@@ -410,13 +410,13 @@ async fn test_event_store_event_types() {
 
     // Store different event types
     let event_types = vec![
-        ("chat.user_msg", serde_json::json!("User message")),
+        ("interaction.user_msg", serde_json::json!("User message")),
         (
-            "chat.assistant_msg",
+            "interaction.assistant_msg",
             serde_json::json!({"text": "Assistant response"}),
         ),
         (
-            "chat.tool_call",
+            "interaction.tool_call",
             serde_json::json!({"tool": "bash", "args": "ls"}),
         ),
     ];
@@ -445,9 +445,9 @@ async fn test_event_store_event_types() {
     .unwrap();
 
     assert_eq!(events.len(), 3);
-    assert_eq!(events[0].event_type, "chat.user_msg");
-    assert_eq!(events[1].event_type, "chat.assistant_msg");
-    assert_eq!(events[2].event_type, "chat.tool_call");
+    assert_eq!(events[0].event_type, "interaction.user_msg");
+    assert_eq!(events[1].event_type, "interaction.assistant_msg");
+    assert_eq!(events[2].event_type, "interaction.tool_call");
 }
 
 // ============================================================================
@@ -502,9 +502,9 @@ async fn test_conversation_history_multiturn() {
     // Verify alternating pattern
     for (i, event) in retrieved_events.iter().enumerate() {
         if i % 2 == 0 {
-            assert_eq!(event.event_type, shared_types::EVENT_CHAT_USER_MSG);
+            assert_eq!(event.event_type, "interaction.user_msg");
         } else {
-            assert_eq!(event.event_type, shared_types::EVENT_CHAT_ASSISTANT_MSG);
+            assert_eq!(event.event_type, "interaction.assistant_msg");
         }
     }
 }
@@ -552,15 +552,15 @@ async fn test_conversation_history_with_tools() {
     assert_eq!(retrieved_events.len(), 3);
     assert_eq!(
         retrieved_events[0].event_type,
-        shared_types::EVENT_CHAT_USER_MSG
+        "interaction.user_msg"
     );
     assert_eq!(
         retrieved_events[1].event_type,
-        shared_types::EVENT_CHAT_TOOL_CALL
+        "interaction.tool_call"
     );
     assert_eq!(
         retrieved_events[2].event_type,
-        shared_types::EVENT_CHAT_ASSISTANT_MSG
+        "interaction.assistant_msg"
     );
 }
 
@@ -579,7 +579,7 @@ async fn test_conversation_history_pagination() {
     for i in 0..20 {
         let event = ractor::call!(store_ref, |reply| EventStoreMsg::Append {
             event: AppendEvent {
-                event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
+                event_type: "interaction.user_msg".to_string(),
                 payload: serde_json::json!(format!("Message {}", i)),
                 actor_id: actor_id.clone(),
                 user_id: user_id.clone(),
@@ -653,9 +653,9 @@ async fn test_conversation_history_large_conversation() {
     let num_messages = 150;
     for i in 0..num_messages {
         let event_type = if i % 2 == 0 {
-            shared_types::EVENT_CHAT_USER_MSG
+            "interaction.user_msg"
         } else {
-            shared_types::EVENT_CHAT_ASSISTANT_MSG
+            "interaction.assistant_msg"
         };
 
         let payload = if i % 2 == 0 {
@@ -724,7 +724,7 @@ async fn test_conversation_history_chronological_order() {
     for i in 0..5 {
         let event = ractor::call!(store_ref, |reply| EventStoreMsg::Append {
             event: AppendEvent {
-                event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
+                event_type: "interaction.user_msg".to_string(),
                 payload: serde_json::json!(format!("Message {}", i)),
                 actor_id: actor_id.clone(),
                 user_id: user_id.clone(),
@@ -772,7 +772,7 @@ async fn test_event_logs_user_message() {
     // Manually simulate user message logging
     ractor::call!(store_ref, |reply| EventStoreMsg::Append {
         event: AppendEvent {
-            event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
+            event_type: "interaction.user_msg".to_string(),
             payload: serde_json::json!("Hello, agent!"),
             actor_id: actor_id.clone(),
             user_id: user_id.clone(),
@@ -795,7 +795,7 @@ async fn test_event_logs_user_message() {
     .unwrap();
 
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].event_type, shared_types::EVENT_CHAT_USER_MSG);
+    assert_eq!(events[0].event_type, "interaction.user_msg");
 }
 
 #[tokio::test]
@@ -810,7 +810,7 @@ async fn test_event_logs_assistant_response() {
     // Manually simulate assistant response logging
     ractor::call!(store_ref, |reply| EventStoreMsg::Append {
         event: AppendEvent {
-            event_type: shared_types::EVENT_CHAT_ASSISTANT_MSG.to_string(),
+            event_type: "interaction.assistant_msg".to_string(),
             payload: serde_json::json!({"text": "Yes, I can help!"}),
             actor_id: actor_id.clone(),
             user_id: "system".to_string(),
@@ -832,7 +832,7 @@ async fn test_event_logs_assistant_response() {
     .unwrap();
 
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].event_type, shared_types::EVENT_CHAT_ASSISTANT_MSG);
+    assert_eq!(events[0].event_type, "interaction.assistant_msg");
 }
 
 #[tokio::test]
@@ -848,7 +848,7 @@ async fn test_event_logs_tool_calls() {
     // Manually simulate tool call logging
     ractor::call!(store_ref, |reply| EventStoreMsg::Append {
         event: AppendEvent {
-            event_type: shared_types::EVENT_CHAT_TOOL_CALL.to_string(),
+            event_type: "interaction.tool_call".to_string(),
             payload: serde_json::json!({
                 "tool_name": "bash",
                 "tool_args": "ls -la",
@@ -874,7 +874,7 @@ async fn test_event_logs_tool_calls() {
     .unwrap();
 
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].event_type, shared_types::EVENT_CHAT_TOOL_CALL);
+    assert_eq!(events[0].event_type, "interaction.tool_call");
 
     let payload = events[0].payload.as_object().unwrap();
     assert_eq!(payload.get("tool_name").unwrap().as_str().unwrap(), "bash");
@@ -904,7 +904,7 @@ async fn test_event_logs_multiple_tools() {
     for (tool, args, reasoning) in &tool_calls {
         ractor::call!(store_ref, |reply| EventStoreMsg::Append {
             event: AppendEvent {
-                event_type: shared_types::EVENT_CHAT_TOOL_CALL.to_string(),
+                event_type: "interaction.tool_call".to_string(),
                 payload: serde_json::json!({
                     "tool_name": tool,
                     "tool_args": args,
@@ -972,7 +972,7 @@ async fn test_recovery_after_crash() {
     for i in 0..10 {
         ractor::call!(store1_ref, |reply| EventStoreMsg::Append {
             event: AppendEvent {
-                event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
+                event_type: "interaction.user_msg".to_string(),
                 payload: serde_json::json!(format!("Pre-crash message {}", i)),
                 actor_id: actor_id.clone(),
                 user_id: user_id.clone(),
@@ -1038,7 +1038,7 @@ async fn test_recovery_partial_write() {
     for i in 0..5 {
         ractor::call!(store_ref, |reply| EventStoreMsg::Append {
             event: AppendEvent {
-                event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
+                event_type: "interaction.user_msg".to_string(),
                 payload: serde_json::json!(format!("Message {}", i)),
                 actor_id: actor_id.clone(),
                 user_id: user_id.clone(),
@@ -1117,7 +1117,7 @@ async fn test_recovery_corrupted_event() {
     for i in 0..3 {
         ractor::call!(store_ref, |reply| EventStoreMsg::Append {
             event: AppendEvent {
-                event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
+                event_type: "interaction.user_msg".to_string(),
                 payload: serde_json::json!(format!("Valid {}", i)),
                 actor_id: actor_id.clone(),
                 user_id: user_id.clone(),
@@ -1169,7 +1169,7 @@ async fn test_concurrent_event_appends() {
         let handle = tokio::spawn(async move {
             ractor::call!(store_clone, |reply| EventStoreMsg::Append {
                 event: AppendEvent {
-                    event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
+                    event_type: "interaction.user_msg".to_string(),
                     payload: serde_json::json!(format!("Concurrent message {}", i)),
                     actor_id: actor_id_clone,
                     user_id: user_id_clone,

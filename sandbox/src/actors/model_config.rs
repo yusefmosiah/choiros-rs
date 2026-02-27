@@ -810,7 +810,7 @@ allow_request_override = true
 allowed_models = ["ZaiGLM5"]
 
 [callsite_defaults]
-chat = "GLM5"
+terminal = "GLM5"
 
 [models.ZaiGLM5]
 name = "GLM 5 (Z.ai)"
@@ -827,7 +827,7 @@ aliases = ["GLM5", "ZaiGLM5"]
 
         let registry = ModelRegistry::new();
         let resolved = registry
-            .resolve_for_callsite("chat", &ModelResolutionContext::default())
+            .resolve_for_callsite("terminal", &ModelResolutionContext::default())
             .expect("resolve_for_callsite");
         assert_eq!(resolved.config.id, "ZaiGLM5");
 
@@ -938,7 +938,7 @@ allow_request_override = false
 default_model = "ClaudeBedrockSonnet45"
 
 [callsite_defaults]
-chat = "ClaudeBedrockSonnet45"
+terminal = "ClaudeBedrockSonnet45"
 
 [models.ClaudeBedrockSonnet45]
 name = "Claude Sonnet 4.5 (Bedrock)"
@@ -963,7 +963,7 @@ aliases = ["ZaiGLM47"]
         let registry = ModelRegistry::new();
         let resolved = registry
             .resolve_for_callsite(
-                "chat",
+                "terminal",
                 &ModelResolutionContext {
                     request_model: Some("ZaiGLM47".to_string()),
                     app_preference: None,

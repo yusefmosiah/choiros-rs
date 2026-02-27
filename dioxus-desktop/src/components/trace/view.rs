@@ -764,10 +764,10 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
         style { {CHAT_STYLES} }
         style { {TRACE_VIEW_STYLES} }
         div {
-            class: "chat-container",
+            class: "panel-container",
             style: "padding: 0; overflow: hidden;",
             div {
-                class: "chat-header",
+                class: "panel-header",
                 style: "padding: 0.35rem 0.6rem;",
                 div {
                     class: "trace-header-actions",
@@ -812,7 +812,7 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                         }
                     }
                     span {
-                        class: "chat-status",
+                        class: "panel-status",
                         style: if connected() {
                             "color: #16a34a;"
                         } else {
@@ -920,7 +920,7 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                 }
             } else {
                 div {
-                    class: "chat-body",
+                    class: "panel-body",
                     aside {
                         class: "{run_sidebar_class}",
                         div {

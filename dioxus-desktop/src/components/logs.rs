@@ -314,13 +314,13 @@ pub fn LogsView(desktop_id: String, window_id: String) -> Element {
     rsx! {
         style { {CHAT_STYLES} }
         div {
-            class: "chat-container",
+            class: "panel-container",
             style: "padding: 0.75rem; overflow: auto;",
             div {
-                class: "chat-header",
+                class: "panel-header",
                 h3 { "Logs" }
                 span {
-                    class: "chat-status",
+                    class: "panel-status",
                     style: if connected() {
                         "color: #16a34a;"
                     } else {
@@ -344,7 +344,7 @@ pub fn LogsView(desktop_id: String, window_id: String) -> Element {
                 }
             } else {
                 div {
-                    class: "chat-body",
+                    class: "panel-body",
                     aside {
                         class: "thread-sidebar",
                         div {
@@ -584,11 +584,7 @@ fn url_encode(value: &str) -> String {
 
 fn should_display_event(event: &LogsEvent) -> bool {
     match event.event_type.as_str() {
-        "chat.user_msg"
-        | "chat.assistant_msg"
-        | "chat.tool_call"
-        | "chat.tool_result"
-        | "model.selection"
+        "model.selection"
         | "model.changed"
         | "worker.task.started"
         | "worker.task.completed"
@@ -662,57 +658,6 @@ fn event_headline(event: &LogsEvent) -> String {
     let payload = &event.payload;
     let data = payload.get("data").unwrap_or(payload);
     let headline = match event.event_type.as_str() {
-        "chat.user_msg" => payload
-            .get("text")
-            .and_then(|v| v.as_str())
-            .or_else(|| payload.as_str())
-            .map(|text| {
-                format!(
-                    "{actor} received user message {}",
-                    soften(&trim_snippet(text, 180))
-                )
-            })
-            .unwrap_or_else(|| format!("{actor} received user message")),
-        "chat.assistant_msg" => {
-            let model = payload
-                .get("model")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            let model_source = payload
-                .get("model_source")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            let tools_used = payload
-                .get("tools_used")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
-            let text = payload
-                .get("text")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default();
-            format!(
-                "{actor} answered using {model} from {model_source} with {tools_used} tools {snippet}",
-                snippet = soften(&trim_snippet(text, 180)),
-            )
-        }
-        "chat.tool_call" => {
-            let tool = payload
-                .get("tool_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown_tool");
-            format!("{actor} requested tool {tool}")
-        }
-        "chat.tool_result" => {
-            let tool = payload
-                .get("tool_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown_tool");
-            let success = payload
-                .get("success")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            format!("{actor} got tool result {tool} success={success}")
-        }
         "model.selection" => {
             let used = payload
                 .get("model_used")
@@ -726,12 +671,12 @@ fn event_headline(event: &LogsEvent) -> String {
                 .get("requested_model")
                 .and_then(|v| v.as_str())
                 .unwrap_or("none");
-            let chat_pref = payload
-                .get("chat_model_preference")
+            let preference = payload
+                .get("model_preference")
                 .and_then(|v| v.as_str())
                 .unwrap_or("none");
             format!(
-                "{actor} selected model {used} source={source} requested={requested} preference={chat_pref}"
+                "{actor} selected model {used} source={source} requested={requested} preference={preference}"
             )
         }
         "model.changed" => {

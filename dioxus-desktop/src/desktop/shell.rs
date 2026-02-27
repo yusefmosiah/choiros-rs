@@ -430,9 +430,9 @@ const DEFAULT_TOKENS: &str = r#"
     --success-bg: #10b981;
     --warning-bg: #f59e0b;
 
-    /* Chat-specific colors */
-    --chat-bg: var(--bg-primary);
-    --chat-header-bg: var(--bg-secondary);
+    /* Panel-specific colors */
+    --panel-bg: var(--bg-primary);
+    --panel-header-bg: var(--bg-secondary);
     --user-bubble-bg: var(--accent-bg);
     --assistant-bubble-bg: var(--bg-secondary);
 
@@ -467,8 +467,8 @@ const DEFAULT_TOKENS: &str = r#"
     --danger-text: #ef4444;
     --success-bg: #10b981;
     --warning-bg: #f59e0b;
-    --chat-bg: var(--bg-primary);
-    --chat-header-bg: var(--bg-secondary);
+    --panel-bg: var(--bg-primary);
+    --panel-header-bg: var(--bg-secondary);
     --user-bubble-bg: var(--accent-bg);
     --assistant-bubble-bg: var(--bg-secondary);
 }
@@ -493,8 +493,8 @@ const DEFAULT_TOKENS: &str = r#"
     --danger-text: #b91c1c;
     --success-bg: #059669;
     --warning-bg: #d97706;
-    --chat-bg: #f1f5f9;
-    --chat-header-bg: #e2e8f0;
+    --panel-bg: #f1f5f9;
+    --panel-header-bg: #e2e8f0;
     --user-bubble-bg: var(--accent-bg);
     --assistant-bubble-bg: #ffffff;
 }

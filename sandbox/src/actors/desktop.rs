@@ -212,7 +212,7 @@ impl Actor for DesktopActor {
             "DesktopActor starting"
         );
 
-        let mut state = DesktopState {
+        let state = DesktopState {
             desktop_id: args.desktop_id,
             user_id: args.user_id,
             windows: HashMap::new(),
@@ -222,21 +222,6 @@ impl Actor for DesktopActor {
             last_seq: 0,
             event_store: args.event_store,
         };
-
-        // Register default apps if none exist
-        if state.apps.is_empty() {
-            state.apps.insert(
-                "chat".to_string(),
-                shared_types::AppDefinition {
-                    id: "chat".to_string(),
-                    name: "Chat".to_string(),
-                    icon: "💬".to_string(),
-                    component_code: "ChatApp".to_string(),
-                    default_width: 800,
-                    default_height: 600,
-                },
-            );
-        }
 
         Ok(state)
     }
@@ -1147,20 +1132,6 @@ impl DesktopActor {
                 self.project_events(events, state);
             }
 
-            // Ensure default apps exist if none loaded
-            if state.apps.is_empty() {
-                state.apps.insert(
-                    "chat".to_string(),
-                    shared_types::AppDefinition {
-                        id: "chat".to_string(),
-                        name: "Chat".to_string(),
-                        icon: "💬".to_string(),
-                        component_code: "ChatApp".to_string(),
-                        default_width: 800,
-                        default_height: 600,
-                    },
-                );
-            }
         }
 
         // Build and return state
@@ -1382,10 +1353,10 @@ mod tests {
         let _ = register_app(
             &desktop,
             shared_types::AppDefinition {
-                id: "chat".to_string(),
-                name: "Chat".to_string(),
-                icon: "💬".to_string(),
-                component_code: "ChatApp".to_string(),
+                id: "test-app".to_string(),
+                name: "Test App".to_string(),
+                icon: "🧩".to_string(),
+                component_code: "TestApp".to_string(),
                 default_width: 800,
                 default_height: 600,
             },
@@ -1394,14 +1365,14 @@ mod tests {
         .unwrap();
 
         // Open a window
-        let window = open_window(&desktop, "chat", "Chat Window", None)
+        let window = open_window(&desktop, "test-app", "Test App Window", None)
             .await
             .unwrap();
 
         assert!(window.is_ok());
         let window = window.unwrap();
-        assert_eq!(window.app_id, "chat");
-        assert_eq!(window.title, "Chat Window");
+        assert_eq!(window.app_id, "test-app");
+        assert_eq!(window.title, "Test App Window");
         assert_eq!(window.width, 800);
         assert_eq!(window.height, 600);
         assert!(!window.minimized);
@@ -1473,10 +1444,10 @@ mod tests {
         let _ = register_app(
             &desktop,
             shared_types::AppDefinition {
-                id: "chat".to_string(),
-                name: "Chat".to_string(),
-                icon: "💬".to_string(),
-                component_code: "ChatApp".to_string(),
+                id: "test-app".to_string(),
+                name: "Test App".to_string(),
+                icon: "🧩".to_string(),
+                component_code: "TestApp".to_string(),
                 default_width: 800,
                 default_height: 600,
             },
@@ -1484,7 +1455,7 @@ mod tests {
         .await
         .unwrap();
 
-        let window = open_window(&desktop, "chat", "Chat", None)
+        let window = open_window(&desktop, "test-app", "Test App", None)
             .await
             .unwrap()
             .unwrap();
@@ -1531,10 +1502,10 @@ mod tests {
         let _ = register_app(
             &desktop,
             shared_types::AppDefinition {
-                id: "chat".to_string(),
-                name: "Chat".to_string(),
-                icon: "💬".to_string(),
-                component_code: "ChatApp".to_string(),
+                id: "test-app".to_string(),
+                name: "Test App".to_string(),
+                icon: "🧩".to_string(),
+                component_code: "TestApp".to_string(),
                 default_width: 800,
                 default_height: 600,
             },
@@ -1542,7 +1513,7 @@ mod tests {
         .await
         .unwrap();
 
-        let window = open_window(&desktop, "chat", "Chat", None)
+        let window = open_window(&desktop, "test-app", "Test App", None)
             .await
             .unwrap()
             .unwrap();
@@ -1590,10 +1561,10 @@ mod tests {
         let _ = register_app(
             &desktop,
             shared_types::AppDefinition {
-                id: "chat".to_string(),
-                name: "Chat".to_string(),
-                icon: "💬".to_string(),
-                component_code: "ChatApp".to_string(),
+                id: "test-app".to_string(),
+                name: "Test App".to_string(),
+                icon: "🧩".to_string(),
+                component_code: "TestApp".to_string(),
                 default_width: 800,
                 default_height: 600,
             },
@@ -1601,12 +1572,12 @@ mod tests {
         .await
         .unwrap();
 
-        let window1 = open_window(&desktop, "chat", "Window 1", None)
+        let window1 = open_window(&desktop, "test-app", "Window 1", None)
             .await
             .unwrap()
             .unwrap();
 
-        let window2 = open_window(&desktop, "chat", "Window 2", None)
+        let window2 = open_window(&desktop, "test-app", "Window 2", None)
             .await
             .unwrap()
             .unwrap();
@@ -1653,10 +1624,10 @@ mod tests {
         let _ = register_app(
             &desktop,
             shared_types::AppDefinition {
-                id: "chat".to_string(),
-                name: "Chat".to_string(),
-                icon: "💬".to_string(),
-                component_code: "ChatApp".to_string(),
+                id: "test-app".to_string(),
+                name: "Test App".to_string(),
+                icon: "🧩".to_string(),
+                component_code: "TestApp".to_string(),
                 default_width: 800,
                 default_height: 600,
             },
@@ -1665,7 +1636,7 @@ mod tests {
         .unwrap();
 
         // Open window
-        let window = open_window(&desktop, "chat", "Chat", None)
+        let window = open_window(&desktop, "test-app", "Test App", None)
             .await
             .unwrap()
             .unwrap();
@@ -1674,7 +1645,7 @@ mod tests {
         let state = get_desktop_state(&desktop).await.unwrap();
 
         assert_eq!(state.windows.len(), 1);
-        assert_eq!(state.apps.len(), 1); // Only the registered chat app (same id replaces default)
+        assert_eq!(state.apps.len(), 1); // Only the registered app
         assert_eq!(state.active_window, Some(window.id));
 
         // Cleanup
@@ -1704,7 +1675,7 @@ mod tests {
         .await
         .unwrap();
 
-        // Register a new app (chat app is added by default on startup)
+        // Register a new app
         let result = register_app(
             &desktop,
             shared_types::AppDefinition {
@@ -1722,9 +1693,8 @@ mod tests {
         assert!(result.is_ok());
 
         let apps = get_apps(&desktop).await.unwrap();
-        // Should have 2 apps: default chat + registered calc
-        assert_eq!(apps.len(), 2);
-        assert!(apps.iter().any(|a| a.id == "chat"));
+        // Should have 1 app: registered calc
+        assert_eq!(apps.len(), 1);
         assert!(apps.iter().any(|a| a.id == "calc"));
 
         // Cleanup
@@ -1753,10 +1723,10 @@ mod tests {
         let _ = register_app(
             &desktop,
             shared_types::AppDefinition {
-                id: "chat".to_string(),
-                name: "Chat".to_string(),
-                icon: "💬".to_string(),
-                component_code: "ChatApp".to_string(),
+                id: "test-app".to_string(),
+                name: "Test App".to_string(),
+                icon: "🧩".to_string(),
+                component_code: "TestApp".to_string(),
                 default_width: 800,
                 default_height: 600,
             },
@@ -1764,11 +1734,11 @@ mod tests {
         .await
         .unwrap();
 
-        let window_1 = open_window(&desktop, "chat", "Window 1", None)
+        let window_1 = open_window(&desktop, "test-app", "Window 1", None)
             .await
             .unwrap()
             .unwrap();
-        let window_2 = open_window(&desktop, "chat", "Window 2", None)
+        let window_2 = open_window(&desktop, "test-app", "Window 2", None)
             .await
             .unwrap()
             .unwrap();
@@ -1809,10 +1779,10 @@ mod tests {
         let _ = register_app(
             &desktop,
             shared_types::AppDefinition {
-                id: "chat".to_string(),
-                name: "Chat".to_string(),
-                icon: "💬".to_string(),
-                component_code: "ChatApp".to_string(),
+                id: "test-app".to_string(),
+                name: "Test App".to_string(),
+                icon: "🧩".to_string(),
+                component_code: "TestApp".to_string(),
                 default_width: 800,
                 default_height: 600,
             },
@@ -1820,7 +1790,7 @@ mod tests {
         .await
         .unwrap();
 
-        let window = open_window(&desktop, "chat", "Chat", None)
+        let window = open_window(&desktop, "test-app", "Test App", None)
             .await
             .unwrap()
             .unwrap();
@@ -1878,10 +1848,10 @@ mod tests {
         let _ = register_app(
             &desktop,
             shared_types::AppDefinition {
-                id: "chat".to_string(),
-                name: "Chat".to_string(),
-                icon: "💬".to_string(),
-                component_code: "ChatApp".to_string(),
+                id: "test-app".to_string(),
+                name: "Test App".to_string(),
+                icon: "🧩".to_string(),
+                component_code: "TestApp".to_string(),
                 default_width: 800,
                 default_height: 600,
             },
@@ -1889,7 +1859,7 @@ mod tests {
         .await
         .unwrap();
 
-        let window = open_window(&desktop, "chat", "Chat", None)
+        let window = open_window(&desktop, "test-app", "Test App", None)
             .await
             .unwrap()
             .unwrap();
@@ -1938,10 +1908,10 @@ mod tests {
         let _ = register_app(
             &desktop,
             shared_types::AppDefinition {
-                id: "chat".to_string(),
-                name: "Chat".to_string(),
-                icon: "💬".to_string(),
-                component_code: "ChatApp".to_string(),
+                id: "test-app".to_string(),
+                name: "Test App".to_string(),
+                icon: "🧩".to_string(),
+                component_code: "TestApp".to_string(),
                 default_width: 800,
                 default_height: 600,
             },
@@ -1949,7 +1919,7 @@ mod tests {
         .await
         .unwrap();
 
-        let window = open_window(&desktop, "chat", "Chat", None)
+        let window = open_window(&desktop, "test-app", "Test App", None)
             .await
             .unwrap()
             .unwrap();
@@ -1991,10 +1961,10 @@ mod tests {
         let _ = register_app(
             &desktop,
             shared_types::AppDefinition {
-                id: "chat".to_string(),
-                name: "Chat".to_string(),
-                icon: "💬".to_string(),
-                component_code: "ChatApp".to_string(),
+                id: "test-app".to_string(),
+                name: "Test App".to_string(),
+                icon: "🧩".to_string(),
+                component_code: "TestApp".to_string(),
                 default_width: 800,
                 default_height: 600,
             },
@@ -2002,7 +1972,7 @@ mod tests {
         .await
         .unwrap();
 
-        let window = open_window(&desktop, "chat", "Chat", None)
+        let window = open_window(&desktop, "test-app", "Test App", None)
             .await
             .unwrap()
             .unwrap();
@@ -2059,10 +2029,10 @@ mod tests {
         let _ = register_app(
             &desktop,
             shared_types::AppDefinition {
-                id: "chat".to_string(),
-                name: "Chat".to_string(),
-                icon: "💬".to_string(),
-                component_code: "ChatApp".to_string(),
+                id: "test-app".to_string(),
+                name: "Test App".to_string(),
+                icon: "🧩".to_string(),
+                component_code: "TestApp".to_string(),
                 default_width: 800,
                 default_height: 600,
             },
@@ -2070,7 +2040,7 @@ mod tests {
         .await
         .unwrap();
 
-        let window = open_window(&desktop, "chat", "Chat", None)
+        let window = open_window(&desktop, "test-app", "Test App", None)
             .await
             .unwrap()
             .unwrap();
@@ -2107,10 +2077,10 @@ mod tests {
         let _ = register_app(
             &desktop,
             shared_types::AppDefinition {
-                id: "chat".to_string(),
-                name: "Chat".to_string(),
-                icon: "💬".to_string(),
-                component_code: "ChatApp".to_string(),
+                id: "test-app".to_string(),
+                name: "Test App".to_string(),
+                icon: "🧩".to_string(),
+                component_code: "TestApp".to_string(),
                 default_width: 800,
                 default_height: 600,
             },
@@ -2118,7 +2088,7 @@ mod tests {
         .await
         .unwrap();
 
-        let window = open_window(&desktop, "chat", "Chat", None)
+        let window = open_window(&desktop, "test-app", "Test App", None)
             .await
             .unwrap()
             .unwrap();

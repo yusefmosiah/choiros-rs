@@ -40,7 +40,7 @@ pub fn router() -> Router<ApiState> {
         .route("/_dioxus", get(dioxus_compat::hmr_websocket))
         .route("/ws", get(websocket::ws_handler))
         .route("/ws/logs/events", get(websocket_logs::logs_websocket))
-        // Note: Chat backend removed - Prompt Bar routes to Conductor
+        // Note: legacy message backend removed - Prompt Bar routes to Conductor
         // Logs routes
         .route("/logs/events", get(logs::get_events))
         .route("/logs/latest-seq", get(logs::get_latest_seq))
@@ -120,7 +120,7 @@ pub fn router() -> Router<ApiState> {
             "/ws/terminal/{terminal_id}",
             get(terminal::terminal_websocket),
         )
-        // Note: Chat WebSocket routes removed - use Conductor WebSocket instead
+        // Note: legacy WebSocket routes removed - use Conductor WebSocket instead
         // Files API routes
         .route("/files/list", get(files::list_directory))
         .route("/files/metadata", get(files::get_metadata))

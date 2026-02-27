@@ -84,7 +84,7 @@ Format: `YYYY-MM-DD-HHMMSS-{slug}.md`
 
 Examples:
 - `2026-01-31-143022-implementing-auth.md`
-- `2026-01-31-220519-baml-chat-agent-implementation.md`
+- `2026-01-31-tests-complete.md`
 
 ## Chaining Handoffs
 
@@ -133,7 +133,7 @@ The scripts in `scripts/` are modified versions of the default handoff scripts, 
 
 Here are example handoffs to show the expected structure:
 
-### Example: 2026-01-31-220519-baml-chat-agent-implementation.md
+### Example: 2026-01-31-tests-complete.md
 
 **Template structure:**
 
@@ -227,8 +227,6 @@ Here are example handoffs to show the expected structure:
 ```
 
 **See actual examples in directory:**
-- `2026-01-31-220519-baml-chat-agent-implementation.md` - Feature implementation
-- `2026-02-01-020951-choir-chat-testing-phase1.md` - Testing phase
 - `2026-01-31-tests-complete.md` - Test completion
 
 ## See Also

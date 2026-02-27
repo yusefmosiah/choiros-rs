@@ -193,12 +193,12 @@ use tokio::sync::mpsc;
 use tracing::{info, error};
 
 // Internal modules
-use crate::actors::{ChatActor, EventStoreActor, TerminalActor};
+use crate::actors::{ConductorActor, EventStoreActor, TerminalActor};
 use shared_types::{ActorId, Event};
 ```
 
 **Naming Conventions:**
-- Types (structs, enums, traits): `PascalCase` - `ChatActor`, `EventStore`
+- Types (structs, enums, traits): `PascalCase` - `ConductorActor`, `EventStore`
 - Functions, variables, modules: `snake_case` - `get_actor`, `event_store`
 - Constants, statics: `SCREAMING_SNAKE_CASE` - `MAX_EVENTS`, `DEFAULT_TIMEOUT`
 - Acronyms: Treat as words - `ActorId`, `HttpRequest` (not `ActorID`, `HTTPRequest`)

@@ -118,10 +118,6 @@ pub enum EventType {
     FindingNew,
     FindingUpdated,
 
-    // Chat and messaging
-    ChatMessage,
-    ChatTyping,
-
     // File system
     FileChanged,
     FileCreated,
@@ -150,8 +146,6 @@ impl std::fmt::Display for EventType {
             EventType::WorkerCancelled => write!(f, "worker_cancelled"),
             EventType::FindingNew => write!(f, "finding_new"),
             EventType::FindingUpdated => write!(f, "finding_updated"),
-            EventType::ChatMessage => write!(f, "chat_message"),
-            EventType::ChatTyping => write!(f, "chat_typing"),
             EventType::FileChanged => write!(f, "file_changed"),
             EventType::FileCreated => write!(f, "file_created"),
             EventType::FileDeleted => write!(f, "file_deleted"),

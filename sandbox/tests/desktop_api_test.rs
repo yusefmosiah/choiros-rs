@@ -101,10 +101,10 @@ async fn test_register_app() {
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
-        "id": "test-chat",
-        "name": "Test Chat",
-        "icon": "💬",
-        "component_code": "ChatView",
+        "id": "test-app",
+        "name": "Test App",
+        "icon": "🧩",
+        "component_code": "TestAppView",
         "default_width": 400,
         "default_height": 600
     });
@@ -127,10 +127,10 @@ async fn test_open_window_success() {
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
-        "id": "test-chat",
-        "name": "Test Chat",
-        "icon": "💬",
-        "component_code": "ChatView",
+        "id": "test-app",
+        "name": "Test App",
+        "icon": "🧩",
+        "component_code": "TestAppView",
         "default_width": 400,
         "default_height": 600
     });
@@ -145,8 +145,8 @@ async fn test_open_window_success() {
     let (_status, _body) = json_response(&app, req).await;
 
     let open_req = json!({
-        "app_id": "test-chat",
-        "title": "Chat Window",
+        "app_id": "test-app",
+        "title": "Test App Window",
         "props": null
     });
 
@@ -161,8 +161,8 @@ async fn test_open_window_success() {
     assert_eq!(status, StatusCode::OK);
     assert!(body["success"].as_bool().unwrap());
     assert!(body["window"].is_object());
-    assert_eq!(body["window"]["title"], "Chat Window");
-    assert_eq!(body["window"]["app_id"], "test-chat");
+    assert_eq!(body["window"]["title"], "Test App Window");
+    assert_eq!(body["window"]["app_id"], "test-app");
 }
 
 #[tokio::test]
@@ -171,10 +171,10 @@ async fn test_open_window_preserves_viewer_props() {
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
-        "id": "writer",
-        "name": "Writer",
-        "icon": "📝",
-        "component_code": "WriterApp",
+        "id": "test-app",
+        "name": "Test App",
+        "icon": "🧩",
+        "component_code": "TestAppView",
         "default_width": 800,
         "default_height": 600
     });
@@ -188,7 +188,7 @@ async fn test_open_window_preserves_viewer_props() {
     let (_status, _body) = json_response(&app, req).await;
 
     let open_req = json!({
-        "app_id": "writer",
+        "app_id": "test-app",
         "title": "README.md",
         "props": {
             "viewer": {
@@ -269,10 +269,10 @@ async fn test_get_windows_after_open() {
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
-        "id": "test-chat",
-        "name": "Test Chat",
-        "icon": "💬",
-        "component_code": "ChatView",
+        "id": "test-app",
+        "name": "Test App",
+        "icon": "🧩",
+        "component_code": "TestAppView",
         "default_width": 400,
         "default_height": 600
     });
@@ -286,8 +286,8 @@ async fn test_get_windows_after_open() {
     let _ = json_response(&app, req).await;
 
     let open_req = json!({
-        "app_id": "test-chat",
-        "title": "Chat Window",
+        "app_id": "test-app",
+        "title": "Test App Window",
         "props": null
     });
 
@@ -319,10 +319,10 @@ async fn test_close_window() {
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
-        "id": "test-chat",
-        "name": "Test Chat",
-        "icon": "💬",
-        "component_code": "ChatView",
+        "id": "test-app",
+        "name": "Test App",
+        "icon": "🧩",
+        "component_code": "TestAppView",
         "default_width": 400,
         "default_height": 600
     });
@@ -336,8 +336,8 @@ async fn test_close_window() {
     let _ = json_response(&app, req).await;
 
     let open_req = json!({
-        "app_id": "test-chat",
-        "title": "Chat Window",
+        "app_id": "test-app",
+        "title": "Test App Window",
         "props": null
     });
 
@@ -376,10 +376,10 @@ async fn test_move_window() {
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
-        "id": "test-chat",
-        "name": "Test Chat",
-        "icon": "💬",
-        "component_code": "ChatView",
+        "id": "test-app",
+        "name": "Test App",
+        "icon": "🧩",
+        "component_code": "TestAppView",
         "default_width": 400,
         "default_height": 600
     });
@@ -393,8 +393,8 @@ async fn test_move_window() {
     let _ = json_response(&app, req).await;
 
     let open_req = json!({
-        "app_id": "test-chat",
-        "title": "Chat Window",
+        "app_id": "test-app",
+        "title": "Test App Window",
         "props": null
     });
 
@@ -432,10 +432,10 @@ async fn test_resize_window() {
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
-        "id": "test-chat",
-        "name": "Test Chat",
-        "icon": "💬",
-        "component_code": "ChatView",
+        "id": "test-app",
+        "name": "Test App",
+        "icon": "🧩",
+        "component_code": "TestAppView",
         "default_width": 400,
         "default_height": 600
     });
@@ -449,8 +449,8 @@ async fn test_resize_window() {
     let _ = json_response(&app, req).await;
 
     let open_req = json!({
-        "app_id": "test-chat",
-        "title": "Chat Window",
+        "app_id": "test-app",
+        "title": "Test App Window",
         "props": null
     });
 
@@ -486,10 +486,10 @@ async fn test_resize_window_invalid_bounds_rejected() {
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
-        "id": "test-chat",
-        "name": "Test Chat",
-        "icon": "💬",
-        "component_code": "ChatView",
+        "id": "test-app",
+        "name": "Test App",
+        "icon": "🧩",
+        "component_code": "TestAppView",
         "default_width": 400,
         "default_height": 600
     });
@@ -503,8 +503,8 @@ async fn test_resize_window_invalid_bounds_rejected() {
     let _ = json_response(&app, req).await;
 
     let open_req = json!({
-        "app_id": "test-chat",
-        "title": "Chat Window",
+        "app_id": "test-app",
+        "title": "Test App Window",
         "props": null
     });
 
@@ -540,10 +540,10 @@ async fn test_focus_window() {
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
-        "id": "test-chat",
-        "name": "Test Chat",
-        "icon": "💬",
-        "component_code": "ChatView",
+        "id": "test-app",
+        "name": "Test App",
+        "icon": "🧩",
+        "component_code": "TestAppView",
         "default_width": 400,
         "default_height": 600
     });
@@ -557,7 +557,7 @@ async fn test_focus_window() {
     let _ = json_response(&app, req).await;
 
     let open_req1 = json!({
-        "app_id": "test-chat",
+        "app_id": "test-app",
         "title": "Window 1",
         "props": null
     });
@@ -571,7 +571,7 @@ async fn test_focus_window() {
     let _ = json_response(&app, req).await;
 
     let open_req2 = json!({
-        "app_id": "test-chat",
+        "app_id": "test-app",
         "title": "Window 2",
         "props": null
     });
@@ -602,10 +602,10 @@ async fn test_minimize_maximize_restore_endpoints() {
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
-        "id": "test-chat",
-        "name": "Test Chat",
-        "icon": "💬",
-        "component_code": "ChatView",
+        "id": "test-app",
+        "name": "Test App",
+        "icon": "🧩",
+        "component_code": "TestAppView",
         "default_width": 400,
         "default_height": 600
     });
@@ -619,8 +619,8 @@ async fn test_minimize_maximize_restore_endpoints() {
     let _ = json_response(&app, req).await;
 
     let open_req = json!({
-        "app_id": "test-chat",
-        "title": "Chat Window",
+        "app_id": "test-app",
+        "title": "Test App Window",
         "props": null
     });
 
@@ -697,10 +697,10 @@ async fn test_maximize_endpoint_uses_work_area_bounds() {
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
-        "id": "test-chat",
-        "name": "Test Chat",
-        "icon": "💬",
-        "component_code": "ChatView",
+        "id": "test-app",
+        "name": "Test App",
+        "icon": "🧩",
+        "component_code": "TestAppView",
         "default_width": 400,
         "default_height": 600
     });
@@ -714,8 +714,8 @@ async fn test_maximize_endpoint_uses_work_area_bounds() {
     let _ = json_response(&app, req).await;
 
     let open_req = json!({
-        "app_id": "test-chat",
-        "title": "Chat Window",
+        "app_id": "test-app",
+        "title": "Test App Window",
         "props": null
     });
 
@@ -760,10 +760,10 @@ async fn test_restore_after_minimize_from_maximized_preserves_maximized_state() 
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
-        "id": "test-chat",
-        "name": "Test Chat",
-        "icon": "💬",
-        "component_code": "ChatView",
+        "id": "test-app",
+        "name": "Test App",
+        "icon": "🧩",
+        "component_code": "TestAppView",
         "default_width": 400,
         "default_height": 600
     });
@@ -777,8 +777,8 @@ async fn test_restore_after_minimize_from_maximized_preserves_maximized_state() 
     let _ = json_response(&app, req).await;
 
     let open_req = json!({
-        "app_id": "test-chat",
-        "title": "Chat Window",
+        "app_id": "test-app",
+        "title": "Test App Window",
         "props": null
     });
 
@@ -872,8 +872,7 @@ async fn test_get_apps_empty() {
     assert_eq!(status, StatusCode::OK);
     assert!(body["success"].as_bool().unwrap());
     let apps = body["apps"].as_array().unwrap();
-    assert_eq!(apps.len(), 1);
-    assert_eq!(apps[0]["id"], "chat");
+    assert!(apps.is_empty());
 }
 
 #[tokio::test]
@@ -882,10 +881,10 @@ async fn test_get_apps_after_register() {
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
-        "id": "test-chat",
-        "name": "Test Chat",
-        "icon": "💬",
-        "component_code": "ChatView",
+        "id": "test-app",
+        "name": "Test App",
+        "icon": "🧩",
+        "component_code": "TestAppView",
         "default_width": 400,
         "default_height": 600
     });
@@ -907,12 +906,12 @@ async fn test_get_apps_after_register() {
     let (status, body) = json_response(&app, req).await;
     assert_eq!(status, StatusCode::OK);
     let apps = body["apps"].as_array().unwrap();
-    assert_eq!(apps.len(), 2);
+    assert_eq!(apps.len(), 1);
     let app_ids: Vec<String> = apps
         .iter()
         .map(|a| a["id"].as_str().unwrap().to_string())
         .collect();
-    assert!(app_ids.contains(&"test-chat".to_string()));
+    assert!(app_ids.contains(&"test-app".to_string()));
 }
 
 #[tokio::test]
@@ -921,10 +920,10 @@ async fn test_desktop_state_persists_events() {
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
-        "id": "test-chat",
-        "name": "Test Chat",
-        "icon": "💬",
-        "component_code": "ChatView",
+        "id": "test-app",
+        "name": "Test App",
+        "icon": "🧩",
+        "component_code": "TestAppView",
         "default_width": 400,
         "default_height": 600
     });
@@ -938,8 +937,8 @@ async fn test_desktop_state_persists_events() {
     let _ = json_response(&app, req).await;
 
     let open_req = json!({
-        "app_id": "test-chat",
-        "title": "Chat Window",
+        "app_id": "test-app",
+        "title": "Test App Window",
         "props": null
     });
 
@@ -964,12 +963,12 @@ async fn test_desktop_state_persists_events() {
     assert_eq!(desktop["windows"].as_array().unwrap().len(), 1);
     assert_eq!(desktop["windows"][0]["id"], window_id);
     let apps = desktop["apps"].as_array().unwrap();
-    assert_eq!(apps.len(), 2);
+    assert_eq!(apps.len(), 1);
     let app_ids: Vec<String> = apps
         .iter()
         .map(|a| a["id"].as_str().unwrap().to_string())
         .collect();
-    assert!(app_ids.contains(&"test-chat".to_string()));
+    assert!(app_ids.contains(&"test-app".to_string()));
 }
 
 #[tokio::test]

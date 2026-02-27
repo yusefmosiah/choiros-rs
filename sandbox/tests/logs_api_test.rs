@@ -76,9 +76,9 @@ async fn test_logs_events_returns_filtered_results() {
 
     let _ = ractor::call!(event_store, |reply| EventStoreMsg::Append {
         event: AppendEvent {
-            event_type: "chat.user_msg".to_string(),
+            event_type: "interaction.user_msg".to_string(),
             payload: serde_json::json!({"text":"hello"}),
-            actor_id: "chat-1".to_string(),
+            actor_id: "session-1".to_string(),
             user_id: "user-1".to_string(),
         },
         reply
@@ -187,7 +187,7 @@ async fn test_logs_run_markdown_export_contains_transcript_sections() {
 
     let _ = ractor::call!(event_store, |reply| EventStoreMsg::Append {
         event: AppendEvent {
-            event_type: "chat.user_msg".to_string(),
+            event_type: "interaction.user_msg".to_string(),
             payload: serde_json::json!({
                 "text":"whats weather in boston. use api",
                 "scope": scope.clone(),
@@ -202,7 +202,7 @@ async fn test_logs_run_markdown_export_contains_transcript_sections() {
 
     let _ = ractor::call!(event_store, |reply| EventStoreMsg::Append {
         event: AppendEvent {
-            event_type: "chat.tool_call".to_string(),
+            event_type: "interaction.tool_call".to_string(),
             payload: serde_json::json!({
                 "tool_name":"bash",
                 "reasoning":"fetch weather",
@@ -219,7 +219,7 @@ async fn test_logs_run_markdown_export_contains_transcript_sections() {
 
     let _ = ractor::call!(event_store, |reply| EventStoreMsg::Append {
         event: AppendEvent {
-            event_type: "chat.tool_result".to_string(),
+            event_type: "interaction.tool_result".to_string(),
             payload: serde_json::json!({
                 "tool_name":"bash",
                 "success":true,
@@ -236,7 +236,7 @@ async fn test_logs_run_markdown_export_contains_transcript_sections() {
 
     let _ = ractor::call!(event_store, |reply| EventStoreMsg::Append {
         event: AppendEvent {
-            event_type: "chat.assistant_msg".to_string(),
+            event_type: "interaction.assistant_msg".to_string(),
             payload: serde_json::json!({
                 "text":"Boston is sunny and 11°F.",
                 "model":"ClaudeBedrockSonnet45",
@@ -290,7 +290,7 @@ async fn test_logs_run_markdown_export_filters_by_correlation_id() {
     for (corr, text) in [("corr-a", "hello from a"), ("corr-b", "hello from b")] {
         let _ = ractor::call!(event_store, |reply| EventStoreMsg::Append {
             event: AppendEvent {
-                event_type: "chat.user_msg".to_string(),
+                event_type: "interaction.user_msg".to_string(),
                 payload: serde_json::json!({
                     "text": text,
                     "correlation_id": corr,

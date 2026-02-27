@@ -56,7 +56,7 @@ pub struct Event {
     /// Which actor produced this event
     pub actor_id: ActorId,
 
-    /// Event type (e.g., "chat.user_msg", "file.write")
+    /// Event type (e.g., "conductor.run_started", "file.write")
     pub event_type: String,
 
     /// Event-specific payload
@@ -90,40 +90,6 @@ pub struct QueryEvents {
 // Actor Messages
 // ============================================================================
 
-/// Messages that can be sent to ChatActor
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
-pub enum ChatMsg {
-    /// User typed a message
-    UserTyped { text: String, window_id: String },
-
-    /// Assistant responded
-    AssistantReply { text: String, model: String },
-
-    /// Tool was called
-    ToolCall {
-        tool: String,
-        #[ts(type = "unknown")]
-        args: serde_json::Value,
-        call_id: String,
-    },
-
-    /// Tool returned result
-    ToolResult {
-        call_id: String,
-        status: ToolStatus,
-        #[ts(type = "unknown")]
-        output: serde_json::Value,
-    },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
-pub enum ToolStatus {
-    Success,
-    Error(String),
-}
-
 /// Messages that can be sent to WriterActor  
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum WriterMsg {
@@ -150,7 +116,7 @@ pub struct DesktopState {
 #[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct WindowState {
     pub id: String,
-    pub app_id: String, // "chat", "writer", "mail", etc.
+    pub app_id: String, // "writer", "terminal", "files", etc.
     pub title: String,
     pub x: i32,
     pub y: i32,
@@ -173,25 +139,6 @@ pub struct AppDefinition {
     pub component_code: String, // Source code or WASM path
     pub default_width: i32,
     pub default_height: i32,
-}
-
-/// Chat message for UI display
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
-#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
-pub struct ChatMessage {
-    pub id: String,
-    pub text: String,
-    pub sender: Sender,
-    pub timestamp: DateTime<Utc>,
-    pub pending: bool, // True if optimistic (not confirmed by actor yet)
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
-#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
-pub enum Sender {
-    User,
-    Assistant,
-    System,
 }
 
 // ============================================================================
@@ -1065,54 +1012,9 @@ pub struct ConductorRunStatusResponse {
 // ============================================================================
 
 /// Event types
-pub const EVENT_CHAT_USER_MSG: &str = "chat.user_msg";
-pub const EVENT_CHAT_ASSISTANT_MSG: &str = "chat.assistant_msg";
-pub const EVENT_CHAT_TOOL_CALL: &str = "chat.tool_call";
-pub const EVENT_CHAT_TOOL_RESULT: &str = "chat.tool_result";
 pub const EVENT_MODEL_SELECTION: &str = "model.selection";
 pub const EVENT_MODEL_CHANGED: &str = "model.changed";
 pub const EVENT_MODEL_CONTEXT_TRACE: &str = "model.context.trace";
-
-/// Build a chat user-message payload with optional session/thread scope metadata.
-pub fn chat_user_payload(
-    text: impl Into<String>,
-    session_id: Option<String>,
-    thread_id: Option<String>,
-) -> serde_json::Value {
-    let text = text.into();
-    let mut scope = serde_json::Map::new();
-    if let Some(session_id) = session_id {
-        scope.insert(
-            "session_id".to_string(),
-            serde_json::Value::String(session_id),
-        );
-    }
-    if let Some(thread_id) = thread_id {
-        scope.insert(
-            "thread_id".to_string(),
-            serde_json::Value::String(thread_id),
-        );
-    }
-
-    if scope.is_empty() {
-        return serde_json::Value::String(text);
-    }
-
-    serde_json::json!({
-        "text": text,
-        "scope": scope,
-    })
-}
-
-/// Parse chat user-message text from either legacy string payloads or scoped object payloads.
-pub fn parse_chat_user_text(payload: &serde_json::Value) -> Option<String> {
-    payload.as_str().map(ToString::to_string).or_else(|| {
-        payload
-            .get("text")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string)
-    })
-}
 
 /// Attach optional scope metadata to any payload.
 ///
@@ -1891,7 +1793,7 @@ mod tests {
             event_id: "evt_123".to_string(),
             timestamp: Utc::now(),
             actor_id: ActorId::new(),
-            event_type: EVENT_CHAT_USER_MSG.to_string(),
+            event_type: EVENT_MODEL_SELECTION.to_string(),
             payload: serde_json::json!({"text": "Hello"}),
             user_id: "user_1".to_string(),
         };
@@ -1929,13 +1831,9 @@ mod tests {
         Event::export(&config).unwrap();
         AppendEvent::export(&config).unwrap();
         QueryEvents::export(&config).unwrap();
-        ChatMsg::export(&config).unwrap();
-        ToolStatus::export(&config).unwrap();
         DesktopState::export(&config).unwrap();
         WindowState::export(&config).unwrap();
         AppDefinition::export(&config).unwrap();
-        ChatMessage::export(&config).unwrap();
-        Sender::export(&config).unwrap();
         ViewerKind::export(&config).unwrap();
         ViewerResource::export(&config).unwrap();
         ViewerCapabilities::export(&config).unwrap();

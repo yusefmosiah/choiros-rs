@@ -388,15 +388,19 @@ pub(crate) fn render_run_markdown(events: &[shared_types::Event], query: &RunLog
         let _ = writeln!(&mut out, "- user: `{}`", event.user_id);
 
         match event.event_type.as_str() {
-            shared_types::EVENT_CHAT_USER_MSG => {
-                if let Some(text) = shared_types::parse_chat_user_text(&event.payload) {
+            "interaction.user_msg" => {
+                if let Some(text) = event
+                    .payload
+                    .as_str()
+                    .or_else(|| event.payload.get("text").and_then(|v| v.as_str()))
+                {
                     let _ = writeln!(&mut out);
                     let _ = writeln!(&mut out, "**User prompt**");
                     let _ = writeln!(&mut out);
                     let _ = writeln!(&mut out, "{}", text);
                 }
             }
-            shared_types::EVENT_CHAT_ASSISTANT_MSG => {
+            "interaction.assistant_msg" => {
                 let model = event
                     .payload
                     .get("model")
@@ -412,7 +416,7 @@ pub(crate) fn render_run_markdown(events: &[shared_types::Event], query: &RunLog
                 let _ = writeln!(&mut out);
                 let _ = writeln!(&mut out, "{}", text);
             }
-            shared_types::EVENT_CHAT_TOOL_CALL => {
+            "interaction.tool_call" => {
                 let tool_name = event
                     .payload
                     .get("tool_name")
@@ -429,7 +433,7 @@ pub(crate) fn render_run_markdown(events: &[shared_types::Event], query: &RunLog
                     let _ = writeln!(&mut out, "- reasoning: {}", reasoning);
                 }
             }
-            shared_types::EVENT_CHAT_TOOL_RESULT => {
+            "interaction.tool_result" => {
                 let tool_name = event
                     .payload
                     .get("tool_name")
@@ -608,9 +612,9 @@ mod tests {
 
         for idx in 0..5 {
             let event = AppendEvent {
-                event_type: "chat.user_msg".to_string(),
+                event_type: "interaction.user_msg".to_string(),
                 payload: serde_json::json!({ "idx": idx }),
-                actor_id: "chat:test".to_string(),
+                actor_id: "session:test".to_string(),
                 user_id: "user:test".to_string(),
             };
             let appended = ractor::call!(store_ref, |reply| EventStoreMsg::Append { event, reply })

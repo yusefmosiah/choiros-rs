@@ -836,9 +836,9 @@ mod tests {
         append_event(
             &store_ref,
             AppendEvent {
-                event_type: "chat.msg".to_string(),
+                event_type: "interaction.msg".to_string(),
                 payload: serde_json::json!({"text": "hello"}),
-                actor_id: "chat-1".to_string(),
+                actor_id: "session-1".to_string(),
                 user_id: "user-1".to_string(),
             },
         )
@@ -859,14 +859,14 @@ mod tests {
         .unwrap()
         .unwrap();
 
-        // Get events for chat actor only
-        let chat_events = get_events_for_actor(&store_ref, "chat-1", 0)
+        // Get events for a single actor only
+        let session_events = get_events_for_actor(&store_ref, "session-1", 0)
             .await
             .unwrap()
             .unwrap();
 
-        assert_eq!(chat_events.len(), 1);
-        assert_eq!(chat_events[0].event_type, "chat.msg");
+        assert_eq!(session_events.len(), 1);
+        assert_eq!(session_events[0].event_type, "interaction.msg");
 
         // Cleanup
         store_ref.stop(None);
@@ -882,13 +882,15 @@ mod tests {
         append_event(
             &store_ref,
             AppendEvent {
-                event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
-                payload: shared_types::chat_user_payload(
-                    "msg-in-scope",
-                    Some("session-1".to_string()),
-                    Some("thread-1".to_string()),
-                ),
-                actor_id: "chat-1".to_string(),
+                event_type: "interaction.user_msg".to_string(),
+                payload: serde_json::json!({
+                    "text": "msg-in-scope",
+                    "scope": {
+                        "session_id": "session-1",
+                        "thread_id": "thread-1"
+                    }
+                }),
+                actor_id: "session-1".to_string(),
                 user_id: "user-1".to_string(),
             },
         )
@@ -899,13 +901,15 @@ mod tests {
         append_event(
             &store_ref,
             AppendEvent {
-                event_type: shared_types::EVENT_CHAT_USER_MSG.to_string(),
-                payload: shared_types::chat_user_payload(
-                    "msg-other-thread",
-                    Some("session-1".to_string()),
-                    Some("thread-2".to_string()),
-                ),
-                actor_id: "chat-1".to_string(),
+                event_type: "interaction.user_msg".to_string(),
+                payload: serde_json::json!({
+                    "text": "msg-other-thread",
+                    "scope": {
+                        "session_id": "session-1",
+                        "thread_id": "thread-2"
+                    }
+                }),
+                actor_id: "session-1".to_string(),
                 user_id: "user-1".to_string(),
             },
         )
@@ -913,15 +917,20 @@ mod tests {
         .unwrap()
         .unwrap();
 
-        let scoped =
-            get_events_for_actor_with_scope(&store_ref, "chat-1", "session-1", "thread-1", 0)
-                .await
-                .unwrap()
-                .unwrap();
+        let scoped = get_events_for_actor_with_scope(
+            &store_ref,
+            "session-1",
+            "session-1",
+            "thread-1",
+            0,
+        )
+        .await
+        .unwrap()
+        .unwrap();
 
         assert_eq!(scoped.len(), 1);
         assert_eq!(
-            shared_types::parse_chat_user_text(&scoped[0].payload).as_deref(),
+            scoped[0].payload.get("text").and_then(|v| v.as_str()),
             Some("msg-in-scope")
         );
 
@@ -951,9 +960,9 @@ mod tests {
         append_event(
             &store_ref,
             AppendEvent {
-                event_type: "chat.user_msg".to_string(),
+                event_type: "interaction.user_msg".to_string(),
                 payload: serde_json::json!({"text": "hello"}),
-                actor_id: "chat-1".to_string(),
+                actor_id: "session-1".to_string(),
                 user_id: "user-1".to_string(),
             },
         )

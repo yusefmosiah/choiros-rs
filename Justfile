@@ -191,7 +191,7 @@ monitor:
 monitor-save:
     node skills/system-monitor/scripts/system-monitor.js --save
 
-# Compact actor network view (for chat)
+# Compact actor network view
 monitor-compact:
     node skills/system-monitor/scripts/system-monitor.js --compact
 

@@ -12,8 +12,7 @@
 
 ## Handoff Chain
 
-- **Continues from**: [2026-02-01-020951-choir-chat-testing-phase1.md](./2026-02-01-020951-choir-chat-testing-phase1.md)
-  - Previous title: ChoirOS Chat App Testing Initiative - Phase 1 Complete
+- **Continues from**: None
 - **Supersedes**: None
 
 ## Current State Summary

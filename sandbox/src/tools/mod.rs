@@ -1,4 +1,4 @@
-//! Tool registry for ChoirOS Chat Agent
+//! Tool registry for ChoirOS agent runtime
 //!
 //! Provides extensible tool system for agent to execute commands,
 //! read/write files, and interact with the system.

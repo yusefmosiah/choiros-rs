@@ -243,10 +243,6 @@ cat << 'EOF' | tee /etc/caddy/Caddyfile
         reverse_proxy localhost:8080
     }
 
-    handle /chat/* {
-        reverse_proxy localhost:8080
-    }
-    
     handle /desktop/* {
         reverse_proxy localhost:8080
     }

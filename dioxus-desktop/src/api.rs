@@ -2,9 +2,8 @@ use chrono::{DateTime, Utc};
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use shared_types::{
-    AppDefinition, ChatMessage, ConductorExecuteRequest, ConductorExecuteResponse,
-    ConductorOutputMode, ConductorRunState, ConductorRunStatusResponse, DesktopState, Sender,
-    ViewerRevision, WindowState,
+    AppDefinition, ConductorExecuteRequest, ConductorExecuteResponse, ConductorOutputMode,
+    ConductorRunState, ConductorRunStatusResponse, DesktopState, ViewerRevision, WindowState,
 };
 use std::sync::OnceLock;
 
@@ -98,107 +97,6 @@ mod tests {
         let message = describe_http_error_from_body(500, body);
         assert_eq!(message, "HTTP error: 500 (Something failed)");
     }
-}
-
-#[derive(Debug, Serialize)]
-pub struct SendMessageRequest {
-    pub actor_id: String,
-    pub user_id: String,
-    pub text: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SendMessageResponse {
-    pub success: bool,
-    pub temp_id: String,
-    pub message: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct GetMessagesResponse {
-    pub success: bool,
-    pub messages: Vec<ApiMessage>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct ApiMessage {
-    pub id: String,
-    pub text: String,
-    pub sender: String,
-    pub timestamp: DateTime<Utc>,
-    pub pending: bool,
-}
-
-pub async fn fetch_messages(actor_id: &str) -> Result<Vec<ChatMessage>, String> {
-    let url = format!("{}/chat/{}/messages", api_base(), actor_id);
-
-    let response = Request::get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {e}"))?;
-
-    if !response.ok() {
-        return Err(format!("HTTP error: {}", response.status()));
-    }
-
-    let data: GetMessagesResponse = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
-
-    if !data.success {
-        return Err("API returned success=false".to_string());
-    }
-
-    let messages = data
-        .messages
-        .into_iter()
-        .map(|m| ChatMessage {
-            id: m.id,
-            text: m.text,
-            sender: match m.sender.as_str() {
-                "User" => Sender::User,
-                "System" => Sender::System,
-                _ => Sender::Assistant,
-            },
-            timestamp: m.timestamp,
-            pending: m.pending,
-        })
-        .collect();
-
-    Ok(messages)
-}
-
-pub async fn send_chat_message(actor_id: &str, user_id: &str, text: &str) -> Result<(), String> {
-    let url = format!("{}/chat/send", api_base());
-
-    let request = SendMessageRequest {
-        actor_id: actor_id.to_string(),
-        user_id: user_id.to_string(),
-        text: text.to_string(),
-    };
-
-    let response = Request::post(&url)
-        .json(&request)
-        .map_err(|e| format!("Failed to serialize request: {e}"))?
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {e}"))?;
-
-    if !response.ok() {
-        return Err(format!("HTTP error: {}", response.status()));
-    }
-
-    let data: SendMessageResponse = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse JSON: {e}"))?;
-
-    if !data.success {
-        return Err(format!("API error: {}", data.message));
-    }
-
-    Ok(())
 }
 
 #[derive(Debug, Deserialize, Clone)]

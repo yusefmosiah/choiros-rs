@@ -166,9 +166,6 @@ npx playwright test --config=playwright.config.ts
 cargo test -p sandbox
 ```
 
-Legacy chat/dev-browser test docs were archived to:
-- `docs/archive/testing/legacy-chat/`
-
 ## Key Principles
 
 1. **Model-Led Control Flow** - Model plans decomposition; deterministic logic for safety rails only

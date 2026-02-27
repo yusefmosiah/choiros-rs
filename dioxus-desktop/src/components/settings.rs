@@ -69,7 +69,7 @@ pub fn SettingsView(desktop_id: String, window_id: String) -> Element {
     rsx! {
         style { {CHAT_STYLES} }
         div {
-            class: "chat-container",
+            class: "panel-container",
             style: "display: flex; height: 100%; overflow: hidden;",
             div {
                 style: "width: 210px; border-right: 1px solid var(--border-color, #334155); padding: 0.6rem; display: flex; flex-direction: column; gap: 0.45rem; background: color-mix(in srgb, var(--window-bg, #111827) 92%, #0b1220 8%);",
@@ -95,9 +95,9 @@ pub fn SettingsView(desktop_id: String, window_id: String) -> Element {
             }
             div {
                 style: "flex: 1; padding: 0.75rem; overflow: auto; display:flex; flex-direction:column; gap:0.5rem;",
-                div { class: "chat-header",
+                div { class: "panel-header",
                     h3 { "{tab_label}" }
-                    span { class: "chat-status", "Document: {doc_path}" }
+                    span { class: "panel-status", "Document: {doc_path}" }
                     button {
                         class: "tool-summary",
                         style: "margin-left: auto; width: auto; padding: 0.2rem 0.55rem;",

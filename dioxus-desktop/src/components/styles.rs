@@ -1,25 +1,25 @@
 pub const CHAT_STYLES: &str = r#"
-/* Chat Container */
-.chat-container {
+/* Panel Container */
+.panel-container {
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: var(--chat-bg, #0f172a);
+    background: var(--panel-bg, #0f172a);
     overflow: hidden;
 }
 
 /* Header */
-.chat-header {
+.panel-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 0.75rem 1rem;
-    background: var(--chat-header-bg, #1e293b);
+    background: var(--panel-header-bg, #1e293b);
     border-bottom: 1px solid var(--border-color, #334155);
     flex-shrink: 0;
 }
 
-.chat-title {
+.panel-title {
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -27,11 +27,11 @@ pub const CHAT_STYLES: &str = r#"
     color: var(--text-primary, #f8fafc);
 }
 
-.chat-icon {
+.panel-icon {
     font-size: 1.25rem;
 }
 
-.chat-status {
+.panel-status {
     display: flex;
     align-items: center;
     gap: 0.25rem;
@@ -45,7 +45,7 @@ pub const CHAT_STYLES: &str = r#"
 }
 
 /* Body Layout */
-.chat-body {
+.panel-body {
     flex: 1;
     min-height: 0;
     display: flex;
@@ -472,10 +472,10 @@ pub const CHAT_STYLES: &str = r#"
     40% { transform: scale(1); }
 }
 
-/* Chat Input Area */
-.chat-input-area {
+/* Panel Input Area */
+.panel-input-area {
     padding: 0.75rem 1rem;
-    background: var(--chat-header-bg, #1e293b);
+    background: var(--panel-header-bg, #1e293b);
     border-top: 1px solid var(--border-color, #334155);
     flex-shrink: 0;
 }
@@ -486,7 +486,7 @@ pub const CHAT_STYLES: &str = r#"
     align-items: flex-end;
 }
 
-.chat-textarea {
+.panel-textarea {
     flex: 1;
     padding: 0.75rem 1rem;
     background: var(--input-bg, #0f172a);
@@ -503,12 +503,12 @@ pub const CHAT_STYLES: &str = r#"
     transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.chat-textarea:focus {
+.panel-textarea:focus {
     border-color: var(--accent-bg, #3b82f6);
     box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
-.chat-textarea::placeholder {
+.panel-textarea::placeholder {
     color: var(--text-muted, #64748b);
 }
 
@@ -556,7 +556,7 @@ pub const CHAT_STYLES: &str = r#"
 }
 
 @media (max-width: 1024px) {
-    .chat-body {
+    .panel-body {
         position: relative;
     }
 
