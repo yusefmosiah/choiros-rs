@@ -337,8 +337,9 @@ fn test_harness_completion_authority_is_tool_call_only() {
     let harness_src = include_str!("../src/actors/agent_harness/mod.rs");
 
     assert!(
-        harness_src
-            .contains("finished_summary_override.unwrap_or_else(|| \"Objective finished.\".to_string())"),
+        harness_src.contains(
+            "finished_summary_override.unwrap_or_else(|| \"Objective finished.\".to_string())"
+        ),
         "Harness must derive completion summary from finished tool call, not from decision.message"
     );
 

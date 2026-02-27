@@ -11,7 +11,7 @@ use crate::actors::conductor::{
     },
 };
 use crate::actors::model_config::ModelRegistry;
-use crate::actors::writer::{WriterMsg, WriterSource};
+use crate::actors::writer::WriterMsg;
 use crate::observability::llm_trace::LlmTraceEmitter;
 
 impl ConductorActor {
@@ -93,35 +93,6 @@ impl ConductorActor {
         let document_path = Self::run_document_path(&run_id);
         self.ensure_run_document_for_run(state, &run_id, &request.desktop_id, &request.objective)
             .await?;
-
-        let bootstrap_note = format!(
-            "This draft will become a coherent comparison based on incoming evidence.\n\
-             The run has started and writer orchestration is gathering evidence and updates.\n\n\
-             Objective: {}\n\
-             Run ID: `{}`",
-            request.objective, run_id
-        );
-        let writer_actor = self.resolve_writer_actor_for_run(state, &run_id).await?;
-        match ractor::call!(writer_actor, |reply| WriterMsg::ApplyText {
-            run_id: run_id.clone(),
-            section_id: "conductor".to_string(),
-            source: WriterSource::Conductor,
-            content: bootstrap_note,
-            proposal: false,
-            reply,
-        }) {
-            Ok(Ok(_revision)) => {}
-            Ok(Err(e)) => {
-                return Err(ConductorError::WorkerFailed(format!(
-                    "Failed to initialize run document via WriterActor: {e}"
-                )));
-            }
-            Err(e) => {
-                return Err(ConductorError::WorkerFailed(format!(
-                    "WriterActor bootstrap call failed: {e}"
-                )));
-            }
-        }
 
         let run = shared_types::ConductorRunState {
             run_id: run_id.clone(),
@@ -293,9 +264,6 @@ impl ConductorActor {
         // calls `finished(summary=<json>)` encoding its routing decision.  The
         // summary is parsed as a ConductorRoutingDecision.
         //
-        // On parse failure we fall back to the legacy single-shot BAML path so
-        // the conductor remains operational even when the harness output is
-        // malformed.
         let routing_decision = self
             .run_conductor_harness_turn(
                 state,
@@ -304,94 +272,43 @@ impl ConductorActor {
                 &available_capabilities,
                 memory_context.clone(),
             )
-            .await;
-
-        let (selected_capabilities, block_reason) = match routing_decision {
-            Some(decision) => {
-                tracing::info!(
-                    run_id = %run_id,
-                    capabilities = ?decision.dispatch_capabilities,
-                    confidence = decision.confidence,
-                    "Conductor harness routing decision"
-                );
-                let mut selected = Vec::new();
-                for cap in &decision.dispatch_capabilities {
-                    let normalized = cap.trim().to_ascii_lowercase();
-                    if normalized.is_empty()
-                        || !available_capabilities
-                            .iter()
-                            .any(|c| c.eq_ignore_ascii_case(&normalized))
-                        || selected
-                            .iter()
-                            .any(|c: &String| c.eq_ignore_ascii_case(&normalized))
-                    {
-                        continue;
-                    }
-                    selected.push(normalized);
-                }
-                let block = if selected.is_empty() {
-                    decision
-                        .block_reason
-                        .filter(|s| !s.trim().is_empty())
-                        .or(Some(decision.rationale.clone()))
-                } else {
-                    None
-                };
-                (selected, block)
-            }
-            None => {
-                // Fallback: single-shot BAML path (legacy).
-                tracing::warn!(
-                    run_id = %run_id,
-                    "Conductor harness did not produce a parseable routing decision; \
-                     falling back to legacy BAML bootstrap"
-                );
-                let enriched_objective = match &memory_context {
-                    Some(ctx) => format!(
-                        "Retrieved context (relevance-ranked):\n{ctx}\n\nObjective: {}",
-                        request.objective
-                    ),
-                    None => request.objective.clone(),
-                };
-                let conduct_output = tokio::time::timeout(
-                    std::time::Duration::from_secs(45),
-                    state.model_gateway.conduct_assignments(
-                        Some(run_id),
-                        &enriched_objective,
-                        &available_capabilities,
-                    ),
+            .await
+            .ok_or_else(|| {
+                ConductorError::ModelGatewayError(
+                    "Conductor harness did not emit a parseable finished routing decision"
+                        .to_string(),
                 )
-                .await
-                .map_err(|_| {
-                    ConductorError::ModelGatewayError(
-                        "Conductor routing model-gateway call timed out after 45s".to_string(),
-                    )
-                })??;
-                let mut selected = Vec::new();
-                for cap in conduct_output.dispatch_capabilities {
-                    let normalized = cap.trim().to_ascii_lowercase();
-                    if normalized.is_empty()
-                        || !available_capabilities
-                            .iter()
-                            .any(|c| c.eq_ignore_ascii_case(&normalized))
-                        || selected
-                            .iter()
-                            .any(|c: &String| c.eq_ignore_ascii_case(&normalized))
-                    {
-                        continue;
-                    }
-                    selected.push(normalized);
-                }
-                let block = if selected.is_empty() {
-                    conduct_output
-                        .block_reason
-                        .filter(|s| !s.trim().is_empty())
-                        .or(Some(conduct_output.rationale))
-                } else {
-                    None
-                };
-                (selected, block)
+            })?;
+
+        tracing::info!(
+            run_id = %run_id,
+            capabilities = ?routing_decision.dispatch_capabilities,
+            confidence = routing_decision.confidence,
+            "Conductor harness routing decision"
+        );
+
+        let mut selected_capabilities = Vec::new();
+        for cap in &routing_decision.dispatch_capabilities {
+            let normalized = cap.trim().to_ascii_lowercase();
+            if normalized.is_empty()
+                || !available_capabilities
+                    .iter()
+                    .any(|c| c.eq_ignore_ascii_case(&normalized))
+                || selected_capabilities
+                    .iter()
+                    .any(|c: &String| c.eq_ignore_ascii_case(&normalized))
+            {
+                continue;
             }
+            selected_capabilities.push(normalized);
+        }
+        let block_reason = if selected_capabilities.is_empty() {
+            routing_decision
+                .block_reason
+                .filter(|s| !s.trim().is_empty())
+                .or(Some(routing_decision.rationale.clone()))
+        } else {
+            None
         };
 
         if selected_capabilities.is_empty() {
@@ -422,8 +339,8 @@ impl ConductorActor {
 
     /// Run a brief conductor harness turn (Phase 4.3) to produce a routing decision.
     ///
-    /// Returns `Some(ConductorRoutingDecision)` on success, `None` on any
-    /// harness or parse failure (caller falls back to the legacy BAML path).
+    /// Returns `Some(ConductorRoutingDecision)` only when a parseable
+    /// `finished` tool call summary is present.
     async fn run_conductor_harness_turn(
         &self,
         state: &ConductorState,
@@ -457,14 +374,13 @@ impl ConductorActor {
             .await
         {
             Ok(result) if result.objective_status == ObjectiveStatus::Complete => {
-                let decision = parse_routing_decision(&result.summary).or_else(|| {
-                    parse_routing_decision_from_finished_tool_executions(&result.tool_executions)
-                });
+                let decision =
+                    parse_routing_decision_from_finished_tool_executions(&result.tool_executions);
                 if decision.is_none() {
                     tracing::warn!(
                         run_id = %run_id,
-                        summary = %result.summary,
-                        "Conductor harness summary could not be parsed as routing decision"
+                        tool_executions = ?result.tool_executions,
+                        "Conductor harness emitted no parseable finished routing decision"
                     );
                 }
                 decision

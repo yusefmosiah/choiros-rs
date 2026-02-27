@@ -23,7 +23,7 @@ use crate::actors::terminal::{ensure_terminal_started, TerminalAgentProgress, Te
 use crate::observability::llm_trace::LlmTraceEmitter;
 use crate::supervisor::researcher::ResearcherSupervisorMsg;
 use crate::supervisor::terminal::TerminalSupervisorMsg;
-use adapter::{WriterDelegationAdapter, WriterSynthesisAdapter};
+use adapter::WriterDelegationAdapter;
 pub use document_runtime::{
     ApplyPatchResult, DocumentVersion, Overlay, OverlayAuthor, OverlayKind, OverlayStatus, PatchOp,
     PatchOpKind, RunDocument, SectionState, VersionSource, WriterDocumentArguments,
@@ -617,17 +617,16 @@ impl Actor for WriterActor {
                 source_refs,
                 reply,
             } => {
-                let result =
-                    Self::report_progress(
-                        state,
-                        run_id,
-                        section_id,
-                        source,
-                        phase,
-                        message,
-                        source_refs,
-                    )
-                    .await;
+                let result = Self::report_progress(
+                    state,
+                    run_id,
+                    section_id,
+                    source,
+                    phase,
+                    message,
+                    source_refs,
+                )
+                .await;
                 let _ = reply.send(result);
             }
             WriterMsg::SetSectionState {
@@ -858,20 +857,15 @@ impl WriterActor {
         }
     }
 
-    fn format_inbox_note(inbound: &WriterInboxMessage) -> String {
-        format!(
-            "> [{source}] {kind} ({id})\n{content}\n",
-            source = inbound.envelope.source.as_str(),
-            kind = inbound.envelope.kind.as_str(),
-            id = inbound.envelope.message_id.as_str(),
-            content = inbound.envelope.content.as_str()
-        )
-    }
-
     fn source_reference_strings(envelope: &WriterInboundEnvelope) -> Vec<String> {
         let mut refs = Vec::new();
         for source in &envelope.sources {
-            if let Some(url) = source.url.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()) {
+            if let Some(url) = source
+                .url
+                .as_ref()
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty())
+            {
                 if !refs.iter().any(|existing| existing == url) {
                     refs.push(url.to_string());
                 }
@@ -889,6 +883,27 @@ impl WriterActor {
             }
         }
         refs
+    }
+
+    fn normalize_worker_canonical_delta(
+        state: &WriterState,
+        run_id: &str,
+        raw_content: &str,
+    ) -> String {
+        let trimmed = raw_content.trim();
+        if trimmed.is_empty() {
+            return String::new();
+        }
+        let has_existing_content = Self::resolve_run_document(state, run_id)
+            .ok()
+            .and_then(|doc| doc.head_version().ok())
+            .map(|version| !version.content.trim().is_empty())
+            .unwrap_or(false);
+        if has_existing_content {
+            format!("\n\n{trimmed}\n")
+        } else {
+            format!("{trimmed}\n")
+        }
     }
 
     async fn enqueue_inbound(
@@ -924,21 +939,27 @@ impl WriterActor {
         }
 
         // Non-user messages are split into two lanes:
-        // - proposal+synthesis lane: researcher/terminal updates enqueue as proposals
-        //   and are synthesized by Writer before canonical mutation
+        // - canonical mutation lane: researcher/terminal substantive updates are
+        //   applied by Writer directly as canonical diffs (workers still never mutate canon)
         // - marginalia/progress lane: writer/conductor control metadata that should
         //   never replace canonical section content
         if inbound.envelope.source != WriterSource::User {
             let revision = match inbound.envelope.source {
                 WriterSource::Researcher | WriterSource::Terminal => {
-                    // Do not allow worker actors to mutate canonical content directly.
-                    // They must enqueue proposal messages and let Writer synthesize.
-                    let initial_revision = Self::apply_text(
+                    // Workers propose; Writer decides. Worker updates create overlays
+                    // (pending proposals) that appear as gray/pending text in the UI.
+                    // Writer or user accepts them into canon.
+                    let proposal_delta = Self::normalize_worker_canonical_delta(
+                        state,
+                        &inbound.envelope.run_id,
+                        &inbound.envelope.content,
+                    );
+                    let applied_revision = Self::apply_text(
                         state,
                         inbound.envelope.run_id.clone(),
                         inbound.envelope.section_id.clone(),
                         inbound.envelope.source,
-                        Self::format_inbox_note(&inbound),
+                        proposal_delta,
                         true,
                     )
                     .await?;
@@ -958,10 +979,9 @@ impl WriterActor {
                     }
 
                     Self::remember_message_id(state, &inbound.envelope.message_id);
-                    state.inbox_queue.push_back(inbound.clone());
                     Self::emit_event(
                         state,
-                        "writer.actor.inbox.enqueued",
+                        "writer.actor.inbox.applied_direct",
                         serde_json::json!({
                             "run_id": inbound.envelope.run_id.clone(),
                             "section_id": inbound.envelope.section_id.clone(),
@@ -969,7 +989,7 @@ impl WriterActor {
                             "kind": inbound.envelope.kind.clone(),
                             "message_id": inbound.envelope.message_id.clone(),
                             "queue_len": state.inbox_queue.len(),
-                            "revision": initial_revision,
+                            "revision": applied_revision,
                             "correlation_id": inbound.envelope.correlation_id.clone(),
                             "base_version_id": inbound.envelope.base_version_id,
                             "overlay_id": inbound.envelope.overlay_id.clone(),
@@ -982,15 +1002,12 @@ impl WriterActor {
                             "citations": inbound.envelope.citations.clone(),
                         }),
                     );
-                    if !state.inbox_processing {
-                        let _ = myself.send_message(WriterMsg::ProcessInbox);
-                    }
                     return Ok(WriterQueueAck {
                         message_id: inbound.envelope.message_id,
                         accepted: true,
                         duplicate: false,
                         queue_len: state.inbox_queue.len(),
-                        revision: initial_revision,
+                        revision: applied_revision,
                     });
                 }
                 WriterSource::Writer | WriterSource::Conductor => {
@@ -1045,43 +1062,31 @@ impl WriterActor {
             });
         }
 
-        let initial_revision = if inbound.envelope.source == WriterSource::User {
-            let base_version_id = inbound.envelope.base_version_id.ok_or_else(|| {
-                WriterError::Validation("base_version_id is required for user prompt".to_string())
-            })?;
-            let prompt_diff = inbound.envelope.prompt_diff.clone().ok_or_else(|| {
-                WriterError::Validation("prompt_diff is required for user prompt".to_string())
-            })?;
-            if prompt_diff.is_empty() {
-                return Err(WriterError::Validation(
-                    "prompt_diff cannot be empty for user prompt".to_string(),
-                ));
-            }
+        let base_version_id = inbound.envelope.base_version_id.ok_or_else(|| {
+            WriterError::Validation("base_version_id is required for user prompt".to_string())
+        })?;
+        let prompt_diff = inbound.envelope.prompt_diff.clone().ok_or_else(|| {
+            WriterError::Validation("prompt_diff is required for user prompt".to_string())
+        })?;
+        if prompt_diff.is_empty() {
+            return Err(WriterError::Validation(
+                "prompt_diff cannot be empty for user prompt".to_string(),
+            ));
+        }
 
-            let run_doc = Self::resolve_run_document_mut(state, &inbound.envelope.run_id)?;
-            let overlay = run_doc
-                .create_overlay(
-                    &inbound.envelope.run_id,
-                    base_version_id,
-                    OverlayAuthor::User,
-                    OverlayKind::Proposal,
-                    prompt_diff,
-                )
-                .await
-                .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
-            inbound.envelope.overlay_id = Some(overlay.overlay_id);
-            run_doc.revision()
-        } else {
-            Self::apply_text(
-                state,
-                inbound.envelope.run_id.clone(),
-                inbound.envelope.section_id.clone(),
-                inbound.envelope.source,
-                Self::format_inbox_note(&inbound),
-                true,
+        let run_doc = Self::resolve_run_document_mut(state, &inbound.envelope.run_id)?;
+        let overlay = run_doc
+            .create_overlay(
+                &inbound.envelope.run_id,
+                base_version_id,
+                OverlayAuthor::User,
+                OverlayKind::Proposal,
+                prompt_diff,
             )
-            .await?
-        };
+            .await
+            .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
+        inbound.envelope.overlay_id = Some(overlay.overlay_id);
+        let initial_revision = run_doc.revision();
 
         Self::remember_message_id(state, &inbound.envelope.message_id);
         state.inbox_queue.push_back(inbound.clone());
@@ -1132,205 +1137,51 @@ impl WriterActor {
         };
         state.inbox_processing = true;
 
-        let delegation_context = if inbound.envelope.source == WriterSource::User {
-            Self::dispatch_user_prompt_delegation(myself, state, &inbound)
-                .await
-                .unwrap_or_default()
+        if inbound.envelope.source == WriterSource::User {
+            let delegation = Self::dispatch_user_prompt_delegation(myself, state, &inbound).await;
+            match delegation {
+                Ok(context) => {
+                    Self::emit_event(
+                        state,
+                        "writer.actor.inbox.user_prompt_dispatched",
+                        serde_json::json!({
+                            "run_id": inbound.envelope.run_id.clone(),
+                            "message_id": inbound.envelope.message_id.clone(),
+                            "correlation_id": inbound.envelope.correlation_id.clone(),
+                            "dispatch_context": context,
+                        }),
+                    );
+                }
+                Err(error) => {
+                    Self::emit_event(
+                        state,
+                        "writer.actor.inbox.delegation_failed",
+                        serde_json::json!({
+                            "run_id": inbound.envelope.run_id.clone(),
+                            "section_id": inbound.envelope.section_id.clone(),
+                            "message_id": inbound.envelope.message_id.clone(),
+                            "correlation_id": inbound.envelope.correlation_id.clone(),
+                            "error": error.to_string(),
+                        }),
+                    );
+                }
+            }
         } else {
-            String::new()
-        };
-
-        // If delegation is already running asynchronously for a user prompt,
-        // skip immediate writer synthesis to avoid duplicate LLM orchestration
-        // and let worker messages drive live document updates first.
-        if inbound.envelope.source == WriterSource::User
-            && delegation_context == "Delegation harness dispatched asynchronously."
-        {
-            state.inbox_processing = false;
-            if !state.inbox_queue.is_empty() {
-                let _ = myself.send_message(WriterMsg::ProcessInbox);
-            }
-            return;
-        }
-
-        let synthesis = Self::synthesize_with_llm(state, &inbound, delegation_context).await;
-        match synthesis {
-            Ok(Some(markdown)) => {
-                let _ = Self::set_section_content(
-                    state,
-                    inbound.envelope.run_id.clone(),
-                    "conductor".to_string(),
-                    WriterSource::Writer,
-                    markdown,
-                )
-                .await;
-            }
-            Ok(None) => {}
-            Err(error) => {
-                Self::emit_event(
-                    state,
-                    "writer.actor.inbox.synthesis_failed",
-                    serde_json::json!({
-                        "run_id": inbound.envelope.run_id.clone(),
-                        "section_id": inbound.envelope.section_id.clone(),
-                        "message_id": inbound.envelope.message_id.clone(),
-                        "correlation_id": inbound.envelope.correlation_id.clone(),
-                        "error": error.to_string(),
-                    }),
-                );
-            }
+            Self::emit_event(
+                state,
+                "writer.actor.inbox.ignored_non_user_item",
+                serde_json::json!({
+                    "run_id": inbound.envelope.run_id.clone(),
+                    "section_id": inbound.envelope.section_id.clone(),
+                    "message_id": inbound.envelope.message_id.clone(),
+                    "source": inbound.envelope.source.as_str(),
+                }),
+            );
         }
 
         state.inbox_processing = false;
         if !state.inbox_queue.is_empty() {
             let _ = myself.send_message(WriterMsg::ProcessInbox);
-        }
-    }
-
-    fn build_synthesis_objective(
-        inbound: &WriterInboxMessage,
-        message_content: &str,
-        history: &str,
-        delegation_context: &str,
-    ) -> String {
-        let source_metadata = serde_json::to_string_pretty(&serde_json::json!({
-            "sources": &inbound.envelope.sources,
-            "citations": &inbound.envelope.citations,
-        }))
-        .unwrap_or_else(|_| "{}".to_string());
-        let mut objective = format!(
-            "You are WriterActor.\n\
-             Produce a full revised document body (single coherent narrative) for this run.\n\
-             Use the new inbox message and current document context.\n\
-             Requirements:\n\
-             - prioritize readability for humans\n\
-             - prefer concise paragraphs/bullets over rigid report templates\n\
-             - preserve factual claims from the inbox message, but reconcile contradictions with existing document context\n\
-             - if a new claim conflicts with earlier text, explicitly correct/supersede the earlier claim\n\
-             - avoid duplicating stale or disproven claims\n\
-             - produce a self-contained best-integrated revision (not just delta snippets)\n\
-             - do not include section headers like 'Conductor/Researcher/Terminal/User'\n\
-             - do not include markdown title '# ...' (title is handled separately)\n\
-             - do not include proposal metadata or actor message wrappers\n\
-             - do not output process/status narration (e.g. 'producing final draft', 'gathering evidence')\n\
-             - never describe what you are doing; only provide the actual revised content\n\
-             - do not emit planning/progress/meta lines under any circumstances\n\
-             - if uncertain, still output best-effort revised content, not status text\n\
-             - output markdown only\n\
-             - do not call tools; return the revised markdown in the final message\n\
-             \n\
-             Inbox message id: {message_id}\n\
-             Message kind: {kind}\n\
-             Message source: {source}\n\
-             Message content:\n{message_content}\n\
-             Structured source metadata (JSON):\n{source_metadata}\n\
-             \n\
-             Current document excerpt:\n{history}",
-            message_id = inbound.envelope.message_id,
-            kind = inbound.envelope.kind,
-            source = inbound.envelope.source.as_str(),
-            message_content = message_content,
-            source_metadata = source_metadata,
-            history = history
-        );
-        if !delegation_context.trim().is_empty() {
-            objective.push_str("\n\nDelegation context:\n");
-            objective.push_str(delegation_context);
-        }
-        objective
-    }
-
-    async fn synthesize_with_llm(
-        state: &WriterState,
-        inbound: &WriterInboxMessage,
-        delegation_context: String,
-    ) -> Result<Option<String>, WriterError> {
-        let doc = Self::resolve_run_document(state, &inbound.envelope.run_id)?.document_markdown();
-
-        let message_content = if let Some(diff_ops) = inbound.envelope.prompt_diff.as_ref() {
-            let diff_json = serde_json::to_string_pretty(diff_ops).unwrap_or_default();
-            format!(
-                "base_version_id: {}\noverlay_id: {}\nTyped diff intent (insert/delete/replace):\n{}",
-                inbound
-                    .envelope
-                    .base_version_id
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "unknown".to_string()),
-                inbound
-                    .envelope
-                    .overlay_id
-                    .as_ref()
-                    .cloned()
-                    .unwrap_or_else(|| "none".to_string()),
-                diff_json
-            )
-        } else {
-            inbound.envelope.content.clone()
-        };
-
-        let history = if doc.len() > 12_000 {
-            doc.chars()
-                .rev()
-                .take(12_000)
-                .collect::<String>()
-                .chars()
-                .rev()
-                .collect()
-        } else {
-            doc
-        };
-        let objective = Self::build_synthesis_objective(
-            inbound,
-            &message_content,
-            &history,
-            &delegation_context,
-        );
-
-        let adapter = WriterSynthesisAdapter::new(
-            state.writer_id.clone(),
-            state.user_id.clone(),
-            state.event_store.clone(),
-        );
-        let harness = AgentHarness::with_config(
-            adapter,
-            state.model_registry.clone(),
-            HarnessConfig {
-                timeout_budget_ms: 90_000,
-                max_steps: 2,
-                emit_progress: true,
-                emit_worker_report: true,
-            },
-            LlmTraceEmitter::new(state.event_store.clone()),
-        );
-
-        let result = harness
-            .run(
-                format!(
-                    "{}:synthesis:{}",
-                    state.writer_id, inbound.envelope.message_id
-                ),
-                state.user_id.clone(),
-                objective,
-                None,
-                None,
-                Some(inbound.envelope.run_id.clone()),
-                inbound.envelope.call_id.clone(),
-            )
-            .await;
-
-        match result {
-            Ok(agent_result) => {
-                if agent_result.objective_status == ObjectiveStatus::Blocked {
-                    return Err(WriterError::WriterLlmFailed(agent_result.completion_reason));
-                }
-                let trimmed = agent_result.summary.trim();
-                if trimmed.is_empty() {
-                    Ok(None)
-                } else {
-                    Ok(Some(trimmed.to_string()))
-                }
-            }
-            Err(error) => Err(WriterError::WriterLlmFailed(error.to_string())),
         }
     }
 
@@ -2052,104 +1903,6 @@ impl WriterActor {
         })
     }
 
-    async fn set_section_content(
-        state: &mut WriterState,
-        run_id: String,
-        section_id: String,
-        source: WriterSource,
-        content: String,
-    ) -> Result<u64, WriterError> {
-        Self::ensure_run_document_loaded(state, &run_id).await?;
-        if content.trim().is_empty() {
-            return Err(WriterError::Validation(
-                "content cannot be empty".to_string(),
-            ));
-        }
-        let run_doc = Self::resolve_run_document_mut(state, &run_id)?;
-        let head = run_doc
-            .head_version()
-            .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
-        let parent_version_id = head.version_id;
-        let before_content = head.content.clone();
-        let desktop_id = run_doc.desktop_id().to_string();
-
-        let version_source = match source {
-            WriterSource::Writer => VersionSource::Writer,
-            WriterSource::User => VersionSource::UserSave,
-            WriterSource::Researcher | WriterSource::Terminal | WriterSource::Conductor => {
-                VersionSource::System
-            }
-        };
-        let is_writer_source = matches!(version_source, VersionSource::Writer);
-
-        let version = run_doc
-            .create_version(
-                &run_id,
-                Some(parent_version_id),
-                content.clone(),
-                version_source,
-            )
-            .await
-            .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
-        let revision = run_doc.revision();
-        Self::emit_event(
-            state,
-            "writer.actor.set_section_content",
-            serde_json::json!({
-                "run_id": run_id,
-                "section_id": section_id,
-                "source": source.as_str(),
-                "version_id": version.version_id,
-                "revision": revision,
-            }),
-        );
-
-        // Spawn background changeset summarization (non-blocking).
-        Self::spawn_changeset_summarization(ChangesetSummarizationCtx {
-            event_store: state.event_store.clone(),
-            model_registry: state.model_registry.clone(),
-            run_id: run_id.clone(),
-            desktop_id,
-            source: source.as_str().to_string(),
-            before_content,
-            after_content: content,
-            target_version_id: version.version_id,
-        });
-
-        // 3.5: Emit .qwy citation_registry event on writer synthesis completion
-        if is_writer_source {
-            if let Some(stubs) = state.confirmed_citations_by_run_id.get(&run_id) {
-                if !stubs.is_empty() {
-                    let entries: Vec<serde_json::Value> = stubs
-                        .iter()
-                        .map(|s| {
-                            serde_json::json!({
-                                "citation_id": s.citation_id,
-                                "cited_kind": s.cited_kind,
-                                "cited_id": s.cited_id,
-                            })
-                        })
-                        .collect();
-                    let payload = serde_json::json!({
-                        "run_id": run_id,
-                        "version_id": version.version_id,
-                        "citation_registry": entries,
-                    });
-                    let _ = state.event_store.cast(EventStoreMsg::AppendAsync {
-                        event: AppendEvent {
-                            event_type: shared_types::EVENT_TOPIC_QWY_CITATION_REGISTRY.to_string(),
-                            payload,
-                            actor_id: state.writer_id.clone(),
-                            user_id: state.user_id.clone(),
-                        },
-                    });
-                }
-            }
-        }
-
-        Ok(revision)
-    }
-
     /// Spawn a non-blocking background task that calls BAML to summarize a document
     /// changeset and emits a `writer.run.changeset` event.  Failures are logged but
     /// never propagate to the caller — this is pure observability enrichment.
@@ -2419,9 +2172,15 @@ impl WriterActor {
             "delegation_worker_failed"
         };
         let message = if success {
-            format!("Delegated {:?} worker completed. Summary: {}", capability, summary)
+            format!(
+                "Delegated {:?} worker completed. Summary: {}",
+                capability, summary
+            )
         } else {
-            format!("Delegated {:?} worker failed. Error: {}", capability, summary)
+            format!(
+                "Delegated {:?} worker failed. Error: {}",
+                capability, summary
+            )
         };
         if let Err(error) = Self::report_progress(
             state,

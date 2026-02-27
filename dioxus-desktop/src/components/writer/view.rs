@@ -252,8 +252,33 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
 
         spawn(async move {
             loading.set(true);
-            match writer_open(&path_str).await {
-                Ok(response) => {
+            let is_run_document = extract_run_id_from_document_path(&path_str).is_some();
+            let mut open_response = None;
+            let mut open_error = None;
+
+            // Run documents can be opened before the backing file is visible on disk.
+            // Retry with bounded backoff instead of hammering /writer/open from the render loop.
+            for attempt in 0..8u32 {
+                match writer_open(&path_str).await {
+                    Ok(response) => {
+                        open_response = Some(response);
+                        break;
+                    }
+                    Err(e) => {
+                        let is_not_found = e.starts_with("NOT_FOUND:");
+                        if is_run_document && is_not_found && attempt < 7 {
+                            let delay_ms = 75 + (attempt * 50);
+                            TimeoutFuture::new(delay_ms).await;
+                            continue;
+                        }
+                        open_error = Some(e);
+                        break;
+                    }
+                }
+            }
+
+            match open_response {
+                Some(response) => {
                     let opened_path = response.path.clone();
                     let opened_content = response.content.clone();
 
@@ -349,9 +374,10 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                         run_status.set(None);
                     }
                 }
-                Err(e) => {
-                    save_state.set(SaveState::Error(e));
-                    loaded_path.set(None);
+                None => {
+                    let error_text =
+                        open_error.unwrap_or_else(|| "Failed to open document".to_string());
+                    save_state.set(SaveState::Error(error_text));
                     loading.set(false);
                 }
             }
@@ -509,17 +535,6 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                     }
                 }
 
-                if is_terminal && pending_patches.iter().all(|patch| patch.applied) {
-                    let should_remove = {
-                        let runs = ACTIVE_WRITER_RUNS.read();
-                        runs.get(&current_path)
-                            .map(|run| run.last_applied_revision >= run.revision)
-                            .unwrap_or(false)
-                    };
-                    if should_remove {
-                        ACTIVE_WRITER_RUNS.write().remove(&current_path);
-                    }
-                }
             } else {
                 if active_run_id_for_effect.read().is_some() {
                     active_run_id_for_effect.set(None);
@@ -679,6 +694,11 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                 return;
             }
             if readonly() {
+                return;
+            }
+            // Run documents should not autosave while the user is editing.
+            // Persist changes only on explicit Save / Prompt actions.
+            if extract_run_id_from_document_path(&path()).is_some() {
                 return;
             }
             spawn(async move {
@@ -1014,18 +1034,6 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
         .as_ref()
         .map(|r| r.recent_changesets.clone())
         .unwrap_or_default();
-    let current_run_phase = current_run_state
-        .as_ref()
-        .and_then(|r| r.phase.clone())
-        .unwrap_or_default();
-    let current_run_message = current_run_state
-        .as_ref()
-        .and_then(|r| r.message.clone())
-        .unwrap_or_default();
-    let current_run_objective = current_run_state
-        .as_ref()
-        .and_then(|r| r.objective.clone())
-        .unwrap_or_default();
     let current_source_refs = if !selected_version_source_refs().is_empty() {
         selected_version_source_refs()
     } else {
@@ -1064,11 +1072,6 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
         if let Some(phase) = &run.phase {
             if !phase.trim().is_empty() {
                 state_lines.push(format!("phase: {}", phase.trim()));
-            }
-        }
-        if let Some(message) = &run.message {
-            if !message.trim().is_empty() {
-                state_lines.push(format!("message: {}", message.trim()));
             }
         }
         current_notes.push(MarginNote {
@@ -1523,21 +1526,6 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                         }
                         div {
                             class: "writer-prose-container",
-                            if current_content.trim().is_empty() && current_run_status.is_some() {
-                                div { class: "writer-run-placeholder",
-                                    strong { "Run in progress" }
-                                    if !current_run_phase.is_empty() {
-                                        div { "Phase: {current_run_phase}" }
-                                    }
-                                    if !current_run_message.is_empty() {
-                                        div { "{current_run_message}" }
-                                    } else if !current_run_objective.is_empty() {
-                                        div { "{current_run_objective}" }
-                                    } else {
-                                        div { "Gathering updates..." }
-                                    }
-                                }
-                            }
                             div {
                                 id: "{prose_editor_id}",
                                 class: "writer-prose-body",

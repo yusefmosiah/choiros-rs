@@ -184,10 +184,8 @@ pub struct ConductorRoutingDecision {
     pub block_reason: Option<String>,
 }
 
-/// Parse the conductor harness `AgentResult.summary` as a `ConductorRoutingDecision`.
-///
-/// Returns `None` when the summary cannot be parsed — the caller should fall back
-/// to the legacy BAML path in that case.
+/// Parse a JSON routing summary (typically from `finished.summary`) as a
+/// `ConductorRoutingDecision`.
 pub fn parse_routing_decision(summary: &str) -> Option<ConductorRoutingDecision> {
     let trimmed = summary.trim();
 

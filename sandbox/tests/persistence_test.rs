@@ -550,18 +550,9 @@ async fn test_conversation_history_with_tools() {
     .unwrap();
 
     assert_eq!(retrieved_events.len(), 3);
-    assert_eq!(
-        retrieved_events[0].event_type,
-        "interaction.user_msg"
-    );
-    assert_eq!(
-        retrieved_events[1].event_type,
-        "interaction.tool_call"
-    );
-    assert_eq!(
-        retrieved_events[2].event_type,
-        "interaction.assistant_msg"
-    );
+    assert_eq!(retrieved_events[0].event_type, "interaction.user_msg");
+    assert_eq!(retrieved_events[1].event_type, "interaction.tool_call");
+    assert_eq!(retrieved_events[2].event_type, "interaction.assistant_msg");
 }
 
 #[tokio::test]

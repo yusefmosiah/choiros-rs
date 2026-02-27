@@ -1131,7 +1131,6 @@ impl DesktopActor {
             if let Some(events) = self.sync_with_event_store(state).await {
                 self.project_events(events, state);
             }
-
         }
 
         // Build and return state

@@ -917,16 +917,11 @@ mod tests {
         .unwrap()
         .unwrap();
 
-        let scoped = get_events_for_actor_with_scope(
-            &store_ref,
-            "session-1",
-            "session-1",
-            "thread-1",
-            0,
-        )
-        .await
-        .unwrap()
-        .unwrap();
+        let scoped =
+            get_events_for_actor_with_scope(&store_ref, "session-1", "session-1", "thread-1", 0)
+                .await
+                .unwrap()
+                .unwrap();
 
         assert_eq!(scoped.len(), 1);
         assert_eq!(

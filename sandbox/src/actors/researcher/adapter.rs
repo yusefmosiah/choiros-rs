@@ -217,8 +217,7 @@ impl ResearcherAdapter {
     }
 
     fn parse_section_state(mode_arg: Option<&str>) -> Option<SectionState> {
-        let payload: WriterModeArgPayload =
-            serde_json::from_str(mode_arg?.trim()).ok()?;
+        let payload: WriterModeArgPayload = serde_json::from_str(mode_arg?.trim()).ok()?;
         match payload.state?.trim().to_ascii_lowercase().as_str() {
             "pending" => Some(SectionState::Pending),
             "running" => Some(SectionState::Running),
@@ -260,9 +259,23 @@ impl ResearcherAdapter {
     }
 
     fn has_successful_message_writer_call(tool_executions: &[ToolExecution]) -> bool {
-        tool_executions
-            .iter()
-            .any(|exec| exec.tool_name == "message_writer" && exec.success)
+        tool_executions.iter().any(|exec| {
+            if exec.tool_name != "message_writer" || !exec.success {
+                return false;
+            }
+            let mode = serde_json::from_str::<serde_json::Value>(&exec.output)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("mode")
+                        .and_then(|raw| raw.as_str())
+                        .map(|raw| raw.trim().to_ascii_lowercase())
+                });
+            matches!(
+                mode.as_deref(),
+                Some("proposal_append") | Some("canon_append") | Some("completion")
+            )
+        })
     }
 
     fn parse_mode_arg_payload(mode_arg: Option<&str>) -> Result<WriterModeArgPayload, String> {
@@ -271,39 +284,16 @@ impl ResearcherAdapter {
             .map_err(|_| "message_writer mode_arg must be JSON".to_string())
     }
 
-    fn extract_source_refs(mode_arg: Option<&str>) -> Result<Vec<String>, String> {
-        let payload = Self::parse_mode_arg_payload(mode_arg)?;
-        let mut refs: Vec<String> = payload
-            .source_refs
-            .into_iter()
-            .map(|entry| entry.trim().to_string())
-            .filter(|entry| !entry.is_empty())
-            .collect();
-        for source in &payload.sources {
-            if let Some(url) = source.url.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()) {
-                if !refs.iter().any(|existing| existing == url) {
-                    refs.push(url.to_string());
-                }
-            } else if let Some(path) = source
-                .path
-                .as_ref()
-                .map(|v| v.trim())
-                .filter(|v| !v.is_empty())
-            {
-                if !refs.iter().any(|existing| existing == path) {
-                    refs.push(path.to_string());
-                }
-            }
-        }
-        if refs.is_empty() {
-            return Err("message_writer mode_arg must include non-empty sources/source_refs".to_string());
-        }
-        Ok(refs)
-    }
-
     fn extract_message_metadata(
         mode_arg: Option<&str>,
-    ) -> Result<(Vec<String>, Vec<WriterMessageSource>, Vec<WriterMessageCitation>), String> {
+    ) -> Result<
+        (
+            Vec<String>,
+            Vec<WriterMessageSource>,
+            Vec<WriterMessageCitation>,
+        ),
+        String,
+    > {
         let payload = Self::parse_mode_arg_payload(mode_arg)?;
         if payload.sources.is_empty() {
             return Err("message_writer mode_arg.sources must be a non-empty array".to_string());
@@ -318,7 +308,12 @@ impl ResearcherAdapter {
             .filter(|entry| !entry.is_empty())
             .collect();
         for source in &payload.sources {
-            if let Some(url) = source.url.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()) {
+            if let Some(url) = source
+                .url
+                .as_ref()
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty())
+            {
                 if !refs.iter().any(|existing| existing == url) {
                     refs.push(url.to_string());
                 }
@@ -460,8 +455,8 @@ impl ResearcherAdapter {
                 if content.trim().is_empty() {
                     Err("message_writer canon_append mode requires content".to_string())
                 } else {
-                    match Self::extract_source_refs(mode_arg.as_deref()) {
-                        Ok(source_refs) => {
+                    match Self::extract_message_metadata(mode_arg.as_deref()) {
+                        Ok((source_refs, sources, citations)) => {
                             let message_id =
                                 format!("{run_id}:researcher:tool:canon:{}", ulid::Ulid::new());
                             let envelope = WriterInboundEnvelope {
@@ -473,8 +468,8 @@ impl ResearcherAdapter {
                                 source: WriterSource::Researcher,
                                 content: content.clone(),
                                 source_refs,
-                                sources: Vec::new(),
-                                citations: Vec::new(),
+                                sources,
+                                citations,
                                 base_version_id: None,
                                 prompt_diff: None,
                                 overlay_id: None,
@@ -1245,7 +1240,7 @@ Guidelines:
         }
         if !Self::has_successful_message_writer_call(tool_executions) {
             return Err(
-                "Run writer mode requires at least one successful message_writer call before final completion.".to_string(),
+                "Run writer mode requires at least one successful source-backed message_writer update (proposal_append|canon_append|completion) before final completion.".to_string(),
             );
         }
         Ok(())
@@ -1395,6 +1390,44 @@ mod tests {
             execution_time_ms: 1,
         }];
         assert!(!ResearcherAdapter::has_successful_message_writer_call(
+            &tool_executions
+        ));
+    }
+
+    #[test]
+    fn writer_mode_contract_ignores_progress_only_message_writer_calls() {
+        let tool_executions = [ToolExecution {
+            tool_name: "message_writer".to_string(),
+            success: true,
+            output: serde_json::json!({
+                "mode": "progress",
+                "section_id": "researcher",
+                "revision": 1
+            })
+            .to_string(),
+            error: None,
+            execution_time_ms: 1,
+        }];
+        assert!(!ResearcherAdapter::has_successful_message_writer_call(
+            &tool_executions
+        ));
+    }
+
+    #[test]
+    fn writer_mode_contract_accepts_completion_message_writer_calls() {
+        let tool_executions = [ToolExecution {
+            tool_name: "message_writer".to_string(),
+            success: true,
+            output: serde_json::json!({
+                "mode": "completion",
+                "section_id": "researcher",
+                "message_id": "m1"
+            })
+            .to_string(),
+            error: None,
+            execution_time_ms: 1,
+        }];
+        assert!(ResearcherAdapter::has_successful_message_writer_call(
             &tool_executions
         ));
     }

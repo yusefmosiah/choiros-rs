@@ -13,7 +13,8 @@ Use the docs below in order. If a doc is not listed in `Active Read Order`, trea
 
 ## Active Read Order
 
-1. `docs/architecture/2026-02-27-agent-contract-hard-cutover.md`
+1. `docs/architecture/2026-02-27-writer-diffusion-architecture.md`
+2. `docs/architecture/2026-02-27-agent-contract-hard-cutover.md`
 2. `docs/architecture/2026-02-26-comprehensive-cutover-plan.md`
 3. `docs/architecture/2026-02-26-local-first-ovh-execution-plan.md`
 4. `docs/architecture/roadmap-dependency-tree.md`

@@ -244,7 +244,10 @@ fn is_run_draft_path(path: &str) -> bool {
         parts.next(),
     ) {
         (Some("conductor"), Some("runs"), Some(run_id), Some("draft.md"), None)
-            if !run_id.trim().is_empty() => true,
+            if !run_id.trim().is_empty() =>
+        {
+            true
+        }
         _ => false,
     }
 }

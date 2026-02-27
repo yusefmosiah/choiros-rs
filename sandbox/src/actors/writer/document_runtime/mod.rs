@@ -57,7 +57,7 @@ impl WriterDocumentRuntime {
         let document_path = root_dir.join(&document_path_relative);
         let document_meta_path = root_dir.join(&document_meta_path_relative);
 
-        let (mut document, revision) =
+        let (mut document, revision, created_fresh) =
             Self::load_or_create_document(&document_path, &document_meta_path, &args.objective)
                 .await
                 .map_err(|e| WriterDocumentError::WriteFailed(e.to_string()))?;
@@ -80,6 +80,12 @@ impl WriterDocumentRuntime {
                 document,
             },
         };
+
+        // Persist an initial on-disk snapshot for fresh runs so `/writer/open`
+        // can resolve immediately without polling for file creation.
+        if created_fresh {
+            runtime.persist_document().await?;
+        }
 
         runtime.emit_started_event().await;
         Ok(runtime)
@@ -325,7 +331,10 @@ impl WriterDocumentRuntime {
                     {
                         self.state.document.observed_source_refs.remove(idx);
                     }
-                    self.state.document.observed_source_refs.insert(0, value.clone());
+                    self.state
+                        .document
+                        .observed_source_refs
+                        .insert(0, value.clone());
                 }
             } else {
                 for value in normalized_refs.iter().rev() {
@@ -338,7 +347,10 @@ impl WriterDocumentRuntime {
                     {
                         self.state.document.selected_source_refs.remove(idx);
                     }
-                    self.state.document.selected_source_refs.insert(0, value.clone());
+                    self.state
+                        .document
+                        .selected_source_refs
+                        .insert(0, value.clone());
                 }
             }
             self.persist_sidecar().await?;
@@ -376,7 +388,7 @@ impl WriterDocumentRuntime {
         path: &PathBuf,
         meta_path: &PathBuf,
         objective: &str,
-    ) -> Result<(RunDocument, u64), std::io::Error> {
+    ) -> Result<(RunDocument, u64, bool), std::io::Error> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
         }
@@ -384,7 +396,7 @@ impl WriterDocumentRuntime {
         if meta_path.exists() {
             match fs::read_to_string(meta_path).await {
                 Ok(raw) => match serde_json::from_str::<PersistedWriterDocumentSnapshot>(&raw) {
-                    Ok(snapshot) => return Ok((snapshot.document, snapshot.revision)),
+                    Ok(snapshot) => return Ok((snapshot.document, snapshot.revision, false)),
                     Err(e) => {
                         tracing::warn!(
                             path = %meta_path.display(),
@@ -412,7 +424,7 @@ impl WriterDocumentRuntime {
                             if doc.objective.trim().is_empty() {
                                 doc.objective = objective.to_string();
                             }
-                            return Ok((doc, revision));
+                            return Ok((doc, revision, false));
                         }
                         Err(e) => {
                             tracing::warn!(
@@ -433,7 +445,7 @@ impl WriterDocumentRuntime {
             }
         }
 
-        Ok((RunDocument::new(objective), 0))
+        Ok((RunDocument::new(objective), 0, true))
     }
 
     fn extract_revision_from_content(content: &str) -> u64 {

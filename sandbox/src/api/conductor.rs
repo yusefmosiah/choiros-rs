@@ -267,14 +267,8 @@ fn run_state_to_execute_response(run: ConductorRunState) -> ConductorExecuteResp
     let (document_path, writer_window_props) = match run.status {
         ConductorRunStatus::Running => {
             let path = run.document_path.clone();
-            // Freshly accepted runs have no seeded agenda yet; avoid opening Writer
-            // until planning has selected non-trivial capabilities.
-            let props = if run.agenda.is_empty() && run.active_calls.is_empty() {
-                None
-            } else {
-                Some(writer_window_props_for_run_document(&path, &run_id))
-            };
-            (Some(path), props)
+            let props = writer_window_props_for_run_document(&path, &run_id);
+            (Some(path), Some(props))
         }
         ConductorRunStatus::Initializing
         | ConductorRunStatus::WaitingForCalls
@@ -913,7 +907,7 @@ mod tests {
     }
 
     #[test]
-    fn test_run_state_to_execute_response_running_without_agenda_defers_writer_open() {
+    fn test_run_state_to_execute_response_running_opens_writer_immediately() {
         let now = Utc::now();
         let run = ConductorRunState {
             run_id: "run_456".to_string(),
@@ -937,7 +931,12 @@ mod tests {
             response.document_path.as_deref(),
             Some("conductor/runs/run_456/draft.md")
         );
-        assert!(response.writer_window_props.is_none());
+        let props = response
+            .writer_window_props
+            .expect("running response must include writer props");
+        assert_eq!(props.path, "conductor/runs/run_456/draft.md");
+        assert!(!props.preview_mode);
+        assert_eq!(props.run_id.as_deref(), Some("run_456"));
     }
 
     #[test]
