@@ -15,7 +15,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 
-use crate::actors::agent_harness::{AgentHarness, HarnessConfig, ObjectiveStatus, ToolExecution};
+use crate::actors::agent_harness::{AgentHarness, HarnessConfig, ToolExecution};
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::ModelRegistry;
 use crate::actors::researcher::{ResearcherMsg, ResearcherProgress};
@@ -62,6 +62,14 @@ pub struct WriterState {
 #[derive(Debug, Clone)]
 struct WriterInboxMessage {
     envelope: WriterInboundEnvelope,
+}
+
+#[derive(Debug)]
+struct WriterInboxApplyOutcome {
+    revision: u64,
+    base_version_id: Option<u64>,
+    target_version_id: Option<u64>,
+    overlay_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -196,33 +204,13 @@ pub enum WriterMsg {
         state: SectionState,
         reply: RpcReplyPort<Result<(), WriterError>>,
     },
-    /// Append a human comment into `user` proposal context.
-    ApplyHumanComment {
-        run_id: String,
-        comment: String,
-        reply: RpcReplyPort<Result<u64, WriterError>>,
-    },
-    /// Queue an inbound worker/human message for writer-agent synthesis.
-    ///
-    /// Control flow uses this actor message path; EventStore remains trace-only.
+    /// Queue an inbound diff/event message for unified async inbox processing.
     EnqueueInbound {
         envelope: WriterInboundEnvelope,
         reply: RpcReplyPort<Result<WriterQueueAck, WriterError>>,
     },
-    /// Queue inbound without waiting for ack (used by background tasks).
-    EnqueueInboundAsync { envelope: WriterInboundEnvelope },
     /// Internal wake to process the next queued inbox item.
     ProcessInbox,
-    /// Delegate multi-step work to a worker actor.
-    DelegateTask {
-        capability: WriterDelegateCapability,
-        objective: String,
-        timeout_ms: Option<u64>,
-        max_steps: Option<u8>,
-        run_id: Option<String>,
-        call_id: Option<String>,
-        reply: RpcReplyPort<Result<WriterDelegateResult, WriterError>>,
-    },
     /// Internal completion signal from asynchronously dispatched worker delegations.
     DelegationWorkerCompleted {
         capability: WriterDelegateCapability,
@@ -639,57 +627,13 @@ impl Actor for WriterActor {
                     Self::set_section_state(state, run_id, section_id, section_state).await;
                 let _ = reply.send(result);
             }
-            WriterMsg::ApplyHumanComment {
-                run_id,
-                comment,
-                reply,
-            } => {
-                let result = Self::apply_text(
-                    state,
-                    run_id,
-                    "user".to_string(),
-                    WriterSource::User,
-                    comment,
-                    true,
-                )
-                .await;
-                let _ = reply.send(result);
-            }
             WriterMsg::EnqueueInbound { envelope, reply } => {
                 let result =
                     Self::enqueue_inbound(&myself, state, WriterInboxMessage { envelope }).await;
                 let _ = reply.send(result);
             }
-            WriterMsg::EnqueueInboundAsync { envelope } => {
-                if let Err(error) =
-                    Self::enqueue_inbound(&myself, state, WriterInboxMessage { envelope }).await
-                {
-                    Self::emit_event(
-                        state,
-                        "writer.actor.enqueue_inbound_async.failed",
-                        serde_json::json!({
-                            "error": error.to_string(),
-                        }),
-                    );
-                }
-            }
             WriterMsg::ProcessInbox => {
                 Self::process_inbox(&myself, state).await;
-            }
-            WriterMsg::DelegateTask {
-                capability,
-                objective,
-                timeout_ms,
-                max_steps,
-                run_id,
-                call_id,
-                reply,
-            } => {
-                let result = Self::delegate_task(
-                    &myself, state, capability, objective, timeout_ms, max_steps, run_id, call_id,
-                )
-                .await;
-                let _ = reply.send(result);
             }
             WriterMsg::DelegationWorkerCompleted {
                 capability,
@@ -730,6 +674,7 @@ impl Actor for WriterActor {
 
 impl WriterActor {
     const MAX_SEEN_IDS: usize = 4096;
+    const AUTO_ACCEPT_WORKER_DIFFS: bool = true;
     const RUN_DOCUMENTS_ROOT: &'static str = "conductor/runs";
     const RUN_DOCUMENT_FILE: &'static str = "draft.md";
     const RUN_DOCUMENT_STATE_FILE: &'static str = "draft.writer-state.json";
@@ -885,7 +830,7 @@ impl WriterActor {
         refs
     }
 
-    fn normalize_worker_canonical_delta(
+    fn normalize_inbound_append_delta(
         state: &WriterState,
         run_id: &str,
         raw_content: &str,
@@ -906,10 +851,252 @@ impl WriterActor {
         }
     }
 
+    fn overlay_author_for_source(source: WriterSource) -> OverlayAuthor {
+        match source {
+            WriterSource::User => OverlayAuthor::User,
+            WriterSource::Researcher => OverlayAuthor::Researcher,
+            WriterSource::Terminal => OverlayAuthor::Terminal,
+            WriterSource::Writer | WriterSource::Conductor => OverlayAuthor::Writer,
+        }
+    }
+
+    fn version_source_for_source(source: WriterSource) -> VersionSource {
+        match source {
+            WriterSource::User => VersionSource::UserSave,
+            WriterSource::Writer => VersionSource::Writer,
+            WriterSource::Researcher | WriterSource::Terminal | WriterSource::Conductor => {
+                VersionSource::System
+            }
+        }
+    }
+
+    fn apply_shared_patch_ops(
+        base_content: &str,
+        ops: &[shared_types::PatchOp],
+    ) -> Result<String, WriterError> {
+        let mut chars: Vec<char> = base_content.chars().collect();
+
+        for op in ops {
+            match op {
+                shared_types::PatchOp::Insert { pos, text } => {
+                    let idx = usize::try_from(*pos).map_err(|_| {
+                        WriterError::Validation(format!(
+                            "insert position out of bounds for usize: {pos}"
+                        ))
+                    })?;
+                    if idx > chars.len() {
+                        return Err(WriterError::Validation(format!(
+                            "insert position {idx} exceeds content length {}",
+                            chars.len()
+                        )));
+                    }
+                    chars.splice(idx..idx, text.chars());
+                }
+                shared_types::PatchOp::Delete { pos, len } => {
+                    let idx = usize::try_from(*pos).map_err(|_| {
+                        WriterError::Validation(format!(
+                            "delete position out of bounds for usize: {pos}"
+                        ))
+                    })?;
+                    if idx > chars.len() {
+                        return Err(WriterError::Validation(format!(
+                            "delete position {idx} exceeds content length {}",
+                            chars.len()
+                        )));
+                    }
+                    let max_delete = chars.len().saturating_sub(idx);
+                    let requested = if *len == u64::MAX {
+                        max_delete
+                    } else {
+                        usize::try_from(*len).unwrap_or(max_delete)
+                    };
+                    let end = idx.saturating_add(requested).min(chars.len());
+                    chars.drain(idx..end);
+                }
+                shared_types::PatchOp::Replace { pos, len, text } => {
+                    let idx = usize::try_from(*pos).map_err(|_| {
+                        WriterError::Validation(format!(
+                            "replace position out of bounds for usize: {pos}"
+                        ))
+                    })?;
+                    if idx > chars.len() {
+                        return Err(WriterError::Validation(format!(
+                            "replace position {idx} exceeds content length {}",
+                            chars.len()
+                        )));
+                    }
+                    let max_replace = chars.len().saturating_sub(idx);
+                    let requested = if *len == u64::MAX {
+                        max_replace
+                    } else {
+                        usize::try_from(*len).unwrap_or(max_replace)
+                    };
+                    let end = idx.saturating_add(requested).min(chars.len());
+                    chars.splice(idx..end, text.chars());
+                }
+                shared_types::PatchOp::Retain { .. } => {}
+            }
+        }
+
+        Ok(chars.into_iter().collect::<String>())
+    }
+
+    async fn apply_prompt_diff_inbox(
+        state: &mut WriterState,
+        inbound: &WriterInboxMessage,
+    ) -> Result<WriterInboxApplyOutcome, WriterError> {
+        let base_version_id = inbound.envelope.base_version_id.ok_or_else(|| {
+            WriterError::Validation(
+                "base_version_id is required when prompt_diff is set".to_string(),
+            )
+        })?;
+        let prompt_diff = inbound.envelope.prompt_diff.clone().ok_or_else(|| {
+            WriterError::Validation(
+                "prompt_diff is required when base_version_id is set".to_string(),
+            )
+        })?;
+        if prompt_diff.is_empty() {
+            return Err(WriterError::Validation(
+                "prompt_diff cannot be empty".to_string(),
+            ));
+        }
+
+        let run_id = inbound.envelope.run_id.clone();
+        let proposal =
+            inbound.envelope.source != WriterSource::User && !Self::AUTO_ACCEPT_WORKER_DIFFS;
+        Self::ensure_run_document_loaded(state, &run_id).await?;
+
+        if !proposal {
+            let head_version_id = Self::resolve_run_document(state, &run_id)?
+                .head_version()
+                .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?
+                .version_id;
+            if base_version_id != head_version_id {
+                return Err(WriterError::Validation(format!(
+                    "stale base_version_id: expected {}, got {}",
+                    head_version_id, base_version_id
+                )));
+            }
+        }
+
+        if proposal {
+            let (overlay_id, revision) = {
+                let run_doc = Self::resolve_run_document_mut(state, &run_id)?;
+                let overlay = run_doc
+                    .create_overlay(
+                        &run_id,
+                        base_version_id,
+                        Self::overlay_author_for_source(inbound.envelope.source),
+                        OverlayKind::Proposal,
+                        prompt_diff,
+                    )
+                    .await
+                    .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
+                (overlay.overlay_id, run_doc.revision())
+            };
+            return Ok(WriterInboxApplyOutcome {
+                revision,
+                base_version_id: Some(base_version_id),
+                target_version_id: None,
+                overlay_id: Some(overlay_id),
+            });
+        }
+
+        let base_content = Self::resolve_run_document(state, &run_id)?
+            .get_version(base_version_id)
+            .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?
+            .content;
+        let next_content = Self::apply_shared_patch_ops(&base_content, &prompt_diff)?;
+
+        let (target_version_id, revision) = {
+            let run_doc = Self::resolve_run_document_mut(state, &run_id)?;
+            let version = run_doc
+                .create_version(
+                    &run_id,
+                    Some(base_version_id),
+                    next_content,
+                    Self::version_source_for_source(inbound.envelope.source),
+                )
+                .await
+                .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
+            (version.version_id, run_doc.revision())
+        };
+
+        Ok(WriterInboxApplyOutcome {
+            revision,
+            base_version_id: Some(base_version_id),
+            target_version_id: Some(target_version_id),
+            overlay_id: None,
+        })
+    }
+
+    async fn apply_inbound_message(
+        state: &mut WriterState,
+        inbound: &WriterInboxMessage,
+    ) -> Result<WriterInboxApplyOutcome, WriterError> {
+        if inbound
+            .envelope
+            .prompt_diff
+            .as_ref()
+            .map(|ops| !ops.is_empty())
+            .unwrap_or(false)
+        {
+            return Self::apply_prompt_diff_inbox(state, inbound).await;
+        }
+
+        if inbound.envelope.content.trim().is_empty() {
+            return Err(WriterError::Validation(
+                "inbound content cannot be empty when prompt_diff is absent".to_string(),
+            ));
+        }
+
+        let is_worker_update = inbound.envelope.source != WriterSource::User;
+        let proposal = is_worker_update && !Self::AUTO_ACCEPT_WORKER_DIFFS;
+        let normalized_content = if is_worker_update {
+            Self::normalize_inbound_append_delta(
+                state,
+                &inbound.envelope.run_id,
+                &inbound.envelope.content,
+            )
+        } else {
+            inbound.envelope.content.clone()
+        };
+        let revision = Self::apply_text(
+            state,
+            inbound.envelope.run_id.clone(),
+            inbound.envelope.section_id.clone(),
+            inbound.envelope.source,
+            normalized_content,
+            proposal,
+        )
+        .await?;
+
+        let selected_source_refs = Self::source_reference_strings(&inbound.envelope);
+        if !selected_source_refs.is_empty() {
+            let _ = Self::report_progress(
+                state,
+                inbound.envelope.run_id.clone(),
+                inbound.envelope.section_id.clone(),
+                inbound.envelope.source,
+                format!("{}:source_refs", inbound.envelope.kind),
+                "Updated source references".to_string(),
+                selected_source_refs,
+            )
+            .await?;
+        }
+
+        Ok(WriterInboxApplyOutcome {
+            revision,
+            base_version_id: inbound.envelope.base_version_id,
+            target_version_id: None,
+            overlay_id: None,
+        })
+    }
+
     async fn enqueue_inbound(
         myself: &ActorRef<WriterMsg>,
         state: &mut WriterState,
-        mut inbound: WriterInboxMessage,
+        inbound: WriterInboxMessage,
     ) -> Result<WriterQueueAck, WriterError> {
         Self::ensure_run_document_loaded(state, &inbound.envelope.run_id).await?;
 
@@ -922,6 +1109,11 @@ impl WriterActor {
         if inbound.envelope.content.trim().is_empty() && !has_prompt_diff {
             return Err(WriterError::Validation(
                 "inbound content cannot be empty when prompt_diff is absent".to_string(),
+            ));
+        }
+        if has_prompt_diff && inbound.envelope.base_version_id.is_none() {
+            return Err(WriterError::Validation(
+                "base_version_id is required when prompt_diff is set".to_string(),
             ));
         }
 
@@ -938,156 +1130,7 @@ impl WriterActor {
             });
         }
 
-        // Non-user messages are split into two lanes:
-        // - canonical mutation lane: researcher/terminal substantive updates are
-        //   applied by Writer directly as canonical diffs (workers still never mutate canon)
-        // - marginalia/progress lane: writer/conductor control metadata that should
-        //   never replace canonical section content
-        if inbound.envelope.source != WriterSource::User {
-            let revision = match inbound.envelope.source {
-                WriterSource::Researcher | WriterSource::Terminal => {
-                    // Workers propose; Writer decides. Worker updates create overlays
-                    // (pending proposals) that appear as gray/pending text in the UI.
-                    // Writer or user accepts them into canon.
-                    let proposal_delta = Self::normalize_worker_canonical_delta(
-                        state,
-                        &inbound.envelope.run_id,
-                        &inbound.envelope.content,
-                    );
-                    let applied_revision = Self::apply_text(
-                        state,
-                        inbound.envelope.run_id.clone(),
-                        inbound.envelope.section_id.clone(),
-                        inbound.envelope.source,
-                        proposal_delta,
-                        true,
-                    )
-                    .await?;
-
-                    let selected_source_refs = Self::source_reference_strings(&inbound.envelope);
-                    if !selected_source_refs.is_empty() {
-                        let _ = Self::report_progress(
-                            state,
-                            inbound.envelope.run_id.clone(),
-                            inbound.envelope.section_id.clone(),
-                            inbound.envelope.source,
-                            format!("{}:source_refs", inbound.envelope.kind),
-                            "Updated source references".to_string(),
-                            selected_source_refs,
-                        )
-                        .await?;
-                    }
-
-                    Self::remember_message_id(state, &inbound.envelope.message_id);
-                    Self::emit_event(
-                        state,
-                        "writer.actor.inbox.applied_direct",
-                        serde_json::json!({
-                            "run_id": inbound.envelope.run_id.clone(),
-                            "section_id": inbound.envelope.section_id.clone(),
-                            "source": inbound.envelope.source.as_str(),
-                            "kind": inbound.envelope.kind.clone(),
-                            "message_id": inbound.envelope.message_id.clone(),
-                            "queue_len": state.inbox_queue.len(),
-                            "revision": applied_revision,
-                            "correlation_id": inbound.envelope.correlation_id.clone(),
-                            "base_version_id": inbound.envelope.base_version_id,
-                            "overlay_id": inbound.envelope.overlay_id.clone(),
-                            "session_id": inbound.envelope.session_id.clone(),
-                            "thread_id": inbound.envelope.thread_id.clone(),
-                            "call_id": inbound.envelope.call_id.clone(),
-                            "origin_actor": inbound.envelope.origin_actor.clone(),
-                            "source_refs": inbound.envelope.source_refs.clone(),
-                            "sources": inbound.envelope.sources.clone(),
-                            "citations": inbound.envelope.citations.clone(),
-                        }),
-                    );
-                    return Ok(WriterQueueAck {
-                        message_id: inbound.envelope.message_id,
-                        accepted: true,
-                        duplicate: false,
-                        queue_len: state.inbox_queue.len(),
-                        revision: applied_revision,
-                    });
-                }
-                WriterSource::Writer | WriterSource::Conductor => {
-                    Self::report_progress(
-                        state,
-                        inbound.envelope.run_id.clone(),
-                        inbound.envelope.section_id.clone(),
-                        inbound.envelope.source,
-                        inbound.envelope.kind.clone(),
-                        inbound.envelope.content.clone(),
-                        Self::source_reference_strings(&inbound.envelope),
-                    )
-                    .await?
-                }
-                WriterSource::User => {
-                    // unreachable by guard above
-                    0
-                }
-            };
-
-            Self::remember_message_id(state, &inbound.envelope.message_id);
-            Self::emit_event(
-                state,
-                "writer.actor.inbox.applied_direct",
-                serde_json::json!({
-                    "run_id": inbound.envelope.run_id.clone(),
-                    "section_id": inbound.envelope.section_id.clone(),
-                    "source": inbound.envelope.source.as_str(),
-                    "kind": inbound.envelope.kind.clone(),
-                    "message_id": inbound.envelope.message_id.clone(),
-                    "queue_len": state.inbox_queue.len(),
-                    "revision": revision,
-                    "correlation_id": inbound.envelope.correlation_id.clone(),
-                    "base_version_id": inbound.envelope.base_version_id,
-                    "overlay_id": inbound.envelope.overlay_id.clone(),
-                    "session_id": inbound.envelope.session_id.clone(),
-                    "thread_id": inbound.envelope.thread_id.clone(),
-                    "call_id": inbound.envelope.call_id.clone(),
-                    "origin_actor": inbound.envelope.origin_actor.clone(),
-                    "source_refs": inbound.envelope.source_refs.clone(),
-                    "sources": inbound.envelope.sources.clone(),
-                    "citations": inbound.envelope.citations.clone(),
-                }),
-            );
-
-            return Ok(WriterQueueAck {
-                message_id: inbound.envelope.message_id,
-                accepted: true,
-                duplicate: false,
-                queue_len: state.inbox_queue.len(),
-                revision,
-            });
-        }
-
-        let base_version_id = inbound.envelope.base_version_id.ok_or_else(|| {
-            WriterError::Validation("base_version_id is required for user prompt".to_string())
-        })?;
-        let prompt_diff = inbound.envelope.prompt_diff.clone().ok_or_else(|| {
-            WriterError::Validation("prompt_diff is required for user prompt".to_string())
-        })?;
-        if prompt_diff.is_empty() {
-            return Err(WriterError::Validation(
-                "prompt_diff cannot be empty for user prompt".to_string(),
-            ));
-        }
-
-        let run_doc = Self::resolve_run_document_mut(state, &inbound.envelope.run_id)?;
-        let overlay = run_doc
-            .create_overlay(
-                &inbound.envelope.run_id,
-                base_version_id,
-                OverlayAuthor::User,
-                OverlayKind::Proposal,
-                prompt_diff,
-            )
-            .await
-            .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
-        inbound.envelope.overlay_id = Some(overlay.overlay_id);
-        let initial_revision = run_doc.revision();
-
+        let revision = Self::resolve_run_document(state, &inbound.envelope.run_id)?.revision();
         Self::remember_message_id(state, &inbound.envelope.message_id);
         state.inbox_queue.push_back(inbound.clone());
         Self::emit_event(
@@ -1100,7 +1143,7 @@ impl WriterActor {
                 "kind": inbound.envelope.kind.clone(),
                 "message_id": inbound.envelope.message_id.clone(),
                 "queue_len": state.inbox_queue.len(),
-                "revision": initial_revision,
+                "revision": revision,
                 "correlation_id": inbound.envelope.correlation_id.clone(),
                 "base_version_id": inbound.envelope.base_version_id,
                 "overlay_id": inbound.envelope.overlay_id.clone(),
@@ -1123,7 +1166,7 @@ impl WriterActor {
             accepted: true,
             duplicate: false,
             queue_len: state.inbox_queue.len(),
-            revision: initial_revision,
+            revision,
         })
     }
 
@@ -1131,52 +1174,59 @@ impl WriterActor {
         if state.inbox_processing {
             return;
         }
-
-        let Some(inbound) = state.inbox_queue.pop_front() else {
-            return;
-        };
         state.inbox_processing = true;
 
-        if inbound.envelope.source == WriterSource::User {
-            let delegation = Self::dispatch_user_prompt_delegation(myself, state, &inbound).await;
-            match delegation {
-                Ok(context) => {
+        while let Some(inbound) = state.inbox_queue.pop_front() {
+            match Self::apply_inbound_message(state, &inbound).await {
+                Ok(outcome) => {
                     Self::emit_event(
                         state,
-                        "writer.actor.inbox.user_prompt_dispatched",
+                        "writer.actor.inbox.applied",
                         serde_json::json!({
                             "run_id": inbound.envelope.run_id.clone(),
+                            "section_id": inbound.envelope.section_id.clone(),
+                            "source": inbound.envelope.source.as_str(),
+                            "kind": inbound.envelope.kind.clone(),
                             "message_id": inbound.envelope.message_id.clone(),
+                            "queue_len": state.inbox_queue.len(),
+                            "revision": outcome.revision,
                             "correlation_id": inbound.envelope.correlation_id.clone(),
-                            "dispatch_context": context,
+                            "base_version_id": outcome.base_version_id,
+                            "target_version_id": outcome.target_version_id,
+                            "overlay_id": outcome.overlay_id.or_else(|| inbound.envelope.overlay_id.clone()),
+                            "session_id": inbound.envelope.session_id.clone(),
+                            "thread_id": inbound.envelope.thread_id.clone(),
+                            "call_id": inbound.envelope.call_id.clone(),
+                            "origin_actor": inbound.envelope.origin_actor.clone(),
+                            "source_refs": inbound.envelope.source_refs.clone(),
+                            "sources": inbound.envelope.sources.clone(),
+                            "citations": inbound.envelope.citations.clone(),
                         }),
                     );
                 }
                 Err(error) => {
                     Self::emit_event(
                         state,
-                        "writer.actor.inbox.delegation_failed",
+                        "writer.actor.inbox.apply_failed",
                         serde_json::json!({
                             "run_id": inbound.envelope.run_id.clone(),
                             "section_id": inbound.envelope.section_id.clone(),
+                            "source": inbound.envelope.source.as_str(),
+                            "kind": inbound.envelope.kind.clone(),
                             "message_id": inbound.envelope.message_id.clone(),
+                            "queue_len": state.inbox_queue.len(),
                             "correlation_id": inbound.envelope.correlation_id.clone(),
+                            "base_version_id": inbound.envelope.base_version_id,
+                            "overlay_id": inbound.envelope.overlay_id.clone(),
+                            "session_id": inbound.envelope.session_id.clone(),
+                            "thread_id": inbound.envelope.thread_id.clone(),
+                            "call_id": inbound.envelope.call_id.clone(),
+                            "origin_actor": inbound.envelope.origin_actor.clone(),
                             "error": error.to_string(),
                         }),
                     );
                 }
             }
-        } else {
-            Self::emit_event(
-                state,
-                "writer.actor.inbox.ignored_non_user_item",
-                serde_json::json!({
-                    "run_id": inbound.envelope.run_id.clone(),
-                    "section_id": inbound.envelope.section_id.clone(),
-                    "message_id": inbound.envelope.message_id.clone(),
-                    "source": inbound.envelope.source.as_str(),
-                }),
-            );
         }
 
         state.inbox_processing = false;
@@ -1429,130 +1479,12 @@ impl WriterActor {
         Self::enqueue_inbound(myself, state, WriterInboxMessage { envelope }).await
     }
 
-    fn build_delegation_objective(inbound: &WriterInboxMessage) -> String {
-        let prompt_payload = if let Some(diff_ops) = inbound.envelope.prompt_diff.as_ref() {
-            serde_json::to_string_pretty(diff_ops)
-                .unwrap_or_else(|_| inbound.envelope.content.clone())
-        } else {
-            inbound.envelope.content.clone()
-        };
-
-        format!(
-            "Determine whether Writer should delegate before revising this run document.\n\
-             Delegate only if additional execution is required.\n\
-             Use message_writer tool with one or both of:\n\
-             - mode: \"delegate_researcher\" for facts, links, verification, or web research\n\
-             - mode: \"delegate_terminal\" for repository inspection, architecture/codebase research, shell commands, or local execution\n\
-             If the objective needs both local codebase evidence and external/web evidence, call both modes in the same run.\n\
-             For research-oriented objectives delegated to terminal, prefer writing findings in docs; only ask for source-code edits when the objective explicitly requests implementation.\n\
-             In both cases, set content to a concise objective for the delegated worker.\n\
-             Tool discipline (strict): never call web_search/fetch_url/bash/file tools in this planner; only message_writer + finished are valid.\n\
-             If no delegation is needed, call `finished` and explain why in message.\n\
-             \n\
-             Run ID: {}\n\
-             Inbox Message ID: {}\n\
-             Prompt Payload:\n{}",
-            inbound.envelope.run_id, inbound.envelope.message_id, prompt_payload
-        )
-    }
-
-    fn extract_prompt_text_from_diff_ops(diff_ops: &[shared_types::PatchOp]) -> String {
-        let mut fragments = Vec::new();
-        for op in diff_ops {
-            match op {
-                shared_types::PatchOp::Insert { text, .. }
-                | shared_types::PatchOp::Replace { text, .. } => {
-                    if !text.trim().is_empty() {
-                        fragments.push(text.trim().to_string());
-                    }
-                }
-                shared_types::PatchOp::Delete { .. } | shared_types::PatchOp::Retain { .. } => {}
-            }
-        }
-        fragments.join("\n")
-    }
-
-    fn extract_user_prompt_text(inbound: &WriterInboxMessage) -> String {
-        let prompt_text = inbound
-            .envelope
-            .prompt_diff
-            .as_ref()
-            .map(|ops| Self::extract_prompt_text_from_diff_ops(ops))
-            .unwrap_or_default();
-        if prompt_text.trim().is_empty() {
-            inbound.envelope.content.clone()
-        } else {
-            prompt_text
-        }
-    }
-
-    fn forced_delegate_capabilities(prompt_text: &str) -> Vec<WriterDelegateCapability> {
-        let lower = prompt_text.to_ascii_lowercase();
-        let mut capabilities = Vec::new();
-        if lower.contains("delegate_researcher") {
-            capabilities.push(WriterDelegateCapability::Researcher);
-        }
-        if lower.contains("delegate_terminal") {
-            capabilities.push(WriterDelegateCapability::Terminal);
-        }
-        capabilities
-    }
-
-    fn strip_forced_delegate_tokens(prompt_text: &str) -> String {
-        let filtered = prompt_text
-            .split_whitespace()
-            .filter(|raw| {
-                let normalized = raw
-                    .trim_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
-                    .to_ascii_lowercase();
-                normalized != "delegate_researcher" && normalized != "delegate_terminal"
-            })
-            .collect::<Vec<_>>();
-        filtered.join(" ").trim().to_string()
-    }
-
-    fn capability_name(capability: WriterDelegateCapability) -> &'static str {
-        match capability {
-            WriterDelegateCapability::Researcher => "researcher",
-            WriterDelegateCapability::Terminal => "terminal",
-        }
-    }
-
     fn extract_capability_from_tool_output(output: &str) -> Option<String> {
         let value: serde_json::Value = serde_json::from_str(output).ok()?;
         value
             .get("capability")
             .and_then(|v| v.as_str())
             .map(|v| v.to_string())
-    }
-
-    fn summarize_delegation_calls(tool_executions: &[ToolExecution]) -> String {
-        let mut lines = Vec::new();
-        for execution in tool_executions
-            .iter()
-            .filter(|exec| exec.tool_name == "message_writer")
-        {
-            let capability = Self::extract_capability_from_tool_output(&execution.output)
-                .unwrap_or_else(|| "unknown".to_string());
-            let summary = serde_json::from_str::<serde_json::Value>(&execution.output)
-                .ok()
-                .and_then(|value| {
-                    value
-                        .get("summary")
-                        .and_then(|summary| summary.as_str())
-                        .map(|s| s.to_string())
-                })
-                .unwrap_or_else(|| execution.output.clone());
-            lines.push(format!(
-                "- capability={capability} success={} summary={summary}",
-                execution.success
-            ));
-        }
-        if lines.is_empty() {
-            "none".to_string()
-        } else {
-            lines.join("\n")
-        }
     }
 
     fn delegated_capabilities_from_tool_executions(
@@ -1572,222 +1504,6 @@ impl WriterActor {
             }
         }
         ordered
-    }
-
-    fn delegation_section_for_result(tool_executions: &[ToolExecution]) -> String {
-        for execution in tool_executions
-            .iter()
-            .filter(|exec| exec.tool_name == "message_writer" && exec.success)
-        {
-            if let Some(capability) = Self::extract_capability_from_tool_output(&execution.output) {
-                return capability;
-            }
-        }
-        "conductor".to_string()
-    }
-
-    async fn dispatch_user_prompt_delegation(
-        myself: &ActorRef<WriterMsg>,
-        state: &WriterState,
-        inbound: &WriterInboxMessage,
-    ) -> Result<String, WriterError> {
-        let prompt_text = Self::extract_user_prompt_text(inbound);
-        let forced_capabilities = Self::forced_delegate_capabilities(&prompt_text);
-        if !forced_capabilities.is_empty() {
-            let writer_actor = myself.clone();
-            let objective = {
-                let stripped = Self::strip_forced_delegate_tokens(&prompt_text);
-                if stripped.trim().is_empty() {
-                    prompt_text.clone()
-                } else {
-                    stripped
-                }
-            };
-
-            let mut dispatch_summaries = Vec::new();
-            for capability in forced_capabilities {
-                let forced_call_id = format!(
-                    "writer-forced-delegation:{}:{}",
-                    Self::capability_name(capability),
-                    ulid::Ulid::new()
-                );
-                let result = dispatch_delegate_capability(
-                    &state.writer_id,
-                    &state.user_id,
-                    &writer_actor,
-                    state.researcher_supervisor.clone(),
-                    state.terminal_supervisor.clone(),
-                    capability,
-                    objective.clone(),
-                    Some(180_000),
-                    Some(100),
-                    Some(inbound.envelope.run_id.clone()),
-                    Some(forced_call_id.clone()),
-                )?;
-                dispatch_summaries.push(format!(
-                    "- capability={} call_id={} summary={}",
-                    Self::capability_name(capability),
-                    forced_call_id,
-                    result.summary
-                ));
-            }
-
-            let completion_envelope = WriterInboundEnvelope {
-                message_id: format!(
-                    "{}:writer:forced_delegation:{}",
-                    inbound.envelope.run_id,
-                    ulid::Ulid::new()
-                ),
-                correlation_id: inbound.envelope.correlation_id.clone(),
-                kind: "delegation_forced_dispatch".to_string(),
-                run_id: inbound.envelope.run_id.clone(),
-                section_id: "conductor".to_string(),
-                source: WriterSource::Writer,
-                content: format!(
-                    "> [writer] forced delegation from prompt directive\n{}\n",
-                    dispatch_summaries.join("\n")
-                ),
-                source_refs: Vec::new(),
-                sources: Vec::new(),
-                citations: Vec::new(),
-                base_version_id: None,
-                prompt_diff: None,
-                overlay_id: None,
-                session_id: inbound.envelope.session_id.clone(),
-                thread_id: inbound.envelope.thread_id.clone(),
-                call_id: None,
-                origin_actor: Some("writer".to_string()),
-            };
-            let _ = writer_actor.send_message(WriterMsg::EnqueueInboundAsync {
-                envelope: completion_envelope,
-            });
-
-            return Ok(
-                "Applied deterministic forced delegation from explicit prompt directive."
-                    .to_string(),
-            );
-        }
-
-        let delegation_call_id = format!("writer-delegation:{}", ulid::Ulid::new());
-        let objective = Self::build_delegation_objective(inbound);
-        let writer_actor = myself.clone();
-        let seed_envelope = inbound.envelope.clone();
-        let writer_id = state.writer_id.clone();
-        let user_id = state.user_id.clone();
-        let event_store = state.event_store.clone();
-        let model_registry = state.model_registry.clone();
-        let adapter = WriterDelegationAdapter::new(
-            writer_id.clone(),
-            user_id.clone(),
-            event_store.clone(),
-            writer_actor.clone(),
-            state.researcher_supervisor.clone(),
-            state.terminal_supervisor.clone(),
-        );
-        let trace_emitter = LlmTraceEmitter::new(event_store.clone());
-        let harness = AgentHarness::with_config(
-            adapter,
-            model_registry,
-            HarnessConfig {
-                timeout_budget_ms: 180_000,
-                // Delegation planning should be quick; worker execution handles depth.
-                max_steps: 2,
-                emit_progress: true,
-                emit_worker_report: true,
-            },
-            trace_emitter,
-        );
-
-        Self::emit_event(
-            state,
-            "writer.actor.delegation_harness.dispatched",
-            serde_json::json!({
-                "run_id": seed_envelope.run_id.clone(),
-                "message_id": seed_envelope.message_id.clone(),
-                "correlation_id": seed_envelope.correlation_id.clone(),
-                "delegation_call_id": delegation_call_id.clone(),
-            }),
-        );
-
-        tokio::spawn(async move {
-            let harness_result = harness
-                .run(
-                    format!("{writer_id}:{delegation_call_id}"),
-                    user_id,
-                    objective.clone(),
-                    None,
-                    None,
-                    Some(seed_envelope.run_id.clone()),
-                    Some(delegation_call_id.clone()),
-                )
-                .await;
-
-            let (summary, status, tool_executions, success, should_enqueue) = match harness_result {
-                Ok(result) => {
-                    let tool_executions = result.tool_executions.clone();
-                    let should_enqueue = tool_executions
-                        .iter()
-                        .any(|exec| exec.tool_name == "message_writer");
-                    (
-                        result.summary,
-                        result.objective_status,
-                        tool_executions,
-                        result.success,
-                        should_enqueue,
-                    )
-                }
-                Err(error) => (
-                    format!("Writer delegation harness failed: {error}"),
-                    ObjectiveStatus::Blocked,
-                    Vec::new(),
-                    false,
-                    true,
-                ),
-            };
-
-            if !should_enqueue {
-                return;
-            }
-
-            let completion_message = format!(
-                "> [writer] delegation_harness_completed ({delegation_call_id})\n\
-                 Objective: {objective}\n\
-                 Success: {success}\n\
-                 Status: {status:?}\n\
-                 Summary: {summary}\n\
-                 Delegation Calls:\n{}\n",
-                Self::summarize_delegation_calls(&tool_executions)
-            );
-            let section_id = Self::delegation_section_for_result(&tool_executions);
-            let completion_envelope = WriterInboundEnvelope {
-                message_id: format!(
-                    "{}:writer:delegation_harness_completion:{}",
-                    seed_envelope.run_id.clone(),
-                    delegation_call_id
-                ),
-                correlation_id: seed_envelope.correlation_id.clone(),
-                kind: "delegation_harness_completion".to_string(),
-                run_id: seed_envelope.run_id.clone(),
-                section_id,
-                source: WriterSource::Writer,
-                content: completion_message,
-                source_refs: Vec::new(),
-                sources: Vec::new(),
-                citations: Vec::new(),
-                base_version_id: None,
-                prompt_diff: None,
-                overlay_id: None,
-                session_id: seed_envelope.session_id.clone(),
-                thread_id: seed_envelope.thread_id.clone(),
-                call_id: Some(delegation_call_id),
-                origin_actor: Some("writer".to_string()),
-            };
-            let _ = writer_actor.send_message(WriterMsg::EnqueueInboundAsync {
-                envelope: completion_envelope,
-            });
-        });
-
-        Ok("Delegation harness dispatched asynchronously.".to_string())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1813,7 +1529,7 @@ impl WriterActor {
             .map(ToString::to_string)
             .unwrap_or_else(|| format!("writer-orchestrate:{}", ulid::Ulid::new()));
         let delegation_objective = format!(
-            "Determine whether Writer should delegate workers before producing a revision-ready synthesis context.\n\
+            "Determine whether Writer should delegate workers before emitting document diffs.\n\
              Delegate only when the objective needs external verification or local execution.\n\
              Use message_writer with:\n\
              - mode \"delegate_researcher\" for external research, verification, or citations\n\
@@ -2225,7 +1941,7 @@ impl WriterActor {
         }
     }
 
-    /// 3.2: Emit citation.confirmed or citation.rejected events based on synthesis success.
+    /// 3.2: Emit citation.confirmed or citation.rejected events based on delegation success.
     /// Called when a delegated worker (researcher/terminal) completes with proposed citation IDs.
     fn emit_citation_confirmation_events(
         state: &WriterState,
@@ -2301,32 +2017,6 @@ impl WriterActor {
                 },
             });
         }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn delegate_task(
-        myself: &ActorRef<WriterMsg>,
-        state: &WriterState,
-        capability: WriterDelegateCapability,
-        objective: String,
-        timeout_ms: Option<u64>,
-        max_steps: Option<u8>,
-        run_id: Option<String>,
-        call_id: Option<String>,
-    ) -> Result<WriterDelegateResult, WriterError> {
-        dispatch_delegate_capability(
-            &state.writer_id,
-            &state.user_id,
-            myself,
-            state.researcher_supervisor.clone(),
-            state.terminal_supervisor.clone(),
-            capability,
-            objective,
-            timeout_ms,
-            max_steps,
-            run_id,
-            call_id,
-        )
     }
 }
 

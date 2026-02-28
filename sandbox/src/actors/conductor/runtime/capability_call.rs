@@ -3,7 +3,7 @@ use ractor::{Actor, ActorProcessingErr, ActorRef};
 
 use crate::actors::conductor::model_gateway::SharedConductorModelGateway;
 use crate::actors::conductor::protocol::{CapabilityWorkerOutput, ConductorError, ConductorMsg};
-use crate::actors::writer::{SectionState, WriterInboundEnvelope, WriterMsg, WriterSource};
+use crate::actors::writer::{SectionState, WriterMsg, WriterSource};
 
 #[derive(Debug, Default)]
 pub(crate) struct CapabilityCallActor;
@@ -273,31 +273,13 @@ async fn emit_result_to_writer(
         return;
     }
 
-    let message_id = format!(
-        "worker:{}:{}:{}:{}",
-        state.run_id, state.call_id, kind, capability
-    );
-    let envelope = WriterInboundEnvelope {
-        message_id,
-        correlation_id: state.call_id.clone(),
-        kind: kind.to_string(),
+    let _ = ractor::call!(writer_actor, |reply| WriterMsg::ReportProgress {
         run_id: state.run_id.clone(),
         section_id,
         source,
-        content,
+        phase: kind.to_string(),
+        message: content,
         source_refs: Vec::new(),
-        sources: Vec::new(),
-        citations: Vec::new(),
-        base_version_id: None,
-        prompt_diff: None,
-        overlay_id: None,
-        session_id: None,
-        thread_id: None,
-        call_id: Some(state.call_id.clone()),
-        origin_actor: Some("capability_call".to_string()),
-    };
-    let _ = ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
-        envelope,
-        reply
+        reply,
     });
 }

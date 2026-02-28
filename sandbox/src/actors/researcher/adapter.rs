@@ -29,7 +29,8 @@ use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::actors::model_config::ModelRegistry;
 use crate::actors::writer::SectionState;
 use crate::actors::writer::{
-    WriterInboundEnvelope, WriterMessageCitation, WriterMessageSource, WriterMsg, WriterSource,
+    WriterInboundEnvelope, WriterMessageCitation, WriterMessageSource, WriterMessageSourceKind,
+    WriterMsg, WriterSource,
 };
 use crate::baml_client::types::{
     MessageWriterToolCall,
@@ -251,6 +252,199 @@ impl ResearcherAdapter {
             phase: "observed_sources".to_string(),
             message: format!("Observed {refs_count} candidate sources"),
             source_refs,
+            reply,
+        })
+        .map_err(|e| format!("WriterActor call failed: {e}"))?
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn url_domain_label(url: &str) -> Option<String> {
+        let trimmed = url.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        let without_scheme = trimmed
+            .strip_prefix("https://")
+            .or_else(|| trimmed.strip_prefix("http://"))
+            .unwrap_or(trimmed);
+        let host = without_scheme.split('/').next().unwrap_or("").trim();
+        if host.is_empty() {
+            None
+        } else {
+            Some(host.to_string())
+        }
+    }
+
+    fn summarize_research_scan(
+        query: &str,
+        citations: &[super::ResearchCitation],
+    ) -> Option<String> {
+        if citations.is_empty() {
+            return None;
+        }
+
+        let mut seen_domains = HashSet::new();
+        let mut domains = Vec::new();
+        for citation in citations {
+            if let Some(domain) = Self::url_domain_label(&citation.url) {
+                if seen_domains.insert(domain.clone()) {
+                    domains.push(domain);
+                }
+            }
+            if domains.len() >= 4 {
+                break;
+            }
+        }
+        let category_line = if domains.is_empty() {
+            "Categories in scope: general coverage".to_string()
+        } else {
+            format!("Categories in scope: {}", domains.join(", "))
+        };
+
+        let mut highlights = Vec::new();
+        for citation in citations.iter().take(5) {
+            let title = citation.title.trim();
+            if title.is_empty() {
+                continue;
+            }
+            highlights.push(format!("- {} ({})", title, citation.provider));
+        }
+        if highlights.is_empty() {
+            return None;
+        }
+
+        Some(format!(
+            "Research pulse for \"{}\": {} sources discovered.\n{}\nConcepts/signals:\n{}",
+            query.trim(),
+            citations.len(),
+            category_line,
+            highlights.join("\n")
+        ))
+    }
+
+    fn build_writer_metadata_from_citations(
+        citations: &[super::ResearchCitation],
+    ) -> (Vec<WriterMessageSource>, Vec<WriterMessageCitation>) {
+        let mut sources = Vec::new();
+        let mut source_citations = Vec::new();
+
+        for citation in citations.iter().take(8) {
+            let source_id = if citation.id.trim().is_empty() {
+                format!("src-{}", ulid::Ulid::new())
+            } else {
+                citation.id.clone()
+            };
+            let title = citation.title.trim();
+            let snippet = citation.snippet.trim();
+
+            sources.push(WriterMessageSource {
+                id: source_id.clone(),
+                kind: WriterMessageSourceKind::Web,
+                provider: Some(citation.provider.clone()),
+                url: Some(citation.url.clone()),
+                path: None,
+                title: if title.is_empty() {
+                    None
+                } else {
+                    Some(title.to_string())
+                },
+                publisher: None,
+                published_at: citation.published_at.clone(),
+                line_start: None,
+                line_end: None,
+            });
+
+            source_citations.push(WriterMessageCitation {
+                source_id: source_id.clone(),
+                anchor: Some(format!("[^{source_id}]")),
+            });
+
+            if !snippet.is_empty() && sources.len() < 8 {
+                let snippet_id = format!("{source_id}:snippet");
+                sources.push(WriterMessageSource {
+                    id: snippet_id.clone(),
+                    kind: WriterMessageSourceKind::Other,
+                    provider: Some(citation.provider.clone()),
+                    url: Some(citation.url.clone()),
+                    path: None,
+                    title: Some(format!("Snippet: {}", title)),
+                    publisher: None,
+                    published_at: citation.published_at.clone(),
+                    line_start: None,
+                    line_end: None,
+                });
+                source_citations.push(WriterMessageCitation {
+                    source_id: snippet_id.clone(),
+                    anchor: Some(format!("[^{snippet_id}]")),
+                });
+            }
+        }
+
+        (sources, source_citations)
+    }
+
+    async fn enqueue_writer_diff(
+        &self,
+        kind: &str,
+        section_id: &str,
+        content: String,
+        sources: Vec<WriterMessageSource>,
+        citations: Vec<WriterMessageCitation>,
+    ) -> Result<(), String> {
+        if content.trim().is_empty() {
+            return Ok(());
+        }
+        let Some((writer_actor, run_id)) = self.writer_context() else {
+            return Ok(());
+        };
+
+        let mut source_refs = Vec::new();
+        for source in &sources {
+            if let Some(url) = source
+                .url
+                .as_ref()
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty())
+            {
+                if !source_refs.iter().any(|existing| existing == url) {
+                    source_refs.push(url.to_string());
+                }
+            }
+            if let Some(path) = source
+                .path
+                .as_ref()
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty())
+            {
+                if !source_refs.iter().any(|existing| existing == path) {
+                    source_refs.push(path.to_string());
+                }
+            }
+        }
+
+        let envelope = WriterInboundEnvelope {
+            message_id: format!("{run_id}:researcher:auto:{kind}:{}", ulid::Ulid::new()),
+            correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
+            kind: kind.to_string(),
+            run_id,
+            section_id: section_id.to_string(),
+            source: WriterSource::Researcher,
+            content,
+            source_refs,
+            sources,
+            citations,
+            base_version_id: None,
+            prompt_diff: None,
+            overlay_id: None,
+            session_id: None,
+            thread_id: None,
+            call_id: None,
+            origin_actor: Some(self.state.researcher_id.clone()),
+        };
+
+        ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
+            envelope,
             reply,
         })
         .map_err(|e| format!("WriterActor call failed: {e}"))?
@@ -834,6 +1028,21 @@ Guidelines:
                 let _ = self
                     .emit_observed_sources_progress("researcher".to_string(), observed_source_refs)
                     .await;
+                if !citations.is_empty() {
+                    let (sources, source_citations) =
+                        Self::build_writer_metadata_from_citations(&citations);
+                    if let Some(content) = Self::summarize_research_scan(&query, &citations) {
+                        let _ = self
+                            .enqueue_writer_diff(
+                                "researcher_auto_search_pulse",
+                                "researcher",
+                                content,
+                                sources,
+                                source_citations,
+                            )
+                            .await;
+                    }
+                }
                 let success = !citations.is_empty();
                 let output = serde_json::json!({
                     "citations": citations,
@@ -895,6 +1104,63 @@ Guidelines:
                                 .collect();
                             let _ = self
                                 .emit_observed_sources_progress("researcher".to_string(), refs)
+                                .await;
+
+                            let source_id = format!("fetch-{}", ulid::Ulid::new());
+                            let mut excerpt_lines = Vec::new();
+                            for line in result.content_excerpt.lines() {
+                                let trimmed = line.trim();
+                                if trimmed.is_empty() {
+                                    continue;
+                                }
+                                excerpt_lines.push(trimmed.to_string());
+                                if excerpt_lines.len() >= 4 {
+                                    break;
+                                }
+                            }
+                            let concepts = if excerpt_lines.is_empty() {
+                                "- (content extracted, awaiting deeper synthesis)".to_string()
+                            } else {
+                                excerpt_lines
+                                    .iter()
+                                    .map(|line| format!("- {line}"))
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            };
+                            let content = format!(
+                                "Fetched source: {}\nStatus: {} {}\nEmerging concepts:\n{}",
+                                result.final_url,
+                                result.status_code,
+                                result
+                                    .content_type
+                                    .as_deref()
+                                    .unwrap_or("unknown content type"),
+                                concepts
+                            );
+                            let sources = vec![WriterMessageSource {
+                                id: source_id.clone(),
+                                kind: WriterMessageSourceKind::Web,
+                                provider: Some("fetch_url".to_string()),
+                                url: Some(result.final_url.clone()),
+                                path: None,
+                                title: Some(result.url.clone()),
+                                publisher: None,
+                                published_at: None,
+                                line_start: None,
+                                line_end: None,
+                            }];
+                            let citations = vec![WriterMessageCitation {
+                                source_id: source_id.clone(),
+                                anchor: Some(format!("[^{source_id}]")),
+                            }];
+                            let _ = self
+                                .enqueue_writer_diff(
+                                    "researcher_auto_fetch_pulse",
+                                    "researcher",
+                                    content,
+                                    sources,
+                                    citations,
+                                )
                                 .await;
                         }
                         let elapsed = start_time.elapsed().as_millis() as u64;

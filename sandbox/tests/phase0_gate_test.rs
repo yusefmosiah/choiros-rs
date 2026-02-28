@@ -7,11 +7,8 @@
 //!    mutable state leaks across actor instances.
 //!
 //! 2. Writer delegation tool-contract regression — `WriterDelegationAdapter`
-//!    exposes exactly `["message_writer", "finished"]` and
-//!    `WriterSynthesisAdapter` exposes exactly `["finished"]` via their
-//!    `WorkerPort::allowed_tool_names()` implementation. This is a structural
-//!    test that prevents silent regression of the contract enforcement added
-//!    in the seam-closure branch.
+//!    exposes exactly `["message_writer", "finished"]` and the removed
+//!    `WriterSynthesisAdapter` does not reappear.
 //!
 //! 3. Async worker completion event ordering — after a writer actor receives
 //!    an inbound message and processes it, the event store must contain a
@@ -255,18 +252,17 @@ async fn test_concurrent_writer_run_isolation() {
 // Test 2: Writer delegation tool-contract regression
 // ============================================================================
 
-/// Structurally verify the allow-lists for WriterDelegationAdapter and
-/// WriterSynthesisAdapter by spawning a WriterActor and calling
-/// OrchestrateObjective with a trivial objective — but the real assertion is
-/// structural: the adapter source code declares specific allow-lists that the
-/// harness enforces. We assert these via the public API surface.
+/// Structurally verify Writer adapter contracts without relying on live model
+/// calls:
+/// - WriterDelegationAdapter allow-list is unchanged.
+/// - WriterSynthesisAdapter remains removed.
 ///
 /// This test verifies the contract at the source level rather than relying on
 /// a live model call. The allow-lists are the single source of truth.
 ///
-/// Expected contracts (from seam-closure spec):
+/// Expected contracts (writer diffusion rewrite):
 ///   WriterDelegationAdapter : ["message_writer", "finished"]
-///   WriterSynthesisAdapter  : ["finished"]
+///   WriterSynthesisAdapter  : removed
 #[test]
 fn test_writer_tool_contract_allow_lists_match_spec() {
     // The adapter source constants are the ground truth. We verify them by
@@ -285,16 +281,9 @@ fn test_writer_tool_contract_allow_lists_match_spec() {
          Search for `allowed_tool_names` in sandbox/src/actors/writer/adapter.rs."
     );
 
-    // WriterSynthesisAdapter must declare exactly this allow-list.
-    // The delegation adapter's occurrence above already matched one Some(&[...]).
-    // We count occurrences to ensure BOTH adapters are accounted for.
-    let synthesis_pattern = r#"Some(&["finished"])"#;
-    let synthesis_count = adapter_src.matches(synthesis_pattern).count();
     assert!(
-        synthesis_count >= 1,
-        "WriterSynthesisAdapter::allowed_tool_names() must return \
-         Some(&[\"finished\"]) — contract regression detected.\n\
-         Search for `allowed_tool_names` in sandbox/src/actors/writer/adapter.rs."
+        !adapter_src.contains("WriterSynthesisAdapter"),
+        "WriterSynthesisAdapter is removed in diffusion architecture and must not reappear"
     );
 
     // The delegation adapter's allow-list must NOT include bash, web_search,
@@ -302,12 +291,7 @@ fn test_writer_tool_contract_allow_lists_match_spec() {
     let delegation_section_start = adapter_src
         .find("impl WorkerPort for WriterDelegationAdapter")
         .expect("WriterDelegationAdapter WorkerPort impl must exist");
-    let synthesis_section_start = adapter_src
-        .find("impl WorkerPort for WriterSynthesisAdapter")
-        .expect("WriterSynthesisAdapter WorkerPort impl must exist");
-
-    // The delegation section is from its impl start to the synthesis impl start.
-    let delegation_section = &adapter_src[delegation_section_start..synthesis_section_start];
+    let delegation_section = &adapter_src[delegation_section_start..];
 
     for forbidden in &["bash", "web_search", "file_read", "file_write", "file_edit"] {
         // Only check inside the allowed_tool_names fn body, not the execute_tool_call match.
@@ -367,12 +351,11 @@ fn test_writer_message_source_includes_provider_field() {
 /// After a writer actor enqueues an inbound Conductor-source message, the
 /// event store must contain a `writer.actor.inbox.enqueued` event with the
 /// correct message_id, and events must appear in causal order:
-///   1. writer.actor.apply_text  (proposal write — synchronous in enqueue_inbound)
-///   2. writer.actor.inbox.enqueued (telemetry emitted after proposal is applied)
+///   1. writer.actor.inbox.enqueued
+///   2. writer.actor.inbox.applied
 ///
-/// This ordering is by design: the initial content write precedes the
-/// telemetry event that records the enqueue. This test asserts the real
-/// contract rather than assuming a different ordering.
+/// In diffusion mode, enqueue is async and never applies content inline.
+/// Processing happens later via ProcessInbox.
 ///
 /// Uses a Conductor-source message (no LLM synthesis triggered) so the causal
 /// chain is deterministic and does not require live model calls.
@@ -444,19 +427,12 @@ async fn test_writer_inbox_events_causal_ordering() {
 
     let event_types: Vec<&str> = events.iter().map(|e| e.event_type.as_str()).collect();
 
-    // Must contain either the legacy enqueued event or the direct-apply event.
+    // Must contain writer.actor.inbox.enqueued.
     let enqueued_pos = event_types
         .iter()
         .position(|t| *t == "writer.actor.inbox.enqueued")
-        .or_else(|| {
-            event_types
-                .iter()
-                .position(|t| *t == "writer.actor.inbox.applied_direct")
-        })
         .unwrap_or_else(|| {
-            panic!(
-                "missing writer.actor.inbox.enqueued/applied_direct; got event types: {event_types:?}"
-            )
+            panic!("missing writer.actor.inbox.enqueued; got event types: {event_types:?}")
         });
 
     // The envelope event should carry the correct message_id when present.
@@ -470,30 +446,44 @@ async fn test_writer_inbox_events_causal_ordering() {
     }
 
     let enqueued_seq = events[enqueued_pos].seq;
-
-    // The initial apply_text (the proposal write) must come BEFORE inbox.enqueued,
-    // since apply_text is called synchronously during EnqueueInbound before the
-    // enqueued telemetry event is emitted. This reflects the actual write ordering:
-    //   1. apply_text (proposal write) ← synchronous within enqueue_inbound
-    //   2. inbox.enqueued              ← telemetry emitted after proposal is applied
-    //
-    // Any subsequent apply_text calls (from inbox processing) must come AFTER.
-    let apply_events: Vec<_> = events
+    let applied_event = events
         .iter()
-        .filter(|e| e.event_type == "writer.actor.apply_text")
-        .collect();
+        .find(|event| {
+            event.event_type == "writer.actor.inbox.applied"
+                && event
+                    .payload
+                    .get("message_id")
+                    .and_then(|value| value.as_str())
+                    == Some(msg_id.as_str())
+        })
+        .unwrap_or_else(|| panic!("missing writer.actor.inbox.applied for message_id={msg_id}"));
+    assert!(
+        enqueued_seq < applied_event.seq,
+        "writer.actor.inbox.enqueued must be emitted before writer.actor.inbox.applied"
+    );
+    assert!(
+        applied_event
+            .payload
+            .get("overlay_id")
+            .map(|value| value.is_null())
+            .unwrap_or(true),
+        "auto-accepted diffusion updates should not require proposal overlay approval"
+    );
 
-    // There must be at least one apply_text event (the initial proposal write).
-    // If present, the first one should be ≤ enqueued_seq (same batch or just before),
-    // confirming the write happened before the telemetry event.
-    if !apply_events.is_empty() {
-        let first_apply_seq = apply_events[0].seq;
-        assert!(
-            first_apply_seq <= enqueued_seq,
-            "first apply_text (seq={first_apply_seq}) should come at or before \
-             inbox.enqueued (seq={enqueued_seq}) — proposal write must precede telemetry"
-        );
-    }
+    // apply_text should also happen after enqueue in the async inbox model.
+    let apply_text_seq = events
+        .iter()
+        .find(|event| {
+            event.event_type == "writer.actor.apply_text"
+                && event.payload.get("run_id").and_then(|value| value.as_str())
+                    == Some(run_id.as_str())
+        })
+        .map(|event| event.seq)
+        .expect("expected writer.actor.apply_text event for run");
+    assert!(
+        enqueued_seq < apply_text_seq,
+        "writer.actor.apply_text must occur after writer.actor.inbox.enqueued in async inbox mode"
+    );
 
     // Cleanup
     writer.stop(None);

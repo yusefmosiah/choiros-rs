@@ -2,6 +2,8 @@ import { defineConfig } from "@playwright/test";
 
 const hypervisorBaseUrl =
   process.env.PLAYWRIGHT_HYPERVISOR_BASE_URL ?? "http://localhost:9090";
+const sandboxBaseUrl =
+  process.env.PLAYWRIGHT_SANDBOX_BASE_URL ?? "http://localhost:3000";
 
 export default defineConfig({
   testDir: ".",
@@ -47,7 +49,7 @@ export default defineConfig({
         "weather-delegation.e2e.spec.ts",
       ],
       use: {
-        baseURL: "http://127.0.0.1:3000",
+        baseURL: sandboxBaseUrl,
         trace: "on",
         video: "on",
         screenshot: "only-on-failure",

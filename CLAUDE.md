@@ -114,6 +114,59 @@ just docker-run      # Run Docker container
 
 # Deployment
 just deploy-ec2      # Deploy to EC2 instance
+
+# Nix/Flake builds (canonical for host deploys)
+nix build ./sandbox#sandbox
+nix build ./hypervisor#hypervisor
+nix build ./dioxus-desktop#desktop
+```
+
+## Nix + EC2 Operations (Current)
+
+### Active Hosts
+
+- Grind host: `choiros-nixos-grind-01` (`i-02d54052ca6dd4b39`)
+- Prod host: `choiros-nixos-prod-01` (`i-0cb76dd46cb699be6`)
+- Canonical host workspace path: `/opt/choiros/workspace`
+
+### Build Path Rules
+
+- For deployment/runtime binaries, use flake builds only:
+  - `nix build ./sandbox#sandbox`
+  - `nix build ./hypervisor#hypervisor`
+  - `nix build ./dioxus-desktop#desktop`
+- `cargo build` is for local development loops only, not deployment artifacts.
+- If cacheability matters, do not build from a dirty git tree.
+- Before host deploy builds, ensure `git status --short` is clean.
+
+### Cache Rules (FlakeHub)
+
+- FlakeHub cache pulls only work for exact matching derivation hashes.
+- Local uncommitted changes change source hashes and often miss cache hits.
+- Host Nix must include FlakeHub substituter + trusted keys in `nix.settings`.
+- If auth is configured via secrets, keep token material in `sops-nix` rendered files under
+  `/run/secrets/rendered/*` or configured `netrc` path; do not commit plaintext tokens.
+
+### Host Converge Flow
+
+```bash
+# On target host
+cd /opt/choiros/workspace
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+
+# Converge host config + services
+sudo nixos-rebuild switch
+```
+
+### Post-Switch Verification
+
+```bash
+systemctl is-active caddy hypervisor container@sandbox-live container@sandbox-dev
+curl -fsS http://127.0.0.1:9090/login
+curl -fsS http://127.0.0.1:8080/health
+curl -fsS http://127.0.0.1:8081/health
 ```
 
 ## Code Style Guidelines
@@ -234,6 +287,8 @@ Primary rule:
 - Raw Playwright is the canonical E2E harness for ChoirOS.
 - `agent-browser` is for fast exploratory debugging and repro steps, not canonical regression
   coverage.
+- For full E2E regression runs (multi-spec/suite runs), default to video recording for every
+  test; do not disable video unless explicitly requested.
 
 Why:
 - Raw Playwright gives deterministic specs, assertions, retries, CI-friendly exit codes,
@@ -247,6 +302,11 @@ Raw Playwright workflow (canonical):
 cd tests/playwright
 npx playwright test --config=playwright.config.ts
 ```
+
+Full-suite default:
+- Keep `video: "on"` in Playwright project `use` settings for full E2E runs.
+- Preserve output under gitignored artifact paths (`tests/artifacts/playwright/**` and
+  `tests/playwright/test-results/**`).
 
 Expected artifacts (gitignored):
 - `tests/artifacts/playwright/test-results/**/trace.zip`

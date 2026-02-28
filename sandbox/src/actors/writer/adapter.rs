@@ -161,7 +161,7 @@ impl WriterDelegationAdapter {
             ctx.run_id.clone(),
             ctx.call_id.clone(),
         )
-        .map_err(|e| HarnessError::Adapter(format!("Writer DelegateTask failed: {e}")))?;
+        .map_err(|e| HarnessError::Adapter(format!("Writer delegation dispatch failed: {e}")))?;
 
         let capability_name = match delegate_result.capability {
             WriterDelegateCapability::Researcher => "researcher",
@@ -290,131 +290,6 @@ Important:
     ) -> Result<(), HarnessError> {
         self.emit_event(
             "writer.delegation.progress",
-            serde_json::json!({
-                "loop_id": ctx.loop_id,
-                "run_id": ctx.run_id,
-                "call_id": ctx.call_id,
-                "phase": progress.phase,
-                "message": progress.message,
-                "step_index": progress.step_index,
-                "step_total": progress.step_total,
-                "model_used": progress.model_used,
-            }),
-        );
-        Ok(())
-    }
-}
-
-pub(crate) struct WriterSynthesisAdapter {
-    writer_id: String,
-    user_id: String,
-    event_store: ActorRef<EventStoreMsg>,
-}
-
-impl WriterSynthesisAdapter {
-    pub(crate) fn new(
-        writer_id: String,
-        user_id: String,
-        event_store: ActorRef<EventStoreMsg>,
-    ) -> Self {
-        Self {
-            writer_id,
-            user_id,
-            event_store,
-        }
-    }
-
-    fn emit_event(&self, event_type: &str, payload: serde_json::Value) {
-        let event = AppendEvent {
-            event_type: event_type.to_string(),
-            payload,
-            actor_id: self.writer_id.clone(),
-            user_id: self.user_id.clone(),
-        };
-        let _ = self
-            .event_store
-            .send_message(EventStoreMsg::AppendAsync { event });
-    }
-}
-
-#[async_trait]
-impl WorkerPort for WriterSynthesisAdapter {
-    fn get_model_role(&self) -> &str {
-        "writer"
-    }
-
-    fn get_tool_description(&self) -> String {
-        "No work tools are available in this synthesis step. Produce final markdown in message, then call `finished`."
-            .to_string()
-    }
-
-    fn allowed_tool_names(&self) -> Option<&'static [&'static str]> {
-        Some(&["finished"])
-    }
-
-    fn get_system_context(&self, ctx: &ExecutionContext) -> String {
-        format!(
-            "You are WriterActor synthesis mode.\n\
-             Produce the revised markdown body directly in your final message.\n\
-             Content contract:\n\
-             - output revised document content only\n\
-             - never output process/progress/planning/meta narration\n\
-             - never output lines like 'producing draft', 'gathering evidence', or similar status text\n\
-             - do not wrap content in actor/message metadata\n\
-             - do not include markdown title '# ...' (title is handled by document objective)\n\
-             - if uncertain, return best-effort revised content instead of status text\n\
-             Do not call work tools.\n\
-             Completion requires a `finished` tool call in the final decision.\n\
-             \n\
-             Run ID: {:?}\n\
-             Call ID: {:?}\n\
-             Writer ID: {}",
-            ctx.run_id, ctx.call_id, self.writer_id
-        )
-    }
-
-    async fn execute_tool_call(
-        &self,
-        _ctx: &ExecutionContext,
-        tool_call: &AgentToolCall,
-    ) -> Result<ToolExecution, HarnessError> {
-        Ok(ToolExecution {
-            tool_name: tool_call_name(tool_call).to_string(),
-            success: false,
-            output: String::new(),
-            error: Some("No tools available for writer synthesis".to_string()),
-            execution_time_ms: 0,
-        })
-    }
-
-    fn should_defer(&self, _tool_name: &str) -> bool {
-        false
-    }
-
-    async fn emit_worker_report(
-        &self,
-        ctx: &ExecutionContext,
-        report: WorkerTurnReport,
-    ) -> Result<(), HarnessError> {
-        self.emit_event(
-            "writer.synthesis.worker_report",
-            serde_json::json!({
-                "loop_id": ctx.loop_id,
-                "run_id": ctx.run_id,
-                "call_id": ctx.call_id,
-                "report": report,
-            }),
-        );
-        Ok(())
-    }
-
-    async fn emit_progress(
-        &self,
-        ctx: &ExecutionContext,
-        progress: AgentProgress,
-    ) -> Result<(), HarnessError> {
-        self.emit_event(
-            "writer.synthesis.progress",
             serde_json::json!({
                 "loop_id": ctx.loop_id,
                 "run_id": ctx.run_id,

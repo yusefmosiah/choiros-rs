@@ -287,6 +287,8 @@ Primary rule:
 - Raw Playwright is the canonical E2E harness for ChoirOS.
 - `agent-browser` is for fast exploratory debugging and repro steps, not canonical regression
   coverage.
+- For full E2E regression runs (multi-spec/suite runs), default to video recording for every
+  test; do not disable video unless explicitly requested.
 
 Why:
 - Raw Playwright gives deterministic specs, assertions, retries, CI-friendly exit codes,
@@ -300,6 +302,11 @@ Raw Playwright workflow (canonical):
 cd tests/playwright
 npx playwright test --config=playwright.config.ts
 ```
+
+Full-suite default:
+- Keep `video: "on"` in Playwright project `use` settings for full E2E runs.
+- Preserve output under gitignored artifact paths (`tests/artifacts/playwright/**` and
+  `tests/playwright/test-results/**`).
 
 Expected artifacts (gitignored):
 - `tests/artifacts/playwright/test-results/**/trace.zip`

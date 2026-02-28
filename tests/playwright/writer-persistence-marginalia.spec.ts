@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { ensureAuthenticated } from "./auth.helpers";
 
 const BACKEND = "http://127.0.0.1:8080";
 const DESKTOP_ID = "default-desktop";
@@ -214,6 +215,7 @@ test("writer run docs persist across reload and across repeated playwright runs"
   page,
   request,
 }) => {
+  await ensureAuthenticated(page);
   const previousState = await loadPreviousState();
 
   const marker = Date.now();

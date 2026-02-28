@@ -37,10 +37,12 @@ data/
 
 # Playwright artifacts
 tests/artifacts/playwright/
+tests/artifacts/playwright/**/*.webm
 playwright-report/
 test-results/
 tests/playwright/playwright-report/
 tests/playwright/test-results/
+tests/playwright/test-results/**/*.webm
 tests/playwright/tests/artifacts/
 tests/playwright/artifacts/
 tests/screenshots/
