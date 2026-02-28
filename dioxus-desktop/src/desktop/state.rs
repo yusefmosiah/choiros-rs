@@ -83,7 +83,10 @@ fn merge_source_refs(run: &mut ActiveWriterRun, incoming: &[String], prioritize:
         if trimmed.is_empty() {
             continue;
         }
-        if !normalized.iter().any(|existing: &String| existing == trimmed) {
+        if !normalized
+            .iter()
+            .any(|existing: &String| existing == trimmed)
+        {
             normalized.push(trimmed.to_string());
         }
     }
@@ -155,9 +158,9 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
                 objective: Some(objective.clone()),
                 phase: None,
                 message: None,
-            progress_pct: None,
-            source_refs: Vec::new(),
-            proposal: None,
+                progress_pct: None,
+                source_refs: Vec::new(),
+                proposal: None,
                 pending_patches: Vec::new(),
                 last_applied_revision: 0,
                 recent_changesets: Vec::new(),
@@ -341,8 +344,7 @@ pub fn apply_ws_event(
         }
         WsEvent::WindowOpened(window) => {
             if let Some(state) = desktop_state.write().as_mut() {
-                state.windows.retain(|w| w.id != window.id);
-                state.windows.push(window);
+                push_window_and_activate(state, window);
             }
         }
         WsEvent::WindowClosed(window_id) => {
@@ -370,11 +372,12 @@ pub fn apply_ws_event(
                 }
             }
         }
-        WsEvent::WindowFocused(window_id) => {
+        WsEvent::WindowFocused { window_id, z_index } => {
             if let Some(state) = desktop_state.write().as_mut() {
                 state.active_window = Some(window_id.clone());
                 if let Some(window) = state.windows.iter_mut().find(|w| w.id == window_id) {
                     window.minimized = false;
+                    window.z_index = z_index;
                 }
             }
         }

@@ -14,11 +14,12 @@ use super::graph::{
     display_actor_label, graph_node_color, graph_status_color, run_status_class,
 };
 use super::parsers::{
-    group_traces, parse_conductor_delegation_event,
-    parse_conductor_run_event, parse_prompt_event, parse_tool_trace_event, parse_trace_event,
-    parse_worker_lifecycle_event, parse_writer_enqueue_event, pretty_json,
+    group_traces, parse_conductor_delegation_event, parse_conductor_run_event, parse_prompt_event,
+    parse_tool_trace_event, parse_trace_event, parse_worker_lifecycle_event,
+    parse_writer_enqueue_event, pretty_json,
 };
 use super::styles::TRACE_VIEW_STYLES;
+use super::trajectory::TrajectoryGrid;
 use super::trajectory::{
     build_delegation_timeline_bands, build_loop_groups_for_actor, build_run_sparkline,
     build_trajectory_cells,
@@ -30,7 +31,6 @@ use super::types::{
     TRACE_SLOW_DURATION_MS,
 };
 use super::ws::{build_trace_ws_url, TraceRuntime, TraceWsEvent};
-use super::trajectory::TrajectoryGrid;
 
 use super::super::styles::CHAT_STYLES;
 
@@ -118,7 +118,10 @@ fn lifecycle_detail(event: &WorkerLifecycleEvent) -> String {
         .unwrap_or_else(|| "No details".to_string())
 }
 
-fn worker_summary(task_id: &str, events: &[WorkerLifecycleEvent]) -> (&'static str, Option<String>) {
+fn worker_summary(
+    task_id: &str,
+    events: &[WorkerLifecycleEvent],
+) -> (&'static str, Option<String>) {
     let mut task_events: Vec<&WorkerLifecycleEvent> = events
         .iter()
         .filter(|event| event.task_id == task_id)
@@ -361,8 +364,7 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                 ws_runtime.set(None);
                             }
                             TraceWsEvent::Message(text) => {
-                                let Ok(json) =
-                                    serde_json::from_str::<serde_json::Value>(&text)
+                                let Ok(json) = serde_json::from_str::<serde_json::Value>(&text)
                                 else {
                                     continue;
                                 };
@@ -413,9 +415,7 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
 
                                         since_seq.set(since_seq().max(logs_event.seq));
 
-                                        if let Some(trace_event) =
-                                            parse_trace_event(&logs_event)
-                                        {
+                                        if let Some(trace_event) = parse_trace_event(&logs_event) {
                                             let mut list = trace_events.write();
                                             list.push(trace_event);
                                             list.sort_by_key(|event| event.seq);
@@ -426,8 +426,7 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                                             }
                                         }
 
-                                        if let Some(prompt_event) =
-                                            parse_prompt_event(&logs_event)
+                                        if let Some(prompt_event) = parse_prompt_event(&logs_event)
                                         {
                                             let mut list = prompt_events.write();
                                             list.push(prompt_event);
@@ -537,9 +536,11 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
             let closing = Rc::new(Cell::new(false));
 
             let queue_open = ws_event_queue.clone();
-            let on_open = wasm_bindgen::closure::Closure::wrap(Box::new(move |_e: web_sys::Event| {
-                queue_open.borrow_mut().push_back(TraceWsEvent::Connected);
-            }) as Box<dyn FnMut(web_sys::Event)>);
+            let on_open =
+                wasm_bindgen::closure::Closure::wrap(Box::new(move |_e: web_sys::Event| {
+                    queue_open.borrow_mut().push_back(TraceWsEvent::Connected);
+                })
+                    as Box<dyn FnMut(web_sys::Event)>);
             ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
 
             let queue_message = ws_event_queue.clone();
@@ -552,7 +553,8 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                     queue_message
                         .borrow_mut()
                         .push_back(TraceWsEvent::Message(text_string));
-                }) as Box<dyn FnMut(web_sys::MessageEvent)>);
+                })
+                    as Box<dyn FnMut(web_sys::MessageEvent)>);
             ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
 
             let queue_error = ws_event_queue.clone();
@@ -561,7 +563,8 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                     queue_error
                         .borrow_mut()
                         .push_back(TraceWsEvent::Error(e.message()));
-                }) as Box<dyn FnMut(web_sys::ErrorEvent)>);
+                })
+                    as Box<dyn FnMut(web_sys::ErrorEvent)>);
             ws.set_onerror(Some(on_error.as_ref().unchecked_ref()));
 
             let queue_close = ws_event_queue.clone();
@@ -572,7 +575,8 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
                         return;
                     }
                     queue_close.borrow_mut().push_back(TraceWsEvent::Closed);
-                }) as Box<dyn FnMut(web_sys::CloseEvent)>);
+                })
+                    as Box<dyn FnMut(web_sys::CloseEvent)>);
             ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
 
             ws_runtime.set(Some(TraceRuntime {
@@ -705,9 +709,7 @@ pub fn TraceView(desktop_id: String, window_id: String) -> Element {
         .or_else(|| actor_nodes.first().and_then(|node| node.actor_key.clone()));
     let loop_groups = active_actor_key
         .as_deref()
-        .map(|actor_key| {
-            build_loop_groups_for_actor(actor_key, &traces_for_run, &tools_for_run)
-        })
+        .map(|actor_key| build_loop_groups_for_actor(actor_key, &traces_for_run, &tools_for_run))
         .unwrap_or_default();
     let active_actor_label = active_actor_key
         .as_deref()

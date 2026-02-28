@@ -307,6 +307,9 @@ Full-suite default:
 - Keep `video: "on"` in Playwright project `use` settings for full E2E runs.
 - Preserve output under gitignored artifact paths (`tests/artifacts/playwright/**` and
   `tests/playwright/test-results/**`).
+- Browser-origin requirement: run E2E/browser tests on `localhost` origins, not `127.0.0.1`.
+  WebAuthn auth flows require a valid domain and can fail on `127.0.0.1` with
+  `SecurityError: This is an invalid domain.`
 
 Expected artifacts (gitignored):
 - `tests/artifacts/playwright/test-results/**/trace.zip`
@@ -326,11 +329,11 @@ Expected artifacts (gitignored):
 **Example E2E Test Flow:**
 ```bash
 # 1. Start services (in separate terminals or tmux)
-just dev-sandbox    # Backend on port 8080
-just dev-ui         # Frontend on port 3000
+just local-build-ui
+just dev-all
 
 # 2. Run E2E test with agent-browser
-agent-browser open http://localhost:3000
+agent-browser open http://localhost:9090
 agent-browser screenshot tests/screenshots/initial.png
 agent-browser snapshot -i
 # Use refs from snapshot to interact
@@ -339,6 +342,10 @@ agent-browser fill @e2 "test message"
 agent-browser click @e3
 agent-browser wait --text "AI response"
 agent-browser screenshot tests/screenshots/result.png
+
+# 3. Run Playwright with localhost base URL (do not use 127.0.0.1)
+cd tests/playwright
+PLAYWRIGHT_SANDBOX_BASE_URL=http://localhost:9090 npx playwright test --project=sandbox
 ```
 
 ## Testing Guidelines

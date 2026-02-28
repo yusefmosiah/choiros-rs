@@ -38,6 +38,7 @@ export default defineConfig({
       testMatch: [
         "conductor-writer.e2e.spec.ts",
         "conductor-immediate-response.e2e.spec.ts",
+        "prompt-bar-writer-focus.e2e.spec.ts",
         "phase1-marginalia.spec.ts",
         "phase3-citations.spec.ts",
         "phase4-subharness.spec.ts",

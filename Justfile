@@ -31,6 +31,12 @@ dev-all:
 dev-all-foreground:
     ./scripts/dev-cutover.sh start-all-fg
 
+# Canonical local startup helper (build UI release assets, then start cutover stack)
+dev:
+    @echo "Building UI (release) then starting full cutover stack..."
+    @just local-build-ui
+    @just dev-all
+
 dev-status:
     ./scripts/dev-cutover.sh status
 
@@ -54,10 +60,6 @@ build-ui-release:
 dev-full: local-build-ui
     cargo build -p sandbox
     cd hypervisor && FRONTEND_DIST="$(pwd)/../dioxus-desktop/target/dx/dioxus-desktop/release/web/public" SQLX_OFFLINE=true HYPERVISOR_DATABASE_URL="sqlite:../data/hypervisor.db" cargo run
-
-# Run Dioxus frontend development server (port 3000)
-dev-ui:
-    cd dioxus-desktop && dx serve --port 3000 --addr 0.0.0.0
 
 # Stop/kill running development processes
 stop:

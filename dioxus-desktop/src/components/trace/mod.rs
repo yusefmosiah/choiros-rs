@@ -12,9 +12,7 @@ pub use view::TraceView;
 mod tests {
     use super::parsers::pair_tool_events;
     use super::trajectory::{bucket_trajectory_cells, build_trajectory_cells};
-    use super::types::{
-        ToolTraceEvent, TraceEvent, TraceGroup, TrajectoryCell, TrajectoryStatus,
-    };
+    use super::types::{ToolTraceEvent, TraceEvent, TraceGroup, TrajectoryCell, TrajectoryStatus};
 
     fn make_trace(seq: i64, run_id: &str, trace_id: &str, status: &str) -> TraceGroup {
         let started = TraceEvent {

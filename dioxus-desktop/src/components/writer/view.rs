@@ -534,7 +534,6 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                         }
                     }
                 }
-
             } else {
                 if active_run_id_for_effect.read().is_some() {
                     active_run_id_for_effect.set(None);
@@ -828,11 +827,7 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
                                     .set(version_response.version.source.clone());
                                 let mut refs =
                                     version_response.version.selected_source_refs.clone();
-                                for value in version_response
-                                    .version
-                                    .observed_source_refs
-                                    .clone()
-                                {
+                                for value in version_response.version.observed_source_refs.clone() {
                                     if !refs.iter().any(|existing| existing == &value) {
                                         refs.push(value);
                                     }
@@ -1044,7 +1039,12 @@ pub fn WriterView(desktop_id: String, window_id: String, initial_path: String) -
     };
     let current_pending_inbox = current_run_state
         .as_ref()
-        .map(|r| r.pending_patches.iter().filter(|patch| !patch.applied).count())
+        .map(|r| {
+            r.pending_patches
+                .iter()
+                .filter(|patch| !patch.applied)
+                .count()
+        })
         .unwrap_or(0usize);
 
     let mut current_notes = Vec::<MarginNote>::new();

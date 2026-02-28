@@ -36,7 +36,10 @@ pub enum WsEvent {
         width: i32,
         height: i32,
     },
-    WindowFocused(String),
+    WindowFocused {
+        window_id: String,
+        z_index: u32,
+    },
     WindowMinimized(String),
     WindowMaximized {
         window_id: String,
@@ -185,10 +188,19 @@ pub fn parse_ws_message(payload: &str) -> Option<WsEvent> {
                 None
             }
         }
-        "window_focused" => json
-            .get("window_id")
-            .and_then(|v| v.as_str())
-            .map(|window_id| WsEvent::WindowFocused(window_id.to_string())),
+        "window_focused" => {
+            if let (Some(window_id), Some(z_index)) = (
+                json.get("window_id").and_then(|v| v.as_str()),
+                json.get("z_index").and_then(|v| v.as_u64()),
+            ) {
+                Some(WsEvent::WindowFocused {
+                    window_id: window_id.to_string(),
+                    z_index: z_index as u32,
+                })
+            } else {
+                None
+            }
+        }
         "window_minimized" => json
             .get("window_id")
             .and_then(|v| v.as_str())

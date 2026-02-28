@@ -16,8 +16,8 @@ pub mod passkey;
 use dioxus::prelude::*;
 use gloo_net::http::Request;
 use serde::Deserialize;
-use wasm_bindgen::JsValue;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::JsValue;
 
 // ── Auth state ────────────────────────────────────────────────────────────────
 
@@ -533,9 +533,7 @@ async fn run_register_ceremony(
         .to_string();
 
     let start_res = Request::post("/auth/register/start")
-        .json(
-            &serde_json::json!({ "username": email.clone(), "display_name": display_name }),
-        )
+        .json(&serde_json::json!({ "username": email.clone(), "display_name": display_name }))
         .unwrap()
         .send()
         .await;
