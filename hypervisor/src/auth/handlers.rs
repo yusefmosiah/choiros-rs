@@ -461,9 +461,18 @@ fn serve_index_html() -> axum::response::Response {
     let index_path = format!("{dist}/index.html");
 
     match std::fs::read_to_string(&index_path) {
-        Ok(html) => axum::response::Html(html).into_response(),
+        Ok(html) => axum::response::Html(normalize_bootstrap_asset_paths(html)).into_response(),
         Err(_) => axum::response::Html(BIOS_SHELL).into_response(),
     }
+}
+
+fn normalize_bootstrap_asset_paths(mut html: String) -> String {
+    // Some dx builds emit "/./assets/..." and "/./wasm/..." URLs.
+    // These bypass public-bootstrap path checks and can be proxied into sandbox
+    // by mistake during auth bootstrap.
+    html = html.replace("/./assets/", "/assets/");
+    html = html.replace("/./wasm/", "/wasm/");
+    html
 }
 
 /// BIOS shell — handles /login, /register, /recovery client-side.

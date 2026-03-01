@@ -1,34 +1,20 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SandboxRuntime {
-    Process,
-}
-
-impl SandboxRuntime {
-    fn from_env(value: &str) -> anyhow::Result<Self> {
-        match value {
-            "process" => Ok(Self::Process),
-            other => Err(anyhow::anyhow!(
-                "Invalid SANDBOX_RUNTIME '{other}'. Expected 'process'"
-            )),
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Config {
     /// Port the hypervisor listens on
     pub port: u16,
-    /// Path to the sandbox binary
-    pub sandbox_binary: String,
-    /// Runtime backend for sandbox lifecycle.
-    pub sandbox_runtime: SandboxRuntime,
+    /// Control command for vfkit backend lifecycle operations.
+    pub sandbox_vfkit_ctl: String,
     /// Port the live sandbox listens on (hypervisor assigns this)
     pub sandbox_live_port: u16,
     /// Port the dev sandbox listens on
     pub sandbox_dev_port: u16,
+    /// Inclusive start of dynamic branch runtime port range.
+    pub sandbox_branch_port_start: u16,
+    /// Inclusive end of dynamic branch runtime port range.
+    pub sandbox_branch_port_end: u16,
     /// How long a sandbox can be idle before it is shut down
     pub sandbox_idle_timeout: Duration,
     /// Path to the hypervisor SQLite database
@@ -58,29 +44,22 @@ impl Config {
         let provider_gateway_base_url = std::env::var("CHOIR_PROVIDER_GATEWAY_BASE_URL")
             .ok()
             .or_else(|| Some(format!("http://127.0.0.1:{port}")));
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+        let default_vfkit_ctl = workspace_root
+            .join("target/debug/vfkit-runtime-ctl")
+            .to_string_lossy()
+            .to_string();
 
-        Ok(Self {
+        let cfg = Self {
             port,
-            sandbox_binary: {
-                // Default: workspace root /target/debug/sandbox (resolved at compile time).
-                // The hypervisor may be launched from any directory, so use an absolute path.
-                // Override with SANDBOX_BINARY env var.
-                if let Ok(v) = std::env::var("SANDBOX_BINARY") {
-                    v
-                } else {
-                    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                        .parent()
-                        .map(|p| p.to_path_buf())
-                        .unwrap_or_else(|| PathBuf::from("."));
-                    workspace_root
-                        .join("target/debug/sandbox")
-                        .to_string_lossy()
-                        .to_string()
-                }
-            },
-            sandbox_runtime: SandboxRuntime::from_env(&env_str("SANDBOX_RUNTIME", "process"))?,
+            sandbox_vfkit_ctl: env_str("SANDBOX_VFKIT_CTL", &default_vfkit_ctl),
             sandbox_live_port: env_parse("SANDBOX_LIVE_PORT", 8080)?,
             sandbox_dev_port: env_parse("SANDBOX_DEV_PORT", 8081)?,
+            sandbox_branch_port_start: env_parse("SANDBOX_BRANCH_PORT_START", 12000)?,
+            sandbox_branch_port_end: env_parse("SANDBOX_BRANCH_PORT_END", 12999)?,
             sandbox_idle_timeout: Duration::from_secs(env_parse(
                 "SANDBOX_IDLE_TIMEOUT_SECS",
                 1800,
@@ -106,7 +85,23 @@ impl Config {
                 "CHOIR_PROVIDER_GATEWAY_RATE_LIMIT_PER_MINUTE",
                 120,
             )?,
-        })
+        };
+
+        if cfg.sandbox_branch_port_start > cfg.sandbox_branch_port_end {
+            return Err(anyhow::anyhow!(
+                "Invalid branch port range: SANDBOX_BRANCH_PORT_START ({}) > SANDBOX_BRANCH_PORT_END ({})",
+                cfg.sandbox_branch_port_start,
+                cfg.sandbox_branch_port_end
+            ));
+        }
+
+        if cfg.sandbox_vfkit_ctl.trim().is_empty() {
+            return Err(anyhow::anyhow!(
+                "SANDBOX_VFKIT_CTL must be set to a vfkit runtime control command"
+            ));
+        }
+
+        Ok(cfg)
     }
 }
 

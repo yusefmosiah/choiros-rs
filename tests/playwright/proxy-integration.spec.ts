@@ -2,14 +2,13 @@
  * Proxy integration E2E tests.
  *
  * Verifies that after authentication the hypervisor auto-spawns the sandbox
- * process and proxies requests to it correctly.
+ * runtime and proxies requests to it correctly.
  *
  * Requires:
  *   - Hypervisor running on port 9090 (`just dev-hypervisor` or `just dev-full`)
- *   - Sandbox binary built at workspace root `target/debug/sandbox`
- *     (`cargo build -p sandbox`)
+ *   - vfkit runtime control configured (default: `target/debug/vfkit-runtime-ctl`)
  *
- * The sandbox is NOT pre-started — these tests verify the auto-spawn path.
+ * The runtime is NOT pre-started — these tests verify the auto-start path.
  */
 
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";

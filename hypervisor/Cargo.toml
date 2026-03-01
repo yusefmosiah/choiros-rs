@@ -41,6 +41,7 @@ sqlx = { workspace = true }
 argon2 = "0.5"
 rand = "0.9"
 hex = "0.4"
+sha1 = "0.10"
 base64 = "0.22"
 url = "2"
 time = "0.3"

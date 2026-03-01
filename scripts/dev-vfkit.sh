@@ -2,12 +2,12 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SESSION_NAME="choiros-cutover"
-LOG_DIR="${HOME}/.local/share/choiros/cutover/logs"
+SESSION_NAME="choiros-vfkit"
+LOG_DIR="${HOME}/.local/share/choiros/vfkit/logs"
 
 FRONTEND_DIST="${ROOT_DIR}/dioxus-desktop/target/dx/dioxus-desktop/release/web/public"
-SANDBOX_CMD="cd ${ROOT_DIR}/sandbox && FRONTEND_DIST='${FRONTEND_DIST}' DATABASE_URL='sqlite:../data/events.db' SQLX_OFFLINE=true CARGO_INCREMENTAL=0 cargo run"
-HYPERVISOR_CMD="cd ${ROOT_DIR}/hypervisor && FRONTEND_DIST='${FRONTEND_DIST}' SQLX_OFFLINE=true HYPERVISOR_DATABASE_URL='sqlite:../data/hypervisor.db' cargo run"
+VFKIT_CTL="${ROOT_DIR}/target/debug/vfkit-runtime-ctl"
+HYPERVISOR_CMD="cd ${ROOT_DIR}/hypervisor && FRONTEND_DIST='${FRONTEND_DIST}' SQLX_OFFLINE=true HYPERVISOR_DATABASE_URL='sqlite:../data/hypervisor.db' SANDBOX_VFKIT_CTL='${VFKIT_CTL}' cargo run --bin hypervisor"
 
 mkdir -p "$LOG_DIR"
 
@@ -23,7 +23,7 @@ has_window() {
 ensure_session() {
   if ! has_session; then
     tmux new-session -d -s "$SESSION_NAME" -n shell -c "$ROOT_DIR"
-    tmux send-keys -t "$SESSION_NAME:shell" "echo 'choiros cutover session ready'" C-m
+    tmux send-keys -t "$SESSION_NAME:shell" "echo 'choiros vfkit session ready'" C-m
   fi
 }
 
@@ -31,6 +31,20 @@ ensure_ui_dist() {
   if [[ ! -d "$FRONTEND_DIST" ]]; then
     echo "UI dist missing at $FRONTEND_DIST"
     echo "Run: just local-build-ui"
+    exit 1
+  fi
+}
+
+ensure_vfkit_ctl() {
+  if [[ -x "$VFKIT_CTL" ]]; then
+    return
+  fi
+
+  echo "building vfkit runtime control binary..."
+  (cd "$ROOT_DIR" && cargo build -p hypervisor --bin vfkit-runtime-ctl)
+
+  if [[ ! -x "$VFKIT_CTL" ]]; then
+    echo "failed to build vfkit runtime control binary at $VFKIT_CTL"
     exit 1
   fi
 }
@@ -49,26 +63,20 @@ start_window() {
   tmux send-keys -t "$SESSION_NAME:$window" "set -o pipefail; $cmd 2>&1 | tee '$LOG_DIR/$log_file'" C-m
 }
 
-start_runtime() {
-  ensure_session
-  ensure_ui_dist
-  start_window "sandbox" "$SANDBOX_CMD" "sandbox.log"
-}
-
 start_control() {
   ensure_session
   ensure_ui_dist
+  ensure_vfkit_ctl
   start_window "hypervisor" "$HYPERVISOR_CMD" "hypervisor.log"
 }
 
 start_all() {
-  start_runtime
   start_control
 }
 
 start_all_foreground() {
   start_all
-  touch "$LOG_DIR/sandbox.log" "$LOG_DIR/hypervisor.log"
+  touch "$LOG_DIR/hypervisor.log"
 
   cleanup() {
     stop_all
@@ -77,7 +85,7 @@ start_all_foreground() {
 
   echo "streaming logs (Ctrl+C to stop all)"
   set +e
-  tail -n +1 -f "$LOG_DIR/sandbox.log" "$LOG_DIR/hypervisor.log"
+  tail -n +1 -f "$LOG_DIR/hypervisor.log"
   local tail_status=$?
   set -e
   if [[ "$tail_status" -ne 0 && "$tail_status" -ne 130 ]]; then
@@ -90,9 +98,7 @@ stop_all() {
     tmux kill-session -t "$SESSION_NAME"
   fi
 
-  pkill -f "/target/debug/sandbox" 2>/dev/null || true
   pkill -f "/target/debug/hypervisor" 2>/dev/null || true
-  pkill -f "cargo run.*sandbox" 2>/dev/null || true
   pkill -f "cargo run.*hypervisor" 2>/dev/null || true
 }
 
@@ -102,12 +108,6 @@ status() {
     tmux list-windows -t "$SESSION_NAME" -F '  - #W'
   else
     echo "session: $SESSION_NAME (stopped)"
-  fi
-
-  if curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1; then
-    echo "sandbox: healthy (http://127.0.0.1:8080/health)"
-  else
-    echo "sandbox: down"
   fi
 
   if curl -fsS http://127.0.0.1:9090/login >/dev/null 2>&1; then
@@ -132,11 +132,11 @@ usage() {
 Usage: $0 <command>
 
 Commands:
-  start-control   Start control-plane process(es) in tmux
-  start-runtime   Start runtime-plane process(es) in tmux
-  start-all       Start control + runtime planes in tmux
-  start-all-fg    Start control + runtime planes in foreground
-  stop            Stop tmux session and local sandbox/hypervisor processes
+  start-control   Start vfkit control-plane process(es) in tmux
+  start-runtime   Alias of start-control
+  start-all       Start vfkit control plane in tmux
+  start-all-fg    Start vfkit control plane in foreground
+  stop            Stop tmux session and local hypervisor process
   status          Show tmux/process health state
   attach          Attach to tmux session
 USAGE
@@ -147,7 +147,7 @@ case "${1:-}" in
     start_control
     ;;
   start-runtime)
-    start_runtime
+    start_control
     ;;
   start-all)
     start_all

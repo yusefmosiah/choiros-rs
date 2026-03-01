@@ -5,46 +5,93 @@
 default:
     @just --list
 
-# Development commands (local cutover flow)
+# Development commands (vfkit cutover flow)
 # 1) Build static release frontend assets
 local-build-ui:
     cd dioxus-desktop && dx build --release
 
-# 2) Run sandbox API/runtime against the release frontend dist
-local-sandbox:
-    cd sandbox && FRONTEND_DIST="$(pwd)/../dioxus-desktop/target/dx/dioxus-desktop/release/web/public" DATABASE_URL="sqlite:../data/events.db" SQLX_OFFLINE=true CARGO_INCREMENTAL=0 cargo run
+# Build Rust vfkit host control binary.
+build-vfkit-ctl:
+    cargo build -p hypervisor --bin vfkit-runtime-ctl
 
-# 3) Run hypervisor against the same release frontend dist
-local-hypervisor:
-    cd hypervisor && FRONTEND_DIST="$(pwd)/../dioxus-desktop/target/dx/dioxus-desktop/release/web/public" SQLX_OFFLINE=true HYPERVISOR_DATABASE_URL="sqlite:../data/hypervisor.db" cargo run
+# 2) Run hypervisor against release frontend dist with vfkit runtime control.
+local-hypervisor: build-vfkit-ctl
+    cd hypervisor && FRONTEND_DIST="$(pwd)/../dioxus-desktop/target/dx/dioxus-desktop/release/web/public" SQLX_OFFLINE=true HYPERVISOR_DATABASE_URL="sqlite:../data/hypervisor.db" SANDBOX_VFKIT_CTL="$(pwd)/../target/debug/vfkit-runtime-ctl" cargo run --bin hypervisor
 
-# Cutover topology commands (tmux-backed)
+# Cutover topology commands (tmux-backed, vfkit-first)
 dev-control-plane:
-    ./scripts/dev-cutover.sh start-control
+    ./scripts/dev-vfkit.sh start-control
 
 dev-runtime-plane:
-    ./scripts/dev-cutover.sh start-runtime
+    ./scripts/dev-vfkit.sh start-runtime
 
 dev-all:
-    ./scripts/dev-cutover.sh start-all
+    ./scripts/dev-vfkit.sh start-all
 
 dev-all-foreground:
-    ./scripts/dev-cutover.sh start-all-fg
+    ./scripts/dev-vfkit.sh start-all-fg
 
 # Canonical local startup helper (build UI release assets, then start cutover stack)
 dev:
-    @echo "Building UI (release) then starting full cutover stack..."
+    @echo "Building UI (release) then starting vfkit cutover stack..."
     @just local-build-ui
     @just dev-all
 
 dev-status:
-    ./scripts/dev-cutover.sh status
+    ./scripts/dev-vfkit.sh status
+
+# Build the vfkit guest NixOS system derivation with streaming logs.
+vfkit-nixos-build:
+    CHOIR_WORKSPACE_ROOT="$(pwd)" CHOIR_VFKIT_GUEST_STATE_ROOT="$HOME/.local/share/choiros/vfkit/guest" nix build -L --impure "path:$(pwd)#nixosConfigurations.choiros-vfkit-user.config.system.build.toplevel"
+
+# Run vfkit guest in foreground (streams nix build + runner output).
+vfkit-vm-runner USER_ID="public":
+    CHOIR_VFKIT_USER_ID="{{USER_ID}}" CHOIR_WORKSPACE_ROOT="$(pwd)" CHOIR_VFKIT_GUEST_STATE_ROOT="$HOME/.local/share/choiros/vfkit/guest" nix run -L --impure "path:$(pwd)#nixosConfigurations.choiros-vfkit-user.config.microvm.runner.vfkit"
+
+# Rebuild and run vfkit guest with streaming Nix output (explicit alias).
+vfkit-vm-rebuild USER_ID="public":
+    @just vfkit-vm-runner USER_ID="{{USER_ID}}"
+
+# Ensure the vfkit live runtime is running for a given user id (default: public).
+vfkit-runtime-live USER_ID="public":
+    if [ ! -x ./target/debug/vfkit-runtime-ctl ]; then cargo build -p hypervisor --bin vfkit-runtime-ctl; fi
+    ./target/debug/vfkit-runtime-ctl ensure --user-id "{{USER_ID}}" --runtime live --role live --port 8080
+
+# Reset stale vfkit VMs/tunnels/pid files.
+vfkit-reset:
+    ./scripts/ops/vfkit-reset.sh
+
+# Attach to the vfkit guest VM over SSH (auto-discovers guest endpoint).
+vfkit-guest-shell:
+    ./scripts/ops/vfkit-guest-ssh.sh
+
+# Open btop in the vfkit guest VM.
+vfkit-guest-btop:
+    ./scripts/ops/vfkit-guest-ssh.sh -- btop
+
+# Shortcut: open btop in the vfkit guest VM.
+btop:
+    ./scripts/ops/vfkit-guest-ssh.sh -- btop
 
 dev-attach:
-    ./scripts/dev-cutover.sh attach
+    ./scripts/dev-vfkit.sh attach
 
 stop-all:
-    ./scripts/dev-cutover.sh stop
+    ./scripts/dev-vfkit.sh stop
+
+# Local cutover readiness check
+# Run `just cutover-status --probe-builder` for a live aarch64-linux builder build probe.
+cutover-status *ARGS:
+    ./scripts/ops/check-local-cutover-status.sh {{ARGS}}
+
+# Local Linux builder bootstrap (required for local aarch64-linux derivation builds)
+# UTM path: starts named VM, resolves guest IP, bootstraps Nix, wires /etc/nix builder config.
+builder-bootstrap-utm VM:
+    ./scripts/ops/bootstrap-local-linux-builder.sh --utm-vm "{{VM}}"
+
+# Generic SSH path for any Linux VM/host builder.
+builder-bootstrap-ssh HOST PORT USER:
+    ./scripts/ops/bootstrap-local-linux-builder.sh --ssh-host "{{HOST}}" --ssh-port "{{PORT}}" --ssh-user "{{USER}}"
 
 # Build the Dioxus WASM frontend (debug) into target/dx/dioxus-desktop/debug/web/public
 build-ui:
@@ -54,12 +101,9 @@ build-ui:
 build-ui-release:
     cd dioxus-desktop && dx build --release
 
-# Build release UI then run hypervisor — full stack on port 9090
-# Builds the sandbox binary, the Dioxus WASM frontend, then starts the hypervisor.
-# The sandbox serves desktop runtime assets; hypervisor handles auth + proxying.
-dev-full: local-build-ui
-    cargo build -p sandbox
-    cd hypervisor && FRONTEND_DIST="$(pwd)/../dioxus-desktop/target/dx/dioxus-desktop/release/web/public" SQLX_OFFLINE=true HYPERVISOR_DATABASE_URL="sqlite:../data/hypervisor.db" cargo run
+# Build release UI then run hypervisor (vfkit runtime topology) on port 9090.
+dev-full: local-build-ui build-vfkit-ctl
+    cd hypervisor && FRONTEND_DIST="$(pwd)/../dioxus-desktop/target/dx/dioxus-desktop/release/web/public" SQLX_OFFLINE=true HYPERVISOR_DATABASE_URL="sqlite:../data/hypervisor.db" SANDBOX_VFKIT_CTL="$(pwd)/../target/debug/vfkit-runtime-ctl" cargo run --bin hypervisor
 
 # Stop/kill running development processes
 stop:
@@ -91,6 +135,13 @@ test-unit:
 # Run only integration tests (--test '*')
 test-integration:
     cargo test --test '*' --workspace
+
+# Canonical vfkit proof run:
+# 1) Ensure `just dev` is running.
+# 2) Runs single-user cutover proof (live + branch + terminal NixOS evidence) with video artifacts.
+test-e2e-vfkit-proof:
+    if [ "${CHOIR_E2E_VFKIT_RESET:-true}" = "true" ]; then ./scripts/ops/vfkit-reset.sh; fi
+    cd tests/playwright && CHOIR_E2E_EXPECT_NIXOS=1 npx playwright test --config=playwright.config.ts --project=hypervisor vfkit-cutover-proof.spec.ts --workers=1
 
 # Fast, scoped sandbox test runner (avoids broad filtered test sweeps)
 test-sandbox-lib +ARGS:

@@ -23,6 +23,10 @@ export default defineConfig({
       testMatch: [
         "bios-auth.spec.ts",
         "proxy-integration.spec.ts",
+        "branch-proxy-integration.spec.ts",
+        "desktop-app-suite-hypervisor.spec.ts",
+        "vfkit-cutover-proof.spec.ts",
+        "vfkit-terminal-proof.spec.ts",
         "writer-concurrency-hypervisor.spec.ts",
       ],
       use: {

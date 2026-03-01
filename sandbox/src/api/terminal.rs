@@ -42,7 +42,31 @@ pub struct TerminalWsQuery {
 }
 
 fn default_shell() -> String {
-    std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())
+    fn executable_exists(path: &str) -> bool {
+        std::path::Path::new(path).exists()
+    }
+
+    if let Ok(shell) = std::env::var("SHELL") {
+        if !shell.trim().is_empty() && (!shell.contains('/') || executable_exists(shell.as_str())) {
+            return shell;
+        }
+    }
+
+    for candidate in [
+        "/run/current-system/sw/bin/bash",
+        "/bin/bash",
+        "/usr/bin/bash",
+        "/bin/zsh",
+        "/bin/sh",
+        "bash",
+        "sh",
+    ] {
+        if !candidate.contains('/') || executable_exists(candidate) {
+            return candidate.to_string();
+        }
+    }
+
+    "sh".to_string()
 }
 
 fn default_working_dir() -> String {
@@ -90,8 +114,11 @@ async fn handle_terminal_socket(
     let terminal_actor = match ensure_started_terminal(&app_state, terminal_args).await {
         Ok(actor) => actor,
         Err(message) => {
+            tracing::warn!(terminal_id = %terminal_id, error = %message, "terminal startup failed");
             let _ = send_terminal_message(&tx, TerminalWsMessage::Error { message });
-            writer.abort();
+            let _ = tx.send(Message::Close(None));
+            drop(tx);
+            let _ = writer.await;
             return;
         }
     };
@@ -107,7 +134,9 @@ async fn handle_terminal_socket(
                     message: format!("Failed to subscribe to output: {e:?}"),
                 },
             );
-            writer.abort();
+            let _ = tx.send(Message::Close(None));
+            drop(tx);
+            let _ = writer.await;
             return;
         }
     };
@@ -121,7 +150,15 @@ async fn handle_terminal_socket(
     let info = match ractor::call!(terminal_actor, |reply| TerminalMsg::GetInfo { reply }) {
         Ok(info) => info,
         Err(_) => {
-            writer.abort();
+            let _ = send_terminal_message(
+                &tx,
+                TerminalWsMessage::Error {
+                    message: "Failed to get terminal info".to_string(),
+                },
+            );
+            let _ = tx.send(Message::Close(None));
+            drop(tx);
+            let _ = writer.await;
             return;
         }
     };
@@ -179,7 +216,8 @@ async fn handle_terminal_socket(
     }
 
     forward_task.abort();
-    writer.abort();
+    drop(tx);
+    let _ = writer.await;
     tracing::info!(
         terminal_id = %terminal_id,
         session_id = %session_id,

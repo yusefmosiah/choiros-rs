@@ -8,7 +8,11 @@ use axum::{
 };
 use tracing::error;
 
-use crate::{sandbox::SandboxRole, AppState};
+use crate::{
+    runtime_registry::{self, PointerTarget},
+    sandbox::SandboxRole,
+    AppState,
+};
 
 /// GET /admin/sandboxes — list all sandbox statuses
 pub async fn list_sandboxes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -77,6 +81,129 @@ pub async fn swap_sandbox_roles(
         Ok(()) => StatusCode::OK.into_response(),
         Err(e) => {
             error!("swap sandbox roles: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct BranchActionPath {
+    pub user_id: String,
+    pub branch: String,
+}
+
+/// POST /admin/sandboxes/:user_id/branches/:branch/start
+pub async fn start_branch_sandbox(
+    State(state): State<Arc<AppState>>,
+    Path(p): Path<BranchActionPath>,
+) -> impl IntoResponse {
+    match state
+        .sandbox_registry
+        .ensure_branch_running(&p.user_id, &p.branch)
+        .await
+    {
+        Ok(port) => Json(serde_json::json!({ "status": "running", "port": port })).into_response(),
+        Err(e) => {
+            error!("start branch sandbox: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+/// POST /admin/sandboxes/:user_id/branches/:branch/stop
+pub async fn stop_branch_sandbox(
+    State(state): State<Arc<AppState>>,
+    Path(p): Path<BranchActionPath>,
+) -> impl IntoResponse {
+    match state
+        .sandbox_registry
+        .stop_branch(&p.user_id, &p.branch)
+        .await
+    {
+        Ok(()) => StatusCode::OK.into_response(),
+        Err(e) => {
+            error!("stop branch sandbox: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct SetPointerRequest {
+    pub pointer_name: String,
+    pub target_kind: String,
+    pub target_value: String,
+}
+
+/// GET /admin/sandboxes/:user_id/pointers
+pub async fn list_route_pointers(
+    State(state): State<Arc<AppState>>,
+    Path(user_id): Path<String>,
+) -> impl IntoResponse {
+    match runtime_registry::list_route_pointers(&state.db, &user_id).await {
+        Ok(pointers) => Json(pointers).into_response(),
+        Err(e) => {
+            error!("list route pointers: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+/// POST /admin/sandboxes/:user_id/pointers/set
+pub async fn set_route_pointer(
+    State(state): State<Arc<AppState>>,
+    Path(user_id): Path<String>,
+    Json(body): Json<SetPointerRequest>,
+) -> impl IntoResponse {
+    if !runtime_registry::is_valid_pointer_name(&body.pointer_name) {
+        return (
+            StatusCode::BAD_REQUEST,
+            "invalid pointer name (allowed: [A-Za-z0-9._-], max 64)",
+        )
+            .into_response();
+    }
+
+    let target = match body.target_kind.as_str() {
+        "role" => {
+            let Some(role) = parse_role(&body.target_value) else {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "role target_value must be 'live' or 'dev'",
+                )
+                    .into_response();
+            };
+            PointerTarget::Role(role)
+        }
+        "branch" => {
+            if !runtime_registry::is_valid_branch_name(&body.target_value) {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "invalid branch target_value (allowed: [A-Za-z0-9._-], max 64)",
+                )
+                    .into_response();
+            }
+            PointerTarget::Branch(body.target_value.clone())
+        }
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                "target_kind must be 'role' or 'branch'",
+            )
+                .into_response()
+        }
+    };
+
+    match runtime_registry::upsert_route_pointer(&state.db, &user_id, &body.pointer_name, &target)
+        .await
+    {
+        Ok(()) => Json(serde_json::json!({
+            "status": "ok",
+            "user_id": user_id,
+            "pointer_name": body.pointer_name,
+        }))
+        .into_response(),
+        Err(e) => {
+            error!("set route pointer: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
         }
     }

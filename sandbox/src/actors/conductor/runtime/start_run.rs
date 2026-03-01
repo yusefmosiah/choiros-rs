@@ -145,6 +145,23 @@ impl ConductorActor {
             Ok(items) => items,
             Err(err) => {
                 let shared_error: shared_types::ConductorError = err.clone().into();
+                let failure_artifact = shared_types::ConductorArtifact {
+                    artifact_id: ulid::Ulid::new().to_string(),
+                    kind: shared_types::ArtifactKind::JsonData,
+                    reference: "event://conductor.task.failed".to_string(),
+                    mime_type: Some("application/json".to_string()),
+                    created_at: chrono::Utc::now(),
+                    source_call_id: "event".to_string(),
+                    metadata: Some(serde_json::json!({
+                        "event_type": "conductor.task.failed",
+                        "event_payload": {
+                            "error_code": shared_error.code,
+                            "error_message": shared_error.message,
+                            "failure_kind": shared_error.failure_kind,
+                        }
+                    })),
+                };
+                let _ = state.tasks.add_artifact(&run_id, failure_artifact);
                 let _ = state
                     .tasks
                     .transition_run_status(&run_id, shared_types::ConductorRunStatus::Failed);

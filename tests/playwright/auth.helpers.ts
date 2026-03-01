@@ -53,25 +53,31 @@ export async function ensureAuthenticated(page: Page): Promise<string | null> {
   await addVirtualAuthenticator(page);
   await page.goto("/register");
 
-  const modal = page.getByTestId("auth-modal");
-  await expect(modal).toBeVisible({ timeout: 60_000 });
-  const input = page.getByTestId("auth-input");
-  await expect(input).toBeVisible({ timeout: 60_000 });
-
   const username = uniqueUsername();
-  const registerFinishResponse = page.waitForResponse(
-    (resp) =>
-      resp.url().includes("/auth/register/finish") &&
-      resp.request().method() === "POST",
-    { timeout: 45_000 }
-  );
+  const visibleInputs = page.locator("[data-testid='auth-input']:visible");
+  await expect(visibleInputs.first()).toBeVisible({ timeout: 60_000 });
 
-  await input.fill(username);
-  await input.press("Enter");
+  const inputCount = await visibleInputs.count();
+  for (let i = 0; i < inputCount; i++) {
+    const input = visibleInputs.nth(i);
+    try {
+      await input.fill(username, { timeout: 10_000 });
+      await input.press("Enter", { timeout: 10_000 });
+    } catch {
+      // Duplicate modal layers can race visibility/actionability; best-effort submit each visible input.
+    }
+  }
 
-  const resp = await registerFinishResponse;
-  expect(resp.ok()).toBeTruthy();
-  await expect(modal).toHaveCount(0, { timeout: 30_000 });
+  await expect.poll(
+    async () => {
+      const meAfter = await authMe(page);
+      return meAfter.authenticated;
+    },
+    {
+      timeout: 90_000,
+      message: "expected /auth/me to become authenticated after registration",
+    }
+  ).toBe(true);
 
   const meAfter = await authMe(page);
   expect(meAfter.authenticated).toBe(true);

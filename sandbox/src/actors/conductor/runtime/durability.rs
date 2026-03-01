@@ -169,6 +169,23 @@ impl ConductorActor {
             }
         }
 
+        // Crash recovery cannot safely resume in-flight orchestration state
+        // (active calls/leases are lost). Any non-terminal restored run is
+        // surfaced as Blocked so the failure is explicit and operators can
+        // restart the run intentionally.
+        for run in projected.values_mut() {
+            if matches!(
+                run.status,
+                ConductorRunStatus::Initializing
+                    | ConductorRunStatus::Running
+                    | ConductorRunStatus::WaitingForCalls
+                    | ConductorRunStatus::Completing
+            ) {
+                run.status = ConductorRunStatus::Blocked;
+                run.completed_at = Some(run.updated_at);
+            }
+        }
+
         let mut restored = 0usize;
         for run in projected.into_values() {
             if state.tasks.get_run(&run.run_id).is_none() {

@@ -4,10 +4,14 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    microvm = {
+      url = "github:microvm-nix/microvm.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     sops-nix.url = "github:Mic92/sops-nix";
   };
 
-  outputs = { self, nixpkgs, flake-utils, sops-nix }:
+  outputs = { self, nixpkgs, flake-utils, microvm, sops-nix }:
     let
       systems = [ "aarch64-darwin" "x86_64-linux" ];
     in
@@ -111,6 +115,15 @@
     // {
       nixosModules = {
         choiros-platform-secrets = import ./nix/modules/choiros-platform-secrets.nix;
+      };
+    }
+    // {
+      nixosConfigurations.choiros-vfkit-user = nixpkgs.lib.nixosSystem {
+        system = "aarch64-linux";
+        modules = [
+          microvm.nixosModules.microvm
+          ./nix/vfkit/user-vm.nix
+        ];
       };
     }
     // {

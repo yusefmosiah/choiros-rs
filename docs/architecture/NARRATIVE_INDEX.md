@@ -1,6 +1,6 @@
 # ChoirOS Narrative Index (Read This First)
 
-Date: 2026-02-26
+Date: 2026-02-28
 Purpose: single entry point for active architecture and execution docs.
 
 ## 60-Second Story
@@ -13,16 +13,22 @@ Use the docs below in order. If a doc is not listed in `Active Read Order`, trea
 
 ## Active Read Order
 
-1. `docs/architecture/2026-02-27-writer-diffusion-architecture.md`
-2. `docs/architecture/2026-02-27-agent-contract-hard-cutover.md`
-2. `docs/architecture/2026-02-26-comprehensive-cutover-plan.md`
-3. `docs/architecture/2026-02-26-local-first-ovh-execution-plan.md`
-4. `docs/architecture/roadmap-dependency-tree.md`
-5. `docs/architecture/2026-02-20-bootstrap-execution-checklists.md`
-6. `docs/runbooks/local-provider-matrix-validation.md`
-7. `docs/runbooks/platform-secrets-sops-nix.md`
-8. `docs/handoffs/2026-02-22-platform-project-checklist-ovh-microvm.md`
-9. `docs/architecture/2026-02-17-codesign-runbook.md`
+1. `docs/architecture/2026-02-28-local-vfkit-architecture-review.md`
+2. `docs/runbooks/2026-02-28-local-vfkit-nixos-miniguide.md`
+3. `docs/architecture/2026-02-28-cutover-stocktake-and-pending-work.md`
+4. `docs/architecture/2026-02-28-local-cutover-status-and-next-steps.md`
+5. `docs/architecture/2026-02-28-3-tier-gap-closure-plan.md`
+6. `docs/runbooks/vfkit-local-proof.md`
+7. `docs/architecture/2026-02-27-writer-diffusion-architecture.md`
+8. `docs/architecture/2026-02-27-agent-contract-hard-cutover.md`
+9. `docs/architecture/2026-02-26-comprehensive-cutover-plan.md`
+10. `docs/architecture/2026-02-26-local-first-ovh-execution-plan.md`
+11. `docs/architecture/roadmap-dependency-tree.md`
+12. `docs/architecture/2026-02-20-bootstrap-execution-checklists.md`
+13. `docs/runbooks/local-provider-matrix-validation.md`
+14. `docs/runbooks/platform-secrets-sops-nix.md`
+15. `docs/handoffs/2026-02-22-platform-project-checklist-ovh-microvm.md`
+16. `docs/architecture/2026-02-17-codesign-runbook.md`
 
 ## Current Decisions (Explicit)
 

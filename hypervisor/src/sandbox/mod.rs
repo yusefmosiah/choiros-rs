@@ -1,56 +1,33 @@
 use std::{
-    collections::HashMap,
-    process::Stdio,
+    collections::{HashMap, HashSet},
     sync::Arc,
     time::{Duration, Instant},
 };
 
-use tokio::{
-    net::TcpStream,
-    process::{Child, Command},
-    sync::Mutex,
-    time::sleep,
-};
+use tokio::{net::TcpStream, process::Command, sync::Mutex, time::sleep};
 use tracing::{error, info, warn};
 
-use crate::config::SandboxRuntime;
-
-const SANDBOX_PARENT_ENV_ALLOWLIST: &[&str] = &[
-    "PATH",
-    "HOME",
-    "XDG_CACHE_HOME",
-    "USER",
-    "LANG",
-    "LC_ALL",
-    "TZDIR",
-    "SSL_CERT_FILE",
-    "NIX_SSL_CERT_FILE",
-    "FRONTEND_DIST",
-    "RUST_LOG",
-    "RUST_BACKTRACE",
-];
-
-const FORBIDDEN_PROVIDER_KEY_ENVS: &[&str] = &[
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "ZAI_API_KEY",
-    "KIMI_API_KEY",
-    "GOOGLE_API_KEY",
-    "MISTRAL_API_KEY",
-    "AWS_BEARER_TOKEN_BEDROCK",
-    "AWS_SECRET_ACCESS_KEY",
-    "AWS_ACCESS_KEY_ID",
-    "AWS_SESSION_TOKEN",
-];
-
-fn sanitized_parent_env(parent_env: &HashMap<String, String>) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    for key in SANDBOX_PARENT_ENV_ALLOWLIST {
-        if let Some(value) = parent_env.get(*key) {
-            out.push(((*key).to_string(), value.clone()));
-        }
+fn validate_branch_name(branch: &str) -> anyhow::Result<()> {
+    if branch.trim().is_empty() {
+        return Err(anyhow::anyhow!("branch name cannot be empty"));
     }
-    out
+
+    if branch.len() > 64 {
+        return Err(anyhow::anyhow!(
+            "branch name too long (max 64 chars): {branch}"
+        ));
+    }
+
+    if !branch
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        return Err(anyhow::anyhow!(
+            "invalid branch name '{branch}' (allowed: [A-Za-z0-9._-])"
+        ));
+    }
+
+    Ok(())
 }
 
 /// The role of a sandbox instance.
@@ -80,7 +57,8 @@ pub enum SandboxStatus {
 }
 
 pub struct SandboxEntry {
-    pub role: SandboxRole,
+    pub role: Option<SandboxRole>,
+    pub branch: Option<String>,
     pub port: u16,
     pub status: SandboxStatus,
     pub last_activity: Instant,
@@ -88,40 +66,57 @@ pub struct SandboxEntry {
 }
 
 pub enum SandboxHandle {
-    Process(Child),
+    VfkitExternal(VfkitHandle),
 }
 
-/// Per-user sandbox registry.  
-/// Currently single-user; keyed by user_id for future multi-user expansion.
+pub struct VfkitHandle {
+    pub user_id: String,
+    pub runtime_name: String,
+    pub role: Option<SandboxRole>,
+    pub branch: Option<String>,
+    pub port: u16,
+}
+
+#[derive(Default)]
+struct UserSandboxes {
+    roles: HashMap<SandboxRole, SandboxEntry>,
+    branches: HashMap<String, SandboxEntry>,
+}
+
+/// Per-user sandbox registry.
 pub struct SandboxRegistry {
-    binary: String,
-    runtime: SandboxRuntime,
+    vfkit_ctl: String,
     idle_timeout: Duration,
-    /// user_id → role → entry
-    entries: Mutex<HashMap<String, HashMap<SandboxRole, SandboxEntry>>>,
+    /// user_id -> role/branch runtime entries
+    entries: Mutex<HashMap<String, UserSandboxes>>,
     live_port: u16,
     dev_port: u16,
+    branch_port_start: u16,
+    branch_port_end: u16,
     provider_gateway_base_url: Option<String>,
     provider_gateway_token: Option<String>,
 }
 
 impl SandboxRegistry {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        binary: String,
-        runtime: SandboxRuntime,
+        vfkit_ctl: String,
         live_port: u16,
         dev_port: u16,
+        branch_port_start: u16,
+        branch_port_end: u16,
         idle_timeout: Duration,
         provider_gateway_base_url: Option<String>,
         provider_gateway_token: Option<String>,
     ) -> Arc<Self> {
         Arc::new(Self {
-            binary,
-            runtime,
+            vfkit_ctl,
             idle_timeout,
             entries: Mutex::new(HashMap::new()),
             live_port,
             dev_port,
+            branch_port_start,
+            branch_port_end,
             provider_gateway_base_url,
             provider_gateway_token,
         })
@@ -134,7 +129,48 @@ impl SandboxRegistry {
         }
     }
 
-    /// Start a sandbox for the given user + role.  
+    async fn is_port_ready(port: u16) -> bool {
+        TcpStream::connect(format!("127.0.0.1:{port}"))
+            .await
+            .is_ok()
+    }
+
+    async fn allocate_branch_port(
+        &self,
+        entries: &HashMap<String, UserSandboxes>,
+    ) -> anyhow::Result<u16> {
+        let mut used = HashSet::new();
+        for user_map in entries.values() {
+            for entry in user_map.roles.values() {
+                if entry.status == SandboxStatus::Running {
+                    used.insert(entry.port);
+                }
+            }
+            for entry in user_map.branches.values() {
+                if entry.status == SandboxStatus::Running {
+                    used.insert(entry.port);
+                }
+            }
+        }
+
+        for port in self.branch_port_start..=self.branch_port_end {
+            if used.contains(&port) {
+                continue;
+            }
+            if Self::is_port_ready(port).await {
+                continue;
+            }
+            return Ok(port);
+        }
+
+        Err(anyhow::anyhow!(
+            "no available branch ports in range {}-{}",
+            self.branch_port_start,
+            self.branch_port_end
+        ))
+    }
+
+    /// Start a sandbox for the given user + role.
     /// No-op if one is already running.
     pub async fn ensure_running(
         self: &Arc<Self>,
@@ -144,45 +180,51 @@ impl SandboxRegistry {
         let mut entries = self.entries.lock().await;
         let user_map = entries.entry(user_id.to_string()).or_default();
 
-        if let Some(entry) = user_map.get_mut(&role) {
+        if let Some(entry) = user_map.roles.get_mut(&role) {
             if entry.status == SandboxStatus::Running {
-                entry.last_activity = Instant::now();
-                return Ok(entry.port);
+                if Self::is_port_ready(entry.port).await {
+                    entry.last_activity = Instant::now();
+                    return Ok(entry.port);
+                }
+
+                warn!(
+                    user_id,
+                    %role,
+                    port = entry.port,
+                    "sandbox marked running but port is down; recycling runtime"
+                );
+                self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
+                    .await;
+                entry.status = SandboxStatus::Failed;
             }
         }
 
         let port = self.port_for(role);
 
-        // If something is already listening on the expected port, adopt it as
-        // the running sandbox endpoint instead of spawning a new child.
-        // This supports externally managed runtimes (for example, NixOS
-        // containers started by the host) while keeping the same routing model.
-        if TcpStream::connect(format!("127.0.0.1:{port}"))
-            .await
-            .is_ok()
-        {
-            user_map.insert(
-                role,
-                SandboxEntry {
-                    role,
-                    port,
-                    status: SandboxStatus::Running,
-                    last_activity: Instant::now(),
-                    handle: None,
-                },
+        // Do not blindly adopt a pre-existing listener on a shared role port.
+        // With per-user runtimes, a stale tunnel can belong to another user.
+        // Always route startup through vfkit control so ownership is enforced.
+        if Self::is_port_ready(port).await {
+            warn!(
+                user_id,
+                %role,
+                port,
+                "role port already listening before ensure; delegating to vfkit control for ownership validation"
             );
-            info!(user_id, %role, port, "sandbox adopted from existing listener");
-            return Ok(port);
         }
 
-        let handle = match self.spawn_instance(user_id, role, port).await {
+        let runtime_name = role.to_string();
+        let handle = match self
+            .spawn_instance(user_id, &runtime_name, Some(role), None, port)
+            .await
+        {
             Ok(h) => h,
             Err(e) => {
-                // Record the failure so callers see Failed instead of Stopped.
-                user_map.insert(
+                user_map.roles.insert(
                     role,
                     SandboxEntry {
-                        role,
+                        role: Some(role),
+                        branch: None,
                         port,
                         status: SandboxStatus::Failed,
                         last_activity: Instant::now(),
@@ -193,10 +235,11 @@ impl SandboxRegistry {
             }
         };
 
-        user_map.insert(
+        user_map.roles.insert(
             role,
             SandboxEntry {
-                role,
+                role: Some(role),
+                branch: None,
                 port,
                 status: SandboxStatus::Running,
                 last_activity: Instant::now(),
@@ -208,12 +251,85 @@ impl SandboxRegistry {
         Ok(port)
     }
 
+    /// Start (or adopt) a branch runtime for a user.
+    pub async fn ensure_branch_running(
+        self: &Arc<Self>,
+        user_id: &str,
+        branch: &str,
+    ) -> anyhow::Result<u16> {
+        validate_branch_name(branch)?;
+
+        let mut entries = self.entries.lock().await;
+        {
+            let user_map = entries.entry(user_id.to_string()).or_default();
+            if let Some(entry) = user_map.branches.get_mut(branch) {
+                if entry.status == SandboxStatus::Running {
+                    if Self::is_port_ready(entry.port).await {
+                        entry.last_activity = Instant::now();
+                        return Ok(entry.port);
+                    }
+
+                    warn!(
+                        user_id,
+                        branch,
+                        port = entry.port,
+                        "branch sandbox marked running but port is down; recycling runtime"
+                    );
+                    self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
+                        .await;
+                    entry.status = SandboxStatus::Failed;
+                }
+            }
+        }
+
+        let port = self.allocate_branch_port(&entries).await?;
+        let user_map = entries.entry(user_id.to_string()).or_default();
+
+        let runtime_name = format!("branch-{branch}");
+        let handle = match self
+            .spawn_instance(user_id, &runtime_name, None, Some(branch), port)
+            .await
+        {
+            Ok(h) => h,
+            Err(e) => {
+                user_map.branches.insert(
+                    branch.to_string(),
+                    SandboxEntry {
+                        role: None,
+                        branch: Some(branch.to_string()),
+                        port,
+                        status: SandboxStatus::Failed,
+                        last_activity: Instant::now(),
+                        handle: None,
+                    },
+                );
+                return Err(e);
+            }
+        };
+
+        user_map.branches.insert(
+            branch.to_string(),
+            SandboxEntry {
+                role: None,
+                branch: Some(branch.to_string()),
+                port,
+                status: SandboxStatus::Running,
+                last_activity: Instant::now(),
+                handle: Some(handle),
+            },
+        );
+
+        info!(user_id, branch, port, "branch sandbox started");
+        Ok(port)
+    }
+
     /// Stop a sandbox for the given user + role.
     pub async fn stop(self: &Arc<Self>, user_id: &str, role: SandboxRole) -> anyhow::Result<()> {
         let mut entries = self.entries.lock().await;
         if let Some(user_map) = entries.get_mut(user_id) {
-            if let Some(entry) = user_map.get_mut(&role) {
-                self.stop_handle(user_id, role, &mut entry.handle).await;
+            if let Some(entry) = user_map.roles.get_mut(&role) {
+                self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
+                    .await;
                 entry.status = SandboxStatus::Stopped;
                 info!(user_id, %role, "sandbox stopped");
             }
@@ -221,32 +337,58 @@ impl SandboxRegistry {
         Ok(())
     }
 
+    /// Stop a branch runtime for the given user.
+    pub async fn stop_branch(self: &Arc<Self>, user_id: &str, branch: &str) -> anyhow::Result<()> {
+        let mut entries = self.entries.lock().await;
+        if let Some(user_map) = entries.get_mut(user_id) {
+            if let Some(entry) = user_map.branches.get_mut(branch) {
+                self.stop_handle(user_id, Some(branch), &mut entry.handle)
+                    .await;
+                entry.status = SandboxStatus::Stopped;
+                info!(user_id, branch, "branch sandbox stopped");
+            }
+        }
+        Ok(())
+    }
+
     /// Swap the Live and Dev roles for a user (promotion).
-    /// The processes keep running; only the port mapping in the registry changes.
+    /// The processes keep running; only the role mapping in the registry changes.
     pub async fn swap_roles(self: &Arc<Self>, user_id: &str) -> anyhow::Result<()> {
         let mut entries = self.entries.lock().await;
         let user_map = entries.entry(user_id.to_string()).or_default();
 
-        let live = user_map.remove(&SandboxRole::Live);
-        let dev = user_map.remove(&SandboxRole::Dev);
+        let live = user_map.roles.remove(&SandboxRole::Live);
+        let dev = user_map.roles.remove(&SandboxRole::Dev);
 
         if let Some(mut l) = live {
-            l.role = SandboxRole::Dev;
-            user_map.insert(SandboxRole::Dev, l);
+            l.role = Some(SandboxRole::Dev);
+            user_map.roles.insert(SandboxRole::Dev, l);
         }
         if let Some(mut d) = dev {
-            d.role = SandboxRole::Live;
-            user_map.insert(SandboxRole::Live, d);
+            d.role = Some(SandboxRole::Live);
+            user_map.roles.insert(SandboxRole::Live, d);
         }
 
         info!(user_id, "sandbox roles swapped (dev promoted to live)");
         Ok(())
     }
 
-    /// Return the port for a running sandbox, if any.
+    /// Return the port for a running sandbox role, if any.
     pub async fn port_of(&self, user_id: &str, role: SandboxRole) -> Option<u16> {
         let mut entries = self.entries.lock().await;
-        let entry = entries.get_mut(user_id)?.get_mut(&role)?;
+        let entry = entries.get_mut(user_id)?.roles.get_mut(&role)?;
+        if entry.status == SandboxStatus::Running {
+            entry.last_activity = Instant::now();
+            Some(entry.port)
+        } else {
+            None
+        }
+    }
+
+    /// Return the port for a running branch sandbox, if any.
+    pub async fn branch_port_of(&self, user_id: &str, branch: &str) -> Option<u16> {
+        let mut entries = self.entries.lock().await;
+        let entry = entries.get_mut(user_id)?.branches.get_mut(branch)?;
         if entry.status == SandboxStatus::Running {
             entry.last_activity = Instant::now();
             Some(entry.port)
@@ -260,10 +402,21 @@ impl SandboxRegistry {
         let entries = self.entries.lock().await;
         let mut out = Vec::new();
         for (user_id, user_map) in entries.iter() {
-            for (role, entry) in user_map.iter() {
+            for entry in user_map.roles.values() {
                 out.push(SandboxSnapshot {
                     user_id: user_id.clone(),
-                    role: *role,
+                    role: entry.role,
+                    branch: entry.branch.clone(),
+                    port: entry.port,
+                    status: entry.status.clone(),
+                    idle_secs: entry.last_activity.elapsed().as_secs(),
+                });
+            }
+            for entry in user_map.branches.values() {
+                out.push(SandboxSnapshot {
+                    user_id: user_id.clone(),
+                    role: entry.role,
+                    branch: entry.branch.clone(),
                     port: entry.port,
                     status: entry.status.clone(),
                     idle_secs: entry.last_activity.elapsed().as_secs(),
@@ -279,12 +432,32 @@ impl SandboxRegistry {
             sleep(Duration::from_secs(60)).await;
             let mut entries = self.entries.lock().await;
             for (user_id, user_map) in entries.iter_mut() {
-                for (role, entry) in user_map.iter_mut() {
+                for entry in user_map.roles.values_mut() {
                     if entry.status == SandboxStatus::Running
                         && entry.last_activity.elapsed() >= self.idle_timeout
                     {
-                        warn!(user_id, %role, "sandbox idle timeout — stopping");
-                        self.stop_handle(user_id, *role, &mut entry.handle).await;
+                        warn!(
+                            user_id,
+                            role = ?entry.role,
+                            "sandbox idle timeout — stopping"
+                        );
+                        self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
+                            .await;
+                        entry.status = SandboxStatus::Stopped;
+                    }
+                }
+
+                for entry in user_map.branches.values_mut() {
+                    if entry.status == SandboxStatus::Running
+                        && entry.last_activity.elapsed() >= self.idle_timeout
+                    {
+                        warn!(
+                            user_id,
+                            branch = ?entry.branch,
+                            "branch sandbox idle timeout — stopping"
+                        );
+                        self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
+                            .await;
                         entry.status = SandboxStatus::Stopped;
                     }
                 }
@@ -295,100 +468,142 @@ impl SandboxRegistry {
     async fn spawn_instance(
         &self,
         user_id: &str,
-        role: SandboxRole,
+        runtime_name: &str,
+        role: Option<SandboxRole>,
+        branch: Option<&str>,
         port: u16,
     ) -> anyhow::Result<SandboxHandle> {
-        match self.runtime {
-            SandboxRuntime::Process => self
-                .spawn_process(user_id, role, port)
-                .await
-                .map(SandboxHandle::Process),
-        }
+        self.spawn_vfkit(user_id, runtime_name, role, branch, port)
+            .await
     }
 
-    async fn spawn_process(
-        &self,
+    fn vfkit_ctl_args(
+        action: &str,
         user_id: &str,
-        role: SandboxRole,
+        runtime_name: &str,
+        role: Option<SandboxRole>,
+        branch: Option<&str>,
         port: u16,
-    ) -> anyhow::Result<Child> {
-        // Brief wait for the port to become available after a prior process exits.
-        sleep(Duration::from_millis(200)).await;
+    ) -> Vec<String> {
+        let mut args = vec![
+            action.to_string(),
+            "--user-id".to_string(),
+            user_id.to_string(),
+            "--runtime".to_string(),
+            runtime_name.to_string(),
+            "--port".to_string(),
+            port.to_string(),
+        ];
 
-        let mut child_cmd = Command::new(&self.binary);
-        child_cmd.env_clear();
-
-        let parent_env: HashMap<String, String> = std::env::vars().collect();
-        for (key, value) in sanitized_parent_env(&parent_env) {
-            child_cmd.env(key, value);
+        if let Some(role) = role {
+            args.push("--role".to_string());
+            args.push(role.to_string());
+        }
+        if let Some(branch) = branch {
+            args.push("--branch".to_string());
+            args.push(branch.to_string());
         }
 
-        // BAML/runtime caches need a resolvable cache/home directory. Under
-        // systemd services HOME may be unset, so provide deterministic defaults.
-        if !parent_env.contains_key("HOME") {
-            child_cmd.env("HOME", "/tmp");
-        }
-        if !parent_env.contains_key("XDG_CACHE_HOME") {
-            child_cmd.env("XDG_CACHE_HOME", "/tmp/choiros-cache");
-        }
-        // Defense in depth: keep explicit key removals even though env_clear()
-        // already empties inherited environment for sandbox children.
-        for key in FORBIDDEN_PROVIDER_KEY_ENVS {
-            child_cmd.env_remove(key);
+        args
+    }
+
+    async fn run_vfkit_ctl(
+        &self,
+        action: &str,
+        user_id: &str,
+        runtime_name: &str,
+        role: Option<SandboxRole>,
+        branch: Option<&str>,
+        port: u16,
+    ) -> anyhow::Result<()> {
+        let ctl_path = self.vfkit_ctl.trim();
+        if ctl_path.is_empty() {
+            return Err(anyhow::anyhow!(
+                "vfkit backend is configured but SANDBOX_VFKIT_CTL is missing"
+            ));
         }
 
-        child_cmd
-            .env("PORT", port.to_string())
-            .env("DATABASE_URL", format!("sqlite:./data/sandbox_{role}.db"))
-            .env("SQLX_OFFLINE", "true")
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit());
+        let args = Self::vfkit_ctl_args(action, user_id, runtime_name, role, branch, port);
+        let mut cmd = Command::new(ctl_path);
+        cmd.args(args)
+            .env("CHOIR_SANDBOX_USER_ID", user_id)
+            .env("CHOIR_SANDBOX_RUNTIME", runtime_name)
+            .env("CHOIR_SANDBOX_PORT", port.to_string());
 
-        // Pass frontend dist explicitly for process-runtime sandboxes.
-        // This avoids relying solely on ambient env allowlist propagation.
-        if let Ok(frontend_dist) = std::env::var("FRONTEND_DIST") {
-            child_cmd.env("FRONTEND_DIST", frontend_dist);
+        if let Some(role) = role {
+            cmd.env("CHOIR_SANDBOX_ROLE", role.to_string());
         }
-
+        if let Some(branch) = branch {
+            cmd.env("CHOIR_SANDBOX_BRANCH", branch);
+        }
         if let Some(base_url) = self.provider_gateway_base_url.as_ref() {
-            child_cmd.env("CHOIR_PROVIDER_GATEWAY_BASE_URL", base_url);
+            cmd.env("CHOIR_PROVIDER_GATEWAY_BASE_URL", base_url);
         }
         if let Some(token) = self.provider_gateway_token.as_ref() {
-            child_cmd.env("CHOIR_PROVIDER_GATEWAY_TOKEN", token);
+            cmd.env("CHOIR_PROVIDER_GATEWAY_TOKEN", token);
         }
-        child_cmd
-            .env("CHOIR_SANDBOX_USER_ID", user_id)
-            .env("CHOIR_SANDBOX_ROLE", role.to_string())
-            .env("CHOIR_SANDBOX_ID", format!("{user_id}:{role}"));
+        if let Ok(frontend_dist) = std::env::var("FRONTEND_DIST") {
+            cmd.env("FRONTEND_DIST", frontend_dist);
+        }
 
-        let child = child_cmd.spawn().map_err(|e| {
-            error!(%role, port, binary = %self.binary, "failed to spawn sandbox: {e}");
-            e
-        })?;
+        let out = cmd.output().await?;
+        if out.status.success() {
+            return Ok(());
+        }
 
-        // TCP readiness probe: poll until the sandbox accepts connections or deadline.
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        Err(anyhow::anyhow!(
+            "vfkit ctl failed action={action} runtime={runtime_name} code={:?} stdout='{}' stderr='{}'",
+            out.status.code(),
+            stdout,
+            stderr
+        ))
+    }
+
+    async fn spawn_vfkit(
+        &self,
+        user_id: &str,
+        runtime_name: &str,
+        role: Option<SandboxRole>,
+        branch: Option<&str>,
+        port: u16,
+    ) -> anyhow::Result<SandboxHandle> {
+        self.run_vfkit_ctl("ensure", user_id, runtime_name, role, branch, port)
+            .await?;
+
+        // Poll for host-facing runtime readiness after vfkit control succeeds.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
         loop {
             if tokio::time::Instant::now() >= deadline {
-                error!(%role, port, "sandbox did not become ready within 30s");
-                return Err(anyhow::anyhow!("sandbox readiness timeout on port {port}"));
+                error!(
+                    runtime = runtime_name,
+                    port, "vfkit runtime did not become ready within 45s"
+                );
+                return Err(anyhow::anyhow!(
+                    "vfkit runtime readiness timeout on port {port}"
+                ));
             }
-            match TcpStream::connect(format!("127.0.0.1:{port}")).await {
-                Ok(_) => {
-                    info!(%role, port, "sandbox port is ready");
-                    break;
-                }
-                Err(_) => sleep(Duration::from_millis(100)).await,
+            if Self::is_port_ready(port).await {
+                info!(runtime = runtime_name, port, "vfkit runtime port is ready");
+                break;
             }
+            sleep(Duration::from_millis(200)).await;
         }
 
-        Ok(child)
+        Ok(SandboxHandle::VfkitExternal(VfkitHandle {
+            user_id: user_id.to_string(),
+            runtime_name: runtime_name.to_string(),
+            role,
+            branch: branch.map(ToString::to_string),
+            port,
+        }))
     }
 
     async fn stop_handle(
         &self,
         user_id: &str,
-        role: SandboxRole,
+        branch: Option<&str>,
         handle: &mut Option<SandboxHandle>,
     ) {
         let Some(handle) = handle.take() else {
@@ -396,9 +611,24 @@ impl SandboxRegistry {
         };
 
         match handle {
-            SandboxHandle::Process(mut child) => {
-                if let Err(e) = child.kill().await {
-                    warn!(user_id, %role, "failed to kill sandbox process: {e}");
+            SandboxHandle::VfkitExternal(handle) => {
+                if let Err(e) = self
+                    .run_vfkit_ctl(
+                        "stop",
+                        &handle.user_id,
+                        &handle.runtime_name,
+                        handle.role,
+                        handle.branch.as_deref(),
+                        handle.port,
+                    )
+                    .await
+                {
+                    warn!(
+                        user_id,
+                        branch = ?branch,
+                        runtime = handle.runtime_name,
+                        "failed to stop vfkit runtime: {e}"
+                    );
                 }
             }
         }
@@ -407,61 +637,71 @@ impl SandboxRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::{sanitized_parent_env, FORBIDDEN_PROVIDER_KEY_ENVS};
-    use std::collections::HashMap;
+    use super::{validate_branch_name, SandboxRegistry, SandboxRole};
 
     #[test]
-    fn sanitized_parent_env_keeps_allowlist_only() {
-        let parent = HashMap::from([
-            ("PATH".to_string(), "/usr/bin".to_string()),
-            ("HOME".to_string(), "/home/test".to_string()),
-            (
-                "FRONTEND_DIST".to_string(),
-                "/opt/choiros/workspace/dioxus-desktop/target/dx/dioxus-desktop/release/web/public"
-                    .to_string(),
-            ),
-            ("RUST_LOG".to_string(), "info".to_string()),
-            ("OPENAI_API_KEY".to_string(), "secret".to_string()),
-            ("RANDOM_VAR".to_string(), "value".to_string()),
-        ]);
-
-        let env = sanitized_parent_env(&parent);
-        let env_map: HashMap<String, String> = env.into_iter().collect();
-
-        assert_eq!(env_map.get("PATH").map(String::as_str), Some("/usr/bin"));
-        assert_eq!(env_map.get("HOME").map(String::as_str), Some("/home/test"));
-        assert_eq!(
-            env_map.get("FRONTEND_DIST").map(String::as_str),
-            Some(
-                "/opt/choiros/workspace/dioxus-desktop/target/dx/dioxus-desktop/release/web/public"
-            )
-        );
-        assert_eq!(env_map.get("RUST_LOG").map(String::as_str), Some("info"));
-        assert!(!env_map.contains_key("RANDOM_VAR"));
+    fn validates_branch_names() {
+        assert!(validate_branch_name("feature_login").is_ok());
+        assert!(validate_branch_name("feat-123.abc").is_ok());
+        assert!(validate_branch_name("bad/branch").is_err());
+        assert!(validate_branch_name("").is_err());
     }
 
     #[test]
-    fn sanitized_parent_env_never_includes_forbidden_provider_keys() {
-        let mut parent = HashMap::new();
-        for key in FORBIDDEN_PROVIDER_KEY_ENVS {
-            parent.insert((*key).to_string(), "secret".to_string());
-        }
-        parent.insert("PATH".to_string(), "/usr/bin".to_string());
+    fn vfkit_ctl_args_include_role_or_branch_targets() {
+        let role_args = SandboxRegistry::vfkit_ctl_args(
+            "ensure",
+            "user-a",
+            "live",
+            Some(SandboxRole::Live),
+            None,
+            8080,
+        );
+        assert_eq!(
+            role_args,
+            vec![
+                "ensure",
+                "--user-id",
+                "user-a",
+                "--runtime",
+                "live",
+                "--port",
+                "8080",
+                "--role",
+                "live",
+            ]
+        );
 
-        let env = sanitized_parent_env(&parent);
-        let env_map: HashMap<String, String> = env.into_iter().collect();
-
-        for key in FORBIDDEN_PROVIDER_KEY_ENVS {
-            assert!(!env_map.contains_key(*key));
-        }
-        assert_eq!(env_map.get("PATH").map(String::as_str), Some("/usr/bin"));
+        let branch_args = SandboxRegistry::vfkit_ctl_args(
+            "stop",
+            "user-a",
+            "branch-feature",
+            None,
+            Some("feature"),
+            12000,
+        );
+        assert_eq!(
+            branch_args,
+            vec![
+                "stop",
+                "--user-id",
+                "user-a",
+                "--runtime",
+                "branch-feature",
+                "--port",
+                "12000",
+                "--branch",
+                "feature",
+            ]
+        );
     }
 }
 
 #[derive(Debug, serde::Serialize)]
 pub struct SandboxSnapshot {
     pub user_id: String,
-    pub role: SandboxRole,
+    pub role: Option<SandboxRole>,
+    pub branch: Option<String>,
     pub port: u16,
     pub status: SandboxStatus,
     pub idle_secs: u64,

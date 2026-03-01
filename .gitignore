@@ -3,6 +3,15 @@
 **/*.rs.bk
 # Cargo.lock files are tracked for reproducible Nix/CI builds.
 
+# Local Cargo home/cache (allow checked-in config if needed)
+.cargo/*
+!.cargo/config
+!.cargo/config.toml
+
+# Nix build result symlinks
+result
+result-*
+
 # Dioxus
 dist/
 .serve/

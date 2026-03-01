@@ -5,6 +5,7 @@ mod db;
 mod middleware;
 mod provider_gateway;
 mod proxy;
+mod runtime_registry;
 mod sandbox;
 mod session_store;
 mod state;
@@ -61,10 +62,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Sandbox registry
     let sandbox_registry = sandbox::SandboxRegistry::new(
-        config.sandbox_binary.clone(),
-        config.sandbox_runtime,
+        config.sandbox_vfkit_ctl.clone(),
         config.sandbox_live_port,
         config.sandbox_dev_port,
+        config.sandbox_branch_port_start,
+        config.sandbox_branch_port_end,
         config.sandbox_idle_timeout,
         config.provider_gateway_base_url.clone(),
         config.provider_gateway_token.clone(),
@@ -104,6 +106,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/auth/logout", post(auth::handlers::logout))
         .route("/auth/recovery", post(auth::handlers::recovery))
         .route("/auth/me", get(auth::handlers::me))
+        // Root shell page (Dioxus SPA bootstrap). Runtime APIs still proxy via fallback.
+        .route("/", get(auth::handlers::login_page))
         // Public auth shell pages.
         .route("/login", get(auth::handlers::login_page))
         .route("/register", get(auth::handlers::register_page))
@@ -125,6 +129,22 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/admin/sandboxes/{user_id}/swap",
             post(api::swap_sandbox_roles),
+        )
+        .route(
+            "/admin/sandboxes/{user_id}/branches/{branch}/start",
+            post(api::start_branch_sandbox),
+        )
+        .route(
+            "/admin/sandboxes/{user_id}/branches/{branch}/stop",
+            post(api::stop_branch_sandbox),
+        )
+        .route(
+            "/admin/sandboxes/{user_id}/pointers",
+            get(api::list_route_pointers),
+        )
+        .route(
+            "/admin/sandboxes/{user_id}/pointers/set",
+            post(api::set_route_pointer),
         )
         // All non-auth traffic is routed to sandbox runtime (auth enforced by middleware)
         .fallback(middleware::proxy_to_sandbox)

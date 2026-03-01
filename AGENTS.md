@@ -13,6 +13,21 @@
   - Conductor: `ClaudeBedrockOpus46`
   - Summarizer: `ZaiGLM47Flash`
 
+## Local Runtime Topology Snapshot (2026-02-28)
+
+- Canonical local cutover ingress is `http://127.0.0.1:9090` (hypervisor).
+- `http://127.0.0.1:3000` is a direct sandbox/dev loop and bypasses hypervisor routing guarantees.
+- Hypervisor responsibilities on `9090`:
+  - Auth/session
+  - Runtime pointer resolution (`main`, `dev`, `branch-*`)
+  - vfkit runtime lifecycle control (`vfkit-runtime-ctl`)
+  - HTTP/WS proxying to runtime ports
+- Runtime ports:
+  - `8080` live
+  - `8081` dev
+  - `12000-12999` branch runtimes
+- Current local vfkit guest control defaults to `if-missing` sandbox binary rebuild mode.
+
 ## Execution Direction (2026-02-09)
 
 - Primary orchestration path is `Prompt Bar -> Conductor`.
@@ -82,43 +97,32 @@ Primary human-first index:
 ## Quick Commands
 
 ```bash
-# Development
-just dev-sandbox     # Run backend API server
-just dev-ui          # Run frontend dev server (port 3000)
-just dev-hypervisor  # Run hypervisor component
+# Canonical local cutover path (vfkit + hypervisor)
+just local-build-ui          # Build release Dioxus assets
+just dev                     # Start local vfkit stack
+just dev-status              # Hypervisor/tmux status
+just dev-attach              # Attach tmux session
+just stop                    # Stop local stack
 
-# Building
-just build           # Build all packages in release mode
-just build-sandbox   # Build frontend + backend for production
+# Runtime control and diagnostics
+just vfkit-runtime-live USER_ID=public
+just vfkit-guest-shell
+just btop
+just vfkit-reset
+just cutover-status
+just cutover-status --probe-builder
 
-# Testing
-just test            # Run all tests across workspace
-just test-unit       # Run unit tests only (--lib)
-just test-integration # Run integration tests (--test '*')
-cargo test -p sandbox --test desktop_api_test  # Run single test file
-cargo test -p sandbox test_name_pattern       # Run specific test
+# Builder bootstrap
+just builder-bootstrap-utm <vm-name>
+just builder-bootstrap-ssh <host> <port> <user>
 
-# Code Quality
-just check           # Check formatting + clippy
-just fix             # Auto-fix formatting and clippy issues
-cargo fmt --check    # Check formatting only
-cargo clippy --workspace -- -D warnings  # Run clippy
+# E2E proof (video artifacts)
+just test-e2e-vfkit-proof
+cd tests/playwright && npx playwright test --config=playwright.config.ts --project=hypervisor
 
-# Database
-just migrate         # Run SQLx migrations
-just new-migration NAME  # Create new migration
-
-# Docker
-just docker-build    # Build Docker image
-just docker-run      # Run Docker container
-
-# Deployment
-just deploy-ec2      # Deploy to EC2 instance
-
-# Nix/Flake builds (canonical for host deploys)
-nix build ./sandbox#sandbox
-nix build ./hypervisor#hypervisor
-nix build ./dioxus-desktop#desktop
+# Workspace checks
+just check
+just test
 ```
 
 ## Nix + EC2 Operations (Current)
