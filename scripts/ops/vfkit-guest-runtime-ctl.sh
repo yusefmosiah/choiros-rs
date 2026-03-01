@@ -72,6 +72,19 @@ hash_short() {
   printf '0000000'
 }
 
+config_fingerprint() {
+  local path="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$path" | awk '{print $1}'
+    return
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$path" | awk '{print $1}'
+    return
+  fi
+  cksum "$path" | awk '{print $1 ":" $2}'
+}
+
 runtime_slug="$(slugify "$RUNTIME")"
 container_name="sbx-$(hash_short "$runtime_slug")"
 
@@ -79,6 +92,7 @@ state_root="${CHOIR_VFKIT_GUEST_STATE_DIR:-/var/lib/choiros/vfkit}"
 config_dir="$state_root/container-config"
 runtime_dir="$state_root/runtimes/$runtime_slug"
 config_file="$config_dir/${container_name}.nix"
+config_fingerprint_file="$runtime_dir/config.sha256"
 
 mkdir -p "$config_dir" "$runtime_dir"
 
@@ -207,10 +221,12 @@ container_running() {
 }
 
 ensure_container() {
-  local recreate
+  local recreate desired_fingerprint existing_fingerprint
   recreate="${CHOIR_VFKIT_GUEST_RECREATE_CONTAINER:-false}"
+  desired_fingerprint="$(config_fingerprint "$config_file")"
+  existing_fingerprint="$(cat "$config_fingerprint_file" 2>/dev/null || true)"
 
-  if container_exists && [[ "$recreate" != "true" ]]; then
+  if container_exists && [[ "$recreate" != "true" ]] && [[ -n "$existing_fingerprint" ]] && [[ "$existing_fingerprint" == "$desired_fingerprint" ]]; then
     return 0
   fi
 
@@ -220,6 +236,7 @@ ensure_container() {
   fi
 
   nixos-container create "$container_name" --config-file "$config_file" --use-host-network
+  printf '%s\n' "$desired_fingerprint" > "$config_fingerprint_file"
 }
 
 start_container() {
