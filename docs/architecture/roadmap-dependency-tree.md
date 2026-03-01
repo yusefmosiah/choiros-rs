@@ -108,11 +108,11 @@ after the local 3-tier architecture is stable.
 
 ## Active Documents Only
 
-1. `docs/architecture/2026-02-26-comprehensive-cutover-plan.md`
-2. `docs/architecture/2026-02-26-local-first-ovh-execution-plan.md`
-3. `docs/architecture/2026-02-20-bootstrap-execution-checklists.md`
-4. `docs/runbooks/local-provider-matrix-validation.md`
-5. `docs/handoffs/2026-02-22-platform-project-checklist-ovh-microvm.md`
+1. `docs/architecture/2026-02-28-wave-plan-local-to-ovh-bootstrap.md`
+2. `docs/architecture/2026-02-28-3-tier-gap-closure-plan.md`
+3. `docs/architecture/2026-02-28-cutover-stocktake-and-pending-work.md`
+4. `docs/architecture/2026-02-28-local-cutover-status-and-next-steps.md`
+5. `docs/runbooks/local-provider-matrix-validation.md`
 6. `docs/runbooks/platform-secrets-sops-nix.md`
 
 ## Historical References (Not Active)

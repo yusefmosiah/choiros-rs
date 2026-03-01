@@ -7,7 +7,7 @@ This document moved to:
 `docs/archive/2026-02-deprecated-ops-docs/mac-ssh-release-flow.md`
 
 Use active docs instead:
-1. `docs/architecture/2026-02-26-local-first-ovh-execution-plan.md`
-2. `docs/architecture/roadmap-dependency-tree.md`
-3. `docs/runbooks/local-provider-matrix-validation.md`
-4. `docs/handoffs/2026-02-22-platform-project-checklist-ovh-microvm.md`
+1. `docs/architecture/2026-02-28-wave-plan-local-to-ovh-bootstrap.md`
+2. `docs/architecture/2026-02-28-3-tier-gap-closure-plan.md`
+3. `docs/architecture/roadmap-dependency-tree.md`
+4. `docs/runbooks/local-provider-matrix-validation.md`

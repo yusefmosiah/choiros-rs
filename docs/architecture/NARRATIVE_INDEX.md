@@ -18,17 +18,12 @@ Use the docs below in order. If a doc is not listed in `Active Read Order`, trea
 3. `docs/architecture/2026-02-28-cutover-stocktake-and-pending-work.md`
 4. `docs/architecture/2026-02-28-local-cutover-status-and-next-steps.md`
 5. `docs/architecture/2026-02-28-3-tier-gap-closure-plan.md`
-6. `docs/runbooks/vfkit-local-proof.md`
-7. `docs/architecture/2026-02-27-writer-diffusion-architecture.md`
-8. `docs/architecture/2026-02-27-agent-contract-hard-cutover.md`
-9. `docs/architecture/2026-02-26-comprehensive-cutover-plan.md`
-10. `docs/architecture/2026-02-26-local-first-ovh-execution-plan.md`
-11. `docs/architecture/roadmap-dependency-tree.md`
-12. `docs/architecture/2026-02-20-bootstrap-execution-checklists.md`
-13. `docs/runbooks/local-provider-matrix-validation.md`
-14. `docs/runbooks/platform-secrets-sops-nix.md`
-15. `docs/handoffs/2026-02-22-platform-project-checklist-ovh-microvm.md`
-16. `docs/architecture/2026-02-17-codesign-runbook.md`
+6. `docs/architecture/2026-02-28-wave-plan-local-to-ovh-bootstrap.md`
+7. `docs/runbooks/vfkit-local-proof.md`
+8. `docs/architecture/roadmap-dependency-tree.md`
+9. `docs/runbooks/local-provider-matrix-validation.md`
+10. `docs/runbooks/platform-secrets-sops-nix.md`
+11. `docs/handoffs/2026-02-28-local-nixos-builder-vm-setup.md`
 
 ## Current Decisions (Explicit)
 
