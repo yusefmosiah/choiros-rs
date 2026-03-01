@@ -966,12 +966,24 @@ fn slugify(input: &str) -> String {
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
-                c.to_ascii_lowercase()
+                c
             } else {
                 '_'
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::slugify;
+
+    #[test]
+    fn slugify_preserves_case_for_valid_ascii_chars() {
+        assert_eq!(slugify("FeatureX"), "FeatureX");
+        assert_eq!(slugify("featurex"), "featurex");
+        assert_ne!(slugify("FeatureX"), slugify("featurex"));
+    }
 }
 
 fn hash_short(input: &str) -> String {

@@ -57,7 +57,7 @@ if [[ -z "$RUNTIME" || -z "$PORT" ]]; then
 fi
 
 slugify() {
-  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '_'
+  printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'
 }
 
 hash_short() {
