@@ -1,8 +1,30 @@
 # ADR-0002: Rust + Nix Build and Cache Strategy
 
-Date: 2026-02-20  
-Status: Draft  
+Date: 2026-02-20
+Status: Accepted with Gaps
 Owner: ChoirOS runtime and deployment
+
+## Implementation Verification
+
+**Last Verified**: 2026-02-28
+**Verification Status**: ⚠️ PARTIALLY IMPLEMENTED
+
+### Verified Components
+- ✅ Crane used for all Rust builds (sandbox, hypervisor, dioxus-desktop)
+- ✅ Pinned Rust toolchain via rust-overlay
+- ✅ FlakeHub Cache integrated in CI (`.github/workflows/nix-ci-draft.yml`)
+- ✅ All three acceptance builds working (`nix build .#sandbox`, etc.)
+- ✅ Multi-platform support (aarch64-darwin, aarch64-linux, x86_64-linux)
+
+### Implementation Gaps
+- ❌ No cache substituters configured in `nixConfig` (local builds miss cache)
+- ❌ Root `flake.nix` doesn't use crane (AWS standup focus, not builds)
+- ❌ CI still uses `cargo test` instead of `nix develop` based tests
+
+### To Complete
+1. Add `nixConfig.extra-substituters` and `extra-trusted-public-keys` to component flakes
+2. Document root vs component flake separation of concerns
+3. Consider unifying workspace build under single flake
 
 ## Narrative Summary (1-minute read)
 

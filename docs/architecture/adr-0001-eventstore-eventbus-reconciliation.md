@@ -1,8 +1,26 @@
 # ADR-0001: EventStore/EventBus Reconciliation
 
-Date: 2026-02-08  
-Status: Accepted (phase-1 rollout in progress)  
+Date: 2026-02-08
+Status: Accepted
 Owner: ChoirOS core architecture
+
+## Implementation Verification
+
+**Last Verified**: 2026-02-28
+**Verification Status**: ✅ IMPLEMENTED - Core architecture operational
+
+### Verified Components
+- ✅ EventStore is single source of truth (append-only, durable)
+- ✅ EventBus is delivery-only (`default_persist: false`)
+- ✅ EventRelayActor relays committed events with metadata
+- ✅ Single-write rule enforced (EventStore first, no dual-write)
+- ✅ Read correctness via EventStore cursors (`since_seq`)
+- ✅ Recovery semantics (cursor-based resume on relay restart)
+
+### Minor Gaps
+- Direct EventBus publish in supervision handling (non-critical diagnostics)
+- Legacy naming migration incomplete (cosmetic)
+- Consumer-side dedup utilities not standardized
 
 ## Context
 

@@ -1,8 +1,32 @@
 # ADR-0004: Hypervisor-Sandbox UI Runtime Boundary
 
-Date: 2026-02-22  
-Status: Draft  
+Date: 2026-02-22
+Status: Proposed
 Owner: ChoirOS runtime and deployment
+
+## Implementation Verification
+
+**Last Verified**: 2026-02-28
+**Verification Status**: 🔄 TRANSITIONAL (Not Complete)
+
+### Current State
+- ✅ Hypervisor owns auth/session (WebAuthn, SQLite sessions)
+- ✅ Route pointer resolution works (`/dev/*` -> pointer "dev")
+- ✅ API/WebSocket proxying to sandbox correct
+- ✅ Sandbox CAN serve complete runtime (has assets, WASM, etc.)
+
+### Implementation Gaps
+- ❌ Hypervisor still serves static assets (`/wasm/*`, `/assets/*` from host filesystem)
+- ❌ Auth pages served by hypervisor instead of proxied to sandbox
+- ❌ `is_public_bootstrap_path` intercepts requests before sandbox
+- ❌ Split ownership: hypervisor serves static, sandbox serves API
+
+### Blockers to Acceptance
+1. Remove `serve_public_bootstrap_asset` from hypervisor middleware
+2. Remove `/wasm/*`, `/assets/*` from `is_public_bootstrap_path`
+3. Proxy ALL runtime requests to sandbox (including initial page loads)
+4. Add integration tests asserting single-owner runtime
+5. Add telemetry for runtime mismatch detection
 
 ## Narrative Summary (1-minute read)
 

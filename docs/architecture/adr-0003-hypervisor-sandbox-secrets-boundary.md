@@ -1,8 +1,32 @@
 # ADR-0003: Hypervisor-Sandbox Secrets Boundary
 
-Date: 2026-02-20  
-Status: Draft  
+Date: 2026-02-20
+Status: Accepted with Gaps
 Owner: ChoirOS runtime and deployment
+
+## Implementation Verification
+
+**Last Verified**: 2026-02-28
+**Verification Status**: ⚠️ PARTIALLY IMPLEMENTED
+
+### Verified Components (Platform Secrets)
+- ✅ Provider Gateway in hypervisor (`hypervisor/src/provider_gateway.rs`)
+- ✅ Platform secrets isolated in hypervisor config (never passed to sandboxes)
+- ✅ Keyless sandbox policy enforced (`FORBIDDEN_PROVIDER_KEY_ENVS`)
+- ✅ Sandbox auto-detects managed mode, skips `.env` loading
+- ✅ LLM calls route through provider gateway with token auth
+
+### Implementation Gaps (User Secrets)
+- ❌ No `user_secrets` table in database
+- ❌ No `/me/secrets` API endpoints
+- ❌ No user-level secret broker for GitHub tokens, personal API keys
+- ❌ Researcher search providers (Tavily, Brave, Exa) read keys directly from env
+
+### To Complete
+1. Add `user_secrets` table and `/me/secrets` API
+2. Implement secret broker for user-level secrets
+3. Route researcher search providers through gateway
+4. Add audit logging for secret access
 
 ## Narrative Summary (1-minute read)
 
