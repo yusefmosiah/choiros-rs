@@ -44,6 +44,10 @@ data/
 # Logs
 *.log
 
+# Local OVH bootstrap helpers (account-specific; do not commit)
+scripts/ops/ovh-account-setup.sh
+config/ovh/
+
 # Playwright artifacts
 tests/artifacts/playwright/
 tests/artifacts/playwright/**/*.webm

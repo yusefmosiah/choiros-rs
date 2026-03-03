@@ -27,6 +27,29 @@ This runbook is the operator path for bootstrapping ChoirOS on two OVH US-East `
 3. Execute Section 5 failover drill.
 4. Close Section 6 gaps for snapshot lifecycle.
 
+## Fast Path Commands
+
+Repository helper:
+
+1. `./scripts/ops/ovh-account-setup.sh --help`
+2. Script is local-only and gitignored by policy.
+
+Suggested sequence:
+
+1. Create OAuth2 client (service account):
+   1. `OVH_APPLICATION_KEY=... OVH_APPLICATION_SECRET=... OVH_CONSUMER_KEY=...`
+   2. `./scripts/ops/ovh-account-setup.sh create-client --name choiros-control-plane --description "ChoirOS control plane"`
+2. Mint client-credentials token:
+   1. `./scripts/ops/ovh-account-setup.sh mint-token --client-id <client_id> --client-secret <client_secret>`
+3. Verify token + discover inventory:
+   1. `OVH_OAUTH_ACCESS_TOKEN=... ./scripts/ops/ovh-account-setup.sh whoami`
+   2. `OVH_OAUTH_ACCESS_TOKEN=... ./scripts/ops/ovh-account-setup.sh list-servers`
+   3. `OVH_OAUTH_ACCESS_TOKEN=... ./scripts/ops/ovh-account-setup.sh list-resources --resource-name ns1004307.ip-51-81-93.us --resource-name ns106285.ip-147-135-70.us`
+   4. `OVH_OAUTH_ACCESS_TOKEN=... ./scripts/ops/ovh-account-setup.sh list-actions --match 'dedicatedServer|secretmanager|kms'`
+4. Create policy from a local JSON file (not committed):
+   1. Create and edit a local file, for example `/tmp/iam-policy-bootstrap.json`, with discovered identity/URN/action values.
+   2. `OVH_OAUTH_ACCESS_TOKEN=... ./scripts/ops/ovh-account-setup.sh create-policy --policy-file /tmp/iam-policy-bootstrap.json`
+
 ## 0) Host Inventory (Authoritative)
 
 1. `ns1004307.ip-51-81-93.us` (`51.81.93.94`) - `SYS-1 | Intel Xeon-E 2136` - `us-east-vin`
