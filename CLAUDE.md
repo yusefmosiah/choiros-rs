@@ -9,8 +9,8 @@
 - Scope isolation (`session_id`, `thread_id`) is required for human/tool event retrieval to prevent cross-instance bleed.
 - EventBus/EventStore are the observability backbone for worker/task tracing.
 - Model policy defaults (current):
-  - Human Interface: `ClaudeBedrockSonnet45`
-  - Conductor: `ClaudeBedrockOpus46`
+  - Human Interface: `KimiK25`
+  - Conductor: `KimiK25`
   - Summarizer: `ZaiGLM47Flash`
 
 ## Execution Direction (2026-02-09)
@@ -113,7 +113,7 @@ just docker-build    # Build Docker image
 just docker-run      # Run Docker container
 
 # Deployment
-just deploy-ec2      # Deploy to EC2 instance
+DEPLOY_HOST=<host> just deploy-ovh-ssh  # Deploy to OVH/NixOS host over SSH
 
 # Nix/Flake builds (canonical for host deploys)
 nix build ./sandbox#sandbox
@@ -121,12 +121,10 @@ nix build ./hypervisor#hypervisor
 nix build ./dioxus-desktop#desktop
 ```
 
-## Nix + EC2 Operations (Current)
+## Nix + OVH Operations (Current)
 
 ### Active Hosts
 
-- Grind host: `choiros-nixos-grind-01` (`i-02d54052ca6dd4b39`)
-- Prod host: `choiros-nixos-prod-01` (`i-0cb76dd46cb699be6`)
 - Canonical host workspace path: `/opt/choiros/workspace`
 
 ### Build Path Rules
@@ -144,8 +142,8 @@ nix build ./dioxus-desktop#desktop
 - FlakeHub cache pulls only work for exact matching derivation hashes.
 - Local uncommitted changes change source hashes and often miss cache hits.
 - Host Nix must include FlakeHub substituter + trusted keys in `nix.settings`.
-- If auth is configured via secrets, keep token material in `sops-nix` rendered files under
-  `/run/secrets/rendered/*` or configured `netrc` path; do not commit plaintext tokens.
+- If auth is configured via secrets, deliver token material at runtime via host credential files
+  under `/run/choiros/credentials/*`; do not commit plaintext tokens.
 
 ### Host Converge Flow
 

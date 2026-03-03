@@ -472,6 +472,9 @@ impl From<ModelConfigError> for HarnessError {
             ModelConfigError::MissingApiKey(env) => {
                 HarnessError::ModelResolution(format!("Missing API key: {env}"))
             }
+            ModelConfigError::MissingGatewayConfig => HarnessError::ModelResolution(
+                "Managed runtime requires provider gateway configuration".to_string(),
+            ),
             ModelConfigError::NoFallbackAvailable => {
                 HarnessError::ModelResolution("No fallback model available".to_string())
             }

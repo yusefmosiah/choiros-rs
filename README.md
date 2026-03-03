@@ -14,7 +14,7 @@ Human-first docs entrypoint: [`docs/architecture/NARRATIVE_INDEX.md`](docs/archi
 - Event sourcing with SQLite via sqlx persistence
 - WebSocket streaming for desktop, terminal, writer, and telemetry events
 - Dioxus 0.7 frontend with DesktopShell, PromptBar, WorkspaceCanvas
-- Model providers: AWS Bedrock (Claude), Z.ai (GLM), Kimi
+- Model providers: Z.ai (GLM), Kimi, OpenAI-compatible endpoints (OpenAI, Inception)
 
 **In Progress:**
 - Direct worker/app-to-conductor request-message contract
@@ -47,39 +47,19 @@ cargo test -p sandbox
 curl http://localhost:8080/health
 ```
 
-## Single-Command Grind Host Standup (Nix)
+## OVH Deploy Path
 
-`flake.nix` is now the single source of truth for AWS grind host standup defaults
-(AMI, instance type, subnet, security group, key name, and bootstrap repo sync).
-
-```bash
-# Provision or resume the grind instance, wait until running,
-# then ensure /opt/choiros/workspace is synced to origin/main.
-nix run .#standup-grind
-```
-
-Optional overrides for different infra values:
+Use SSH-based host convergence for deployed hosts:
 
 ```bash
-CHOIROS_AWS_REGION=us-east-1 \
-CHOIROS_GRIND_NAME=choiros-nixos-grind-01 \
-CHOIROS_AMI_ID=ami-xxxxxxxxxxxxxxxxx \
-CHOIROS_SUBNET_ID=subnet-xxxxxxxxxxxxxxxxx \
-CHOIROS_SECURITY_GROUP_ID=sg-xxxxxxxxxxxxxxxxx \
-CHOIROS_SSH_KEY_PATH=~/.ssh/choiros-production.pem \
-nix run .#standup-grind
+DEPLOY_HOST=<ovh-host> just deploy-ovh-ssh
 ```
 
-## Grind-First DevOps Flow
-
-1. Develop and validate on grind (`/opt/choiros/workspace`) first.
-2. Run `just grind-check` from local (or equivalent commands on grind).
-3. Commit and push from grind using SSH remote (`git@github.com:yusefmosiah/choiros-rs.git`).
-4. Pull locally to stay in sync after push.
-5. Build a release manifest on grind (`just release-build-manifest`).
-6. Promote exact closures to prod (`just release-promote <grind-host> <prod-host>`).
-
-This avoids rebuild drift between grind and prod by copying the same Nix store paths.
+Optional environment overrides:
+- `DEPLOY_USER`, `DEPLOY_PORT`, `SSH_KEY_PATH`
+- `DEPLOY_SHA`, `WORKDIR`, `REPO_URL`
+- `SANDBOX_STORE_PATH`, `HYPERVISOR_STORE_PATH`, `DESKTOP_STORE_PATH`
+- `ALLOW_HOST_BUILD_FALLBACK=true` (if host-side flake build is allowed)
 
 ## FlakeHub Cache + Releases
 
@@ -145,7 +125,7 @@ choiros-rs/
 - **Entry point:** `docs/architecture/NARRATIVE_INDEX.md`
 - **Dev guide:** `AGENTS.md`
 - **Platform secrets runbook:** `docs/runbooks/platform-secrets-sops-nix.md`
-- **Release flow runbook:** `docs/runbooks/grind-to-prod-release-flow.md`
+- **Bootstrap execution plan:** `docs/architecture/2026-02-28-wave-plan-local-to-ovh-bootstrap.md`
 - **Active handoffs:** `docs/handoffs/` (7 files)
 - **Architecture specs:** `docs/architecture/` (47 files)
 

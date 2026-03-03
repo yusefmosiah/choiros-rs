@@ -1,113 +1,72 @@
-# Platform Secrets with sops-nix
+# Platform Secrets (ADR-0008 Control-Plane Model)
 
 ## Narrative Summary (1-minute read)
 
-ChoirOS platform API keys should be managed as encrypted data in git, then decrypted only
-at NixOS activation time on the host. This runbook uses `sops-nix` + `age` so hypervisor
-gets secrets through a systemd `EnvironmentFile` without relying on plaintext `.env` files.
+This runbook is the active operator reference for platform secrets after ADR-0008.
 
-Current production runtime is NixOS native containers (`container@sandbox-live` and
-`container@sandbox-dev`). Platform keys are loaded into hypervisor only.
-
-This configuration treats LLM, search, and resend/email keys as required platform secrets.
+ChoirOS now uses a strict control-plane secret boundary:
+1. No secret material in git (plaintext or encrypted).
+2. No provider or user secrets in sandbox runtimes.
+3. Hypervisor/control-plane services load credentials from runtime credential files.
+4. `EnvironmentFile` secret injection is not allowed for production.
 
 ## What Changed
 
-1. Added reusable NixOS module: `nix/modules/choiros-platform-secrets.nix`.
-2. Added flake export: `nixosModules.choiros-platform-secrets` in `flake.nix`.
-3. Added SOPS policy template: `.sops.yaml`.
-4. Added secrets schema example: `infra/secrets/choiros-platform.secrets.example.yaml`.
-5. Added bootstrap helper: `scripts/secrets/bootstrap-sops-nix.sh`.
+1. Replaced the old sops-in-repo flow as an active path.
+2. Standardized on control-plane runtime credential delivery.
+3. Required systemd credential loading (`LoadCredential`) for hypervisor/provider gateway.
+4. Marked sandbox as keyless by policy for provider and search credentials.
 
 ## What To Do Next
 
-1. Generate/import age keys on EC2 and operators.
-2. Encrypt `infra/secrets/choiros-platform.secrets.sops.yaml` with team recipients.
-3. Import module in host config and wire `services.choiros.platformSecrets`.
-4. Deploy via `nixos-rebuild switch` and verify key-backed model calls.
-5. Implement user-scoped secret broker endpoints as separate phase.
+1. Operate a self-hosted secret store for control-plane hosts.
+2. Deliver provider credentials to host paths under `/run/choiros/credentials/platform/`.
+3. Wire hypervisor service with `LoadCredential=` and file-based secret reads.
+4. Keep sandbox/runtime env free of provider and search API keys.
+5. Add integration tests proving managed-mode gateway-only behavior.
 
-## Architecture Intent
+## Hard Policy Rules
 
-- Platform secrets remain hypervisor-scoped by default.
-- NixOS containers do not receive platform secrets.
-- Secret values never enter repo plaintext, logs, or event payloads.
+1. Do not commit secrets (including encrypted secrets blobs) to this repo.
+2. Do not set provider/search keys in sandbox env.
+3. Do not use `Environment=` or `EnvironmentFile=` for secret values in production.
+4. Do not log raw secret values.
 
-## Host Config Example
+## Host Wiring Pattern (Required)
 
-Use this in `/etc/nixos/configuration.nix` (or equivalent flake host module list):
+Example systemd service shape:
 
 ```nix
-{
-  imports = [
-    inputs.sops-nix.nixosModules.sops
-    inputs.self.nixosModules.choiros-platform-secrets
+systemd.services.hypervisor.serviceConfig = {
+  LoadCredential = [
+    "zai_api_key:/run/choiros/credentials/platform/zai_api_key"
+    "kimi_api_key:/run/choiros/credentials/platform/kimi_api_key"
+    "openai_api_key:/run/choiros/credentials/platform/openai_api_key"
+    "inception_api_key:/run/choiros/credentials/platform/inception_api_key"
+    "tavily_api_key:/run/choiros/credentials/platform/tavily_api_key"
+    "brave_api_key:/run/choiros/credentials/platform/brave_api_key"
+    "exa_api_key:/run/choiros/credentials/platform/exa_api_key"
   ];
-
-  services.choiros.platformSecrets = {
-    enable = true;
-    sopsFile = /opt/choiros/deploy-repo/infra/secrets/choiros-platform.secrets.sops.yaml;
-  };
-}
+};
 ```
 
-This module now also renders `/run/secrets/rendered/choiros-flakehub-token` and runs a
-one-shot systemd service (`choiros-flakehub-login`) that executes:
+Service code reads these from `$CREDENTIALS_DIRECTORY/*`.
 
-```bash
-determinate-nixd login token --token-file /run/secrets/rendered/choiros-flakehub-token
-```
+## Runtime Policy
 
-The secret key names in the encrypted SOPS file should match runtime env names exactly:
+- Hypervisor/provider gateway holds provider credentials.
+- Sandbox uses only gateway routing metadata (`CHOIR_PROVIDER_GATEWAY_*`, sandbox/user IDs).
+- Managed-mode model/research calls must fail fast if gateway routing is missing.
 
-- `AWS_BEARER_TOKEN_BEDROCK`
-- `ZAI_API_KEY`
-- `OPENAI_API_KEY`
-- `KIMI_API_KEY`
-- `MOONSHOT_API_KEY`
-- `RESEND_API_KEY`
-- `TAVILY_API_KEY`
-- `BRAVE_API_KEY`
-- `EXA_API_KEY`
-- `FLAKEHUB_AUTH_TOKEN`
+## Verification Checklist
 
-## One-Time Bootstrap
+1. `git grep -n "choiros-platform.secrets.sops"` returns no active-path dependency.
+2. Hypervisor unit config uses `LoadCredential`, not `EnvironmentFile`, for secrets.
+3. Managed sandbox startup rejects provider/search key env vars.
+4. Provider and search requests in managed mode succeed through gateway and fail without it.
+5. Logs and events contain no secret values.
 
-On the EC2 host:
+## Legacy Note
 
-```bash
-sudo /opt/choiros/deploy-repo/scripts/secrets/bootstrap-sops-nix.sh
-```
-
-Then set `.sops.yaml` recipient(s), create encrypted file, and commit encrypted output:
-
-```bash
-cp infra/secrets/choiros-platform.secrets.example.yaml \
-  infra/secrets/choiros-platform.secrets.sops.yaml
-
-$EDITOR infra/secrets/choiros-platform.secrets.sops.yaml
-
-SOPS_AGE_RECIPIENTS="age1..." \
-  sops --encrypt --in-place infra/secrets/choiros-platform.secrets.sops.yaml
-```
-
-## Verification
-
-After `nixos-rebuild switch`:
-
-```bash
-systemctl show hypervisor --property=EnvironmentFiles
-systemctl status choiros-flakehub-login --no-pager
-systemctl restart hypervisor
-journalctl -u hypervisor -n 120 --no-pager
-journalctl -u choiros-flakehub-login -n 120 --no-pager
-```
-
-Confirm model provider calls succeed from the running stack, then ensure no secret values
-appear in logs.
-
-## NixOS Container Policy
-
-For current runtime, keep `container@sandbox-live` and `container@sandbox-dev` free of
-platform provider keys. If user-level secrets are needed in sandbox execution, deliver them
-through hypervisor broker APIs and scoped policy checks (ADR-0003 path).
+This file keeps its historical filename for link stability, but the old
+sops-nix-in-repo procedure is deprecated and no longer an approved production path.

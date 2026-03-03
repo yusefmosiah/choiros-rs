@@ -199,15 +199,14 @@ async fn forward_bedrock_request(
     context: GatewayCallerContext,
     started_at: Instant,
 ) -> Response {
-    let provider_api_key = match std::env::var("AWS_BEARER_TOKEN_BEDROCK") {
-        Ok(v) if !v.trim().is_empty() => v,
-        _ => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "provider api key missing on hypervisor",
-            )
-                .into_response();
-        }
+    let Some(provider_api_key) =
+        read_secret_env_or_credential("AWS_BEARER_TOKEN_BEDROCK", "aws_bedrock")
+    else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "provider api key missing on hypervisor",
+        )
+            .into_response();
     };
     let path_and_query = req
         .uri()
@@ -391,33 +390,63 @@ fn caller_context_from_headers(headers: &HeaderMap) -> GatewayCallerContext {
 fn provider_key_for_upstream(
     upstream_base_url: &str,
 ) -> Result<(String, UpstreamAuthMode), (StatusCode, &'static str)> {
-    let (key_env, auth_mode) = if upstream_base_url.contains("api.z.ai") {
-        ("ZAI_API_KEY", UpstreamAuthMode::Bearer)
+    let (key_env, credential_name, auth_mode) = if upstream_base_url.contains("api.z.ai") {
+        ("ZAI_API_KEY", "zai_api_key", UpstreamAuthMode::Bearer)
     } else if upstream_base_url.contains("api.kimi.com") {
-        ("KIMI_API_KEY", UpstreamAuthMode::Bearer)
+        ("KIMI_API_KEY", "kimi_api_key", UpstreamAuthMode::Bearer)
     } else if upstream_base_url.contains("api.openai.com") {
-        ("OPENAI_API_KEY", UpstreamAuthMode::Bearer)
+        ("OPENAI_API_KEY", "openai_api_key", UpstreamAuthMode::Bearer)
+    } else if upstream_base_url.contains("api.inceptionlabs.ai") {
+        (
+            "INCEPTION_API_KEY",
+            "inception_api_key",
+            UpstreamAuthMode::Bearer,
+        )
     } else if upstream_base_url.contains("api.tavily.com") {
-        ("TAVILY_API_KEY", UpstreamAuthMode::Bearer)
+        ("TAVILY_API_KEY", "tavily_api_key", UpstreamAuthMode::Bearer)
     } else if upstream_base_url.contains("api.search.brave.com") {
         (
             "BRAVE_API_KEY",
+            "brave_api_key",
             UpstreamAuthMode::Header("X-Subscription-Token"),
         )
     } else if upstream_base_url.contains("api.exa.ai") {
-        ("EXA_API_KEY", UpstreamAuthMode::Header("x-api-key"))
+        (
+            "EXA_API_KEY",
+            "exa_api_key",
+            UpstreamAuthMode::Header("x-api-key"),
+        )
     } else {
         return Err((StatusCode::FORBIDDEN, "unsupported provider upstream"));
     };
 
-    std::env::var(key_env)
+    read_secret_env_or_credential(key_env, credential_name)
         .map(|key| (key, auth_mode))
-        .map_err(|_| {
+        .ok_or({
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "provider api key missing on hypervisor",
             )
         })
+}
+
+fn read_secret_env_or_credential(env_key: &str, credential_name: &str) -> Option<String> {
+    if let Ok(value) = std::env::var(env_key) {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    let credentials_dir = std::env::var("CREDENTIALS_DIRECTORY").ok()?;
+    let credential_path = std::path::Path::new(&credentials_dir).join(credential_name);
+    let value = std::fs::read_to_string(credential_path).ok()?;
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 fn copy_request_headers(
@@ -621,6 +650,7 @@ mod tests {
         std::env::set_var("TAVILY_API_KEY", "t-key");
         std::env::set_var("BRAVE_API_KEY", "b-key");
         std::env::set_var("EXA_API_KEY", "e-key");
+        std::env::set_var("INCEPTION_API_KEY", "i-key");
 
         let (tavily, tavily_mode) =
             provider_key_for_upstream("https://api.tavily.com").expect("tavily key");
@@ -636,8 +666,14 @@ mod tests {
         assert_eq!(exa, "e-key");
         assert_eq!(exa_mode, UpstreamAuthMode::Header("x-api-key"));
 
+        let (inception, inception_mode) =
+            provider_key_for_upstream("https://api.inceptionlabs.ai/v1").expect("inception key");
+        assert_eq!(inception, "i-key");
+        assert_eq!(inception_mode, UpstreamAuthMode::Bearer);
+
         std::env::remove_var("TAVILY_API_KEY");
         std::env::remove_var("BRAVE_API_KEY");
         std::env::remove_var("EXA_API_KEY");
+        std::env::remove_var("INCEPTION_API_KEY");
     }
 }

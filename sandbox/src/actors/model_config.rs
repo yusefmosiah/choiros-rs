@@ -15,6 +15,8 @@ pub enum ModelConfigError {
     UnknownModel(String),
     #[error("missing API key environment variable: {0}")]
     MissingApiKey(String),
+    #[error("managed runtime requires provider gateway env: CHOIR_PROVIDER_GATEWAY_BASE_URL and CHOIR_PROVIDER_GATEWAY_TOKEN")]
+    MissingGatewayConfig,
     #[error("no fallback model available")]
     NoFallbackAvailable,
 }
@@ -428,6 +430,8 @@ fn add_provider_client(
     client_name: &str,
     provider: &ProviderConfig,
 ) -> Result<(), ModelConfigError> {
+    let managed_mode = is_managed_runtime_mode();
+
     match provider {
         ProviderConfig::AwsBedrock { model, region } => {
             let mut options = HashMap::new();
@@ -436,6 +440,8 @@ fn add_provider_client(
             if let Some(gateway_endpoint_url) = provider_gateway_override_bedrock(region) {
                 // Keep aws-bedrock provider semantics, but route transport through hypervisor.
                 options.insert("endpoint_url".to_string(), json!(gateway_endpoint_url));
+            } else if managed_mode {
+                return Err(ModelConfigError::MissingGatewayConfig);
             }
             registry.add_llm_client(client_name, "aws-bedrock", options);
             Ok(())
@@ -451,6 +457,8 @@ fn add_provider_client(
                     provider_gateway_override(base_url, model, headers)
                 {
                     (gateway_url, gateway_token, gateway_headers)
+                } else if managed_mode {
+                    return Err(ModelConfigError::MissingGatewayConfig);
                 } else {
                     let api_key = std::env::var(api_key_env)
                         .map_err(|_| ModelConfigError::MissingApiKey(api_key_env.clone()))?;
@@ -477,6 +485,8 @@ fn add_provider_client(
                     provider_gateway_override(base_url, model, headers)
                 {
                     (gateway_url, gateway_token, gateway_headers)
+                } else if managed_mode {
+                    return Err(ModelConfigError::MissingGatewayConfig);
                 } else {
                     let api_key = std::env::var(api_key_env)
                         .map_err(|_| ModelConfigError::MissingApiKey(api_key_env.clone()))?;
@@ -493,6 +503,12 @@ fn add_provider_client(
             Ok(())
         }
     }
+}
+
+fn is_managed_runtime_mode() -> bool {
+    std::env::var("CHOIR_SANDBOX_ID").is_ok()
+        || std::env::var("CHOIR_SANDBOX_ROLE").is_ok()
+        || std::env::var("CHOIR_SANDBOX_USER_ID").is_ok()
 }
 
 fn provider_gateway_override(
@@ -1223,6 +1239,35 @@ aliases = ["ZaiGLM47Flash"]
             provider_gateway_override("https://api.z.ai/api/anthropic", "glm-5", &headers);
         assert!(override_result.is_none());
 
+        restore_env("CHOIR_PROVIDER_GATEWAY_BASE_URL", prev_gateway_base);
+        restore_env("CHOIR_PROVIDER_GATEWAY_TOKEN", prev_gateway_token);
+    }
+
+    #[test]
+    fn test_managed_mode_requires_gateway_for_openai_generic() {
+        let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let prev_sandbox_id = set_env("CHOIR_SANDBOX_ID", "user-1:live");
+        let prev_gateway_base = clear_env("CHOIR_PROVIDER_GATEWAY_BASE_URL");
+        let prev_gateway_token = clear_env("CHOIR_PROVIDER_GATEWAY_TOKEN");
+
+        let config = ModelConfig {
+            id: "ManagedNoGateway".to_string(),
+            name: "Managed no gateway".to_string(),
+            provider: ProviderConfig::OpenAiGeneric {
+                base_url: "https://api.inceptionlabs.ai/v1".to_string(),
+                api_key_env: "PATH".to_string(),
+                model: "mercury-2".to_string(),
+                headers: HashMap::new(),
+            },
+        };
+
+        let result = create_client_registry_for_config(&config, &["ManagedNoGateway"]);
+        assert!(matches!(
+            result,
+            Err(ModelConfigError::MissingGatewayConfig)
+        ));
+
+        restore_env("CHOIR_SANDBOX_ID", prev_sandbox_id);
         restore_env("CHOIR_PROVIDER_GATEWAY_BASE_URL", prev_gateway_base);
         restore_env("CHOIR_PROVIDER_GATEWAY_TOKEN", prev_gateway_token);
     }

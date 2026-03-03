@@ -1,4 +1,4 @@
-default_model = "ClaudeBedrockSonnet46"
+default_model = "KimiK25"
 allow_request_override = true
 allowed_models = [
   "ClaudeBedrockOpus46",
@@ -8,11 +8,12 @@ allowed_models = [
   "ZaiGLM5",
   "ZaiGLM47",
   "ZaiGLM47Flash",
-  "KimiK25"
+  "KimiK25",
+  "InceptionMercury2"
 ]
 
 [callsite_defaults]
-terminal = "ClaudeBedrockHaiku45"
+terminal = "InceptionMercury2"
 conductor = "KimiK25"
 writer = "KimiK25"
 researcher = "ZaiGLM47"
@@ -90,6 +91,14 @@ aliases = ["KimiK25", "KimiK25OpenAI"]
 
 [models.KimiK25.headers]
 User-Agent = "claude-code/1.0"
+
+[models.InceptionMercury2]
+name = "Mercury 2 (Inception Labs)"
+provider = "openai-generic"
+base_url = "https://api.inceptionlabs.ai/v1"
+api_key_env = "INCEPTION_API_KEY"
+model = "mercury-2"
+aliases = ["InceptionMercury2", "mercury-2"]
 
 # [models.KimiK25Fallback]
 # name = "Kimi K2.5 Fallback"

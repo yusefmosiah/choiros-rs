@@ -9,8 +9,8 @@
 - Scope isolation (`session_id`, `thread_id`) is required for human/tool event retrieval to prevent cross-instance bleed.
 - EventBus/EventStore are the observability backbone for worker/task tracing.
 - Model policy defaults (current):
-  - Human Interface: `ClaudeBedrockSonnet45`
-  - Conductor: `ClaudeBedrockOpus46`
+  - Human Interface: `KimiK25`
+  - Conductor: `KimiK25`
   - Summarizer: `ZaiGLM47Flash`
 
 ## Local Runtime Topology Snapshot (2026-02-28)
@@ -125,12 +125,10 @@ just check
 just test
 ```
 
-## Nix + EC2 Operations (Current)
+## Nix + OVH Operations (Current)
 
 ### Active Hosts
 
-- Grind host: `choiros-nixos-grind-01` (`i-02d54052ca6dd4b39`)
-- Prod host: `choiros-nixos-prod-01` (`i-0cb76dd46cb699be6`)
 - Canonical host workspace path: `/opt/choiros/workspace`
 
 ### Build Path Rules

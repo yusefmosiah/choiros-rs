@@ -58,6 +58,20 @@ fn provider_gateway_config() -> Option<ProviderGatewayConfig> {
     })
 }
 
+fn is_managed_runtime_mode() -> bool {
+    std::env::var("CHOIR_SANDBOX_ID").is_ok()
+        || std::env::var("CHOIR_SANDBOX_ROLE").is_ok()
+        || std::env::var("CHOIR_SANDBOX_USER_ID").is_ok()
+}
+
+fn managed_mode_gateway_error(provider: &str) -> ResearcherError {
+    ResearcherError::ProviderRequest(
+        provider.to_string(),
+        "managed runtime requires CHOIR_PROVIDER_GATEWAY_BASE_URL and CHOIR_PROVIDER_GATEWAY_TOKEN"
+            .to_string(),
+    )
+}
+
 fn apply_provider_gateway_headers(
     req: reqwest::RequestBuilder,
     gateway: &ProviderGatewayConfig,
@@ -478,6 +492,9 @@ async fn search_tavily(
             .await
             .map_err(|e| ResearcherError::ProviderRequest("tavily".to_string(), e.to_string()))?
     } else {
+        if is_managed_runtime_mode() {
+            return Err(managed_mode_gateway_error("tavily"));
+        }
         let api_key = std::env::var("TAVILY_API_KEY")
             .map_err(|_| ResearcherError::MissingApiKey("TAVILY_API_KEY".to_string()))?;
         http.post("https://api.tavily.com/search")
@@ -573,6 +590,9 @@ async fn search_brave(
             "search:brave",
         )
     } else {
+        if is_managed_runtime_mode() {
+            return Err(managed_mode_gateway_error("brave"));
+        }
         let api_key = std::env::var("BRAVE_API_KEY")
             .map_err(|_| ResearcherError::MissingApiKey("BRAVE_API_KEY".to_string()))?;
         http.get("https://api.search.brave.com/res/v1/web/search")
@@ -683,6 +703,9 @@ async fn search_exa(
             .await
             .map_err(|e| ResearcherError::ProviderRequest("exa".to_string(), e.to_string()))?
     } else {
+        if is_managed_runtime_mode() {
+            return Err(managed_mode_gateway_error("exa"));
+        }
         let api_key = std::env::var("EXA_API_KEY")
             .map_err(|_| ResearcherError::MissingApiKey("EXA_API_KEY".to_string()))?;
         http.post("https://api.exa.ai/search")
@@ -775,8 +798,29 @@ async fn search_exa(
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_text_excerpt, parse_provider_selection, ProviderSelection, SearchProvider,
+        extract_text_excerpt, parse_provider_selection, search_tavily, ProviderSelection,
+        SearchProvider,
     };
+
+    fn set_env(key: &str, value: &str) -> Option<String> {
+        let previous = std::env::var(key).ok();
+        std::env::set_var(key, value);
+        previous
+    }
+
+    fn clear_env(key: &str) -> Option<String> {
+        let previous = std::env::var(key).ok();
+        std::env::remove_var(key);
+        previous
+    }
+
+    fn restore_env(key: &str, previous: Option<String>) {
+        if let Some(value) = previous {
+            std::env::set_var(key, value);
+        } else {
+            std::env::remove_var(key);
+        }
+    }
 
     #[test]
     fn parse_provider_selection_defaults_to_auto() {
@@ -828,5 +872,26 @@ mod tests {
         assert!(excerpt.contains("First paragraph."));
         assert!(excerpt.contains("- Item A"));
         assert!(excerpt.contains("- Item B"));
+    }
+
+    #[tokio::test]
+    async fn managed_mode_requires_gateway_for_search() {
+        let prev_sandbox_id = set_env("CHOIR_SANDBOX_ID", "user-1:live");
+        let prev_gateway_base = clear_env("CHOIR_PROVIDER_GATEWAY_BASE_URL");
+        let prev_gateway_token = clear_env("CHOIR_PROVIDER_GATEWAY_TOKEN");
+
+        let http = reqwest::Client::new();
+        let err = search_tavily(&http, "weather", 2, None, None, None)
+            .await
+            .expect_err("managed mode without gateway should fail");
+
+        assert!(
+            err.to_string().contains("managed runtime requires"),
+            "unexpected error: {err}"
+        );
+
+        restore_env("CHOIR_SANDBOX_ID", prev_sandbox_id);
+        restore_env("CHOIR_PROVIDER_GATEWAY_BASE_URL", prev_gateway_base);
+        restore_env("CHOIR_PROVIDER_GATEWAY_TOKEN", prev_gateway_token);
     }
 }

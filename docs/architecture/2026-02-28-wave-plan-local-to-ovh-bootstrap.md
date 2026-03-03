@@ -1,6 +1,6 @@
-# Wave Plan: Local Cutover to OVH Bootstrap to Post-Bootstrap Product Expansion
+# Wave Plan: Local Cutover to OVH Bootstrap to Publishing Bootstrap
 
-Date: 2026-03-01
+Date: 2026-03-03
 Status: Active plan
 Owner: platform/runtime
 
@@ -11,29 +11,31 @@ Execution sequence is locked:
 
 1. Complete strict local manual + automated validation on canonical `9090` flow.
 2. Prepare OVH deployment with a design + spike rewrite of current deploy surface.
-3. Procure and bring up one OVH node, then prove full user flow + rollback.
+3. Bring up procured OVH nodes, then prove full user flow + rollback.
 4. Activate bootstrap (`Choir builds Choir`) on stable runtime.
-5. Expand product capabilities (memory, multimedia, publishing, live audio) only after bootstrap and platform gates are green.
+5. Bootstrap into publishing (immutable artifacts, read concurrency, pointer-based promotion/rollback).
+6. Expand memory/multimedia/live-audio capabilities only after publishing and platform gates are green.
 
 DAG/ALM cleanup is intentionally deferred from this lane to avoid destabilizing cutover progress.
 
 ## What Changed
 
-1. Locked execution sequence to: OVH-first, then memory/feature expansion.
+1. Locked execution sequence to: OVH-first, then publishing bootstrap, then memory/feature expansion.
 2. Locked strict pre-OVH go/no-go gate:
    1. `just cutover-status --probe-builder` passes.
    2. Canonical `9090` hypervisor e2e passes with video/trace artifacts.
    3. Provider matrix validation ends with `failures=0`.
 3. Locked manual-test evidence policy to checklist + artifacts.
-4. Marked OVH deploy transport as unresolved until server procurement constraints are known.
-5. Added deployment-surface rewrite review + spike as mandatory pre-procurement work.
+4. Recorded OVH procurement completion (two `SYS-1` nodes in `us-east-vin`) and shifted to
+   bring-up/failover execution.
+5. Added OVH secrets + compute lifecycle authority references for bootstrap execution.
 
 ## What To Do Next
 
 1. Run Wave 0 strict local gate and capture evidence.
 2. Execute Wave 1 deployment rewrite design + spike.
-3. Procure OVH host only after Wave 1 outputs are decision-complete.
-4. Execute Wave 2 single-node OVH bring-up.
+3. Execute Wave 2 OVH bring-up on the procured nodes.
+4. Run one explicit failover drill after single-node proof.
 
 ## Operator Checklist (Strict Go/No-Go)
 
@@ -65,13 +67,13 @@ DAG/ALM cleanup is intentionally deferred from this lane to avoid destabilizing 
 2. Canonical e2e cutover gate hardening.
 3. Provider/gateway reliability gate.
 4. OVH deployment surface rewrite design + local spike.
-5. Single-node OVH bring-up readiness package.
+5. Procured-node OVH bring-up readiness package.
 
 ### Out of Scope
 
 1. DAG/ALM removal.
 2. Memory/multimedia/audio implementation work.
-3. Two-node OVH failover execution.
+3. Full automatic multi-node failover orchestration.
 
 ## Wave 0: Manual Regression + Go/No-Go Baseline (Now)
 
@@ -110,7 +112,7 @@ Prove local cutover path is stable enough to move into OVH prep.
 
 ### Objective
 
-Remove deployment ambiguity before OVH procurement.
+Remove deployment ambiguity before OVH production rollout.
 
 ### Track A: Canonical Cutover Gate Consolidation
 
@@ -120,7 +122,7 @@ Remove deployment ambiguity before OVH procurement.
 
 ### Track B: Deployment Rewrite Audit
 
-1. Audit AWS-specific transport assumptions in `scripts/deploy/aws-ssm-deploy.sh`.
+1. Audit SSH transport assumptions in `scripts/deploy/ovh-ssh-deploy.sh`.
 2. Audit fixed runtime/container assumptions in `scripts/deploy/host-switch.sh`.
 3. Write target OVH deploy contract doc:
    1. Inputs and secrets.
@@ -131,9 +133,9 @@ Remove deployment ambiguity before OVH procurement.
 
 ### Track C: Deploy Spike (transport not locked)
 
-1. Build a dry-runnable deploy wrapper that does not depend on AWS SSM.
+1. Build a dry-runnable deploy wrapper that uses SSH transport only.
 2. Validate host convergence + diagnostics flow against local Linux target or equivalent SSH test target.
-3. Keep this as spike/prototype until OVH server constraints are known.
+3. Keep this as spike/prototype until full deploy automation is locked.
 
 ### Track D: Documentation Alignment
 
@@ -145,19 +147,22 @@ Remove deployment ambiguity before OVH procurement.
 
 1. Strict gate command exists and passes locally.
 2. Deploy rewrite design is decision-complete.
-3. Deploy spike proves host convergence path independent of AWS SSM transport.
+3. Deploy spike proves host convergence path independent of cloud-vendor transport tooling.
 
-## Wave 2: OVH Single-Node Bring-Up (After Procurement)
+## Wave 2: OVH Bring-Up (Procured Nodes)
 
 ### Objective
 
-Prove one OVH node matches local 3-tier semantics.
+Prove primary + standby OVH nodes match local 3-tier semantics with manual failover.
 
 ### Preconditions
 
-1. OVH host procured with SSH + baseline NixOS.
+1. Procured hosts:
+   1. `ns1004307.ip-51-81-93.us` (`51.81.93.94`)
+   2. `ns106285.ip-147-135-70.us` (`147.135.70.196`)
 2. Domain and TLS plan defined.
-3. Secrets flow validated against `docs/runbooks/platform-secrets-sops-nix.md`.
+3. Secrets flow validated against
+   `docs/runbooks/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`.
 
 ### Bring-Up Sequence
 
@@ -168,9 +173,10 @@ Prove one OVH node matches local 3-tier semantics.
 
 ### Exit Criteria
 
-1. Public login -> desktop -> prompt loop passes.
+1. Public login -> desktop -> prompt loop passes on primary node.
 2. Terminal proof confirms runtime identity/health.
 3. One rollback drill succeeds.
+4. One node-failover drill succeeds.
 
 ## Wave 3: Bootstrap Activation (Immediately After Wave 2)
 
@@ -189,7 +195,7 @@ Establish Choir-on-Choir as daily development loop.
 1. Bootstrap loop repeatable by checklist.
 2. Rollback + regression triage workflow proven under live runtime conditions.
 
-## Wave 4: Post-Bootstrap Product Expansion
+## Wave 4: Publishing Bootstrap and Product Expansion
 
 ### Objective
 
@@ -197,9 +203,12 @@ Build feature roadmap on stable platform.
 
 ### Execution Order
 
-1. Memory integration with scoped writes/reads and observability.
-2. Multimedia app support (including video app and writer embedding flow).
-3. Publishing pipeline.
+1. Publishing pipeline:
+   1. Read-only publish mode for docs/apps/desktop state.
+   2. `stable`/`candidate` pointer model with instant rollback.
+   3. Prompt writeback via queued intents + scheduled headless publisher reconcile.
+2. Memory integration with scoped writes/reads and observability.
+3. Multimedia app support (including video app and writer embedding flow).
 4. Live audio I/O and screenless operation pathway.
 
 ### Rule
@@ -242,8 +251,10 @@ No feature lane bypasses red platform gates.
 
 ## Explicit Assumptions and Defaults
 
-1. Canonical sequence is local strict gate -> OVH single-node -> bootstrap activation -> memory/features.
-2. OVH server is not yet procured; transport remains provisional until procurement constraints are known.
+1. Canonical sequence is local strict gate -> OVH procured-node bring-up -> bootstrap activation
+   -> publishing bootstrap -> memory/features.
+2. Two OVH US-East servers are procured; transport remains SSH-first and provisional until full
+   deploy automation is hardened.
 3. `9090` remains canonical for cutover/deployment-shape validation.
 4. DAG/ALM cleanup is deferred until after platform stabilization.
 5. Strict gate is blocking; no OVH execution starts on red gates.
@@ -256,10 +267,12 @@ No feature lane bypasses red platform gates.
 4. `docs/architecture/2026-02-28-cutover-stocktake-and-pending-work.md`
 5. `docs/architecture/2026-02-28-local-cutover-status-and-next-steps.md`
 6. `docs/architecture/2026-02-28-3-tier-gap-closure-plan.md`
-7. `docs/architecture/2026-02-26-comprehensive-cutover-plan.md`
-8. `docs/architecture/2026-02-26-local-first-ovh-execution-plan.md`
+7. `docs/archive/handoffs/2026-Q1/2026-02-26-comprehensive-cutover-plan.md`
+8. `docs/archive/handoffs/2026-Q1/2026-02-26-local-first-ovh-execution-plan.md`
 9. `docs/architecture/roadmap-dependency-tree.md`
-10. `docs/architecture/2026-02-20-bootstrap-execution-checklists.md`
+10. `docs/archive/handoffs/2026-Q1/2026-02-20-bootstrap-execution-checklists.md`
 11. `docs/runbooks/local-provider-matrix-validation.md`
-12. `docs/handoffs/2026-02-22-platform-project-checklist-ovh-microvm.md`
+12. `docs/archive/handoffs/2026-02-22-platform-project-checklist-ovh-microvm.md`
 13. `docs/runbooks/platform-secrets-sops-nix.md`
+14. `docs/runbooks/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
+15. `docs/architecture/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`

@@ -118,6 +118,5 @@ after the local 3-tier architecture is stable.
 ## Historical References (Not Active)
 
 - `docs/runbooks/deployment-current-and-cutover.md`
-- `docs/runbooks/grind-to-prod-release-flow.md`
 - `docs/runbooks/mac-ssh-release-flow.md`
 - older architecture/handoff docs not listed above

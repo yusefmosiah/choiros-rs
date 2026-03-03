@@ -35,7 +35,7 @@ Use this as a release gate for local dev and upcoming OVH bring-up.
    - `CHOIR_PROVIDER_GATEWAY_TOKEN` is set (or pass `--gateway-token`)
 4. For model lane:
    - provider env keys present for selected models (for example `KIMI_API_KEY`, `ZAI_API_KEY`,
-     `AWS_BEARER_TOKEN_BEDROCK`, `OPENAI_API_KEY`, etc.)
+     `INCEPTION_API_KEY`, `OPENAI_API_KEY`, etc.)
 
 ## Run the Matrix
 
@@ -49,7 +49,7 @@ Run with explicit model targets:
 
 ```bash
 ./scripts/ops/validate-local-provider-matrix.sh \
-  --models "ZaiGLM47Flash,KimiK25"
+  --models "ZaiGLM47Flash,KimiK25,InceptionMercury2"
 ```
 
 Run with dev ChatGPT auth bridge (local-only):
@@ -89,4 +89,3 @@ Gateway-only smoke:
   - Ensure upstream is in `CHOIR_PROVIDER_GATEWAY_ALLOWED_UPSTREAMS`.
 - `OPENAI_API_KEY missing in .../.codex/auth.json`
   - Run `codex login`, then rerun with `--codex-openai-bridge`.
-

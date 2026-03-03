@@ -13,7 +13,7 @@ Lanes:
   2) Gateway search smokes (tavily/brave/exa via hypervisor provider gateway)
 
 Options:
-  --models <csv>            Model ids for live matrix (default: CHOIR_LIVE_MODEL_IDS or ZaiGLM47Flash,KimiK25)
+  --models <csv>            Model ids for live matrix (default: CHOIR_LIVE_MODEL_IDS or ZaiGLM47Flash,KimiK25,InceptionMercury2)
   --gateway-base <url>      Provider gateway base URL (default: CHOIR_PROVIDER_GATEWAY_BASE_URL or http://127.0.0.1:9090)
   --gateway-token <token>   Provider gateway token (default: CHOIR_PROVIDER_GATEWAY_TOKEN)
   --skip-model-tests        Skip model live matrix tests
@@ -36,7 +36,7 @@ need_cmd() {
   fi
 }
 
-MODELS="${CHOIR_LIVE_MODEL_IDS:-ZaiGLM47Flash,KimiK25}"
+MODELS="${CHOIR_LIVE_MODEL_IDS:-ZaiGLM47Flash,KimiK25,InceptionMercury2}"
 GATEWAY_BASE="${CHOIR_PROVIDER_GATEWAY_BASE_URL:-http://127.0.0.1:9090}"
 GATEWAY_TOKEN="${CHOIR_PROVIDER_GATEWAY_TOKEN:-}"
 SKIP_MODEL_TESTS="false"
@@ -241,4 +241,3 @@ echo "passes=${PASS_COUNT} failures=${FAIL_COUNT}"
 if [ "$FAIL_COUNT" -gt 0 ]; then
   exit 1
 fi
-

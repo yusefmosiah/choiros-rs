@@ -8,7 +8,8 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tokio::time::sleep;
 
-const DEFAULT_LIVE_MODEL_TARGETS: &[&str] = &["ZaiGLM5", "ZaiGLM47Flash", "KimiK25"];
+const DEFAULT_LIVE_MODEL_TARGETS: &[&str] =
+    &["ZaiGLM5", "ZaiGLM47Flash", "KimiK25", "InceptionMercury2"];
 
 fn env_present(key: &str) -> bool {
     std::env::var(key)

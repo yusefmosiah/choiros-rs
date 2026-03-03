@@ -198,11 +198,10 @@ podman-build:
 podman-run:
     podman run --rm -it --name choir-sandbox -p 8080:8080 -v ./data:/data:Z choir-sandbox:latest
 
-# Deployment (current AWS path)
-# Uses AWS SSM + host-side nixos-rebuild switch flow.
-# Required env: DEPLOY_INSTANCE_ID (or EC2_INSTANCE_ID)
-deploy-aws-ssm:
-    ./scripts/deploy/aws-ssm-deploy.sh
+# Deployment (OVH / SSH path)
+# Required env: DEPLOY_HOST
+deploy-ovh-ssh:
+    ./scripts/deploy/ovh-ssh-deploy.sh
 
 # Verify FlakeHub cache configuration/auth on current host.
 cache-check:
@@ -212,24 +211,9 @@ cache-check:
 release-manifest:
     ./scripts/ops/build-release-manifest.sh
 
-# Legacy alias retained to avoid silent stale usage.
-deploy-ec2:
-    @echo "ERROR: 'deploy-ec2' is deprecated and removed."
-    @echo "Use: just deploy-aws-ssm"
-    @exit 1
-
-# Grind host
-# Run canonical pre-push checks directly on grind.
-grind-check:
-    ssh -i "$HOME/.ssh/choiros-grind.pem" -o StrictHostKeyChecking=accept-new root@18.212.170.200 'set -e; cd /opt/choiros/workspace; git status --short --branch; nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./hypervisor --command cargo check -p hypervisor; nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./sandbox --command cargo check -p sandbox; git status --short --branch'
-
 # Build a deterministic release manifest from current commit
 release-build-manifest:
     ./scripts/ops/build-release-manifest.sh
-
-# Promote exact grind closures to prod
-release-promote GRIND PROD:
-    ./scripts/ops/promote-grind-to-prod.sh --grind {{GRIND}} --prod {{PROD}}
 
 # Capture host state for drift debugging
 ops-host-snapshot OUT:

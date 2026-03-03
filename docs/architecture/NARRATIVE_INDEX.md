@@ -1,13 +1,14 @@
 # ChoirOS Narrative Index (Read This First)
 
-Date: 2026-02-28
+Date: 2026-03-03
 Purpose: single entry point for active architecture and execution docs.
 
 ## 60-Second Story
 
 ChoirOS is in a platform reset phase.
-AWS/grind deployment lanes are no longer active.
-The active plan is local-first reliability, then OVH microVM bring-up with the same runtime contract.
+Legacy cloud deployment lanes are no longer active.
+The active plan is local-first reliability, then OVH US-East bootstrap with the same runtime
+contract, strict control-plane secrets boundaries, and phased compute lifecycle expansion.
 
 Use the docs below in order. If a doc is not listed in `Active Read Order`, treat it as reference history.
 
@@ -19,26 +20,32 @@ Use the docs below in order. If a doc is not listed in `Active Read Order`, trea
 2. `docs/architecture/adr-0001-eventstore-eventbus-reconciliation.md` - EventStore/EventBus (Accepted)
 3. `docs/architecture/adr-0005-alm-harness-integration.md` - ALM Harness (Draft - decision pending)
 4. `docs/architecture/adr-0006-prompt-centralization-baml.md` - Prompt Centralization (Draft - decision pending)
+5. `docs/architecture/adr-0008-ovh-selfhosted-secrets-architecture.md` - OVH Self-Hosted Secrets (Accepted)
+6. `docs/architecture/adr-0009-terminal-renderer-strategy-xterm-vs-libghostty.md` - Terminal Renderer Strategy (Proposed)
+7. `docs/architecture/adr-0010-ovh-bootstrap-vm-fleet-capacity-and-minimal-lifecycle-api.md` - OVH VM Fleet Bootstrap Capacity + Lifecycle API (Proposed)
+8. `docs/architecture/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md` - Bootstrap Into Publishing: State/Compute Decoupling + Runtime Modes (Proposed)
+9. `docs/architecture/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md` - OVH US-East Bootstrap Secrets + Two-Node Compute Lifecycle (Accepted)
 
 ### Execution Plans (Feb 28, 2026)
 
-5. `docs/architecture/2026-02-28-wave-plan-local-to-ovh-bootstrap.md` - Wave plan
-6. `docs/architecture/2026-02-28-local-vfkit-architecture-review.md` - Vfkit review
-7. `docs/architecture/2026-02-28-cutover-stocktake-and-pending-work.md` - Cutover status
-8. `docs/architecture/2026-02-28-local-cutover-status-and-next-steps.md` - Local next steps
-9. `docs/architecture/2026-02-28-3-tier-gap-closure-plan.md` - Gap closure plan
-10. `docs/architecture/roadmap-dependency-tree.md` - Dependency tree
+10. `docs/architecture/2026-02-28-wave-plan-local-to-ovh-bootstrap.md` - Wave plan
+11. `docs/architecture/2026-02-28-local-vfkit-architecture-review.md` - Vfkit review
+12. `docs/architecture/2026-02-28-cutover-stocktake-and-pending-work.md` - Cutover status
+13. `docs/architecture/2026-02-28-local-cutover-status-and-next-steps.md` - Local next steps
+14. `docs/architecture/2026-02-28-3-tier-gap-closure-plan.md` - Gap closure plan
+15. `docs/architecture/roadmap-dependency-tree.md` - Dependency tree
 
 ### Runbooks
 
-11. `docs/runbooks/2026-02-28-local-vfkit-nixos-miniguide.md`
-12. `docs/runbooks/vfkit-local-proof.md`
-13. `docs/runbooks/local-provider-matrix-validation.md`
-14. `docs/runbooks/platform-secrets-sops-nix.md`
+16. `docs/runbooks/2026-02-28-local-vfkit-nixos-miniguide.md`
+17. `docs/runbooks/vfkit-local-proof.md`
+18. `docs/runbooks/local-provider-matrix-validation.md`
+19. `docs/runbooks/platform-secrets-sops-nix.md`
+20. `docs/runbooks/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
 
 ### Handoffs
 
-15. `docs/handoffs/2026-02-28-local-nixos-builder-vm-setup.md`
+21. `docs/handoffs/2026-02-28-local-nixos-builder-vm-setup.md`
 
 ## Current Decisions (Explicit)
 
@@ -47,13 +54,13 @@ Use the docs below in order. If a doc is not listed in `Active Read Order`, trea
 - Conductor does not execute tools directly.
 - Provider gateway is the security boundary for provider/search keys.
 - Local validation gates must pass before OVH infra expansion.
+- OVH service-account OAuth2 + Secret Manager/KMS is the default infra auth/secrets path.
 
 ## Deprecated as Active Operator Docs
 
 These files remain for context, not current execution authority:
 
 - `docs/runbooks/deployment-current-and-cutover.md`
-- `docs/runbooks/grind-to-prod-release-flow.md`
 - `docs/runbooks/mac-ssh-release-flow.md`
 
 ## Doc Readability Rule
@@ -79,6 +86,11 @@ ADRs are the **canonical** architecture documents. They are living documents tha
 | 0005 | ALM Harness Integration | Draft | Core |
 | 0006 | Prompt Centralization in BAML | Draft | DX |
 | 0007 | 3-Tier Control/Runtime/Client Architecture | In Progress | Platform |
+| 0008 | OVH Self-Hosted Secrets Architecture | Accepted | Platform / Runtime / Infra |
+| 0009 | Terminal Renderer Strategy (xterm.js vs Ghostty/libghostty) | Proposed | Desktop / Runtime |
+| 0010 | OVH Bootstrap VM Fleet Capacity and Minimal 80/20 Lifecycle API | Proposed | Platform / Runtime / Infra |
+| 0011 | Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes) | Proposed | Platform / Runtime / Product |
+| 0012 | OVH US-East Bootstrap Secrets and Two-Node Compute Lifecycle | Accepted | Platform / Runtime / Infra |
 
 ### ADR Status Definitions
 
