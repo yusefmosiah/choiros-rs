@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::PathBuf;
 
 use crate::actors::conductor::actor::{ConductorActor, ConductorState};
 use crate::actors::conductor::{
@@ -114,7 +114,9 @@ impl ConductorActor {
         run_id: &str,
         content: &str,
     ) -> Result<String, ConductorError> {
-        let sandbox = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let sandbox = std::env::var("CHOIR_SANDBOX_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
         let reports_dir = sandbox.join("reports");
 
         if let Err(e) = tokio::fs::create_dir_all(&reports_dir).await {

@@ -907,7 +907,10 @@ impl TerminalAdapter {
             return None;
         }
 
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let root_buf = std::env::var("CHOIR_SANDBOX_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+        let root = root_buf.as_path();
         if let Ok(relative) = candidate.strip_prefix(root) {
             return Some(relative.to_string_lossy().to_string());
         }

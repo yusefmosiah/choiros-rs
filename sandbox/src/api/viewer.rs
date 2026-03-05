@@ -339,8 +339,13 @@ fn viewer_actor_id(uri: &str) -> String {
     format!("viewer:{uri}")
 }
 
+/// Sandbox root path for file operations.
+/// Uses CHOIR_SANDBOX_ROOT at runtime (set in production), falls back to
+/// CARGO_MANIFEST_DIR for local dev.
 fn sandbox_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
+    std::env::var("CHOIR_SANDBOX_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
 }
 
 fn file_path_from_uri(uri: &str) -> Option<String> {

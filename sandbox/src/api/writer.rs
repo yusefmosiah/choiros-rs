@@ -19,9 +19,13 @@ use crate::actors::writer::{
 };
 use crate::api::ApiState;
 
-/// Sandbox root path - all file operations are constrained to this directory
+/// Sandbox root path - all file operations are constrained to this directory.
+/// Uses CHOIR_SANDBOX_ROOT at runtime (set in production), falls back to
+/// CARGO_MANIFEST_DIR for local dev.
 fn sandbox_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
+    std::env::var("CHOIR_SANDBOX_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
 }
 
 /// Writer error codes for machine-readable error responses

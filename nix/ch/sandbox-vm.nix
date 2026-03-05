@@ -86,6 +86,7 @@
         "CHOIR_SANDBOX_ROLE=${sandboxRole}"
         "CHOIR_PROVIDER_GATEWAY_BASE_URL=http://10.0.0.1:9090"
         "HOME=/var/lib/choiros"
+        "CHOIR_SANDBOX_ROOT=/opt/choiros/data/sandbox"
         "CHOIR_WRITER_ROOT_DIR=/opt/choiros/data/sandbox"
       ];
     };

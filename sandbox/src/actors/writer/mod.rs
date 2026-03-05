@@ -433,7 +433,8 @@ pub(crate) fn dispatch_delegate_capability(
                             terminal_id: terminal_id.clone(),
                             user_id: user_id.clone(),
                             shell: "/bin/zsh".to_string(),
-                            working_dir: env!("CARGO_MANIFEST_DIR").to_string(),
+                            working_dir: std::env::var("CHOIR_SANDBOX_ROOT")
+                            .unwrap_or_else(|_| env!("CARGO_MANIFEST_DIR").to_string()),
                             reply,
                         }
                     })
@@ -681,7 +682,9 @@ impl WriterActor {
     const DEFAULT_RESTORED_DESKTOP_ID: &'static str = "default-desktop";
 
     fn run_document_dir(run_id: &str) -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        std::env::var("CHOIR_WRITER_ROOT_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
             .join(Self::RUN_DOCUMENTS_ROOT)
             .join(run_id)
     }

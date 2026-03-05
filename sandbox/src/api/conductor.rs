@@ -215,7 +215,10 @@ fn immediate_response_from_run(run: &ConductorRunState) -> Option<String> {
 }
 
 fn report_summary_message(report_path: &str) -> Option<String> {
-    let full_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(report_path);
+    let root = std::env::var("CHOIR_SANDBOX_ROOT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    let full_path = root.join(report_path);
     let content = std::fs::read_to_string(full_path).ok()?;
     let line = content.lines().find(|line| {
         let trimmed = line.trim();
