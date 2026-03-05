@@ -41,6 +41,24 @@
           ./nix/hosts/ovh-node.nix
         ];
       };
+
+      nixosConfigurations.choiros-a = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          disko.nixosModules.disko
+          ./nix/hosts/ovh-node-disk-config.nix
+          ./nix/hosts/ovh-node-a.nix
+        ];
+      };
+
+      nixosConfigurations.choiros-b = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          disko.nixosModules.disko
+          ./nix/hosts/ovh-node-disk-config.nix
+          ./nix/hosts/ovh-node-b.nix
+        ];
+      };
     }
     ;
 }

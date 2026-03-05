@@ -38,6 +38,18 @@
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILN3IIn6TzBBExWiJTJ7aDlA/LlEMXvjFlSfkKkV02TZ wiz@choiros-ovh"
   ];
 
+  # Caddy reverse proxy (TLS termination -> hypervisor)
+  services.caddy = {
+    enable = true;
+    # Caddyfile is overridden per-node via extraConfig or virtualHosts.
+    # Default: reverse proxy to hypervisor on :9090.
+    virtualHosts."http://:80" = {
+      extraConfig = ''
+        reverse_proxy 127.0.0.1:9090
+      '';
+    };
+  };
+
   # Firewall
   networking.firewall = {
     enable = true;
@@ -45,7 +57,7 @@
       22    # SSH
       80    # HTTP
       443   # HTTPS
-      9090  # Hypervisor ingress
+      9090  # Hypervisor ingress (direct, for health checks)
     ];
   };
 
