@@ -72,8 +72,12 @@ async fn main() -> anyhow::Result<()> {
         config.provider_gateway_token.clone(),
     );
 
-    // Boot live sandbox immediately so the VM is ready before the first request
-    sandbox_registry.boot_live_sandbox().await;
+    // Boot live sandbox in background so the HTTP server starts immediately.
+    // The VM takes ~90s to boot; requests will get 503 until it's ready.
+    {
+        let reg = Arc::clone(&sandbox_registry);
+        tokio::spawn(async move { reg.boot_live_sandbox().await });
+    }
 
     // Spawn idle watchdog
     {

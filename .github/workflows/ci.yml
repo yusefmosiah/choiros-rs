@@ -89,9 +89,9 @@ jobs:
             echo "==> Restarting services"
             systemctl restart hypervisor
 
-            echo "==> Waiting for health"
-            sleep 3
-            curl -fsS --retry 5 --retry-delay 2 http://127.0.0.1:9090/login > /dev/null
+            echo "==> Waiting for hypervisor health"
+            sleep 2
+            curl -fsS --retry 10 --retry-delay 3 --retry-all-errors http://127.0.0.1:9090/login > /dev/null
             echo "==> Deploy complete"
           '
 
