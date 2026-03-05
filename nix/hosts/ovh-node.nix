@@ -38,6 +38,15 @@
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILN3IIn6TzBBExWiJTJ7aDlA/LlEMXvjFlSfkKkV02TZ wiz@choiros-ovh"
   ];
 
+  # Unprivileged user for sandbox processes
+  users.users.choiros = {
+    isSystemUser = true;
+    group = "choiros";
+    home = "/var/lib/choiros";
+    createHome = true;
+  };
+  users.groups.choiros = {};
+
   # Caddy reverse proxy (TLS termination -> hypervisor)
   services.caddy = {
     enable = true;
@@ -90,7 +99,9 @@
     "d /opt/choiros/bin 0755 root root -"
     "d /opt/choiros/workspace 0755 root root -"
     "d /opt/choiros/data 0750 root root -"
+    "d /opt/choiros/data/sandbox 0750 choiros choiros -"
     "d /run/choiros/credentials/platform 0700 root root -"
+    "d /run/choiros/credentials/sandbox 0700 choiros choiros -"
   ];
 
   # ChoirOS Hypervisor service
@@ -129,7 +140,7 @@
     };
   };
 
-  # ChoirOS Sandbox (live) service — always uses provider gateway
+  # ChoirOS Sandbox (live) service — unprivileged, always uses provider gateway
   systemd.services.sandbox-live = {
     description = "ChoirOS Sandbox (live)";
     wantedBy = [ "multi-user.target" ];
@@ -137,21 +148,24 @@
     wants = [ "network-online.target" ];
     serviceConfig = {
       ExecStart = "/opt/choiros/bin/sandbox";
+      User = "choiros";
+      Group = "choiros";
       Restart = "on-failure";
       RestartSec = 3;
       WorkingDirectory = "/opt/choiros/workspace";
-      EnvironmentFile = "/run/choiros/credentials/platform/sandbox.env";
+      EnvironmentFile = "/run/choiros/credentials/sandbox/sandbox.env";
       Environment = [
         "PORT=8080"
-        "DATABASE_URL=sqlite:/opt/choiros/data/sandbox-live.db"
+        "DATABASE_URL=sqlite:/opt/choiros/data/sandbox/sandbox-live.db"
         "SQLX_OFFLINE=true"
         "CHOIR_SANDBOX_ROLE=live"
         "CHOIR_PROVIDER_GATEWAY_BASE_URL=http://127.0.0.1:9090"
+        "HOME=/var/lib/choiros"
       ];
     };
   };
 
-  # ChoirOS Sandbox (dev) service — always uses provider gateway
+  # ChoirOS Sandbox (dev) service — unprivileged, always uses provider gateway
   systemd.services.sandbox-dev = {
     description = "ChoirOS Sandbox (dev)";
     wantedBy = [ "multi-user.target" ];
@@ -159,16 +173,19 @@
     wants = [ "network-online.target" ];
     serviceConfig = {
       ExecStart = "/opt/choiros/bin/sandbox";
+      User = "choiros";
+      Group = "choiros";
       Restart = "on-failure";
       RestartSec = 3;
       WorkingDirectory = "/opt/choiros/workspace";
-      EnvironmentFile = "/run/choiros/credentials/platform/sandbox.env";
+      EnvironmentFile = "/run/choiros/credentials/sandbox/sandbox.env";
       Environment = [
         "PORT=8081"
-        "DATABASE_URL=sqlite:/opt/choiros/data/sandbox-dev.db"
+        "DATABASE_URL=sqlite:/opt/choiros/data/sandbox/sandbox-dev.db"
         "SQLX_OFFLINE=true"
         "CHOIR_SANDBOX_ROLE=dev"
         "CHOIR_PROVIDER_GATEWAY_BASE_URL=http://127.0.0.1:9090"
+        "HOME=/var/lib/choiros"
       ];
     };
   };
