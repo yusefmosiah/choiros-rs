@@ -41,9 +41,7 @@
   # Caddy reverse proxy (TLS termination -> hypervisor)
   services.caddy = {
     enable = true;
-    # Caddyfile is overridden per-node via extraConfig or virtualHosts.
-    # Default: reverse proxy to hypervisor on :9090.
-    virtualHosts."http://:80" = {
+    virtualHosts."choir-ip.com" = {
       extraConfig = ''
         reverse_proxy 127.0.0.1:9090
       '';
@@ -113,8 +111,8 @@
         "SANDBOX_LIVE_PORT=8080"
         "SANDBOX_DEV_PORT=8081"
         "FRONTEND_DIST=/opt/choiros/workspace/dioxus-desktop/target/dx/dioxus-desktop/release/web/public"
-        "WEBAUTHN_RP_ID=localhost"
-        "WEBAUTHN_RP_ORIGIN=http://localhost:9090"
+        "WEBAUTHN_RP_ID=choir-ip.com"
+        "WEBAUTHN_RP_ORIGIN=https://choir-ip.com"
       ];
     };
   };
