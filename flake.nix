@@ -4,13 +4,17 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    disko = {
+      url = "github:nix-community/disko";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     microvm = {
       url = "github:microvm-nix/microvm.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  outputs = { nixpkgs, flake-utils, microvm, ... }:
+  outputs = { nixpkgs, flake-utils, disko, microvm, ... }:
     let
       systems = [ "aarch64-darwin" "x86_64-linux" ];
     in
@@ -26,6 +30,15 @@
         modules = [
           microvm.nixosModules.microvm
           ./nix/vfkit/user-vm.nix
+        ];
+      };
+
+      nixosConfigurations.choiros-ovh-node = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          disko.nixosModules.disko
+          ./nix/hosts/ovh-node-disk-config.nix
+          ./nix/hosts/ovh-node.nix
         ];
       };
     }

@@ -74,10 +74,23 @@ ssh -i ~/.ssh/id_ed25519_ovh ubuntu@51.81.93.94   # Node A (choiros-a)
 ssh -i ~/.ssh/id_ed25519_ovh ubuntu@147.135.70.196 # Node B (choiros-b)
 ```
 
+- [x] Created NixOS host configuration for x86_64-linux bare metal.
+  - `nix/hosts/ovh-node.nix` (host config: UEFI GRUB, SSH, firewall, packages).
+  - `nix/hosts/ovh-node-disk-config.nix` (disko: 2x NVMe RAID1 with ESP).
+  - `flake.nix` updated with `nixosConfigurations.choiros-ovh-node` and `disko` input.
+- [x] Enabled root SSH on both nodes (replaced OVH forced-command authorized_keys).
+- [x] Ran `nixos-anywhere` on Node A from macOS (kexec -> disko -> install -> reboot).
+- [x] Ran `nixos-anywhere` on Node B from macOS (same process, system closure cached).
+- [x] NixOS boots and SSH works on both nodes post-conversion.
+
+**SSH access (NixOS, verified working):**
+```bash
+ssh -i ~/.ssh/id_ed25519_ovh root@51.81.93.94   # Node A
+ssh -i ~/.ssh/id_ed25519_ovh root@147.135.70.196 # Node B
+```
+
 **Pending:**
-- [ ] Create NixOS host configuration for x86_64-linux bare metal (`nix/hosts/ovh-node.nix`).
-- [ ] Run `nixos-anywhere` to convert Ubuntu -> NixOS on both nodes.
-- [ ] Verify NixOS boots and SSH works post-conversion.
+- [ ] Set hostname per-node (currently both are `nixos`).
 - [ ] Bootstrap secrets infrastructure (Sections 1-3).
 - [ ] Deploy ChoirOS and verify health checks (Section 4).
 
