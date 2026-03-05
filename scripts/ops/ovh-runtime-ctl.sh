@@ -1,6 +1,9 @@
 #!/run/current-system/sw/bin/bash
 set -euo pipefail
 
+# Ensure system tools (ip, kill, etc.) are available when called from systemd
+export PATH="/run/current-system/sw/bin:/run/current-system/sw/sbin:$PATH"
+
 # Cloud-hypervisor runtime controller for OVH bare metal.
 # Called by the hypervisor's SandboxRegistry to manage sandbox microVMs.
 #

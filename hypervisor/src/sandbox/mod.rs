@@ -519,7 +519,7 @@ impl SandboxRegistry {
         let ctl_path = self.vfkit_ctl.trim();
         if ctl_path.is_empty() {
             return Err(anyhow::anyhow!(
-                "vfkit backend is configured but SANDBOX_VFKIT_CTL is missing"
+                "runtime backend is configured but SANDBOX_VFKIT_CTL is missing"
             ));
         }
 
@@ -554,7 +554,7 @@ impl SandboxRegistry {
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         Err(anyhow::anyhow!(
-            "vfkit ctl failed action={action} runtime={runtime_name} code={:?} stdout='{}' stderr='{}'",
+            "runtime ctl failed action={action} runtime={runtime_name} code={:?} stdout='{}' stderr='{}'",
             out.status.code(),
             stdout,
             stderr
