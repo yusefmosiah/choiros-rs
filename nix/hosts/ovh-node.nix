@@ -104,6 +104,18 @@
       Restart = "on-failure";
       RestartSec = 3;
       WorkingDirectory = "/opt/choiros/workspace";
+      LoadCredential = [
+        "zai_api_key:/run/choiros/credentials/platform/zai_api_key"
+        "kimi_api_key:/run/choiros/credentials/platform/kimi_api_key"
+        "openai_api_key:/run/choiros/credentials/platform/openai_api_key"
+        "inception_api_key:/run/choiros/credentials/platform/inception_api_key"
+        "tavily_api_key:/run/choiros/credentials/platform/tavily_api_key"
+        "brave_api_key:/run/choiros/credentials/platform/brave_api_key"
+        "exa_api_key:/run/choiros/credentials/platform/exa_api_key"
+        "aws_bedrock:/run/choiros/credentials/platform/aws_bedrock"
+        "provider_gateway_token:/run/choiros/credentials/platform/provider_gateway_token"
+      ];
+      EnvironmentFile = "/run/choiros/credentials/platform/hypervisor.env";
       Environment = [
         "HYPERVISOR_PORT=9090"
         "HYPERVISOR_DATABASE_URL=sqlite:/opt/choiros/data/hypervisor.db"
@@ -117,7 +129,7 @@
     };
   };
 
-  # ChoirOS Sandbox (live) service
+  # ChoirOS Sandbox (live) service — always uses provider gateway
   systemd.services.sandbox-live = {
     description = "ChoirOS Sandbox (live)";
     wantedBy = [ "multi-user.target" ];
@@ -128,16 +140,18 @@
       Restart = "on-failure";
       RestartSec = 3;
       WorkingDirectory = "/opt/choiros/workspace";
+      EnvironmentFile = "/run/choiros/credentials/platform/sandbox.env";
       Environment = [
         "PORT=8080"
         "DATABASE_URL=sqlite:/opt/choiros/data/sandbox-live.db"
         "SQLX_OFFLINE=true"
         "CHOIR_SANDBOX_ROLE=live"
+        "CHOIR_PROVIDER_GATEWAY_BASE_URL=http://127.0.0.1:9090"
       ];
     };
   };
 
-  # ChoirOS Sandbox (dev) service
+  # ChoirOS Sandbox (dev) service — always uses provider gateway
   systemd.services.sandbox-dev = {
     description = "ChoirOS Sandbox (dev)";
     wantedBy = [ "multi-user.target" ];
@@ -148,11 +162,13 @@
       Restart = "on-failure";
       RestartSec = 3;
       WorkingDirectory = "/opt/choiros/workspace";
+      EnvironmentFile = "/run/choiros/credentials/platform/sandbox.env";
       Environment = [
         "PORT=8081"
         "DATABASE_URL=sqlite:/opt/choiros/data/sandbox-dev.db"
         "SQLX_OFFLINE=true"
         "CHOIR_SANDBOX_ROLE=dev"
+        "CHOIR_PROVIDER_GATEWAY_BASE_URL=http://127.0.0.1:9090"
       ];
     };
   };
