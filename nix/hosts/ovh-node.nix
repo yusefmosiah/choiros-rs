@@ -98,7 +98,7 @@
     "d /opt/choiros 0755 root root -"
     "d /opt/choiros/bin 0755 root root -"
     "d /opt/choiros/workspace 0755 root root -"
-    "d /opt/choiros/data 0750 root root -"
+    "d /opt/choiros/data 0755 root choiros -"
     "d /opt/choiros/data/sandbox 0750 choiros choiros -"
     "d /run/choiros/credentials/platform 0700 root root -"
     "d /run/choiros/credentials/sandbox 0700 choiros choiros -"
