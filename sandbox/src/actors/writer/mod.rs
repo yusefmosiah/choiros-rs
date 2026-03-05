@@ -434,7 +434,7 @@ pub(crate) fn dispatch_delegate_capability(
                             user_id: user_id.clone(),
                             shell: "/bin/zsh".to_string(),
                             working_dir: std::env::var("CHOIR_SANDBOX_ROOT")
-                            .unwrap_or_else(|_| env!("CARGO_MANIFEST_DIR").to_string()),
+                                .unwrap_or_else(|_| env!("CARGO_MANIFEST_DIR").to_string()),
                             reply,
                         }
                     })
