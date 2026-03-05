@@ -91,16 +91,21 @@ VM lifecycle (`create/start/stop/snapshot/restore/delete/get/list`).
 
 ## Immediate Next Steps
 
-1. Create NixOS host configuration for x86_64-linux bare metal (`nix/hosts/ovh-node.nix`).
-2. Run `nixos-anywhere` to convert Ubuntu -> NixOS on both nodes.
-3. Verify NixOS boots and SSH works post-conversion.
-4. Run OVH bootstrap runbook Sections 1-3 (service-account identity, policy scope, secret seeding, host sync units).
-5. Deploy ChoirOS binaries and verify health checks.
+1. ~~Create NixOS host configuration for x86_64-linux bare metal.~~ Done.
+2. ~~Run `nixos-anywhere` to convert Ubuntu -> NixOS on both nodes.~~ Done.
+3. ~~Verify NixOS boots and SSH works post-conversion.~~ Done.
+4. ~~Deploy ChoirOS binaries and verify health checks.~~ Done.
+5. Build and deploy UI assets (WASM frontend via `dx build`).
+6. Wire provider gateway credentials (API keys for LLM providers).
+7. Set per-node hostnames (`choiros-a`, `choiros-b`).
+8. Add Caddy reverse proxy for TLS termination and public access.
+9. Run OVH bootstrap runbook Sections 1-3 (service-account, secrets, sync units).
 
 ## Blockers/Open Questions
 
 - [ ] Confirm final LB + vRack choice for US-East deployment (cost/complexity target).
 - [ ] Decide when to implement full lifecycle API beyond `ensure|stop` for snapshot/restore operations.
+- [ ] Check whether OVH US has Secret Manager available (may be EU-only).
 
 ## Deferred Items
 
@@ -111,23 +116,36 @@ VM lifecycle (`create/start/stop/snapshot/restore/delete/get/list`).
 
 ## Important Context
 
-**2026-03-05 progress:**
-- OVH API credentials working (v1 signed auth).
-- Both nodes installed with Ubuntu 24.04 and SSH verified.
-- SSH key: `~/.ssh/id_ed25519_ovh` (dedicated, no passphrase).
-- SSH user: `ubuntu` (passwordless sudo).
-- CLAUDE.md stale commands fixed, local dev verified on :9090.
-- Canonical progress tracker: `docs/runbooks/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
-  (see "Execution Progress Log" section).
+**2026-03-05 progress (session 2 — NixOS install + deploy):**
+- Both nodes converted from Ubuntu 24.04 to NixOS via `nixos-anywhere`.
+- NixOS host config: `nix/hosts/ovh-node.nix` + `nix/hosts/ovh-node-disk-config.nix` (disko RAID1).
+- Flake updated with `disko` input and `nixosConfigurations.choiros-ovh-node`.
+- Sandbox and hypervisor built natively on both nodes (x86_64-linux flake outputs via crane).
+- Systemd services added: `hypervisor.service` (:9090), `sandbox-live.service` (:8080), `sandbox-dev.service` (:8081).
+- `scripts/ops/ovh-runtime-ctl.sh` added as bare metal stub (sandboxes are systemd-managed, not vfkit).
+- All health checks passing on both nodes.
 
-**SSH access:**
+**SSH access (NixOS, root):**
 ```bash
-ssh -i ~/.ssh/id_ed25519_ovh ubuntu@51.81.93.94   # Node A (choiros-a)
-ssh -i ~/.ssh/id_ed25519_ovh ubuntu@147.135.70.196 # Node B (choiros-b)
+ssh -i ~/.ssh/id_ed25519_ovh root@51.81.93.94   # Node A
+ssh -i ~/.ssh/id_ed25519_ovh root@147.135.70.196 # Node B
 ```
 
-**Next: `nixos-anywhere` conversion** — needs a NixOS host config for x86_64-linux bare metal
-with 2x NVMe RAID1 disk layout.
+**Deploy workflow (current):**
+```bash
+# On each node:
+cd /opt/choiros/workspace && git pull
+nix build ./sandbox#sandbox --no-link --print-out-paths
+nix build ./hypervisor#hypervisor --no-link --print-out-paths
+install -m 0755 /nix/store/<hash>-sandbox-0.1.0/bin/sandbox /opt/choiros/bin/sandbox
+install -m 0755 /nix/store/<hash>-hypervisor-0.1.0/bin/hypervisor /opt/choiros/bin/hypervisor
+nixos-rebuild switch --flake .#choiros-ovh-node
+```
+
+**Key files created this session:**
+- `nix/hosts/ovh-node.nix` — NixOS host config with systemd services
+- `nix/hosts/ovh-node-disk-config.nix` — disko RAID1 disk layout
+- `scripts/ops/ovh-runtime-ctl.sh` — bare metal runtime-ctl stub
 
 ## Assumptions Made
 

@@ -20,6 +20,7 @@ This runbook is the operator path for bootstrapping ChoirOS on two OVH US-East `
 1. Replaced “server not procured” assumptions with concrete host inventory.
 2. Added a direct bootstrap flow for OVH secrets and host lifecycle API usage.
 3. Added operator checklist for current `ensure|stop` runtime lifecycle and phased expansion.
+4. Both nodes converted to NixOS, ChoirOS deployed, all services healthy (2026-03-05).
 
 ## What To Do Next
 
