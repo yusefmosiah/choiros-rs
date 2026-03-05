@@ -23,6 +23,23 @@
 
   networking.useDHCP = true;
 
+  # Bridge for sandbox microVMs (cloud-hypervisor TAP interfaces)
+  networking.bridges.br-choiros = {
+    interfaces = []; # TAP devices added dynamically by runtime-ctl
+  };
+  networking.interfaces.br-choiros.ipv4.addresses = [{
+    address = "10.0.0.1";
+    prefixLength = 24;
+  }];
+
+  # NAT for VM internet access (e.g., DNS resolution)
+  boot.kernel.sysctl."net.ipv4.ip_forward" = 1;
+  networking.nat = {
+    enable = true;
+    internalInterfaces = [ "br-choiros" ];
+    externalInterface = "eno1";
+  };
+
   # SSH access
   services.openssh = {
     enable = true;
@@ -66,6 +83,7 @@
       443   # HTTPS
       9090  # Hypervisor ingress (direct, for health checks)
     ];
+    trustedInterfaces = [ "br-choiros" ]; # Allow VM traffic
   };
 
   # Nix settings
@@ -78,19 +96,23 @@
   environment.systemPackages = with pkgs; [
     bash
     btop
+    cloud-hypervisor
     coreutils
     curl
     git
     gnugrep
     gnused
     htop
+    iproute2
     jq
     openssl
     procps
     ripgrep
+    socat
     sqlite
     tmux
     vim
+    virtiofsd
   ];
 
   # Workspace and runtime directories
@@ -116,7 +138,7 @@
     description = "Materialize ChoirOS secrets from persistent storage to tmpfs";
     wantedBy = [ "multi-user.target" ];
     after = [ "local-fs.target" ];
-    before = [ "hypervisor.service" "sandbox-live.service" "sandbox-dev.service" ];
+    before = [ "hypervisor.service" ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
@@ -190,58 +212,13 @@
     };
   };
 
-  # ChoirOS Sandbox (live) service — unprivileged, always uses provider gateway
-  systemd.services.sandbox-live = {
-    description = "ChoirOS Sandbox (live)";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "network-online.target" "choiros-secrets-materialize.service" ];
-    wants = [ "network-online.target" ];
-    requires = [ "choiros-secrets-materialize.service" ];
-    serviceConfig = {
-      ExecStart = "/opt/choiros/bin/sandbox";
-      User = "choiros";
-      Group = "choiros";
-      Restart = "on-failure";
-      RestartSec = 3;
-      WorkingDirectory = "/opt/choiros/workspace";
-      EnvironmentFile = "/run/choiros/credentials/sandbox/sandbox.env";
-      Environment = [
-        "PORT=8080"
-        "DATABASE_URL=sqlite:/opt/choiros/data/sandbox/sandbox-live.db"
-        "SQLX_OFFLINE=true"
-        "CHOIR_SANDBOX_ROLE=live"
-        "CHOIR_PROVIDER_GATEWAY_BASE_URL=http://127.0.0.1:9090"
-        "HOME=/var/lib/choiros"
-        "CHOIR_WRITER_ROOT_DIR=/opt/choiros/data/sandbox"
-      ];
-    };
-  };
-
-  # ChoirOS Sandbox (dev) service — unprivileged, always uses provider gateway
-  systemd.services.sandbox-dev = {
-    description = "ChoirOS Sandbox (dev)";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "network-online.target" "choiros-secrets-materialize.service" ];
-    wants = [ "network-online.target" ];
-    requires = [ "choiros-secrets-materialize.service" ];
-    serviceConfig = {
-      ExecStart = "/opt/choiros/bin/sandbox";
-      User = "choiros";
-      Group = "choiros";
-      Restart = "on-failure";
-      RestartSec = 3;
-      WorkingDirectory = "/opt/choiros/workspace";
-      EnvironmentFile = "/run/choiros/credentials/sandbox/sandbox.env";
-      Environment = [
-        "PORT=8081"
-        "DATABASE_URL=sqlite:/opt/choiros/data/sandbox/sandbox-dev.db"
-        "SQLX_OFFLINE=true"
-        "CHOIR_SANDBOX_ROLE=dev"
-        "CHOIR_PROVIDER_GATEWAY_BASE_URL=http://127.0.0.1:9090"
-        "HOME=/var/lib/choiros"
-        "CHOIR_WRITER_ROOT_DIR=/opt/choiros/data/sandbox"
-      ];
-    };
+  # Sandbox VMs are managed dynamically by ovh-runtime-ctl.sh via cloud-hypervisor.
+  # The hypervisor's SandboxRegistry calls the runtime-ctl to ensure/stop VMs.
+  # Static sandbox-live and sandbox-dev systemd services are no longer needed.
+  # VM state directory
+  systemd.tmpfiles.settings."10-choiros-vms" = {
+    "/opt/choiros/vms".d = { mode = "0755"; user = "root"; group = "root"; };
+    "/opt/choiros/vms/state".d = { mode = "0755"; user = "root"; group = "root"; };
   };
 
   # Timezone

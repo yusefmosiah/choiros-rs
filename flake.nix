@@ -59,6 +59,37 @@
           ./nix/hosts/ovh-node-b.nix
         ];
       };
+
+      # Cloud-hypervisor sandbox microVMs (x86_64-linux, run on OVH hosts)
+      nixosConfigurations.choiros-ch-sandbox-live = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        specialArgs = {
+          sandboxRole = "live";
+          sandboxPort = 8080;
+          vmIp = "10.0.0.10";
+          vmMac = "52:54:00:00:00:0a";
+          vmTap = "tap-live";
+        };
+        modules = [
+          microvm.nixosModules.microvm
+          ./nix/ch/sandbox-vm.nix
+        ];
+      };
+
+      nixosConfigurations.choiros-ch-sandbox-dev = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        specialArgs = {
+          sandboxRole = "dev";
+          sandboxPort = 8081;
+          vmIp = "10.0.0.11";
+          vmMac = "52:54:00:00:00:0b";
+          vmTap = "tap-dev";
+        };
+        modules = [
+          microvm.nixosModules.microvm
+          ./nix/ch/sandbox-vm.nix
+        ];
+      };
     }
     ;
 }
