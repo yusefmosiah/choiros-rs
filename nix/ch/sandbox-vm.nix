@@ -24,6 +24,14 @@
 
     shares = [
       {
+        # Host nix store (read-only) — needed because the sandbox binary
+        # is dynamically linked against specific nix store paths.
+        proto = "virtiofs";
+        tag = "nix-store";
+        source = "/nix/store";
+        mountPoint = "/nix/store";
+      }
+      {
         proto = "virtiofs";
         tag = "choiros-bin";
         source = "/opt/choiros/bin";
