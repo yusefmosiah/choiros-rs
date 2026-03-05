@@ -13,6 +13,8 @@ let
     (mkCredentialEntry "tavily_api_key" cfg.credentialPaths.TAVILY_API_KEY)
     (mkCredentialEntry "brave_api_key" cfg.credentialPaths.BRAVE_API_KEY)
     (mkCredentialEntry "exa_api_key" cfg.credentialPaths.EXA_API_KEY)
+    (mkCredentialEntry "aws_bedrock" cfg.credentialPaths.AWS_BEDROCK)
+    (mkCredentialEntry "provider_gateway_token" cfg.credentialPaths.PROVIDER_GATEWAY_TOKEN)
   ];
 in
 {
@@ -60,6 +62,16 @@ in
         type = lib.types.nullOr lib.types.str;
         default = null;
         description = "Absolute host path to Exa API key file.";
+      };
+      AWS_BEDROCK = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "Absolute host path to AWS Bedrock bearer token file.";
+      };
+      PROVIDER_GATEWAY_TOKEN = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "Absolute host path to provider gateway auth token file.";
       };
     };
 
