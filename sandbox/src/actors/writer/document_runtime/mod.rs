@@ -372,7 +372,7 @@ impl WriterDocumentRuntime {
     ) -> Result<(), WriterDocumentError> {
         self.ensure_run_id(run_id)?;
 
-        let status_message = format!("{section_id} -> {:?}", section_state);
+        let status_message = format!("{section_id} -> {section_state:?}");
         let status = match section_state {
             SectionState::Pending => shared_types::WriterRunStatusKind::WaitingForWorker,
             SectionState::Running => shared_types::WriterRunStatusKind::Running,

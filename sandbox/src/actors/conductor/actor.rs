@@ -278,7 +278,7 @@ impl ConductorActor {
         let event_artifact = shared_types::ConductorArtifact {
             artifact_id: ulid::Ulid::new().to_string(),
             kind: shared_types::ArtifactKind::JsonData,
-            reference: format!("event://{}", event_type),
+            reference: format!("event://{event_type}"),
             mime_type: Some("application/json".to_string()),
             created_at: chrono::Utc::now(),
             source_call_id: metadata
@@ -387,7 +387,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_event_control_lane_persists_artifact_without_model_decision() {
-        let gateway = Arc::new(CountingGateway::default());
+        let gateway = Arc::new(CountingGateway);
         let (mut state, event_store) = test_state_with_gateway(gateway.clone()).await;
         state
             .tasks
@@ -427,7 +427,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_event_mismatched_provenance_is_ignored() {
-        let gateway = Arc::new(CountingGateway::default());
+        let gateway = Arc::new(CountingGateway);
         let (mut state, event_store) = test_state_with_gateway(gateway.clone()).await;
         state.tasks.insert_run(test_run("run_provenance_test"));
 

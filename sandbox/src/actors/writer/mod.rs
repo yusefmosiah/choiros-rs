@@ -982,8 +982,7 @@ impl WriterActor {
                 .version_id;
             if base_version_id != head_version_id {
                 return Err(WriterError::Validation(format!(
-                    "stale base_version_id: expected {}, got {}",
-                    head_version_id, base_version_id
+                    "stale base_version_id: expected {head_version_id}, got {base_version_id}"
                 )));
             }
         }
@@ -1546,8 +1545,7 @@ impl WriterActor {
              If both are needed, call both in the same run.\n\
              If no delegation is needed, call `finished` and explain why.\n\
              \n\
-             Objective:\n{}",
-            objective_text
+             Objective:\n{objective_text}"
         );
 
         Self::emit_event(
@@ -1897,15 +1895,9 @@ impl WriterActor {
             "delegation_worker_failed"
         };
         let message = if success {
-            format!(
-                "Delegated {:?} worker completed. Summary: {}",
-                capability, summary
-            )
+            format!("Delegated {capability:?} worker completed. Summary: {summary}")
         } else {
-            format!(
-                "Delegated {:?} worker failed. Error: {}",
-                capability, summary
-            )
+            format!("Delegated {capability:?} worker failed. Error: {summary}")
         };
         if let Err(error) = Self::report_progress(
             state,

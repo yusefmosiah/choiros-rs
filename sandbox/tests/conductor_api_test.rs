@@ -309,8 +309,7 @@ async fn test_conductor_execute_response_has_no_update_draft_action() {
         let action_str = action.to_string();
         assert!(
             action_names.contains(&action_str.as_str()),
-            "ConductorAction::{} should be in known action list",
-            action_str
+            "ConductorAction::{action_str} should be in known action list"
         );
         assert_ne!(
             action_str, "UpdateDraft",
@@ -436,7 +435,6 @@ async fn test_conductor_execute_returns_writer_start_fields() {
             status_str,
             "initializing" | "running" | "waiting_for_calls" | "completing"
         ),
-        "status for accepted run should be a non-terminal state, got {}",
-        status_str
+        "status for accepted run should be a non-terminal state, got {status_str}"
     );
 }

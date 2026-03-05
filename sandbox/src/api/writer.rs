@@ -249,20 +249,11 @@ pub struct OpenDocumentResponse {
 
 fn is_run_draft_path(path: &str) -> bool {
     let mut parts = path.split('/');
-    match (
-        parts.next(),
-        parts.next(),
-        parts.next(),
-        parts.next(),
-        parts.next(),
-    ) {
+    matches!(
+        (parts.next(), parts.next(), parts.next(), parts.next(), parts.next()),
         (Some("conductor"), Some("runs"), Some(run_id), Some("draft.md"), None)
-            if !run_id.trim().is_empty() =>
-        {
-            true
-        }
-        _ => false,
-    }
+            if !run_id.trim().is_empty()
+    )
 }
 
 async fn load_run_source_refs_from_sidecar(
@@ -1241,7 +1232,7 @@ fn revision_sidecar_path(doc_path: &str) -> PathBuf {
     let rev_dir = sandbox.join(".writer_revisions");
     // Use the document path as the filename (with slashes replaced)
     let safe_name = doc_path.replace('/', "__");
-    rev_dir.join(format!("{}.rev", safe_name))
+    rev_dir.join(format!("{safe_name}.rev"))
 }
 
 /// Get revision from sidecar file

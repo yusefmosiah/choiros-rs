@@ -101,16 +101,12 @@ async fn submit_run(app: &axum::Router, objective: &str) -> String {
     assert_eq!(
         status,
         StatusCode::ACCEPTED,
-        "conductor/execute must return 202 ACCEPTED for '{}', got {} body={}",
-        objective,
-        status,
-        body
+        "conductor/execute must return 202 ACCEPTED for '{objective}', got {status} body={body}"
     );
     let run_id = body["run_id"].as_str().unwrap_or("").to_string();
     assert!(
         !run_id.is_empty(),
-        "run_id must be non-empty in 202 response, body={}",
-        body
+        "run_id must be non-empty in 202 response, body={body}"
     );
     run_id
 }

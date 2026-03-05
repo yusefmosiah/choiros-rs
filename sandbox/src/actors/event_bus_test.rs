@@ -427,7 +427,7 @@ mod tests {
         .unwrap();
 
         let base = unique_topic("worker");
-        let wildcard = format!("{}.*", base);
+        let wildcard = format!("{base}.*");
 
         // Subscribe to wildcard pattern
         ractor::cast!(
@@ -443,9 +443,9 @@ mod tests {
 
         // When: Publish to matching topics
         let events = vec![
-            test_event(&format!("{}.task", base), json!({})),
-            test_event(&format!("{}.job", base), json!({})),
-            test_event(&format!("{}.process", base), json!({})),
+            test_event(&format!("{base}.task"), json!({})),
+            test_event(&format!("{base}.job"), json!({})),
+            test_event(&format!("{base}.process"), json!({})),
             test_event(&unique_topic("other.topic"), json!({})), // Should not match
         ];
 
@@ -620,7 +620,7 @@ mod tests {
                 break;
             }
             if start_wait.elapsed() > timeout {
-                panic!("Timeout waiting for events. Received: {}", count);
+                panic!("Timeout waiting for events. Received: {count}");
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -704,8 +704,7 @@ mod tests {
             let count = received.lock().await.len();
             assert_eq!(
                 count, 100,
-                "Subscriber {} received {} events instead of 100",
-                i, count
+                "Subscriber {i} received {count} events instead of 100"
             );
         }
     }

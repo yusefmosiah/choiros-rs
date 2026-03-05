@@ -114,8 +114,7 @@ impl ConductorState {
             Ok(())
         } else {
             Err(super::protocol::ConductorError::NotFound(format!(
-                "agenda item {} in run {}",
-                item_id, run_id
+                "agenda item {item_id} in run {run_id}"
             )))
         }
     }
@@ -230,8 +229,7 @@ impl ConductorState {
             Ok(())
         } else {
             Err(super::protocol::ConductorError::NotFound(format!(
-                "capability call {} in run {}",
-                call_id, run_id
+                "capability call {call_id} in run {run_id}"
             )))
         }
     }
@@ -1058,7 +1056,7 @@ mod tests {
             super::super::protocol::ConductorError::NotFound(msg) => {
                 assert!(msg.contains("nonexistent"));
             }
-            other => panic!("Expected NotFound, got {:?}", other),
+            other => panic!("Expected NotFound, got {other:?}"),
         }
     }
 
@@ -1091,7 +1089,7 @@ mod tests {
             super::super::protocol::ConductorError::NotFound(msg) => {
                 assert!(msg.contains("nonexistent_item"));
             }
-            other => panic!("Expected NotFound, got {:?}", other),
+            other => panic!("Expected NotFound, got {other:?}"),
         }
     }
 

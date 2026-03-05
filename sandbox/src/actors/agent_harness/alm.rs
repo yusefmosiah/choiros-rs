@@ -987,7 +987,7 @@ impl<P: AlmPort> AlmHarness<P> {
                 turn_number: turn,
                 action_kind: action_kind.clone(),
                 working_memory_excerpt: truncate_str(&rlm_turn.working_memory, 300).to_string(),
-                corr_ids_fired: pending_corr_ids.drain(..).collect(),
+                corr_ids_fired: std::mem::take(&mut pending_corr_ids),
                 elapsed_ms,
             };
             turn_summaries.push(ts);

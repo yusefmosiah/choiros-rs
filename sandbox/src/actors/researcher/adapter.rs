@@ -373,7 +373,7 @@ impl ResearcherAdapter {
                     provider: Some(citation.provider.clone()),
                     url: Some(citation.url.clone()),
                     path: None,
-                    title: Some(format!("Snippet: {}", title)),
+                    title: Some(format!("Snippet: {title}")),
                     publisher: None,
                     published_at: citation.published_at.clone(),
                     line_start: None,
@@ -795,8 +795,7 @@ impl ResearcherAdapter {
                 }
             }
             _ => Err(format!(
-                "Unknown message_writer mode '{}'. Supported: proposal_append, canon_append, progress, state, completion",
-                mode
+                "Unknown message_writer mode '{mode}'. Supported: proposal_append, canon_append, progress, state, completion"
             )),
         };
 
@@ -1002,7 +1001,7 @@ Guidelines:
                 if let Some(tx) = &self.progress_tx {
                     let _ = tx.send(ResearcherProgress {
                         phase: "web_search".to_string(),
-                        message: format!("Searching for: {}", query),
+                        message: format!("Searching for: {query}"),
                         provider: Some(provider_str.to_string()),
                         model_used: Some(ctx.model_used.clone()),
                         result_count: None,
@@ -1083,7 +1082,7 @@ Guidelines:
                 if let Some(tx) = &self.progress_tx {
                     let _ = tx.send(ResearcherProgress {
                         phase: "fetch_url".to_string(),
-                        message: format!("Fetching: {}", url),
+                        message: format!("Fetching: {url}"),
                         provider: None,
                         model_used: Some(ctx.model_used.clone()),
                         result_count: None,
@@ -1185,7 +1184,7 @@ Guidelines:
                 if let Some(tx) = &self.progress_tx {
                     let _ = tx.send(ResearcherProgress {
                         phase: "file_read".to_string(),
-                        message: format!("Reading file: {}", path),
+                        message: format!("Reading file: {path}"),
                         provider: None,
                         model_used: Some(ctx.model_used.clone()),
                         result_count: None,
@@ -1217,7 +1216,7 @@ Guidelines:
                                 tool_name: call.tool_name.clone(),
                                 success: false,
                                 output: String::new(),
-                                error: Some(format!("Failed to read file: {}", e)),
+                                error: Some(format!("Failed to read file: {e}")),
                                 execution_time_ms: elapsed,
                             })
                         }
@@ -1228,7 +1227,7 @@ Guidelines:
                             tool_name: call.tool_name.clone(),
                             success: false,
                             output: String::new(),
-                            error: Some(format!("Invalid path: {}", e)),
+                            error: Some(format!("Invalid path: {e}")),
                             execution_time_ms: elapsed,
                         })
                     }
@@ -1321,7 +1320,7 @@ Guidelines:
                                         tool_name: call.tool_name.clone(),
                                         success: false,
                                         output: String::new(),
-                                        error: Some(format!("Failed to write file: {}", e)),
+                                        error: Some(format!("Failed to write file: {e}")),
                                         execution_time_ms: elapsed,
                                     })
                                 }
@@ -1333,7 +1332,7 @@ Guidelines:
                                 tool_name: call.tool_name.clone(),
                                 success: false,
                                 output: String::new(),
-                                error: Some(format!("Invalid path: {}", e)),
+                                error: Some(format!("Invalid path: {e}")),
                                 execution_time_ms: elapsed,
                             })
                         }
@@ -1348,7 +1347,7 @@ Guidelines:
                 if let Some(tx) = &self.progress_tx {
                     let _ = tx.send(ResearcherProgress {
                         phase: "file_edit".to_string(),
-                        message: format!("Editing file: {}", path),
+                        message: format!("Editing file: {path}"),
                         provider: None,
                         model_used: Some(ctx.model_used.clone()),
                         result_count: None,
@@ -1439,7 +1438,7 @@ Guidelines:
                                             tool_name: call.tool_name.clone(),
                                             success: false,
                                             output: String::new(),
-                                            error: Some(format!("Failed to write file: {}", e)),
+                                            error: Some(format!("Failed to write file: {e}")),
                                             execution_time_ms: elapsed,
                                         })
                                     }
@@ -1451,7 +1450,7 @@ Guidelines:
                                     tool_name: call.tool_name.clone(),
                                     success: false,
                                     output: String::new(),
-                                    error: Some(format!("Failed to read file: {}", e)),
+                                    error: Some(format!("Failed to read file: {e}")),
                                     execution_time_ms: elapsed,
                                 })
                             }
@@ -1462,7 +1461,7 @@ Guidelines:
                                 tool_name: call.tool_name.clone(),
                                 success: false,
                                 output: String::new(),
-                                error: Some(format!("Invalid path: {}", e)),
+                                error: Some(format!("Invalid path: {e}")),
                                 execution_time_ms: elapsed,
                             })
                         }

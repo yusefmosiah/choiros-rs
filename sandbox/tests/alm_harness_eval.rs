@@ -13,7 +13,6 @@ use sandbox::actors::agent_harness::alm::{
 use sandbox::actors::model_config::{ModelRegistry, ProviderConfig};
 use sandbox::baml_client::types::ContextSourceKind;
 use sandbox::runtime_env::ensure_tls_cert_env;
-use shared_types;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 

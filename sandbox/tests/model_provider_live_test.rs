@@ -101,8 +101,7 @@ where
                 if attempt < attempts && retryable {
                     let delay = base_delay_ms.saturating_mul(attempt as u64);
                     println!(
-                        "RETRY {} attempt {}/{} after {}ms due to rate limit: {}",
-                        label, attempt, attempts, delay, err
+                        "RETRY {label} attempt {attempt}/{attempts} after {delay}ms due to rate limit: {err}"
                     );
                     sleep(Duration::from_millis(delay)).await;
                     continue;
@@ -121,7 +120,7 @@ fn available_live_models(registry: &ModelRegistry) -> (Vec<String>, Vec<String>)
 
     for model_id in registry.available_model_ids() {
         let Some(config) = registry.get(&model_id) else {
-            skipped.push(format!("{} (model missing from registry)", model_id));
+            skipped.push(format!("{model_id} (model missing from registry)"));
             continue;
         };
         let missing_for_case = missing_env_for_provider(&config.provider);
@@ -222,10 +221,10 @@ async fn live_provider_smoke_matrix() {
     while let Some(joined) = join_set.join_next().await {
         match joined {
             Ok(Ok((model_id, text))) => {
-                println!("PASS {} => {}", model_id, text);
+                println!("PASS {model_id} => {text}");
                 passed += 1;
             }
-            Ok(Err((model_id, reason))) => failed.push(format!("{} {}", model_id, reason)),
+            Ok(Err((model_id, reason))) => failed.push(format!("{model_id} {reason}")),
             Err(e) => failed.push(format!("join error: {e}")),
         }
     }
@@ -343,13 +342,10 @@ async fn live_decide_matrix() {
     while let Some(joined) = join_set.join_next().await {
         match joined {
             Ok(Ok((model_id, action, tool_calls))) => {
-                println!(
-                    "PASS {} => action={} tool_calls={}",
-                    model_id, action, tool_calls
-                );
+                println!("PASS {model_id} => action={action} tool_calls={tool_calls}");
                 passed += 1;
             }
-            Ok(Err((model_id, reason))) => failed.push(format!("{} {}", model_id, reason)),
+            Ok(Err((model_id, reason))) => failed.push(format!("{model_id} {reason}")),
             Err(e) => failed.push(format!("join error: {e}")),
         }
     }

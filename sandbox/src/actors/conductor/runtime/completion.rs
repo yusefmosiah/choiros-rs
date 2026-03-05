@@ -61,7 +61,7 @@ impl ConductorActor {
                 let artifact = shared_types::ConductorArtifact {
                     artifact_id: ulid::Ulid::new().to_string(),
                     kind: shared_types::ArtifactKind::SearchResults,
-                    reference: format!("call://{}", call_id),
+                    reference: format!("call://{call_id}"),
                     mime_type: Some("application/json".to_string()),
                     created_at: chrono::Utc::now(),
                     source_call_id: call_id.clone(),
@@ -135,7 +135,7 @@ impl ConductorActor {
                     let artifact = shared_types::ConductorArtifact {
                         artifact_id: ulid::Ulid::new().to_string(),
                         kind: shared_types::ArtifactKind::TerminalOutput,
-                        reference: format!("call://{}", call_id),
+                        reference: format!("call://{call_id}"),
                         mime_type: Some("application/json".to_string()),
                         created_at: chrono::Utc::now(),
                         source_call_id: call_id.clone(),
@@ -231,7 +231,7 @@ impl ConductorActor {
                     let artifact = shared_types::ConductorArtifact {
                         artifact_id: ulid::Ulid::new().to_string(),
                         kind: shared_types::ArtifactKind::JsonData,
-                        reference: format!("call://{}", call_id),
+                        reference: format!("call://{call_id}"),
                         mime_type: Some("application/json".to_string()),
                         created_at: chrono::Utc::now(),
                         source_call_id: call_id.clone(),
@@ -317,7 +317,7 @@ impl ConductorActor {
                 let artifact = shared_types::ConductorArtifact {
                     artifact_id: ulid::Ulid::new().to_string(),
                     kind: shared_types::ArtifactKind::JsonData,
-                    reference: format!("call://{}", call_id),
+                    reference: format!("call://{call_id}"),
                     mime_type: Some("application/json".to_string()),
                     created_at: chrono::Utc::now(),
                     source_call_id: call_id.clone(),

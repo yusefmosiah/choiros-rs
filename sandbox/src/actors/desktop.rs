@@ -1742,7 +1742,7 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        let _ = minimize_window(&desktop, &window_2.id)
+        minimize_window(&desktop, &window_2.id)
             .await
             .unwrap()
             .unwrap();
@@ -1793,11 +1793,11 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let _ = move_window(&desktop, &window.id, 222, 111)
+        move_window(&desktop, &window.id, 222, 111)
             .await
             .unwrap()
             .unwrap();
-        let _ = resize_window(&desktop, &window.id, 777, 555)
+        resize_window(&desktop, &window.id, 777, 555)
             .await
             .unwrap()
             .unwrap();
@@ -1922,7 +1922,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let _ = minimize_window(&desktop, &window.id)
+        minimize_window(&desktop, &window.id)
             .await
             .unwrap()
             .unwrap();
@@ -1989,7 +1989,7 @@ mod tests {
         .unwrap()
         .unwrap();
 
-        let _ = minimize_window(&desktop, &window.id)
+        minimize_window(&desktop, &window.id)
             .await
             .unwrap()
             .unwrap();
@@ -2043,7 +2043,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let _ = minimize_window(&desktop, &window.id)
+        minimize_window(&desktop, &window.id)
             .await
             .unwrap()
             .unwrap();

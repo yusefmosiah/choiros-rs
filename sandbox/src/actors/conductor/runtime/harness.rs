@@ -64,7 +64,7 @@ impl ConductorActor {
         let artifact = shared_types::ConductorArtifact {
             artifact_id: ulid::Ulid::new().to_string(),
             kind: shared_types::ArtifactKind::JsonData,
-            reference: format!("call://{}", correlation_id),
+            reference: format!("call://{correlation_id}"),
             mime_type: Some("application/json".to_string()),
             created_at: chrono::Utc::now(),
             source_call_id: correlation_id.clone(),
@@ -188,7 +188,7 @@ impl ConductorActor {
                     "metadata": metadata,
                     "timestamp": chrono::Utc::now().to_rfc3339(),
                 }),
-                actor_id: format!("conductor:{}", run_id),
+                actor_id: format!("conductor:{run_id}"),
                 user_id: "system".to_string(),
             },
         });

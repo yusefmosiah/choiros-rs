@@ -83,7 +83,7 @@ async fn test_get_desktop_state_empty() {
 
     let req = Request::builder()
         .method("GET")
-        .uri(&format!("/desktop/{desktop_id}"))
+        .uri(format!("/desktop/{desktop_id}"))
         .body(Body::empty())
         .unwrap();
 
@@ -111,7 +111,7 @@ async fn test_register_app() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .uri(format!("/desktop/{desktop_id}/apps"))
         .header("content-type", "application/json")
         .body(Body::from(app_def.to_string()))
         .unwrap();
@@ -137,7 +137,7 @@ async fn test_open_window_success() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .uri(format!("/desktop/{desktop_id}/apps"))
         .header("content-type", "application/json")
         .body(Body::from(app_def.to_string()))
         .unwrap();
@@ -152,7 +152,7 @@ async fn test_open_window_success() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .uri(format!("/desktop/{desktop_id}/windows"))
         .header("content-type", "application/json")
         .body(Body::from(open_req.to_string()))
         .unwrap();
@@ -181,7 +181,7 @@ async fn test_open_window_preserves_viewer_props() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .uri(format!("/desktop/{desktop_id}/apps"))
         .header("content-type", "application/json")
         .body(Body::from(app_def.to_string()))
         .unwrap();
@@ -206,7 +206,7 @@ async fn test_open_window_preserves_viewer_props() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .uri(format!("/desktop/{desktop_id}/windows"))
         .header("content-type", "application/json")
         .body(Body::from(open_req.to_string()))
         .unwrap();
@@ -234,7 +234,7 @@ async fn test_open_window_unknown_app_fails() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .uri(format!("/desktop/{desktop_id}/windows"))
         .header("content-type", "application/json")
         .body(Body::from(open_req.to_string()))
         .unwrap();
@@ -252,7 +252,7 @@ async fn test_get_windows_empty() {
 
     let req = Request::builder()
         .method("GET")
-        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .uri(format!("/desktop/{desktop_id}/windows"))
         .body(Body::empty())
         .unwrap();
 
@@ -279,7 +279,7 @@ async fn test_get_windows_after_open() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .uri(format!("/desktop/{desktop_id}/apps"))
         .header("content-type", "application/json")
         .body(Body::from(app_def.to_string()))
         .unwrap();
@@ -293,7 +293,7 @@ async fn test_get_windows_after_open() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .uri(format!("/desktop/{desktop_id}/windows"))
         .header("content-type", "application/json")
         .body(Body::from(open_req.to_string()))
         .unwrap();
@@ -302,7 +302,7 @@ async fn test_get_windows_after_open() {
 
     let req = Request::builder()
         .method("GET")
-        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .uri(format!("/desktop/{desktop_id}/windows"))
         .body(Body::empty())
         .unwrap();
 
@@ -329,7 +329,7 @@ async fn test_close_window() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .uri(format!("/desktop/{desktop_id}/apps"))
         .header("content-type", "application/json")
         .body(Body::from(app_def.to_string()))
         .unwrap();
@@ -343,7 +343,7 @@ async fn test_close_window() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .uri(format!("/desktop/{desktop_id}/windows"))
         .header("content-type", "application/json")
         .body(Body::from(open_req.to_string()))
         .unwrap();
@@ -352,7 +352,7 @@ async fn test_close_window() {
 
     let req = Request::builder()
         .method("DELETE")
-        .uri(&format!("/desktop/{desktop_id}/windows/{window_id}"))
+        .uri(format!("/desktop/{desktop_id}/windows/{window_id}"))
         .body(Body::empty())
         .unwrap();
 
@@ -362,7 +362,7 @@ async fn test_close_window() {
 
     let req = Request::builder()
         .method("GET")
-        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .uri(format!("/desktop/{desktop_id}/windows"))
         .body(Body::empty())
         .unwrap();
     let (_status, body) = json_response(&app, req).await;
@@ -386,7 +386,7 @@ async fn test_move_window() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .uri(format!("/desktop/{desktop_id}/apps"))
         .header("content-type", "application/json")
         .body(Body::from(app_def.to_string()))
         .unwrap();
@@ -400,7 +400,7 @@ async fn test_move_window() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .uri(format!("/desktop/{desktop_id}/windows"))
         .header("content-type", "application/json")
         .body(Body::from(open_req.to_string()))
         .unwrap();
@@ -414,7 +414,7 @@ async fn test_move_window() {
 
     let req = Request::builder()
         .method("PATCH")
-        .uri(&format!(
+        .uri(format!(
             "/desktop/{desktop_id}/windows/{window_id}/position"
         ))
         .header("content-type", "application/json")
@@ -442,7 +442,7 @@ async fn test_resize_window() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .uri(format!("/desktop/{desktop_id}/apps"))
         .header("content-type", "application/json")
         .body(Body::from(app_def.to_string()))
         .unwrap();
@@ -456,7 +456,7 @@ async fn test_resize_window() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .uri(format!("/desktop/{desktop_id}/windows"))
         .header("content-type", "application/json")
         .body(Body::from(open_req.to_string()))
         .unwrap();
@@ -470,7 +470,7 @@ async fn test_resize_window() {
 
     let req = Request::builder()
         .method("PATCH")
-        .uri(&format!("/desktop/{desktop_id}/windows/{window_id}/size"))
+        .uri(format!("/desktop/{desktop_id}/windows/{window_id}/size"))
         .header("content-type", "application/json")
         .body(Body::from(resize_req.to_string()))
         .unwrap();
@@ -496,7 +496,7 @@ async fn test_resize_window_invalid_bounds_rejected() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .uri(format!("/desktop/{desktop_id}/apps"))
         .header("content-type", "application/json")
         .body(Body::from(app_def.to_string()))
         .unwrap();
@@ -510,7 +510,7 @@ async fn test_resize_window_invalid_bounds_rejected() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .uri(format!("/desktop/{desktop_id}/windows"))
         .header("content-type", "application/json")
         .body(Body::from(open_req.to_string()))
         .unwrap();
@@ -524,7 +524,7 @@ async fn test_resize_window_invalid_bounds_rejected() {
 
     let req = Request::builder()
         .method("PATCH")
-        .uri(&format!("/desktop/{desktop_id}/windows/{window_id}/size"))
+        .uri(format!("/desktop/{desktop_id}/windows/{window_id}/size"))
         .header("content-type", "application/json")
         .body(Body::from(resize_req.to_string()))
         .unwrap();
@@ -550,7 +550,7 @@ async fn test_focus_window() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .uri(format!("/desktop/{desktop_id}/apps"))
         .header("content-type", "application/json")
         .body(Body::from(app_def.to_string()))
         .unwrap();
@@ -564,7 +564,7 @@ async fn test_focus_window() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .uri(format!("/desktop/{desktop_id}/windows"))
         .header("content-type", "application/json")
         .body(Body::from(open_req1.to_string()))
         .unwrap();
@@ -578,7 +578,7 @@ async fn test_focus_window() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .uri(format!("/desktop/{desktop_id}/windows"))
         .header("content-type", "application/json")
         .body(Body::from(open_req2.to_string()))
         .unwrap();
@@ -587,7 +587,7 @@ async fn test_focus_window() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/windows/{window_id}/focus"))
+        .uri(format!("/desktop/{desktop_id}/windows/{window_id}/focus"))
         .body(Body::empty())
         .unwrap();
 
@@ -612,7 +612,7 @@ async fn test_minimize_maximize_restore_endpoints() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .uri(format!("/desktop/{desktop_id}/apps"))
         .header("content-type", "application/json")
         .body(Body::from(app_def.to_string()))
         .unwrap();
@@ -626,7 +626,7 @@ async fn test_minimize_maximize_restore_endpoints() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .uri(format!("/desktop/{desktop_id}/windows"))
         .header("content-type", "application/json")
         .body(Body::from(open_req.to_string()))
         .unwrap();
@@ -635,7 +635,7 @@ async fn test_minimize_maximize_restore_endpoints() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!(
+        .uri(format!(
             "/desktop/{desktop_id}/windows/{window_id}/minimize"
         ))
         .body(Body::empty())
@@ -646,7 +646,7 @@ async fn test_minimize_maximize_restore_endpoints() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!(
+        .uri(format!(
             "/desktop/{desktop_id}/windows/{window_id}/maximize"
         ))
         .body(Body::empty())
@@ -657,9 +657,7 @@ async fn test_minimize_maximize_restore_endpoints() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!(
-            "/desktop/{desktop_id}/windows/{window_id}/restore"
-        ))
+        .uri(format!("/desktop/{desktop_id}/windows/{window_id}/restore"))
         .body(Body::empty())
         .unwrap();
     let (status, body) = json_response(&app, req).await;
@@ -668,7 +666,7 @@ async fn test_minimize_maximize_restore_endpoints() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!(
+        .uri(format!(
             "/desktop/{desktop_id}/windows/{window_id}/maximize"
         ))
         .body(Body::empty())
@@ -680,9 +678,7 @@ async fn test_minimize_maximize_restore_endpoints() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!(
-            "/desktop/{desktop_id}/windows/{window_id}/restore"
-        ))
+        .uri(format!("/desktop/{desktop_id}/windows/{window_id}/restore"))
         .body(Body::empty())
         .unwrap();
     let (status, body) = json_response(&app, req).await;
@@ -707,7 +703,7 @@ async fn test_maximize_endpoint_uses_work_area_bounds() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .uri(format!("/desktop/{desktop_id}/apps"))
         .header("content-type", "application/json")
         .body(Body::from(app_def.to_string()))
         .unwrap();
@@ -721,7 +717,7 @@ async fn test_maximize_endpoint_uses_work_area_bounds() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .uri(format!("/desktop/{desktop_id}/windows"))
         .header("content-type", "application/json")
         .body(Body::from(open_req.to_string()))
         .unwrap();
@@ -730,7 +726,7 @@ async fn test_maximize_endpoint_uses_work_area_bounds() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!(
+        .uri(format!(
             "/desktop/{desktop_id}/windows/{window_id}/maximize"
         ))
         .header("content-type", "application/json")
@@ -770,7 +766,7 @@ async fn test_restore_after_minimize_from_maximized_preserves_maximized_state() 
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .uri(format!("/desktop/{desktop_id}/apps"))
         .header("content-type", "application/json")
         .body(Body::from(app_def.to_string()))
         .unwrap();
@@ -784,7 +780,7 @@ async fn test_restore_after_minimize_from_maximized_preserves_maximized_state() 
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .uri(format!("/desktop/{desktop_id}/windows"))
         .header("content-type", "application/json")
         .body(Body::from(open_req.to_string()))
         .unwrap();
@@ -793,7 +789,7 @@ async fn test_restore_after_minimize_from_maximized_preserves_maximized_state() 
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!(
+        .uri(format!(
             "/desktop/{desktop_id}/windows/{window_id}/maximize"
         ))
         .header("content-type", "application/json")
@@ -813,7 +809,7 @@ async fn test_restore_after_minimize_from_maximized_preserves_maximized_state() 
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!(
+        .uri(format!(
             "/desktop/{desktop_id}/windows/{window_id}/minimize"
         ))
         .body(Body::empty())
@@ -823,9 +819,7 @@ async fn test_restore_after_minimize_from_maximized_preserves_maximized_state() 
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!(
-            "/desktop/{desktop_id}/windows/{window_id}/restore"
-        ))
+        .uri(format!("/desktop/{desktop_id}/windows/{window_id}/restore"))
         .body(Body::empty())
         .unwrap();
     let (status, body) = json_response(&app, req).await;
@@ -847,7 +841,7 @@ async fn test_new_window_endpoints_reject_unknown_window() {
     for action in ["minimize", "maximize", "restore"] {
         let req = Request::builder()
             .method("POST")
-            .uri(&format!("/desktop/{desktop_id}/windows/{bad_id}/{action}"))
+            .uri(format!("/desktop/{desktop_id}/windows/{bad_id}/{action}"))
             .body(Body::empty())
             .unwrap();
 
@@ -864,7 +858,7 @@ async fn test_get_apps_empty() {
 
     let req = Request::builder()
         .method("GET")
-        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .uri(format!("/desktop/{desktop_id}/apps"))
         .body(Body::empty())
         .unwrap();
 
@@ -891,7 +885,7 @@ async fn test_get_apps_after_register() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .uri(format!("/desktop/{desktop_id}/apps"))
         .header("content-type", "application/json")
         .body(Body::from(app_def.to_string()))
         .unwrap();
@@ -899,7 +893,7 @@ async fn test_get_apps_after_register() {
 
     let req = Request::builder()
         .method("GET")
-        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .uri(format!("/desktop/{desktop_id}/apps"))
         .body(Body::empty())
         .unwrap();
 
@@ -930,7 +924,7 @@ async fn test_desktop_state_persists_events() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/apps"))
+        .uri(format!("/desktop/{desktop_id}/apps"))
         .header("content-type", "application/json")
         .body(Body::from(app_def.to_string()))
         .unwrap();
@@ -944,7 +938,7 @@ async fn test_desktop_state_persists_events() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(&format!("/desktop/{desktop_id}/windows"))
+        .uri(format!("/desktop/{desktop_id}/windows"))
         .header("content-type", "application/json")
         .body(Body::from(open_req.to_string()))
         .unwrap();
@@ -953,7 +947,7 @@ async fn test_desktop_state_persists_events() {
 
     let req = Request::builder()
         .method("GET")
-        .uri(&format!("/desktop/{desktop_id}"))
+        .uri(format!("/desktop/{desktop_id}"))
         .body(Body::empty())
         .unwrap();
 
@@ -978,7 +972,7 @@ async fn test_get_user_preferences_default_theme() {
 
     let req = Request::builder()
         .method("GET")
-        .uri(&format!("/user/{user_id}/preferences"))
+        .uri(format!("/user/{user_id}/preferences"))
         .body(Body::empty())
         .unwrap();
 
@@ -999,7 +993,7 @@ async fn test_update_and_get_user_preferences_theme() {
 
     let req = Request::builder()
         .method("PATCH")
-        .uri(&format!("/user/{user_id}/preferences"))
+        .uri(format!("/user/{user_id}/preferences"))
         .header("content-type", "application/json")
         .body(Body::from(update_req.to_string()))
         .unwrap();
@@ -1011,7 +1005,7 @@ async fn test_update_and_get_user_preferences_theme() {
 
     let req = Request::builder()
         .method("GET")
-        .uri(&format!("/user/{user_id}/preferences"))
+        .uri(format!("/user/{user_id}/preferences"))
         .body(Body::empty())
         .unwrap();
 
@@ -1032,7 +1026,7 @@ async fn test_update_user_preferences_rejects_invalid_theme() {
 
     let req = Request::builder()
         .method("PATCH")
-        .uri(&format!("/user/{user_id}/preferences"))
+        .uri(format!("/user/{user_id}/preferences"))
         .header("content-type", "application/json")
         .body(Body::from(update_req.to_string()))
         .unwrap();

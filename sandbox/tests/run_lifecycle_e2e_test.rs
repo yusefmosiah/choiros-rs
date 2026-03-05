@@ -198,15 +198,13 @@ async fn test_live_basic_run_flow_emits_required_milestones() {
         event_types
             .iter()
             .any(|e| e.contains("conductor.task.started")),
-        "missing conductor.task.started event: {:?}",
-        event_types
+        "missing conductor.task.started event: {event_types:?}"
     );
     assert!(
         event_types
             .iter()
             .any(|e| e.contains("conductor.worker.call")),
-        "missing conductor.worker.call event: {:?}",
-        event_types
+        "missing conductor.worker.call event: {event_types:?}"
     );
 
     assert!(
@@ -258,8 +256,7 @@ async fn test_live_run_id_is_stable_across_events() {
 
     assert!(
         mismatched.is_empty(),
-        "found mismatched run IDs: {:?}",
-        mismatched
+        "found mismatched run IDs: {mismatched:?}"
     );
 }
 

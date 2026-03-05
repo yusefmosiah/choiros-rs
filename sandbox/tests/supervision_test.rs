@@ -48,8 +48,7 @@ impl Actor for TestActor {
             }
             TestActorMsg::Fail => {
                 tracing::info!("TestActor received Fail command");
-                return Err(ActorProcessingErr::from(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                return Err(ActorProcessingErr::from(std::io::Error::other(
                     "Intentional failure",
                 )));
             }
@@ -121,7 +120,7 @@ impl Actor for TestSupervisor {
                     reason.as_deref().unwrap_or("no reason")
                 )
             }
-            _ => format!("Other:{:?}", event),
+            _ => format!("Other:{event:?}"),
         };
 
         if let Ok(mut events) = state.events.lock() {
@@ -172,21 +171,20 @@ async fn test_supervisor_restarts_failed_child() {
     let events = Arc::new(std::sync::Mutex::new(Vec::new()));
 
     // Spawn supervisor
-    let (supervisor, _handle) = Actor::spawn(None, TestSupervisor::default(), events.clone())
+    let (supervisor, _handle) = Actor::spawn(None, TestSupervisor, events.clone())
         .await
         .expect("Failed to spawn supervisor");
 
     // Spawn test actor as linked child
-    let (child, child_handle) =
-        Actor::spawn_linked(None, TestActor::default(), (), supervisor.get_cell())
-            .await
-            .expect("Failed to spawn child");
+    let (child, child_handle) = Actor::spawn_linked(None, TestActor, (), supervisor.get_cell())
+        .await
+        .expect("Failed to spawn child");
 
     // Wait for startup
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // Verify child is running
-    let ping_result = ractor::call!(child, |reply| TestActorMsg::Ping(reply));
+    let ping_result = ractor::call!(child, TestActorMsg::Ping);
     assert!(ping_result.is_ok(), "Child should respond to ping");
     assert_eq!(ping_result.unwrap(), "pong");
 
@@ -211,21 +209,20 @@ async fn test_supervisor_handles_actor_termination() {
     let events = Arc::new(std::sync::Mutex::new(Vec::new()));
 
     // Spawn supervisor
-    let (supervisor, _handle) = Actor::spawn(None, TestSupervisor::default(), events.clone())
+    let (supervisor, _handle) = Actor::spawn(None, TestSupervisor, events.clone())
         .await
         .expect("Failed to spawn supervisor");
 
     // Spawn test actor as linked child
-    let (child, child_handle) =
-        Actor::spawn_linked(None, TestActor::default(), (), supervisor.get_cell())
-            .await
-            .expect("Failed to spawn child");
+    let (child, child_handle) = Actor::spawn_linked(None, TestActor, (), supervisor.get_cell())
+        .await
+        .expect("Failed to spawn child");
 
     // Wait for startup
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // Verify child is running via ping
-    let ping_result = ractor::call!(child, |reply| TestActorMsg::Ping(reply));
+    let ping_result = ractor::call!(child, TestActorMsg::Ping);
     assert!(ping_result.is_ok(), "Child should respond to ping");
 
     // Gracefully stop the child
@@ -246,7 +243,7 @@ async fn test_actor_registry_auto_cleanup() {
     // Spawn a named actor
     let actor_name = "test_cleanup_actor".to_string();
 
-    let (actor, handle) = Actor::spawn(Some(actor_name.clone()), TestActor::default(), ())
+    let (actor, handle) = Actor::spawn(Some(actor_name.clone()), TestActor, ())
         .await
         .expect("Failed to spawn named actor");
 

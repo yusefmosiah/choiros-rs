@@ -10,7 +10,7 @@ pub fn build_worker_output_from_run(run: &shared_types::ConductorRunState) -> Wo
         Ok(content) => content,
         Err(e) => {
             tracing::error!(run_id = %run.run_id, error = %e, "Failed to read draft document");
-            format!("# Error\n\nFailed to read report: {}", e)
+            format!("# Error\n\nFailed to read report: {e}")
         }
     };
 

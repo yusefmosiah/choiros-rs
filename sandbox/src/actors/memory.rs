@@ -50,7 +50,7 @@ impl VecStore {
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
 
         // Create the four canonical collections if they don't exist.
-        conn.execute_batch(&format!(
+        conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS user_inputs (
                 rowid INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,7 +81,7 @@ impl VecStore {
                 chunk_hash TEXT NOT NULL UNIQUE
             );
             "#,
-        ))?;
+        )?;
 
         Ok(VecStore { conn })
     }

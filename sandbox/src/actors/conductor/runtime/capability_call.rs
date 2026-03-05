@@ -248,16 +248,13 @@ async fn emit_result_to_writer(
         }
         Ok(CapabilityWorkerOutput::Harness(_)) => {
             let writer_content = format!(
-                "Capability failed.\nCapability: {}\nError: unsupported capability output",
-                capability
+                "Capability failed.\nCapability: {capability}\nError: unsupported capability output"
             );
             (SectionState::Failed, "capability_failed", writer_content)
         }
         Err(err) => {
-            let writer_content = format!(
-                "Capability failed.\nCapability: {}\nError: {}",
-                capability, err
-            );
+            let writer_content =
+                format!("Capability failed.\nCapability: {capability}\nError: {err}");
             (SectionState::Failed, "capability_failed", writer_content)
         }
     };

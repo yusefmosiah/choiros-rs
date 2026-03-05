@@ -315,7 +315,7 @@ async fn tier1_conductor_bootstrap_eval() {
     let semaphore = Arc::new(Semaphore::new(2));
     let mut join_set = JoinSet::new();
 
-    for model_id in sampled.iter().cloned() {
+    for model_id in sampled.iter() {
         for (name, objective, caps, expected, forbidden, expect_block) in scenarios.clone() {
             let registry = registry.clone();
             let model_id = model_id.clone();
@@ -510,7 +510,7 @@ async fn tier1_decide_eval() {
     let semaphore = Arc::new(Semaphore::new(2));
     let mut join_set = JoinSet::new();
 
-    for model_id in sampled.iter().cloned() {
+    for model_id in sampled.iter() {
         for (name, messages, sys_ctx, tools, expect_tc, acceptable) in scenarios.clone() {
             let registry = registry.clone();
             let model_id = model_id.clone();
@@ -673,7 +673,7 @@ async fn tier1_summarize_changeset_eval() {
     let semaphore = Arc::new(Semaphore::new(2));
     let mut join_set = JoinSet::new();
 
-    for model_id in sampled.iter().cloned() {
+    for model_id in sampled.iter() {
         for (name, before, after, ops, source, impacts, keywords) in scenarios.clone() {
             let registry = registry.clone();
             let model_id = model_id.clone();

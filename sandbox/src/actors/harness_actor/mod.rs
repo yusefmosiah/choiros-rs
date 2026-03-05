@@ -138,7 +138,7 @@ async fn run_harness(
 
     let agent_result = harness
         .run(
-            format!("harness:{}", correlation_id),
+            format!("harness:{correlation_id}"),
             "system".to_string(),
             objective.clone(),
             None,
@@ -178,7 +178,7 @@ async fn emit_harness_execute(
         event: AppendEvent {
             event_type: "harness.execute".to_string(),
             payload,
-            actor_id: format!("harness:{}", correlation_id),
+            actor_id: format!("harness:{correlation_id}"),
             user_id: "system".to_string(),
         },
     });
@@ -203,7 +203,7 @@ async fn emit_harness_result(
         event: AppendEvent {
             event_type: "harness.result".to_string(),
             payload,
-            actor_id: format!("harness:{}", correlation_id),
+            actor_id: format!("harness:{correlation_id}"),
             user_id: "system".to_string(),
         },
     });

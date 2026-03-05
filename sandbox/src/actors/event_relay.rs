@@ -1,8 +1,9 @@
 //! EventRelayActor - committed event relay from EventStore to EventBus.
 //!
 //! ADR-0001:
-//! - EventStore is canonical source of truth.
-//! - EventBus is delivery plane only.
+//!   - EventStore is canonical source of truth.
+//!   - EventBus is delivery plane only.
+//!
 //! This actor relays committed EventStore rows into EventBus topics.
 
 use async_trait::async_trait;

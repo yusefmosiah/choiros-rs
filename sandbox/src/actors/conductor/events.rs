@@ -32,7 +32,7 @@ pub async fn emit_prompt_received(
     let event = AppendEvent {
         event_type: shared_types::EVENT_TOPIC_TRACE_PROMPT_RECEIVED.to_string(),
         payload,
-        actor_id: format!("conductor:{}", run_id),
+        actor_id: format!("conductor:{run_id}"),
         user_id: "system".to_string(),
     };
 
@@ -60,7 +60,7 @@ pub async fn emit_task_started(
     let event = AppendEvent {
         event_type: shared_types::EVENT_TOPIC_CONDUCTOR_TASK_STARTED.to_string(),
         payload,
-        actor_id: format!("conductor:{}", run_id),
+        actor_id: format!("conductor:{run_id}"),
         user_id: "system".to_string(),
     };
 
@@ -93,7 +93,7 @@ pub async fn emit_task_progress(
     let event = AppendEvent {
         event_type: shared_types::EVENT_TOPIC_CONDUCTOR_TASK_PROGRESS.to_string(),
         payload,
-        actor_id: format!("conductor:{}", run_id),
+        actor_id: format!("conductor:{run_id}"),
         user_id: "system".to_string(),
     };
 
@@ -119,7 +119,7 @@ pub async fn emit_worker_call(
     let event = AppendEvent {
         event_type: shared_types::EVENT_TOPIC_CONDUCTOR_WORKER_CALL.to_string(),
         payload,
-        actor_id: format!("conductor:{}", run_id),
+        actor_id: format!("conductor:{run_id}"),
         user_id: "system".to_string(),
     };
 
@@ -147,7 +147,7 @@ pub async fn emit_worker_result(
     let event = AppendEvent {
         event_type: shared_types::EVENT_TOPIC_CONDUCTOR_WORKER_RESULT.to_string(),
         payload,
-        actor_id: format!("conductor:{}", run_id),
+        actor_id: format!("conductor:{run_id}"),
         user_id: "system".to_string(),
     };
 
@@ -184,7 +184,7 @@ pub async fn emit_task_completed(
     let event = AppendEvent {
         event_type: shared_types::EVENT_TOPIC_CONDUCTOR_TASK_COMPLETED.to_string(),
         payload,
-        actor_id: format!("conductor:{}", run_id),
+        actor_id: format!("conductor:{run_id}"),
         user_id: "system".to_string(),
     };
 
@@ -218,7 +218,7 @@ pub async fn emit_task_failed(
     let event = AppendEvent {
         event_type: shared_types::EVENT_TOPIC_CONDUCTOR_TASK_FAILED.to_string(),
         payload,
-        actor_id: format!("conductor:{}", run_id),
+        actor_id: format!("conductor:{run_id}"),
         user_id: "system".to_string(),
     };
 
@@ -244,7 +244,7 @@ pub async fn emit_document_update(
     let event = AppendEvent {
         event_type: "conductor.run.document_update".to_string(),
         payload,
-        actor_id: format!("conductor:{}", run_id),
+        actor_id: format!("conductor:{run_id}"),
         user_id: "system".to_string(),
     };
 
@@ -290,7 +290,7 @@ pub async fn emit_control_event(
     let event = AppendEvent {
         event_type: event_type.to_string(),
         payload: full_payload,
-        actor_id: format!("conductor:{}", run_id),
+        actor_id: format!("conductor:{run_id}"),
         user_id: "system".to_string(),
     };
 
@@ -330,7 +330,7 @@ pub async fn emit_telemetry_event(
     let event = AppendEvent {
         event_type: event_type.to_string(),
         payload: full_payload,
-        actor_id: format!("conductor:{}", run_id),
+        actor_id: format!("conductor:{run_id}"),
         user_id: "system".to_string(),
     };
 

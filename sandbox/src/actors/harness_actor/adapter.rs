@@ -127,7 +127,7 @@ impl HarnessAdapter {
                 .output(),
         )
         .await
-        .map_err(|_| format!("bash timed out after {}ms", timeout_ms))?
+        .map_err(|_| format!("bash timed out after {timeout_ms}ms"))?
         .map_err(|e| format!("bash exec failed: {e}"))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();

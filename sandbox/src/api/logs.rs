@@ -384,7 +384,7 @@ pub(crate) fn render_run_markdown(events: &[shared_types::Event], query: &RunLog
             );
         }
         let _ = writeln!(&mut out, "- scope actor: `{}`", event.actor_id.as_str());
-        let _ = writeln!(&mut out, "- emitter: `{}`", emitter);
+        let _ = writeln!(&mut out, "- emitter: `{emitter}`");
         let _ = writeln!(&mut out, "- user: `{}`", event.user_id);
 
         match event.event_type.as_str() {
@@ -397,7 +397,7 @@ pub(crate) fn render_run_markdown(events: &[shared_types::Event], query: &RunLog
                     let _ = writeln!(&mut out);
                     let _ = writeln!(&mut out, "**User prompt**");
                     let _ = writeln!(&mut out);
-                    let _ = writeln!(&mut out, "{}", text);
+                    let _ = writeln!(&mut out, "{text}");
                 }
             }
             "interaction.assistant_msg" => {
@@ -412,9 +412,9 @@ pub(crate) fn render_run_markdown(events: &[shared_types::Event], query: &RunLog
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 let _ = writeln!(&mut out);
-                let _ = writeln!(&mut out, "**Assistant message** (model `{}`)", model);
+                let _ = writeln!(&mut out, "**Assistant message** (model `{model}`)");
                 let _ = writeln!(&mut out);
-                let _ = writeln!(&mut out, "{}", text);
+                let _ = writeln!(&mut out, "{text}");
             }
             "interaction.tool_call" => {
                 let tool_name = event
@@ -428,9 +428,9 @@ pub(crate) fn render_run_markdown(events: &[shared_types::Event], query: &RunLog
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 let _ = writeln!(&mut out);
-                let _ = writeln!(&mut out, "**Tool call** `{}`", tool_name);
+                let _ = writeln!(&mut out, "**Tool call** `{tool_name}`");
                 if !reasoning.is_empty() {
-                    let _ = writeln!(&mut out, "- reasoning: {}", reasoning);
+                    let _ = writeln!(&mut out, "- reasoning: {reasoning}");
                 }
             }
             "interaction.tool_result" => {
@@ -450,15 +450,11 @@ pub(crate) fn render_run_markdown(events: &[shared_types::Event], query: &RunLog
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 let _ = writeln!(&mut out);
-                let _ = writeln!(
-                    &mut out,
-                    "**Tool result** `{}` success={}",
-                    tool_name, success
-                );
+                let _ = writeln!(&mut out, "**Tool result** `{tool_name}` success={success}");
                 if !output.is_empty() {
                     let _ = writeln!(&mut out);
                     let _ = writeln!(&mut out, "```text");
-                    let _ = writeln!(&mut out, "{}", output);
+                    let _ = writeln!(&mut out, "{output}");
                     let _ = writeln!(&mut out, "```");
                 }
             }
@@ -493,12 +489,12 @@ pub(crate) fn render_run_markdown(events: &[shared_types::Event], query: &RunLog
                     &mut out,
                     "**Worker failure** kind=`{kind}` retriable=`{retriable}`"
                 );
-                let _ = writeln!(&mut out, "- error: {}", error);
+                let _ = writeln!(&mut out, "- error: {error}");
                 if duration_ms > 0 {
-                    let _ = writeln!(&mut out, "- duration_ms: {}", duration_ms);
+                    let _ = writeln!(&mut out, "- duration_ms: {duration_ms}");
                 }
                 if !hint.is_empty() {
-                    let _ = writeln!(&mut out, "- hint: {}", hint);
+                    let _ = writeln!(&mut out, "- hint: {hint}");
                 }
             }
             shared_types::EVENT_TOPIC_WORKER_TASK_COMPLETED => {
@@ -515,10 +511,10 @@ pub(crate) fn render_run_markdown(events: &[shared_types::Event], query: &RunLog
                 let _ = writeln!(&mut out);
                 let _ = writeln!(&mut out, "**Worker completed**");
                 if duration_ms > 0 {
-                    let _ = writeln!(&mut out, "- duration_ms: {}", duration_ms);
+                    let _ = writeln!(&mut out, "- duration_ms: {duration_ms}");
                 }
                 if !output.is_empty() {
-                    let _ = writeln!(&mut out, "- output: {}", output);
+                    let _ = writeln!(&mut out, "- output: {output}");
                 }
             }
             _ => {}
@@ -531,7 +527,7 @@ pub(crate) fn render_run_markdown(events: &[shared_types::Event], query: &RunLog
         let _ = writeln!(&mut out, "```json");
         let payload_json = serde_json::to_string_pretty(&event.payload)
             .unwrap_or_else(|_| event.payload.to_string());
-        let _ = writeln!(&mut out, "{}", payload_json);
+        let _ = writeln!(&mut out, "{payload_json}");
         let _ = writeln!(&mut out, "```");
         let _ = writeln!(&mut out, "</details>");
         let _ = writeln!(&mut out);

@@ -56,7 +56,7 @@ async fn test_execute_task_message_missing_workers() {
                 "unexpected message: {msg}"
             );
         }
-        other => panic!("Expected ActorUnavailable, got {:?}", other),
+        other => panic!("Expected ActorUnavailable, got {other:?}"),
     }
 
     conductor_ref.stop(None);

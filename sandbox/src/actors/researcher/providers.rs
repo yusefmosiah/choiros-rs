@@ -509,7 +509,7 @@ async fn search_tavily(
         let body = response.text().await.unwrap_or_default();
         return Err(ResearcherError::ProviderRequest(
             "tavily".to_string(),
-            format!("status {}: {}", status, body),
+            format!("status {status}: {body}"),
         ));
     }
 
@@ -613,7 +613,7 @@ async fn search_brave(
         let body = response.text().await.unwrap_or_default();
         return Err(ResearcherError::ProviderRequest(
             "brave".to_string(),
-            format!("status {}: {}", status, body),
+            format!("status {status}: {body}"),
         ));
     }
 
@@ -721,7 +721,7 @@ async fn search_exa(
         let body = response.text().await.unwrap_or_default();
         return Err(ResearcherError::ProviderRequest(
             "exa".to_string(),
-            format!("status {}: {}", status, body),
+            format!("status {status}: {body}"),
         ));
     }
 

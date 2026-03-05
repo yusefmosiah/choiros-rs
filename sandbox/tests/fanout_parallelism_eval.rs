@@ -149,7 +149,7 @@ impl AlmPort for FanOutTrackingPort {
         let delay_ms = {
             let idx: u64 = corr_id
                 .split('-')
-                .last()
+                .next_back()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
             // Branch 0 is slowest (100ms), branch N-1 is fastest (10ms)
@@ -255,7 +255,7 @@ async fn test_fanout_all_branches_tracked() {
         run_id: run_id.clone(),
         actor_id: "harness-0".into(),
         turn_number: 1,
-        working_memory: format!("Dispatched {} analysis branches. Awaiting results.", N),
+        working_memory: format!("Dispatched {N} analysis branches. Awaiting results."),
         objective: "analyse all modules".into(),
         pending_replies: pending_replies.clone(),
         turn_summaries: vec![],
@@ -273,7 +273,7 @@ async fn test_fanout_all_branches_tracked() {
             "corr_id {id} was spawned"
         );
     }
-    println!("  [SPAWNED] {:?}", spawned_ids);
+    println!("  [SPAWNED] {spawned_ids:?}");
     drop(spawns);
 
     // Wait for all simulated results to arrive (max delay is 110ms for branch 0)

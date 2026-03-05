@@ -621,10 +621,7 @@ impl<W: WorkerPort> AgentHarness<W> {
         };
         let mut disallowed = Vec::new();
         for tool_name in decision_tool_names(decision) {
-            if !allowed
-                .iter()
-                .any(|allowed_name| tool_name == *allowed_name)
-            {
+            if !allowed.contains(&tool_name) {
                 disallowed.push(tool_name.to_string());
             }
         }
@@ -1047,7 +1044,7 @@ impl<W: WorkerPort> AgentHarness<W> {
                     &ctx,
                     &progress_tx,
                     "executing_tool",
-                    &format!("Executing tool: {}", tool_name),
+                    &format!("Executing tool: {tool_name}"),
                     Some(step_count),
                     Some(self.config.max_steps),
                 )
@@ -1119,7 +1116,7 @@ impl<W: WorkerPort> AgentHarness<W> {
                         );
                         messages.push(BamlMessage {
                             role: "assistant".to_string(),
-                            content: format!("Tool {} failed: {}", tool_name, e),
+                            content: format!("Tool {tool_name} failed: {e}"),
                         });
                     }
                 }
@@ -1260,7 +1257,7 @@ impl<W: WorkerPort> AgentHarness<W> {
             &ctx.worker_id,
             model_used,
             provider,
-            &system_context,
+            system_context,
             &input,
             &input_summary,
             Some(LlmCallScope {

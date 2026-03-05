@@ -184,8 +184,7 @@ impl ConductorActor {
 
         match Actor::spawn(
             Some(format!(
-                "conductor-capability-call:{}:{}",
-                run_id_owned, call_id_owned
+                "conductor-capability-call:{run_id_owned}:{call_id_owned}"
             )),
             CapabilityCallActor,
             args,
@@ -271,7 +270,7 @@ impl ConductorActor {
         let objective = item.objective.clone();
 
         match Actor::spawn(
-            Some(format!("harness:{}:{}", run_id_owned, call_id_owned)),
+            Some(format!("harness:{run_id_owned}:{call_id_owned}")),
             HarnessActor,
             args,
         )

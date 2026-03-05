@@ -488,9 +488,9 @@ fn load_initial_snapshot(uri: &str) -> Result<Option<ViewerSnapshot>, String> {
             let file_name = entry.file_name().to_string_lossy().to_string();
             let entry_path = entry.path();
             if entry_path.is_dir() {
-                entries.push(format!("- [DIR] `{}/`", file_name));
+                entries.push(format!("- [DIR] `{file_name}/`"));
             } else {
-                entries.push(format!("- [FILE] `{}`", file_name));
+                entries.push(format!("- [FILE] `{file_name}`"));
             }
         }
         entries.sort();

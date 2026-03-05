@@ -454,8 +454,7 @@ impl TerminalAdapter {
                 }
             }
             _ => Err(format!(
-                "Unknown message_writer mode '{}'. Supported: proposal_append, canon_append, progress, state, completion",
-                mode
+                "Unknown message_writer mode '{mode}'. Supported: proposal_append, canon_append, progress, state, completion"
             )),
         };
 
@@ -828,7 +827,7 @@ Writer mode contract:
             escalations.push(WorkerEscalation {
                 escalation_id: ulid::Ulid::new().to_string(),
                 kind: WorkerEscalationKind::Blocker,
-                reason: format!("Terminal task failed or blocked: {}", summary),
+                reason: format!("Terminal task failed or blocked: {summary}"),
                 urgency: WorkerEscalationUrgency::Medium,
                 options: vec![
                     "retry".to_string(),

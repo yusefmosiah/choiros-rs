@@ -65,7 +65,7 @@ impl std::str::FromStr for EventCategory {
             "agent_conduct" => Ok(EventCategory::AgentConduct),
             "agent_results" => Ok(EventCategory::AgentResults),
             "system" => Ok(EventCategory::System),
-            _ => Err(format!("unknown category: {}", s)),
+            _ => Err(format!("unknown category: {s}")),
         }
     }
 }
@@ -190,7 +190,7 @@ async fn build_categorized_timeline(
 ) -> Result<RunTimelineResponse, String> {
     let events = fetch_run_events(event_store, run_id).await?;
     if events.is_empty() {
-        return Err(format!("not_found:run '{}' not found", run_id));
+        return Err(format!("not_found:run '{run_id}' not found"));
     }
 
     // Categorize and filter events
@@ -433,7 +433,7 @@ fn build_run_summary(
     let decisions: Vec<DecisionSummary> = all_events
         .iter()
         .filter(|e| e.event_type.contains("decision"))
-        .filter_map(|e| {
+        .map(|e| {
             let decision_type = e
                 .payload
                 .get("decision_type")
@@ -447,11 +447,11 @@ fn build_run_summary(
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
 
-            Some(DecisionSummary {
+            DecisionSummary {
                 decision_type: decision_type.to_string(),
                 timestamp: e.timestamp.to_rfc3339(),
                 reason: reason.to_string(),
-            })
+            }
         })
         .collect();
 
@@ -482,7 +482,7 @@ fn extract_artifact_summaries(events: &[shared_types::Event]) -> Vec<ArtifactSum
     for event in events {
         // Report paths
         if let Some(report_path) = payload_string(&event.payload, &["report_path"]) {
-            let key = format!("report_path:{}", report_path);
+            let key = format!("report_path:{report_path}");
             if seen.insert(key) {
                 artifacts.push(ArtifactSummary {
                     artifact_id: format!("artifact-report-{}", event.seq),
