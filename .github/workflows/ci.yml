@@ -51,40 +51,10 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --lib --bins
 
-  build:
-    name: Nix build (${{ matrix.package }})
-    runs-on: ubuntu-latest
-    needs: [test]
-    if: github.ref == 'refs/heads/main'
-    strategy:
-      matrix:
-        include:
-          - package: sandbox
-            flake_ref: ./sandbox#sandbox
-          - package: hypervisor
-            flake_ref: ./hypervisor#hypervisor
-          - package: desktop
-            flake_ref: ./dioxus-desktop#desktop
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Nix
-        uses: DeterminateSystems/determinate-nix-action@v3
-
-      - name: Configure FlakeHub cache
-        uses: DeterminateSystems/flakehub-cache-action@v3
-        with:
-          flakehub-flake-name: choir/choiros-rs
-        env:
-          FLAKEHUB_AUTH_TOKEN: ${{ secrets.FLAKEHUB_AUTH_TOKEN }}
-
-      - name: Build ${{ matrix.package }}
-        run: nix build ${{ matrix.flake_ref }} --print-build-logs
-
   deploy:
     name: Deploy to Node A
     runs-on: ubuntu-latest
-    needs: [build]
+    needs: [test]
     if: github.ref == 'refs/heads/main'
     environment: production
     steps:
