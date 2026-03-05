@@ -91,15 +91,16 @@ VM lifecycle (`create/start/stop/snapshot/restore/delete/get/list`).
 
 ## Immediate Next Steps
 
-1. Commit current docs changes (`README.md`, `NARRATIVE_INDEX.md`, OVH entrypoint, this handoff).
-2. Run OVH bootstrap runbook Sections 1-3 (service-account identity, policy scope, secret seeding, host sync units).
-3. Install/converge NixOS on both OVH SYS-1 nodes and complete first failover drill evidence.
+1. Create NixOS host configuration for x86_64-linux bare metal (`nix/hosts/ovh-node.nix`).
+2. Run `nixos-anywhere` to convert Ubuntu -> NixOS on both nodes.
+3. Verify NixOS boots and SSH works post-conversion.
+4. Run OVH bootstrap runbook Sections 1-3 (service-account identity, policy scope, secret seeding, host sync units).
+5. Deploy ChoirOS binaries and verify health checks.
 
 ## Blockers/Open Questions
 
 - [ ] Confirm final LB + vRack choice for US-East deployment (cost/complexity target).
 - [ ] Decide when to implement full lifecycle API beyond `ensure|stop` for snapshot/restore operations.
-- [ ] Clean up remaining stale docs that still reference legacy `dev-sandbox` / `dev-ui` commands.
 
 ## Deferred Items
 
@@ -110,27 +111,23 @@ VM lifecycle (`create/start/stop/snapshot/restore/delete/get/list`).
 
 ## Important Context
 
-There are currently four uncommitted docs changes only:
-1. `README.md` (canonical local startup now documented).
-2. `docs/architecture/NARRATIVE_INDEX.md` (new local startup block + OVH entrypoint link).
-3. `docs/runbooks/ovh-config-and-deployment-entrypoint.md` (new comprehensive OVH entrypoint).
-4. `docs/handoffs/2026-03-04-231800-ovh-bootstrap-current-status.md` (this handoff).
+**2026-03-05 progress:**
+- OVH API credentials working (v1 signed auth).
+- Both nodes installed with Ubuntu 24.04 and SSH verified.
+- SSH key: `~/.ssh/id_ed25519_ovh` (dedicated, no passphrase).
+- SSH user: `ubuntu` (passwordless sudo).
+- CLAUDE.md stale commands fixed, local dev verified on :9090.
+- Canonical progress tracker: `docs/runbooks/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
+  (see "Execution Progress Log" section).
 
-Current canonical local startup is:
-1. `just local-build-ui`
-2. `just dev`
-3. `just dev-status`
-4. Open `http://127.0.0.1:9090/login`
+**SSH access:**
+```bash
+ssh -i ~/.ssh/id_ed25519_ovh ubuntu@51.81.93.94   # Node A (choiros-a)
+ssh -i ~/.ssh/id_ed25519_ovh ubuntu@147.135.70.196 # Node B (choiros-b)
+```
 
-OVH bootstrap authority stack to follow:
-1. `docs/architecture/adr-0008-ovh-selfhosted-secrets-architecture.md`
-2. `docs/architecture/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
-3. `docs/runbooks/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
-4. `docs/runbooks/ovh-config-and-deployment-entrypoint.md`
-
-Known target hosts (from session context):
-1. `ns1004307.ip-51-81-93.us` (`51.81.93.94`)
-2. `ns106285.ip-147-135-70.us` (`147.135.70.196`)
+**Next: `nixos-anywhere` conversion** — needs a NixOS host config for x86_64-linux bare metal
+with 2x NVMe RAID1 disk layout.
 
 ## Assumptions Made
 

@@ -38,11 +38,14 @@ This runbook is the operator path for bootstrapping ChoirOS on two OVH US-East `
 - [x] Created OVH v1 API application (`choiros-bootstrap`).
 - [x] Minted Consumer Key with full API access (unlimited validity).
 - [x] Verified API connectivity: `whoami`, `list-servers` both return expected data.
-- [x] Uploaded SSH public key (`wiz-ed25519`, ed25519) to OVH account.
+- [x] Uploaded SSH public key to OVH account.
 - [x] Confirmed both servers visible: `os: none_64`, `state: ok`, `datacenter: vin1`.
-- [x] Kicked off Ubuntu 24.04 install on Node A (task 26974021) and Node B (task 26974022).
+- [x] Kicked off Ubuntu 24.04 install on Node A and Node B.
 - [x] Install uses `/1.0/dedicated/server/{name}/reinstall` endpoint (US API; not `/install/start`).
 - [x] SSH key injected via `customizations.sshKey` field in reinstall payload.
+- [x] First install completed but SSH failed — original `id_ed25519` had unknown passphrase.
+- [x] Generated dedicated OVH key (`~/.ssh/id_ed25519_ovh`, no passphrase).
+- [x] Replaced OVH account SSH key (`wiz-ovh`) and reinstalled both nodes (tasks 26974571, 26974572).
 
 **API notes (for future reference):**
 - US OVH API base: `https://api.us.ovhcloud.com`
@@ -51,20 +54,32 @@ This runbook is the operator path for bootstrapping ChoirOS on two OVH US-East `
   `whoami`/`list-servers` — v1 signed calls done inline for now.
 - Credentials stored in `.env` (gitignored): `OVH_APPLICATION_KEY`, `OVH_APPLICATION_SECRET`,
   `OVH_CONSUMER_KEY`.
+- OVH Ubuntu 24.04 installs create user `ubuntu` (not `root`) with SSH key auth.
+- IPMI KVM HTML5 console available via API if SSH fails.
 
-**Pending (resume in ~30 min):**
-- [ ] Confirm Ubuntu installs complete (check `/install/status`).
-- [ ] Verify SSH: `ssh root@51.81.93.94` and `ssh root@147.135.70.196`.
+**SSH access (after install completes):**
+```bash
+ssh -i ~/.ssh/id_ed25519_ovh ubuntu@51.81.93.94   # Node A
+ssh -i ~/.ssh/id_ed25519_ovh ubuntu@147.135.70.196 # Node B
+```
+
+- [x] Ubuntu 24.04 installed and SSH verified on both nodes.
+  - User: `ubuntu` (passwordless sudo), not `root`.
+  - Key: `~/.ssh/id_ed25519_ovh` (no passphrase, dedicated OVH key).
+  - Hardware confirmed: 2x 954GB NVMe (RAID1), 32GB RAM, 12 threads, x86_64.
+
+**SSH access (verified working):**
+```bash
+ssh -i ~/.ssh/id_ed25519_ovh ubuntu@51.81.93.94   # Node A (choiros-a)
+ssh -i ~/.ssh/id_ed25519_ovh ubuntu@147.135.70.196 # Node B (choiros-b)
+```
+
+**Pending:**
 - [ ] Create NixOS host configuration for x86_64-linux bare metal (`nix/hosts/ovh-node.nix`).
 - [ ] Run `nixos-anywhere` to convert Ubuntu -> NixOS on both nodes.
 - [ ] Verify NixOS boots and SSH works post-conversion.
-
-**Install status check command:**
-```bash
-# Source .env, then use v1 signed GET:
-# Node A: /1.0/dedicated/server/ns1004307.ip-51-81-93.us/install/status
-# Node B: /1.0/dedicated/server/ns106285.ip-147-135-70.us/install/status
-```
+- [ ] Bootstrap secrets infrastructure (Sections 1-3).
+- [ ] Deploy ChoirOS and verify health checks (Section 4).
 
 ## Fast Path Commands
 
