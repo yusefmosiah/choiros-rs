@@ -1,4 +1,4 @@
-default_model = "KimiK25"
+default_model = "ClaudeBedrockHaiku45"
 allow_request_override = true
 allowed_models = [
   "ClaudeBedrockOpus46",
@@ -13,12 +13,12 @@ allowed_models = [
 ]
 
 [callsite_defaults]
-terminal = "InceptionMercury2"
-conductor = "KimiK25"
-writer = "KimiK25"
-researcher = "ZaiGLM47"
-summarizer = "ZaiGLM47Flash"
-watcher = "ZaiGLM47Flash"
+terminal = "ClaudeBedrockHaiku45"
+conductor = "ClaudeBedrockHaiku45"
+writer = "ClaudeBedrockHaiku45"
+researcher = "ClaudeBedrockHaiku45"
+summarizer = "ClaudeBedrockHaiku45"
+watcher = "ClaudeBedrockHaiku45"
 
 [models.ClaudeBedrockOpus46]
 name = "Claude Opus 4.6 (Bedrock)"
