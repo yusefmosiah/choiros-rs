@@ -36,6 +36,7 @@ sha2 = "0.10"
 hex = "0.4"
 
 pulldown-cmark = "0.12"
+similar = "2"
 regex = { workspace = true }
 futures-util = "0.3.31"
 ractor = { version = "0.15", features = ["async-trait"] }

@@ -23,7 +23,7 @@ use crate::actors::terminal::{ensure_terminal_started, TerminalAgentProgress, Te
 use crate::observability::llm_trace::LlmTraceEmitter;
 use crate::supervisor::researcher::ResearcherSupervisorMsg;
 use crate::supervisor::terminal::TerminalSupervisorMsg;
-use adapter::WriterDelegationAdapter;
+use adapter::{WriterDelegationAdapter, WriterUserPromptAdapter};
 pub use document_runtime::{
     ApplyPatchResult, DocumentVersion, Overlay, OverlayAuthor, OverlayKind, OverlayStatus, PatchOp,
     PatchOpKind, RunDocument, SectionState, VersionSource, WriterDocumentArguments,
@@ -227,6 +227,13 @@ pub enum WriterMsg {
         run_id: Option<String>,
         call_id: Option<String>,
         reply: RpcReplyPort<Result<WriterOrchestrationResult, WriterError>>,
+    },
+    /// Background: writer LLM processes a user prompt diff and produces a revision.
+    OrchestrateUserPrompt {
+        run_id: String,
+        call_id: String,
+        objective: String,
+        parent_version_id: u64,
     },
 }
 
@@ -667,6 +674,22 @@ impl Actor for WriterActor {
                 )
                 .await;
                 let _ = reply.send(result);
+            }
+            WriterMsg::OrchestrateUserPrompt {
+                run_id,
+                call_id,
+                objective,
+                parent_version_id,
+            } => {
+                Self::orchestrate_user_prompt(
+                    &myself,
+                    state,
+                    run_id,
+                    call_id,
+                    objective,
+                    parent_version_id,
+                )
+                .await;
             }
         }
         Ok(())
@@ -1404,6 +1427,26 @@ impl WriterActor {
         Ok(version)
     }
 
+    /// Generate a unified diff string between two texts for LLM context.
+    fn compute_unified_diff(base: &str, edited: &str) -> String {
+        use similar::{ChangeTag, TextDiff};
+        let diff = TextDiff::from_lines(base, edited);
+        let mut out = String::new();
+        for change in diff.iter_all_changes() {
+            let prefix = match change.tag() {
+                ChangeTag::Equal => " ",
+                ChangeTag::Delete => "-",
+                ChangeTag::Insert => "+",
+            };
+            out.push_str(prefix);
+            out.push_str(change.value());
+            if !change.value().ends_with('\n') {
+                out.push('\n');
+            }
+        }
+        out
+    }
+
     async fn submit_user_prompt(
         myself: &ActorRef<WriterMsg>,
         state: &mut WriterState,
@@ -1428,7 +1471,11 @@ impl WriterActor {
             )));
         }
 
-        // 3.3: Emit UserInputRecord for writer surface
+        // Get the base content and compute the user's prompted version.
+        let base_content = head.content.clone();
+        let prompted_content = Self::apply_shared_patch_ops(&base_content, &prompt_diff)?;
+
+        // Emit UserInputRecord for writer surface.
         let prompt_text: String = prompt_diff
             .iter()
             .filter_map(|op| match op {
@@ -1465,26 +1512,69 @@ impl WriterActor {
             },
         });
 
-        let envelope = WriterInboundEnvelope {
-            message_id: format!("{run_id}:user:prompt:{}", ulid::Ulid::new()),
-            correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
-            kind: "human_prompt".to_string(),
-            run_id,
-            section_id: "user".to_string(),
-            source: WriterSource::User,
-            content: "user_prompt_diff".to_string(),
-            source_refs: Vec::new(),
-            sources: Vec::new(),
-            citations: Vec::new(),
-            base_version_id: Some(base_version_id),
-            prompt_diff: Some(prompt_diff),
-            overlay_id: None,
-            session_id: None,
-            thread_id: None,
-            call_id: None,
-            origin_actor: Some("conductor".to_string()),
+        // Save the user's edit as a UserSave version immediately.
+        let user_version = {
+            let run_doc = Self::resolve_run_document_mut(state, &run_id)?;
+            run_doc
+                .create_version(
+                    &run_id,
+                    Some(base_version_id),
+                    prompted_content.clone(),
+                    VersionSource::UserSave,
+                )
+                .await
+                .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?
         };
-        Self::enqueue_inbound(myself, state, WriterInboxMessage { envelope }).await
+        let revision = Self::resolve_run_document(state, &run_id)?.revision();
+
+        Self::emit_event(
+            state,
+            "writer.actor.user_prompt.saved",
+            serde_json::json!({
+                "run_id": &run_id,
+                "base_version_id": base_version_id,
+                "user_version_id": user_version.version_id,
+                "revision": revision,
+            }),
+        );
+
+        // Compute unified diff for LLM context and spawn background orchestration.
+        let unified_diff = Self::compute_unified_diff(&base_content, &prompted_content);
+        let writer_ref = myself.clone();
+        let run_id_for_task = run_id.clone();
+        let orchestration_call_id = format!("writer-user-prompt:{}", ulid::Ulid::new());
+        let user_version_id = user_version.version_id;
+
+        // Build the objective that includes document + diff for the writer LLM.
+        let objective = format!(
+            "The user edited the document. Review their changes and produce a revised version \
+             that incorporates the user's intent. The user's changes may include:\n\
+             - Direct content edits (apply them)\n\
+             - Inline instructions like [make this shorter] (interpret and execute)\n\
+             - Deletions (honor them)\n\
+             - Replacements (use the new content)\n\n\
+             If the changes are purely editorial (typo fixes, reformatting), apply them as-is.\n\
+             If the changes require research or code inspection, delegate to workers first.\n\n\
+             ## Current Document (before user edit)\n\n{base_content}\n\n\
+             ## User's Changes (unified diff)\n\n```diff\n{unified_diff}```\n\n\
+             ## User's Edited Version\n\n{prompted_content}"
+        );
+
+        // Spawn background orchestration — writer LLM processes the diff.
+        let _ = writer_ref.send_message(WriterMsg::OrchestrateUserPrompt {
+            run_id: run_id_for_task,
+            call_id: orchestration_call_id,
+            objective,
+            parent_version_id: user_version_id,
+        });
+
+        Ok(WriterQueueAck {
+            message_id: format!("{run_id}:user:prompt:{}", ulid::Ulid::new()),
+            accepted: true,
+            duplicate: false,
+            queue_len: 0,
+            revision,
+        })
     }
 
     fn extract_capability_from_tool_output(output: &str) -> Option<String> {
@@ -1624,6 +1714,89 @@ impl WriterActor {
             delegated_capabilities,
             pending_delegations,
         })
+    }
+
+    /// Process a user prompt diff through the writer LLM to produce a revision.
+    ///
+    /// The LLM sees the document, the user's diff, and the user's edited version,
+    /// then either produces a revised version directly or delegates to workers first.
+    async fn orchestrate_user_prompt(
+        myself: &ActorRef<WriterMsg>,
+        state: &mut WriterState,
+        run_id: String,
+        call_id: String,
+        objective: String,
+        parent_version_id: u64,
+    ) {
+        Self::emit_event(
+            state,
+            "writer.actor.user_prompt_orchestration.dispatched",
+            serde_json::json!({
+                "run_id": &run_id,
+                "call_id": &call_id,
+                "parent_version_id": parent_version_id,
+            }),
+        );
+
+        let adapter = WriterUserPromptAdapter::new(
+            state.writer_id.clone(),
+            state.user_id.clone(),
+            state.event_store.clone(),
+            myself.clone(),
+            state.researcher_supervisor.clone(),
+            state.terminal_supervisor.clone(),
+            run_id.clone(),
+            parent_version_id,
+        );
+        let harness = AgentHarness::with_config(
+            adapter,
+            state.model_registry.clone(),
+            HarnessConfig {
+                timeout_budget_ms: 180_000,
+                max_steps: 5,
+                emit_progress: true,
+                emit_worker_report: true,
+            },
+            LlmTraceEmitter::new(state.event_store.clone()),
+        );
+
+        let result = harness
+            .run(
+                format!("{}:{call_id}", state.writer_id),
+                state.user_id.clone(),
+                objective,
+                None,
+                None,
+                Some(run_id.clone()),
+                Some(call_id.clone()),
+            )
+            .await;
+
+        match result {
+            Ok(run_result) => {
+                Self::emit_event(
+                    state,
+                    "writer.actor.user_prompt_orchestration.completed",
+                    serde_json::json!({
+                        "run_id": &run_id,
+                        "call_id": &call_id,
+                        "success": run_result.success,
+                        "summary": run_result.summary,
+                    }),
+                );
+            }
+            Err(e) => {
+                Self::emit_event(
+                    state,
+                    "writer.actor.user_prompt_orchestration.failed",
+                    serde_json::json!({
+                        "run_id": &run_id,
+                        "call_id": &call_id,
+                        "error": e.to_string(),
+                    }),
+                );
+            }
+        }
     }
 
     /// Spawn a non-blocking background task that calls BAML to summarize a document

@@ -7,16 +7,44 @@ pub fn build_diff_ops(base: &str, edited: &str) -> Vec<PatchOp> {
     if base == edited {
         return Vec::new();
     }
-    vec![
-        PatchOp::Delete {
-            pos: 0,
-            len: base.chars().count() as u64,
-        },
-        PatchOp::Insert {
-            pos: 0,
-            text: edited.to_string(),
-        },
-    ]
+    use similar::{ChangeTag, TextDiff};
+
+    let diff = TextDiff::from_lines(base, edited);
+    let mut ops = Vec::new();
+    // char_pos tracks position in the *mutated* buffer (after prior ops applied).
+    let mut char_pos: u64 = 0;
+
+    for change in diff.iter_all_changes() {
+        let text = change.value();
+        let char_count = text.chars().count() as u64;
+
+        match change.tag() {
+            ChangeTag::Equal => {
+                ops.push(PatchOp::Retain { len: char_count });
+                char_pos += char_count;
+            }
+            ChangeTag::Delete => {
+                ops.push(PatchOp::Delete {
+                    pos: char_pos,
+                    len: char_count,
+                });
+                // Don't advance — chars removed from buffer.
+            }
+            ChangeTag::Insert => {
+                ops.push(PatchOp::Insert {
+                    pos: char_pos,
+                    text: text.to_string(),
+                });
+                char_pos += char_count;
+            }
+        }
+    }
+
+    // Filter out retain-only diffs (shouldn't happen since we check base == edited above).
+    if ops.iter().all(|op| matches!(op, PatchOp::Retain { .. })) {
+        return Vec::new();
+    }
+    ops
 }
 
 pub fn extract_run_id_from_document_path(path: &str) -> Option<String> {
