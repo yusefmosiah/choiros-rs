@@ -28,6 +28,15 @@ fn sandbox_root() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
 }
 
+/// Writer root path - where WriterDocumentRuntime persists run draft files.
+/// Uses CHOIR_WRITER_ROOT_DIR, falling back to CHOIR_SANDBOX_ROOT, then CARGO_MANIFEST_DIR.
+fn writer_root() -> PathBuf {
+    std::env::var("CHOIR_WRITER_ROOT_DIR")
+        .or_else(|_| std::env::var("CHOIR_SANDBOX_ROOT"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
+}
+
 /// Writer error codes for machine-readable error responses
 #[derive(Debug, Clone)]
 pub enum WriterErrorCode {
@@ -305,8 +314,12 @@ pub async fn open_document(
     State(state): State<ApiState>,
     Json(req): Json<OpenDocumentRequest>,
 ) -> impl IntoResponse {
-    let sandbox = sandbox_root();
     let user_path = req.path;
+    let sandbox = if is_run_draft_path(&user_path) {
+        writer_root()
+    } else {
+        sandbox_root()
+    };
 
     let file_path = match validate_path(&sandbox, &user_path) {
         Ok(p) => p,
@@ -435,8 +448,12 @@ pub async fn save_document(
     State(state): State<ApiState>,
     Json(req): Json<SaveDocumentRequest>,
 ) -> impl IntoResponse {
-    let sandbox = sandbox_root();
     let user_path = req.path;
+    let sandbox = if is_run_draft_path(&user_path) {
+        writer_root()
+    } else {
+        sandbox_root()
+    };
 
     let file_path = match validate_path(&sandbox, &user_path) {
         Ok(p) => p,
@@ -650,7 +667,11 @@ pub async fn preview_markdown(
         (Some(content), _) => content.clone(),
         (None, Some(path)) => {
             // Read content from file
-            let sandbox = sandbox_root();
+            let sandbox = if is_run_draft_path(path) {
+                writer_root()
+            } else {
+                sandbox_root()
+            };
             let file_path = match validate_path(&sandbox, path) {
                 Ok(p) => p,
                 Err(response) => return response,

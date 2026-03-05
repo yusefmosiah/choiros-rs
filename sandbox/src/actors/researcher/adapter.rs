@@ -327,6 +327,7 @@ impl ResearcherAdapter {
         ))
     }
 
+    #[allow(dead_code)]
     fn build_writer_metadata_from_citations(
         citations: &[super::ResearchCitation],
     ) -> (Vec<WriterMessageSource>, Vec<WriterMessageCitation>) {
@@ -388,6 +389,7 @@ impl ResearcherAdapter {
         (sources, source_citations)
     }
 
+    #[allow(dead_code)]
     async fn enqueue_writer_diff(
         &self,
         kind: &str,
@@ -1033,18 +1035,15 @@ Guidelines:
                     .emit_observed_sources_progress("researcher".to_string(), observed_source_refs)
                     .await;
                 if !citations.is_empty() {
-                    let (sources, source_citations) =
-                        Self::build_writer_metadata_from_citations(&citations);
                     if let Some(content) = Self::summarize_research_scan(&query, &citations) {
-                        let _ = self
-                            .enqueue_writer_diff(
-                                "researcher_auto_search_pulse",
-                                "researcher",
-                                content,
-                                sources,
-                                source_citations,
-                            )
-                            .await;
+                        self.emit_event(
+                            "researcher.auto_pulse.search",
+                            serde_json::json!({
+                                "query": &query,
+                                "citation_count": citations.len(),
+                                "content": content,
+                            }),
+                        );
                     }
                 }
                 let success = !citations.is_empty();
@@ -1141,31 +1140,14 @@ Guidelines:
                                     .unwrap_or("unknown content type"),
                                 concepts
                             );
-                            let sources = vec![WriterMessageSource {
-                                id: source_id.clone(),
-                                kind: WriterMessageSourceKind::Web,
-                                provider: Some("fetch_url".to_string()),
-                                url: Some(result.final_url.clone()),
-                                path: None,
-                                title: Some(result.url.clone()),
-                                publisher: None,
-                                published_at: None,
-                                line_start: None,
-                                line_end: None,
-                            }];
-                            let citations = vec![WriterMessageCitation {
-                                source_id: source_id.clone(),
-                                anchor: Some(format!("[^{source_id}]")),
-                            }];
-                            let _ = self
-                                .enqueue_writer_diff(
-                                    "researcher_auto_fetch_pulse",
-                                    "researcher",
-                                    content,
-                                    sources,
-                                    citations,
-                                )
-                                .await;
+                            self.emit_event(
+                                "researcher.auto_pulse.fetch",
+                                serde_json::json!({
+                                    "url": &result.final_url,
+                                    "source_id": &source_id,
+                                    "content": content,
+                                }),
+                            );
                         }
                         let elapsed = start_time.elapsed().as_millis() as u64;
                         let output = serde_json::json!({
