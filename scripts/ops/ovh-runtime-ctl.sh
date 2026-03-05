@@ -53,8 +53,8 @@ setup_tap() {
     log "TAP $tap already exists"
     return 0
   fi
-  log "Creating TAP $tap on $BRIDGE"
-  ip tuntap add dev "$tap" mode tap
+  log "Creating TAP $tap on $BRIDGE (multi_queue + vnet_hdr)"
+  ip tuntap add dev "$tap" mode tap vnet_hdr multi_queue
   ip link set "$tap" master "$BRIDGE"
   ip link set "$tap" up
 }
