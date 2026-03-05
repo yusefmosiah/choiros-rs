@@ -122,6 +122,19 @@ impl SandboxRegistry {
         })
     }
 
+    /// Ensure the live sandbox is running at startup.
+    /// Called once after hypervisor boot so the VM is ready before the first request.
+    pub async fn boot_live_sandbox(self: &Arc<Self>) {
+        if self.vfkit_ctl.trim().is_empty() {
+            return;
+        }
+        info!("booting live sandbox at startup");
+        match self.ensure_running("default", SandboxRole::Live).await {
+            Ok(port) => info!(port, "live sandbox ready"),
+            Err(e) => tracing::error!("failed to boot live sandbox at startup: {e}"),
+        }
+    }
+
     fn port_for(&self, role: SandboxRole) -> u16 {
         match role {
             SandboxRole::Live => self.live_port,
