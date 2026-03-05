@@ -1314,8 +1314,7 @@ aliases = ["ZaiGLM47Flash"]
     #[test]
     fn test_provider_gateway_override_bedrock_anthropic() {
         let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
-        let prev_gateway_base =
-            set_env("CHOIR_PROVIDER_GATEWAY_BASE_URL", "http://127.0.0.1:9090");
+        let prev_gateway_base = set_env("CHOIR_PROVIDER_GATEWAY_BASE_URL", "http://127.0.0.1:9090");
         let prev_gateway_token = set_env("CHOIR_PROVIDER_GATEWAY_TOKEN", "gateway-token");
         let prev_sandbox_id = set_env("CHOIR_SANDBOX_ID", "user-1:live");
         let (url, token, headers) = provider_gateway_override_bedrock_anthropic(
@@ -1336,10 +1335,7 @@ aliases = ["ZaiGLM47Flash"]
             headers.get("x-choiros-model").unwrap(),
             "us.anthropic.claude-haiku-4-5-20251001-v1:0"
         );
-        assert_eq!(
-            headers.get("x-choiros-sandbox-id").unwrap(),
-            "user-1:live"
-        );
+        assert_eq!(headers.get("x-choiros-sandbox-id").unwrap(), "user-1:live");
 
         restore_env("CHOIR_SANDBOX_ID", prev_sandbox_id);
         restore_env("CHOIR_PROVIDER_GATEWAY_BASE_URL", prev_gateway_base);
