@@ -90,10 +90,27 @@ ssh -i ~/.ssh/id_ed25519_ovh root@51.81.93.94   # Node A
 ssh -i ~/.ssh/id_ed25519_ovh root@147.135.70.196 # Node B
 ```
 
+- [x] Built sandbox and hypervisor flake outputs natively on Node A (x86_64-linux).
+  - Sandbox: `/nix/store/c14bw8yzyzcpnwmx3mvpfz98pgdndn4v-sandbox-0.1.0`
+  - Hypervisor: `/nix/store/b48j6mnsnghsnvag31rjy1xqvpygf7xw-hypervisor-0.1.0`
+  - Binaries installed to `/opt/choiros/bin/`.
+- [x] Added systemd services to `nix/hosts/ovh-node.nix`:
+  - `hypervisor.service` on :9090
+  - `sandbox-live.service` on :8080
+  - `sandbox-dev.service` on :8081
+- [x] Added `scripts/ops/ovh-runtime-ctl.sh` (stub for bare metal; sandboxes are systemd-managed).
+- [x] `nixos-rebuild switch` on Node A — all three services active.
+- [x] Health checks passing on Node A:
+  - `curl http://127.0.0.1:9090/login` — HTML served
+  - `curl http://127.0.0.1:8080/health` — `{"status":"healthy"}`
+  - `curl http://127.0.0.1:8081/health` — `{"status":"healthy"}`
+
 **Pending:**
+- [ ] Build and deploy on Node B (build in progress).
 - [ ] Set hostname per-node (currently both are `nixos`).
+- [ ] Build and deploy UI assets (WASM frontend).
 - [ ] Bootstrap secrets infrastructure (Sections 1-3).
-- [ ] Deploy ChoirOS and verify health checks (Section 4).
+- [ ] Wire provider gateway credentials for LLM API access.
 
 ## Fast Path Commands
 
