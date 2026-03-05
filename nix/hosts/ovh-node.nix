@@ -74,12 +74,77 @@
     vim
   ];
 
-  # Workspace directory
+  # Workspace and runtime directories
   systemd.tmpfiles.rules = [
     "d /opt/choiros 0755 root root -"
+    "d /opt/choiros/bin 0755 root root -"
     "d /opt/choiros/workspace 0755 root root -"
+    "d /opt/choiros/data 0750 root root -"
     "d /run/choiros/credentials/platform 0700 root root -"
   ];
+
+  # ChoirOS Hypervisor service
+  systemd.services.hypervisor = {
+    description = "ChoirOS Hypervisor";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    serviceConfig = {
+      ExecStart = "/opt/choiros/bin/hypervisor";
+      Restart = "on-failure";
+      RestartSec = 3;
+      WorkingDirectory = "/opt/choiros/workspace";
+      Environment = [
+        "HYPERVISOR_PORT=9090"
+        "HYPERVISOR_DATABASE_URL=sqlite:/opt/choiros/data/hypervisor.db"
+        "SANDBOX_VFKIT_CTL=/opt/choiros/bin/ovh-runtime-ctl"
+        "SANDBOX_LIVE_PORT=8080"
+        "SANDBOX_DEV_PORT=8081"
+        "WEBAUTHN_RP_ID=localhost"
+        "WEBAUTHN_RP_ORIGIN=http://localhost:9090"
+      ];
+    };
+  };
+
+  # ChoirOS Sandbox (live) service
+  systemd.services.sandbox-live = {
+    description = "ChoirOS Sandbox (live)";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    serviceConfig = {
+      ExecStart = "/opt/choiros/bin/sandbox";
+      Restart = "on-failure";
+      RestartSec = 3;
+      WorkingDirectory = "/opt/choiros/workspace";
+      Environment = [
+        "PORT=8080"
+        "DATABASE_URL=sqlite:/opt/choiros/data/sandbox-live.db"
+        "SQLX_OFFLINE=true"
+        "CHOIR_SANDBOX_ROLE=live"
+      ];
+    };
+  };
+
+  # ChoirOS Sandbox (dev) service
+  systemd.services.sandbox-dev = {
+    description = "ChoirOS Sandbox (dev)";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    serviceConfig = {
+      ExecStart = "/opt/choiros/bin/sandbox";
+      Restart = "on-failure";
+      RestartSec = 3;
+      WorkingDirectory = "/opt/choiros/workspace";
+      Environment = [
+        "PORT=8081"
+        "DATABASE_URL=sqlite:/opt/choiros/data/sandbox-dev.db"
+        "SQLX_OFFLINE=true"
+        "CHOIR_SANDBOX_ROLE=dev"
+      ];
+    };
+  };
 
   # Timezone
   time.timeZone = "UTC";
