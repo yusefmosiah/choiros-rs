@@ -161,6 +161,7 @@
         "CHOIR_SANDBOX_ROLE=live"
         "CHOIR_PROVIDER_GATEWAY_BASE_URL=http://127.0.0.1:9090"
         "HOME=/var/lib/choiros"
+        "CHOIR_WRITER_ROOT_DIR=/opt/choiros/data/sandbox"
       ];
     };
   };
@@ -186,6 +187,7 @@
         "CHOIR_SANDBOX_ROLE=dev"
         "CHOIR_PROVIDER_GATEWAY_BASE_URL=http://127.0.0.1:9090"
         "HOME=/var/lib/choiros"
+        "CHOIR_WRITER_ROOT_DIR=/opt/choiros/data/sandbox"
       ];
     };
   };

@@ -712,7 +712,7 @@ impl WriterActor {
             objective: String::new(),
             session_id: Self::DEFAULT_RESTORED_DESKTOP_ID.to_string(),
             thread_id: run_id.to_string(),
-            root_dir: Some(env!("CARGO_MANIFEST_DIR").to_string()),
+            root_dir: Some(std::env::var("CHOIR_WRITER_ROOT_DIR").unwrap_or_else(|_| env!("CARGO_MANIFEST_DIR").to_string())),
             event_store: state.event_store.clone(),
         })
         .await
@@ -749,7 +749,7 @@ impl WriterActor {
             objective: objective.clone(),
             session_id: desktop_id,
             thread_id: run_id.clone(),
-            root_dir: Some(env!("CARGO_MANIFEST_DIR").to_string()),
+            root_dir: Some(std::env::var("CHOIR_WRITER_ROOT_DIR").unwrap_or_else(|_| env!("CARGO_MANIFEST_DIR").to_string())),
             event_store: state.event_store.clone(),
         })
         .await
