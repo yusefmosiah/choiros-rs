@@ -91,6 +91,22 @@
     };
   };
 
+  # Allow sandbox port through firewall
+  networking.firewall.allowedTCPPorts = [ sandboxPort ];
+
+  # SSH for debugging (use host's authorized key)
+  services.openssh = {
+    enable = true;
+    openFirewall = true;
+    settings = {
+      PermitRootLogin = "yes";
+      PasswordAuthentication = false;
+    };
+  };
+  users.users.root.openssh.authorizedKeys.keys = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILN3IIn6TzBBExWiJTJ7aDlA/LlEMXvjFlSfkKkV02TZ wiz@choiros-ovh"
+  ];
+
   environment.systemPackages = with pkgs; [
     coreutils
     curl
