@@ -434,16 +434,27 @@ fn add_provider_client(
 
     match provider {
         ProviderConfig::AwsBedrock { model, region } => {
-            let mut options = HashMap::new();
-            options.insert("model".to_string(), json!(model));
-            options.insert("region".to_string(), json!(region));
-            if let Some(gateway_endpoint_url) = provider_gateway_override_bedrock(region) {
-                // Keep aws-bedrock provider semantics, but route transport through hypervisor.
-                options.insert("endpoint_url".to_string(), json!(gateway_endpoint_url));
+            if let Some((gateway_url, gateway_token, gateway_headers)) =
+                provider_gateway_override_bedrock_anthropic(region, model)
+            {
+                // In gateway mode, register as anthropic provider so the sandbox
+                // makes a plain HTTP request. The gateway handles AWS auth.
+                let mut options = HashMap::new();
+                options.insert("api_key".to_string(), json!(gateway_token));
+                options.insert("base_url".to_string(), json!(gateway_url));
+                options.insert("model".to_string(), json!(model));
+                if !gateway_headers.is_empty() {
+                    options.insert("headers".to_string(), json!(gateway_headers));
+                }
+                registry.add_llm_client(client_name, "anthropic", options);
             } else if managed_mode {
                 return Err(ModelConfigError::MissingGatewayConfig);
+            } else {
+                let mut options = HashMap::new();
+                options.insert("model".to_string(), json!(model));
+                options.insert("region".to_string(), json!(region));
+                registry.add_llm_client(client_name, "aws-bedrock", options);
             }
-            registry.add_llm_client(client_name, "aws-bedrock", options);
             Ok(())
         }
         ProviderConfig::AnthropicCompatible {
@@ -546,11 +557,39 @@ fn provider_gateway_override(
     Some((routed_url, gateway_token, forwarded_headers))
 }
 
-fn provider_gateway_override_bedrock(region: &str) -> Option<String> {
+fn provider_gateway_override_bedrock_anthropic(
+    region: &str,
+    model: &str,
+) -> Option<(String, String, HashMap<String, String>)> {
     let gateway_base = std::env::var("CHOIR_PROVIDER_GATEWAY_BASE_URL").ok()?;
+    let gateway_token = std::env::var("CHOIR_PROVIDER_GATEWAY_TOKEN").ok()?;
     let gateway_base = gateway_base.trim_end_matches('/');
-    let _gateway_token = std::env::var("CHOIR_PROVIDER_GATEWAY_TOKEN").ok()?;
-    Some(format!("{gateway_base}/provider/v1/aws-bedrock/{region}"))
+
+    let mut headers = HashMap::new();
+    headers.insert(
+        "x-choiros-upstream-base-url".to_string(),
+        format!("https://bedrock-runtime.{region}.amazonaws.com"),
+    );
+    headers.insert("x-choiros-model".to_string(), model.to_string());
+
+    if let Ok(sandbox_id) = std::env::var("CHOIR_SANDBOX_ID") {
+        if !sandbox_id.trim().is_empty() {
+            headers.insert("x-choiros-sandbox-id".to_string(), sandbox_id);
+        }
+    }
+    if let Ok(user_id) = std::env::var("CHOIR_SANDBOX_USER_ID") {
+        if !user_id.trim().is_empty() {
+            headers.insert("x-choiros-user-id".to_string(), user_id);
+        }
+    }
+    if let Ok(role) = std::env::var("CHOIR_SANDBOX_ROLE") {
+        if !role.trim().is_empty() {
+            headers.insert("x-choiros-sandbox-role".to_string(), role);
+        }
+    }
+
+    let routed_url = format!("{gateway_base}/provider/v1/aws-bedrock/{region}");
+    Some((routed_url, gateway_token, headers))
 }
 
 fn load_model_catalog_configs() -> Option<(
@@ -1273,17 +1312,36 @@ aliases = ["ZaiGLM47Flash"]
     }
 
     #[test]
-    fn test_provider_gateway_override_bedrock_sets_endpoint_url() {
+    fn test_provider_gateway_override_bedrock_anthropic() {
         let _lock = ENV_MUTEX.lock().expect("env mutex poisoned");
-        let prev_gateway_base = set_env("CHOIR_PROVIDER_GATEWAY_BASE_URL", "http://127.0.0.1:9090");
+        let prev_gateway_base =
+            set_env("CHOIR_PROVIDER_GATEWAY_BASE_URL", "http://127.0.0.1:9090");
         let prev_gateway_token = set_env("CHOIR_PROVIDER_GATEWAY_TOKEN", "gateway-token");
-        let endpoint = provider_gateway_override_bedrock("us-east-1")
-            .expect("gateway override should be enabled");
+        let prev_sandbox_id = set_env("CHOIR_SANDBOX_ID", "user-1:live");
+        let (url, token, headers) = provider_gateway_override_bedrock_anthropic(
+            "us-east-1",
+            "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        )
+        .expect("gateway override should be enabled");
         assert_eq!(
-            endpoint,
+            url,
             "http://127.0.0.1:9090/provider/v1/aws-bedrock/us-east-1"
         );
+        assert_eq!(token, "gateway-token");
+        assert_eq!(
+            headers.get("x-choiros-upstream-base-url").unwrap(),
+            "https://bedrock-runtime.us-east-1.amazonaws.com"
+        );
+        assert_eq!(
+            headers.get("x-choiros-model").unwrap(),
+            "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+        );
+        assert_eq!(
+            headers.get("x-choiros-sandbox-id").unwrap(),
+            "user-1:live"
+        );
 
+        restore_env("CHOIR_SANDBOX_ID", prev_sandbox_id);
         restore_env("CHOIR_PROVIDER_GATEWAY_BASE_URL", prev_gateway_base);
         restore_env("CHOIR_PROVIDER_GATEWAY_TOKEN", prev_gateway_token);
     }

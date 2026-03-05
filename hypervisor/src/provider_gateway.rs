@@ -192,6 +192,14 @@ pub async fn forward_provider_request(
     response
 }
 
+/// Forward a request to AWS Bedrock. Auth uses a bearer identity token
+/// (`AWS_BEARER_TOKEN_BEDROCK`) rather than SigV4 signing. The AWS SDK
+/// supports bearer tokens natively; we use a plain HTTP forward here to
+/// avoid pulling in the full SDK crate. The sandbox sends requests as an
+/// `anthropic` provider type (Anthropic Messages API format) so it has
+/// zero AWS-specific code. When the incoming path is `/v1/messages`, the
+/// gateway rewrites to Bedrock's `/model/{model}/invoke` endpoint and
+/// transforms the body accordingly.
 async fn forward_bedrock_request(
     state: Arc<AppState>,
     provider: String,
@@ -220,7 +228,7 @@ async fn forward_bedrock_request(
     let Some((region, upstream_suffix)) = split_region_and_upstream_path(region_and_path) else {
         return (StatusCode::BAD_REQUEST, "missing bedrock region in path").into_response();
     };
-    let upstream_url = format!("https://bedrock-runtime.{region}.amazonaws.com{upstream_suffix}");
+    let region = region.to_string();
     let (parts, body) = req.into_parts();
     let body_bytes = match body.collect().await {
         Ok(collected) => collected.to_bytes(),
@@ -229,6 +237,21 @@ async fn forward_bedrock_request(
             return (StatusCode::BAD_REQUEST, "invalid request body").into_response();
         }
     };
+
+    // When the sandbox routes Bedrock via the anthropic provider type, BAML
+    // sends to /v1/messages. Rewrite to /model/{model}/invoke for Bedrock
+    // and transform the body (strip `model`, ensure `anthropic_version`).
+    let (upstream_suffix, body_bytes) = if upstream_suffix == "/v1/messages" {
+        match rewrite_anthropic_to_bedrock(&body_bytes, &parts.headers) {
+            Ok((model_id, rewritten_body)) => {
+                (format!("/model/{model_id}/invoke"), rewritten_body.into())
+            }
+            Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+        }
+    } else {
+        (upstream_suffix, body_bytes)
+    };
+    let upstream_url = format!("https://bedrock-runtime.{region}.amazonaws.com{upstream_suffix}");
 
     let mut upstream_req = state
         .provider_gateway
@@ -283,6 +306,34 @@ async fn forward_bedrock_request(
     );
 
     response
+}
+
+/// Rewrite an Anthropic Messages API body into a Bedrock InvokeModel body.
+/// Extracts model ID (for URL), removes `model` field, ensures `anthropic_version`.
+fn rewrite_anthropic_to_bedrock(
+    body: &[u8],
+    headers: &HeaderMap,
+) -> Result<(String, Vec<u8>), &'static str> {
+    let mut json: serde_json::Value =
+        serde_json::from_slice(body).map_err(|_| "invalid JSON body")?;
+    let obj = json.as_object_mut().ok_or("body must be a JSON object")?;
+
+    let model_id = obj
+        .remove("model")
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .or_else(|| {
+            headers
+                .get("x-choiros-model")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string())
+        })
+        .ok_or("missing model in body or headers")?;
+
+    obj.entry("anthropic_version")
+        .or_insert_with(|| serde_json::json!("bedrock-2023-05-31"));
+
+    let rewritten = serde_json::to_vec(&json).map_err(|_| "failed to serialize body")?;
+    Ok((model_id, rewritten))
 }
 
 fn split_region_and_upstream_path(region_and_path: &str) -> Option<(&str, String)> {
