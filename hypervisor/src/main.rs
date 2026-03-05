@@ -62,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Sandbox registry
     let sandbox_registry = sandbox::SandboxRegistry::new(
-        config.sandbox_vfkit_ctl.clone(),
+        config.sandbox_runtime_ctl.clone(),
         config.sandbox_live_port,
         config.sandbox_dev_port,
         config.sandbox_branch_port_start,

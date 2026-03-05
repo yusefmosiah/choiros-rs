@@ -5,8 +5,8 @@ use std::time::Duration;
 pub struct Config {
     /// Port the hypervisor listens on
     pub port: u16,
-    /// Control command for vfkit backend lifecycle operations.
-    pub sandbox_vfkit_ctl: String,
+    /// Control command for sandbox runtime lifecycle operations (ensure/stop).
+    pub sandbox_runtime_ctl: String,
     /// Port the live sandbox listens on (hypervisor assigns this)
     pub sandbox_live_port: u16,
     /// Port the dev sandbox listens on
@@ -48,14 +48,19 @@ impl Config {
             .parent()
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
-        let default_vfkit_ctl = workspace_root
+        let default_runtime_ctl = workspace_root
             .join("target/debug/vfkit-runtime-ctl")
             .to_string_lossy()
             .to_string();
 
+        // Accept both SANDBOX_RUNTIME_CTL (new) and SANDBOX_VFKIT_CTL (legacy)
+        let runtime_ctl = std::env::var("SANDBOX_RUNTIME_CTL")
+            .or_else(|_| std::env::var("SANDBOX_VFKIT_CTL"))
+            .unwrap_or_else(|_| default_runtime_ctl);
+
         let cfg = Self {
             port,
-            sandbox_vfkit_ctl: env_str("SANDBOX_VFKIT_CTL", &default_vfkit_ctl),
+            sandbox_runtime_ctl: runtime_ctl,
             sandbox_live_port: env_parse("SANDBOX_LIVE_PORT", 8080)?,
             sandbox_dev_port: env_parse("SANDBOX_DEV_PORT", 8081)?,
             sandbox_branch_port_start: env_parse("SANDBOX_BRANCH_PORT_START", 12000)?,
@@ -96,9 +101,9 @@ impl Config {
             ));
         }
 
-        if cfg.sandbox_vfkit_ctl.trim().is_empty() {
+        if cfg.sandbox_runtime_ctl.trim().is_empty() {
             return Err(anyhow::anyhow!(
-                "SANDBOX_VFKIT_CTL must be set to a vfkit runtime control command"
+                "SANDBOX_RUNTIME_CTL (or SANDBOX_VFKIT_CTL) must be set to a runtime control command"
             ));
         }
 

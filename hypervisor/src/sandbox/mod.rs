@@ -66,10 +66,10 @@ pub struct SandboxEntry {
 }
 
 pub enum SandboxHandle {
-    VfkitExternal(VfkitHandle),
+    RuntimeCtl(RuntimeCtlHandle),
 }
 
-pub struct VfkitHandle {
+pub struct RuntimeCtlHandle {
     pub user_id: String,
     pub runtime_name: String,
     pub role: Option<SandboxRole>,
@@ -85,7 +85,7 @@ struct UserSandboxes {
 
 /// Per-user sandbox registry.
 pub struct SandboxRegistry {
-    vfkit_ctl: String,
+    runtime_ctl: String,
     idle_timeout: Duration,
     /// user_id -> role/branch runtime entries
     entries: Mutex<HashMap<String, UserSandboxes>>,
@@ -100,7 +100,7 @@ pub struct SandboxRegistry {
 impl SandboxRegistry {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        vfkit_ctl: String,
+        runtime_ctl: String,
         live_port: u16,
         dev_port: u16,
         branch_port_start: u16,
@@ -110,7 +110,7 @@ impl SandboxRegistry {
         provider_gateway_token: Option<String>,
     ) -> Arc<Self> {
         Arc::new(Self {
-            vfkit_ctl,
+            runtime_ctl,
             idle_timeout,
             entries: Mutex::new(HashMap::new()),
             live_port,
@@ -125,7 +125,7 @@ impl SandboxRegistry {
     /// Ensure the live sandbox is running at startup.
     /// Called once after hypervisor boot so the VM is ready before the first request.
     pub async fn boot_live_sandbox(self: &Arc<Self>) {
-        if self.vfkit_ctl.trim().is_empty() {
+        if self.runtime_ctl.trim().is_empty() {
             return;
         }
         info!("booting live sandbox at startup");
@@ -216,13 +216,13 @@ impl SandboxRegistry {
 
         // Do not blindly adopt a pre-existing listener on a shared role port.
         // With per-user runtimes, a stale tunnel can belong to another user.
-        // Always route startup through vfkit control so ownership is enforced.
+        // Always route startup through runtime control so ownership is enforced.
         if Self::is_port_ready(port).await {
             warn!(
                 user_id,
                 %role,
                 port,
-                "role port already listening before ensure; delegating to vfkit control for ownership validation"
+                "role port already listening before ensure; delegating to runtime control for ownership validation"
             );
         }
 
@@ -486,11 +486,11 @@ impl SandboxRegistry {
         branch: Option<&str>,
         port: u16,
     ) -> anyhow::Result<SandboxHandle> {
-        self.spawn_vfkit(user_id, runtime_name, role, branch, port)
+        self.spawn_runtime(user_id, runtime_name, role, branch, port)
             .await
     }
 
-    fn vfkit_ctl_args(
+    fn runtime_ctl_args(
         action: &str,
         user_id: &str,
         runtime_name: &str,
@@ -520,7 +520,7 @@ impl SandboxRegistry {
         args
     }
 
-    async fn run_vfkit_ctl(
+    async fn run_runtime_ctl(
         &self,
         action: &str,
         user_id: &str,
@@ -529,14 +529,14 @@ impl SandboxRegistry {
         branch: Option<&str>,
         port: u16,
     ) -> anyhow::Result<()> {
-        let ctl_path = self.vfkit_ctl.trim();
+        let ctl_path = self.runtime_ctl.trim();
         if ctl_path.is_empty() {
             return Err(anyhow::anyhow!(
                 "runtime backend is configured but SANDBOX_VFKIT_CTL is missing"
             ));
         }
 
-        let args = Self::vfkit_ctl_args(action, user_id, runtime_name, role, branch, port);
+        let args = Self::runtime_ctl_args(action, user_id, runtime_name, role, branch, port);
         let mut cmd = Command::new(ctl_path);
         cmd.args(args)
             .env("CHOIR_SANDBOX_USER_ID", user_id)
@@ -574,7 +574,7 @@ impl SandboxRegistry {
         ))
     }
 
-    async fn spawn_vfkit(
+    async fn spawn_runtime(
         &self,
         user_id: &str,
         runtime_name: &str,
@@ -582,29 +582,32 @@ impl SandboxRegistry {
         branch: Option<&str>,
         port: u16,
     ) -> anyhow::Result<SandboxHandle> {
-        self.run_vfkit_ctl("ensure", user_id, runtime_name, role, branch, port)
+        self.run_runtime_ctl("ensure", user_id, runtime_name, role, branch, port)
             .await?;
 
-        // Poll for host-facing runtime readiness after vfkit control succeeds.
+        // Poll for host-facing runtime readiness after runtime control succeeds.
         let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
         loop {
             if tokio::time::Instant::now() >= deadline {
                 error!(
                     runtime = runtime_name,
-                    port, "vfkit runtime did not become ready within 45s"
+                    port, "sandbox runtime did not become ready within 45s"
                 );
                 return Err(anyhow::anyhow!(
-                    "vfkit runtime readiness timeout on port {port}"
+                    "sandbox runtime readiness timeout on port {port}"
                 ));
             }
             if Self::is_port_ready(port).await {
-                info!(runtime = runtime_name, port, "vfkit runtime port is ready");
+                info!(
+                    runtime = runtime_name,
+                    port, "sandbox runtime port is ready"
+                );
                 break;
             }
             sleep(Duration::from_millis(200)).await;
         }
 
-        Ok(SandboxHandle::VfkitExternal(VfkitHandle {
+        Ok(SandboxHandle::RuntimeCtl(RuntimeCtlHandle {
             user_id: user_id.to_string(),
             runtime_name: runtime_name.to_string(),
             role,
@@ -624,9 +627,9 @@ impl SandboxRegistry {
         };
 
         match handle {
-            SandboxHandle::VfkitExternal(handle) => {
+            SandboxHandle::RuntimeCtl(handle) => {
                 if let Err(e) = self
-                    .run_vfkit_ctl(
+                    .run_runtime_ctl(
                         "stop",
                         &handle.user_id,
                         &handle.runtime_name,
@@ -640,7 +643,7 @@ impl SandboxRegistry {
                         user_id,
                         branch = ?branch,
                         runtime = handle.runtime_name,
-                        "failed to stop vfkit runtime: {e}"
+                        "failed to stop sandbox runtime: {e}"
                     );
                 }
             }
@@ -661,8 +664,8 @@ mod tests {
     }
 
     #[test]
-    fn vfkit_ctl_args_include_role_or_branch_targets() {
-        let role_args = SandboxRegistry::vfkit_ctl_args(
+    fn runtime_ctl_args_include_role_or_branch_targets() {
+        let role_args = SandboxRegistry::runtime_ctl_args(
             "ensure",
             "user-a",
             "live",
@@ -685,7 +688,7 @@ mod tests {
             ]
         );
 
-        let branch_args = SandboxRegistry::vfkit_ctl_args(
+        let branch_args = SandboxRegistry::runtime_ctl_args(
             "stop",
             "user-a",
             "branch-feature",
