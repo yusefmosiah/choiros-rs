@@ -44,17 +44,21 @@
     ];
   };
 
-  # Static networking on the br-choiros bridge
+  # Static networking on the br-choiros bridge.
+  # Use systemd-networkd with MAC-based matching since interface names
+  # are unpredictable inside cloud-hypervisor (enp0sX, not eth0).
   networking.useDHCP = false;
-  networking.interfaces.eth0.ipv4.addresses = [{
-    address = vmIp;
-    prefixLength = 24;
-  }];
-  networking.defaultGateway = {
-    address = "10.0.0.1";
-    interface = "eth0";
+  systemd.network = {
+    enable = true;
+    networks."10-vm" = {
+      matchConfig.MACAddress = vmMac;
+      networkConfig = {
+        Address = "${vmIp}/24";
+        Gateway = "10.0.0.1";
+        DNS = [ "1.1.1.1" "8.8.8.8" ];
+      };
+    };
   };
-  networking.nameservers = [ "1.1.1.1" "8.8.8.8" ];
 
   # Sandbox service
   systemd.services.choir-sandbox = {
