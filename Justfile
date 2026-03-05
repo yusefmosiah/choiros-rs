@@ -198,26 +198,9 @@ podman-build:
 podman-run:
     podman run --rm -it --name choir-sandbox -p 8080:8080 -v ./data:/data:Z choir-sandbox:latest
 
-# Deployment (OVH / SSH path)
-# Required env: DEPLOY_HOST
-deploy-ovh-ssh:
-    ./scripts/deploy/ovh-ssh-deploy.sh
-
 # Verify FlakeHub cache configuration/auth on current host.
 cache-check:
     ./scripts/ops/check-flakehub-cache.sh
-
-# Build canonical release manifest (flake outputs only).
-release-manifest:
-    ./scripts/ops/build-release-manifest.sh
-
-# Build a deterministic release manifest from current commit
-release-build-manifest:
-    ./scripts/ops/build-release-manifest.sh
-
-# Capture host state for drift debugging
-ops-host-snapshot OUT:
-    ./scripts/ops/host-state-snapshot.sh --output {{OUT}}
 
 # System Monitor
 # View actor network as ASCII diagram
