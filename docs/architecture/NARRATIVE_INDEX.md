@@ -60,11 +60,12 @@ Detailed runbook:
 ### Runbooks
 
 16. `docs/runbooks/ovh-config-and-deployment-entrypoint.md`
-17. `docs/runbooks/2026-02-28-local-vfkit-nixos-miniguide.md`
-18. `docs/runbooks/vfkit-local-proof.md`
-19. `docs/runbooks/local-provider-matrix-validation.md`
-20. `docs/runbooks/platform-secrets-sops-nix.md`
-21. `docs/runbooks/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
+17. `docs/runbooks/2026-03-05-deployment-checkpoint-and-next-steps.md` - **Current ops checklist**
+18. `docs/runbooks/2026-02-28-local-vfkit-nixos-miniguide.md`
+19. `docs/runbooks/vfkit-local-proof.md`
+20. `docs/runbooks/local-provider-matrix-validation.md`
+21. `docs/runbooks/platform-secrets-sops-nix.md`
+22. `docs/runbooks/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
 
 ### Handoffs
 
@@ -81,10 +82,10 @@ Detailed runbook:
 
 ## Deprecated as Active Operator Docs
 
-These files remain for context, not current execution authority:
+These files were removed (available in git history if needed):
 
-- `docs/runbooks/deployment-current-and-cutover.md`
-- `docs/runbooks/mac-ssh-release-flow.md`
+- `docs/runbooks/deployment-current-and-cutover.md` (removed 2026-03-05)
+- `docs/runbooks/mac-ssh-release-flow.md` (removed 2026-03-05)
 
 ## Doc Readability Rule
 

@@ -72,8 +72,8 @@ Read these in order:
    1. [Local vfkit NixOS Miniguide](./2026-02-28-local-vfkit-nixos-miniguide.md)
    2. [vfkit Local Proof](./vfkit-local-proof.md)
    3. [Local Provider Matrix Validation](./local-provider-matrix-validation.md)
-5. Legacy context only (not active authority):
-   1. [Archived deployment contract pointer](./deployment-current-and-cutover.md)
+5. Current ops checkpoint and next steps:
+   1. [Deployment Checkpoint (2026-03-05)](./2026-03-05-deployment-checkpoint-and-next-steps.md)
    2. [Archive index](../archive/README.md)
 
 ## Execution Checklist (Current)
