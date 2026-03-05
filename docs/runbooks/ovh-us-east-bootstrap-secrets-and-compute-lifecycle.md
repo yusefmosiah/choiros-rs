@@ -25,8 +25,9 @@ This runbook is the operator path for bootstrapping ChoirOS on two OVH US-East `
 
 1. ~~Verify Ubuntu 24.04 install completes on both nodes and SSH works.~~ Done.
 2. ~~Convert both nodes from Ubuntu to NixOS via `nixos-anywhere`.~~ Done.
-3. Deploy ChoirOS flake outputs to both nodes and verify `nixos-rebuild switch`.
-4. Complete Section 1 (identity + policies) and Section 2 (secret seeding).
+3. ~~Deploy ChoirOS flake outputs to both nodes and verify `nixos-rebuild switch`.~~ Done.
+4. Build and deploy UI assets (WASM frontend).
+5. Complete Section 1 (identity + policies) and Section 2 (secret seeding).
 5. Implement Section 3 host secret-sync units.
 6. Execute Section 5 failover drill.
 7. Close Section 6 gaps for snapshot lifecycle.
@@ -105,8 +106,9 @@ ssh -i ~/.ssh/id_ed25519_ovh root@147.135.70.196 # Node B
   - `curl http://127.0.0.1:8080/health` — `{"status":"healthy"}`
   - `curl http://127.0.0.1:8081/health` — `{"status":"healthy"}`
 
+- [x] Built, deployed, and verified on Node B — all services active, health checks passing.
+
 **Pending:**
-- [ ] Build and deploy on Node B (build in progress).
 - [ ] Set hostname per-node (currently both are `nixos`).
 - [ ] Build and deploy UI assets (WASM frontend).
 - [ ] Bootstrap secrets infrastructure (Sections 1-3).
