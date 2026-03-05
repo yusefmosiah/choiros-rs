@@ -82,31 +82,43 @@ Primary human-first index:
 ## Quick Commands
 
 ```bash
-# Development
-just dev-sandbox     # Run backend API server
-just dev-ui          # Run frontend dev server (port 3000)
-just dev-hypervisor  # Run hypervisor component
+# Development (vfkit cutover topology)
+just dev              # Build UI + start full vfkit stack (canonical)
+just dev-status       # Check tmux session + health
+just dev-attach       # Attach to tmux session for debugging
+just stop             # Stop all dev processes
+
+# Individual components
+just local-build-ui   # Build Dioxus WASM frontend (release)
+just dev-control-plane # Start hypervisor only
+just dev-all          # Start control + runtime planes
+just local-hypervisor # Run hypervisor directly (foreground)
+just dev-full         # Build UI + run hypervisor foreground
+
+# vfkit VM management
+just vfkit-reset      # Kill stale VMs/tunnels/pid files
+just vfkit-guest-shell # SSH into vfkit guest VM
+just btop             # Open btop in guest VM
 
 # Building
-just build           # Build all packages in release mode
-just build-sandbox   # Build frontend + backend for production
+just build            # Build all packages in release mode
+just build-ui         # Build frontend (debug)
+just build-ui-release # Build frontend (release)
 
 # Testing
-just test            # Run all tests across workspace
-just test-unit       # Run unit tests only (--lib)
+just test             # Run all tests across workspace
+just test-unit        # Run unit tests only (--lib)
 just test-integration # Run integration tests (--test '*')
-cargo test -p sandbox --test desktop_api_test  # Run single test file
-cargo test -p sandbox test_name_pattern       # Run specific test
+just test-e2e-vfkit-proof  # Canonical Playwright E2E proof
 
 # Code Quality
-just check           # Check formatting + clippy
-just fix             # Auto-fix formatting and clippy issues
-cargo fmt --check    # Check formatting only
-cargo clippy --workspace -- -D warnings  # Run clippy
+just check            # Check formatting + clippy
+just fix              # Auto-fix formatting and clippy issues
 
 # Database
-just migrate         # Run SQLx migrations
-just new-migration NAME  # Create new migration
+just migrate            # Run sandbox SQLx migrations
+just migrate-hypervisor # Run hypervisor migrations
+just new-migration NAME # Create new migration
 
 # Docker
 just docker-build    # Build Docker image
@@ -114,6 +126,8 @@ just docker-run      # Run Docker container
 
 # Deployment
 DEPLOY_HOST=<host> just deploy-ovh-ssh  # Deploy to OVH/NixOS host over SSH
+just release-manifest  # Build release manifest (flake outputs)
+just cutover-status    # Check local cutover readiness
 
 # Nix/Flake builds (canonical for host deploys)
 nix build ./sandbox#sandbox

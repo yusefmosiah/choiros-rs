@@ -30,22 +30,32 @@ Human-first docs entrypoint: [`docs/architecture/NARRATIVE_INDEX.md`](docs/archi
 - Domain direction: `choir-ip.com` - durable outputs over ephemeral chat
 - Model-Led Control Flow: model-managed orchestration; deterministic logic for safety rails only
 
-## Quick Start
+## Local Start (Canonical)
+
+Use the vfkit cutover path unless you are intentionally doing a direct sandbox debug loop.
 
 ```bash
-# Set local database path
-export DATABASE_URL="./data/events.db"
+# 1) Build release UI assets
+just local-build-ui
 
-# Build & Run
-cargo build -p sandbox
-cargo run -p sandbox
+# 2) Start local stack (hypervisor + runtime plane)
+just dev
 
-# Test
-cargo test -p sandbox
-
-# Verify
-curl http://localhost:8080/health
+# 3) Check status
+just dev-status
 ```
+
+Open:
+- `http://127.0.0.1:9090/login` (canonical ingress)
+
+Stop:
+
+```bash
+just stop
+```
+
+Detailed guide:
+- `docs/runbooks/2026-02-28-local-vfkit-nixos-miniguide.md`
 
 ## OVH Deploy Path
 

@@ -1,7 +1,8 @@
 # OVH US-East Bootstrap Runbook: Secrets + Compute Lifecycle
 
 Date: 2026-03-03
-Status: Active
+Updated: 2026-03-05
+Status: Active (executing)
 Owner: Platform / Runtime / Infra
 
 ## Narrative Summary (1-minute read)
@@ -22,10 +23,48 @@ This runbook is the operator path for bootstrapping ChoirOS on two OVH US-East `
 
 ## What To Do Next
 
-1. Complete Section 1 (identity + policies) and Section 2 (secret seeding).
-2. Implement Section 3 host secret-sync units.
-3. Execute Section 5 failover drill.
-4. Close Section 6 gaps for snapshot lifecycle.
+1. Verify Ubuntu 24.04 install completes on both nodes and SSH works.
+2. Convert both nodes from Ubuntu to NixOS via `nixos-anywhere`.
+3. Complete Section 1 (identity + policies) and Section 2 (secret seeding).
+4. Implement Section 3 host secret-sync units.
+5. Execute Section 5 failover drill.
+6. Close Section 6 gaps for snapshot lifecycle.
+
+## Execution Progress Log
+
+### 2026-03-05: Host OS Bootstrap
+
+**Completed:**
+- [x] Created OVH v1 API application (`choiros-bootstrap`).
+- [x] Minted Consumer Key with full API access (unlimited validity).
+- [x] Verified API connectivity: `whoami`, `list-servers` both return expected data.
+- [x] Uploaded SSH public key (`wiz-ed25519`, ed25519) to OVH account.
+- [x] Confirmed both servers visible: `os: none_64`, `state: ok`, `datacenter: vin1`.
+- [x] Kicked off Ubuntu 24.04 install on Node A (task 26974021) and Node B (task 26974022).
+- [x] Install uses `/1.0/dedicated/server/{name}/reinstall` endpoint (US API; not `/install/start`).
+- [x] SSH key injected via `customizations.sshKey` field in reinstall payload.
+
+**API notes (for future reference):**
+- US OVH API base: `https://api.us.ovhcloud.com`
+- US API uses `/reinstall` endpoint, not `/install/start` (EU API difference).
+- v1 signed auth works; existing `ovh-account-setup.sh` only supports OAuth2 bearer for
+  `whoami`/`list-servers` — v1 signed calls done inline for now.
+- Credentials stored in `.env` (gitignored): `OVH_APPLICATION_KEY`, `OVH_APPLICATION_SECRET`,
+  `OVH_CONSUMER_KEY`.
+
+**Pending (resume in ~30 min):**
+- [ ] Confirm Ubuntu installs complete (check `/install/status`).
+- [ ] Verify SSH: `ssh root@51.81.93.94` and `ssh root@147.135.70.196`.
+- [ ] Create NixOS host configuration for x86_64-linux bare metal (`nix/hosts/ovh-node.nix`).
+- [ ] Run `nixos-anywhere` to convert Ubuntu -> NixOS on both nodes.
+- [ ] Verify NixOS boots and SSH works post-conversion.
+
+**Install status check command:**
+```bash
+# Source .env, then use v1 signed GET:
+# Node A: /1.0/dedicated/server/ns1004307.ip-51-81-93.us/install/status
+# Node B: /1.0/dedicated/server/ns106285.ip-147-135-70.us/install/status
+```
 
 ## Fast Path Commands
 
@@ -131,15 +170,17 @@ No `EnvironmentFile` secret values in production units.
 
 ## 4) Bring-Up Sequence (Two Nodes)
 
-1. Install NixOS baseline on both nodes.
-2. Bootstrap API identity and secret resources (Sections 1-2).
-3. Install secret-sync units and verify files under `/run/choiros/credentials/platform/`.
-4. Deploy Choir binaries and `nixos-rebuild switch`.
-5. Verify:
+1. Install Ubuntu 24.04 via OVH `/reinstall` API with SSH key injection.
+2. Verify SSH access to both nodes.
+3. Convert Ubuntu to NixOS via `nixos-anywhere` with a bare-metal host config.
+4. Bootstrap API identity and secret resources (Sections 1-2).
+5. Install secret-sync units and verify files under `/run/choiros/credentials/platform/`.
+6. Deploy Choir binaries and `nixos-rebuild switch`.
+7. Verify:
    1. `hypervisor` active
    2. `container@sandbox-live` active
    3. `container@sandbox-dev` active
-6. Run health checks:
+8. Run health checks:
    1. `curl -fsS http://127.0.0.1:9090/login`
    2. `curl -fsS http://127.0.0.1:8080/health`
    3. `curl -fsS http://127.0.0.1:8081/health`

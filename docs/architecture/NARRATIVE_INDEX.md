@@ -12,6 +12,28 @@ contract, strict control-plane secrets boundaries, and phased compute lifecycle 
 
 Use the docs below in order. If a doc is not listed in `Active Read Order`, treat it as reference history.
 
+## Start Local Now (Canonical)
+
+If you just need Choir running locally right now:
+
+```bash
+just local-build-ui
+just dev
+just dev-status
+```
+
+Open:
+- `http://127.0.0.1:9090/login`
+
+Stop:
+
+```bash
+just stop
+```
+
+Detailed runbook:
+- `docs/runbooks/2026-02-28-local-vfkit-nixos-miniguide.md`
+
 ## Active Read Order
 
 ### Architecture Decision Records (ADRs) - Canonical
@@ -37,15 +59,16 @@ Use the docs below in order. If a doc is not listed in `Active Read Order`, trea
 
 ### Runbooks
 
-16. `docs/runbooks/2026-02-28-local-vfkit-nixos-miniguide.md`
-17. `docs/runbooks/vfkit-local-proof.md`
-18. `docs/runbooks/local-provider-matrix-validation.md`
-19. `docs/runbooks/platform-secrets-sops-nix.md`
-20. `docs/runbooks/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
+16. `docs/runbooks/ovh-config-and-deployment-entrypoint.md`
+17. `docs/runbooks/2026-02-28-local-vfkit-nixos-miniguide.md`
+18. `docs/runbooks/vfkit-local-proof.md`
+19. `docs/runbooks/local-provider-matrix-validation.md`
+20. `docs/runbooks/platform-secrets-sops-nix.md`
+21. `docs/runbooks/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
 
 ### Handoffs
 
-21. `docs/handoffs/2026-02-28-local-nixos-builder-vm-setup.md`
+22. `docs/handoffs/2026-02-28-local-nixos-builder-vm-setup.md`
 
 ## Current Decisions (Explicit)
 
