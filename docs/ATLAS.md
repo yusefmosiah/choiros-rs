@@ -28,6 +28,8 @@ agent sessions.
 
 - **[P1]** ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync — Decision (Draft) | Requires: [ADR-0007, ADR-0012]  
   `docs/theory/decisions/adr-0014-per-user-storage-and-desktop-sync.md`
+- **[P1]** Implementing ADR-0014: Per-User VM Lifecycle and Storage — Guide (Active) | Requires: [ADR-0014]  
+  `docs/theory/guides/adr-0014-implementation.md`
 - **[P2]** ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion — Decision (Draft) | Requires: [ADR-0014]  
   `docs/theory/decisions/adr-0013-fleet-ctl-change-lifecycle-and-promotion.md`
 - **[P3]** ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes) — Decision (Proposed) | Requires: [ADR-0014]  
@@ -129,6 +131,7 @@ ADR-0007 → ADR-0004: Hypervisor-Sandbox UI Runtime Boundary
 ADR-0014 → ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes)
 ADR-0014 → ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion
 ADR-0007, ADR-0012 → ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync
+ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
 ```
 
-*Generated 2026-03-06 — 18 practice, 14 theory, 8 state docs.*
+*Generated 2026-03-06 — 18 practice, 15 theory, 8 state docs.*
