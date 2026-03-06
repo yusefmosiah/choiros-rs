@@ -1,5 +1,10 @@
 # Nix Setup Runbook
 
+Date: 2026-02-01
+Kind: Guide
+Status: Accepted
+Requires: []
+
 Narrative Summary (1-minute read)
 ----------------------------------
 We are setting up a Nix-first development and deployment stack for ChoirOS. This

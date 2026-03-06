@@ -1,7 +1,10 @@
 # ADR-0010: OVH Bootstrap VM Fleet Capacity and Minimal 80/20 Lifecycle API
 
 Date: 2026-03-02
+Kind: Decision
 Status: Proposed
+Priority: 5
+Requires: []
 Owner: Platform / Runtime / Infra
 
 ## Narrative Summary (1-minute read)

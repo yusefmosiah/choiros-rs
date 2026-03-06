@@ -1,4 +1,8 @@
 # Local NixOS Builder VM Setup Handoff - 2026-02-28
+Date: 2026-02-28
+Kind: Snapshot
+Status: Active
+Requires: []
 
 ## Snapshot
 - Provisioned a local UTM Apple-virtualized `aarch64` NixOS builder VM on macOS Apple Silicon.

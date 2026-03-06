@@ -1,7 +1,9 @@
 # OVH Config and Deployment Entrypoint (Comprehensive)
 
 Date: 2026-03-04
-Status: Active
+Kind: Guide
+Status: Accepted
+Requires: []
 Owner: Platform / Runtime / Infra
 
 ## Narrative Summary (1-minute read)

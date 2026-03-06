@@ -1,5 +1,10 @@
 # Platform Secrets (ADR-0008 Control-Plane Model)
 
+Date: 2026-02-01
+Kind: Guide
+Status: Accepted
+Requires: []
+
 ## Narrative Summary (1-minute read)
 
 This runbook is the active operator reference for platform secrets after ADR-0008.

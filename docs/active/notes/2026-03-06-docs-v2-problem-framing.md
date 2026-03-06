@@ -1,7 +1,10 @@
 # Docs v2 Problem Framing
 
 Date: 2026-03-06
-Status: Draft
+Kind: Note
+Status: Active
+Priority: 5
+Requires: []
 Owner: Platform / DX / Documentation
 
 ## Narrative Summary (1-minute read)

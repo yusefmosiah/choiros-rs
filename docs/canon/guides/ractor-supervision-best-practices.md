@@ -1,5 +1,10 @@
 # Ractor Supervision Best Practices for ChoirOS
 
+Date: 2026-02-01
+Kind: Guide
+Status: Accepted
+Requires: []
+
 ## Executive Summary
 
 This guide provides actionable, implementation-ready patterns for using `ractor` correctly in ChoirOS, with emphasis on replacing mutex-heavy coordination patterns with actor-native supervision and messaging. The current implementation in `actor_manager.rs` uses external concurrency primitives (DashMap, Mutex) for actor discovery and lifecycle management, which defeats the purpose of using an actor framework.

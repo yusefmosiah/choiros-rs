@@ -1,7 +1,9 @@
 # Local NixOS + VFKit Miniguide (Manual Run)
 
-Date: 2026-02-28  
-Status: Active  
+Date: 2026-02-28
+Kind: Guide
+Status: Accepted
+Requires: []
 Owner: platform/runtime
 
 ## Narrative Summary (1-minute read)

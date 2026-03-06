@@ -1,7 +1,10 @@
 # ADR-0005: ALM Harness Integration Strategy (Draft)
 
 Date: 2026-02-28
-Status: Draft (decision pending)
+Kind: Decision
+Status: Draft
+Priority: 5
+Requires: []
 Owner: Core architecture + runtime
 
 ## Context

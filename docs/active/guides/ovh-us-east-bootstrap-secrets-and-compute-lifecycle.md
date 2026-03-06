@@ -2,7 +2,10 @@
 
 Date: 2026-03-03
 Updated: 2026-03-05
-Status: Active (executing)
+Kind: Guide
+Status: Active
+Priority: 5
+Requires: []
 Owner: Platform / Runtime / Infra
 
 ## Narrative Summary (1-minute read)

@@ -1,5 +1,10 @@
 # Local Provider Matrix Validation
 
+Date: 2026-02-01
+Kind: Guide
+Status: Accepted
+Requires: []
+
 ## Narrative Summary (1-minute read)
 
 This runbook provides a repeatable local validation pass for ChoirOS provider behavior before any

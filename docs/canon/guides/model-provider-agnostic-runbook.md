@@ -1,7 +1,10 @@
 # ChoirOS Model-Provider Agnostic LLM Harness Runbook
 
-**Status:** Research Complete - Ready for Implementation
-**Last Updated:** 2026-02-08
+Date: 2026-02-08
+Kind: Guide
+Status: Accepted
+Requires: []
+
 **Author:** Research Agent
 **Target:** Implementation/Testing Agent
 

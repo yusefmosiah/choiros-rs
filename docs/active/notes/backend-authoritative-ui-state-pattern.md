@@ -1,7 +1,10 @@
 # Backend-Authoritative UI State Pattern
 
 Date: 2026-02-10
-Status: Adopted (architecture baseline)
+Kind: Note
+Status: Active
+Priority: 5
+Requires: []
 Scope: Desktop apps (`Chat`, `Writer`, `Files`, `Settings`, future app surfaces)
 
 ## Narrative Summary (1-minute read)

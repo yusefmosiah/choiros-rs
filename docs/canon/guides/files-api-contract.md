@@ -1,5 +1,10 @@
 # Files App API Contract
 
+Date: 2026-02-01
+Kind: Guide
+Status: Accepted
+Requires: []
+
 ## Overview
 
 The Files App API provides secure file system operations within the ChoirOS sandbox directory. All paths are relative to the sandbox root (`/Users/wiz/choiros-rs/sandbox`) and path traversal attempts are rejected.

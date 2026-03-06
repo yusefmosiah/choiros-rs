@@ -1,7 +1,10 @@
 # ADR-0002: Rust + Nix Build and Cache Strategy
 
 Date: 2026-02-20
-Status: Accepted with Gaps
+Kind: Decision
+Status: Draft
+Priority: 5
+Requires: []
 Owner: ChoirOS runtime and deployment
 
 ## Implementation Verification

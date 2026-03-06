@@ -1,4 +1,8 @@
 # Provider Matrix Report (2026-02-26-022532)
+Date: 2026-02-26
+Kind: Report
+Status: Active
+Requires: []
 
 ## Scope
 Full allowed model set from \

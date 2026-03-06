@@ -1,8 +1,11 @@
 # ChoirOS Logging Security & Compliance Report
+Date: 2026-02-08
+Kind: Report
+Status: Active
+Requires: []
 
-**Date:** 2026-02-08  
-**Author:** Security Research  
-**Version:** 1.0  
+**Author:** Security Research
+**Version:** 1.0
 
 ---
 

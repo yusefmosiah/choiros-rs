@@ -1,6 +1,9 @@
 # Local Cutover Step 1 Report
+Date: 2026-02-26
+Kind: Report
+Status: Active
+Requires: []
 
-Date: 2026-02-26  
 Scope: Phase 1 completion work + Phase 2 command surface bootstrap
 
 ## Narrative Summary (1-minute read)

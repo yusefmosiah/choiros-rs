@@ -1,7 +1,10 @@
 # Researcher Search Dual-Interface Runbook
 
 Date: 2026-02-09
-Status: Authoritative implementation + hardening runbook (current architecture aligned)
+Kind: Note
+Status: Active
+Priority: 5
+Requires: []
 
 ## Narrative Summary (1-minute read)
 

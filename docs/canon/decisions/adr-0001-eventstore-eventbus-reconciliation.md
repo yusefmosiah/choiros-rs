@@ -1,7 +1,9 @@
 # ADR-0001: EventStore/EventBus Reconciliation
 
 Date: 2026-02-08
+Kind: Decision
 Status: Accepted
+Requires: []
 Owner: ChoirOS core architecture
 
 ## Implementation Verification

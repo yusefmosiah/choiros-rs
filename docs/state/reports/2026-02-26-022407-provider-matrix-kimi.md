@@ -1,4 +1,8 @@
 # Provider Matrix Report (2026-02-26-022407)
+Date: 2026-02-26
+Kind: Report
+Status: Active
+Requires: []
 
 ## Command
 ```bash

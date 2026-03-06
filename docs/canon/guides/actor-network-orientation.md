@@ -1,6 +1,9 @@
 # ChoirOS Actor Network Orientation
 
-Date: 2026-02-08  
+Date: 2026-02-08
+Kind: Guide
+Status: Accepted
+Requires: []
 Scope: Current network, active build lane, and reserved architecture space
 
 ## 1) What We Have (Current Network)

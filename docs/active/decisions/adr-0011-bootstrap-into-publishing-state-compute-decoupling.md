@@ -1,7 +1,10 @@
 # ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes)
 
 Date: 2026-03-02
+Kind: Decision
 Status: Proposed
+Priority: 5
+Requires: []
 Owner: Platform / Runtime / Product
 
 ## Narrative Summary (1-minute read)

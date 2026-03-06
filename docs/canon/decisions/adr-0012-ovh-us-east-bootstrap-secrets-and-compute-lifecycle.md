@@ -1,7 +1,9 @@
 # ADR-0012: OVH US-East Bootstrap Secrets and Two-Node Compute Lifecycle
 
 Date: 2026-03-03
+Kind: Decision
 Status: Accepted
+Requires: []
 Owner: Platform / Runtime / Infra
 Extends: ADR-0008, ADR-0010, ADR-0011
 

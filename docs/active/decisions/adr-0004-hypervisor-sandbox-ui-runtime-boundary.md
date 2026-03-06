@@ -1,7 +1,10 @@
 # ADR-0004: Hypervisor-Sandbox UI Runtime Boundary
 
 Date: 2026-02-22
+Kind: Decision
 Status: Proposed
+Priority: 5
+Requires: []
 Owner: ChoirOS runtime and deployment
 
 ## Implementation Verification

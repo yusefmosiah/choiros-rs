@@ -1,7 +1,10 @@
 # Deployment Checkpoint and Next Steps
 
 Date: 2026-03-05 (updated)
+Kind: Guide
 Status: Active
+Priority: 5
+Requires: []
 Owner: Platform / Runtime / Infra
 
 ## Narrative Summary (1-minute read)

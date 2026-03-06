@@ -1,5 +1,11 @@
 # Mind Map + Checklist UI: Comprehensive Research Document
 
+Date: 2026-02-08
+Kind: Note
+Status: Active
+Priority: 5
+Requires: []
+
 **Research Date:** 2026-02-08
 **Context:** ChoirOS directive visualization system
 **Goal:** Select architecture for hierarchical mind map with checklist execution states and dependency visualization

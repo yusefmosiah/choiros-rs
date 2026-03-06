@@ -1,7 +1,10 @@
 # ChoirOS Roadmap Dependency Tree (Active)
 
 Date: 2026-02-26
-Status: Authoritative order
+Kind: Note
+Status: Active
+Priority: 5
+Requires: []
 Owner: platform/runtime + app runtime
 
 ## Narrative Summary (1-minute read)

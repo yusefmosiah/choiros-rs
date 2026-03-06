@@ -1,7 +1,9 @@
 # Checkpoint: Writer, Tracing, and Bootstrap Readiness
-
 Date: 2026-03-06
+Kind: Snapshot
 Status: Active
+Requires: []
+
 Authors: wiz + Claude
 
 ## Narrative Summary (1-minute read)

@@ -1,5 +1,10 @@
 # Writer App API Contract
 
+Date: 2026-02-01
+Kind: Guide
+Status: Accepted
+Requires: []
+
 ## Overview
 
 The Writer App API provides secure document editing capabilities with optimistic concurrency control via revision tracking. It is designed for collaborative editing scenarios where multiple clients may attempt to modify the same document simultaneously.

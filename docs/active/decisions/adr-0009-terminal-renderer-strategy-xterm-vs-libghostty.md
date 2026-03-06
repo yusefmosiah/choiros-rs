@@ -1,7 +1,10 @@
 # ADR-0009: Terminal Renderer Strategy (xterm.js vs Ghostty/libghostty)
 
 Date: 2026-03-01
+Kind: Decision
 Status: Proposed
+Priority: 5
+Requires: []
 Owner: Desktop / Runtime
 
 ## Narrative Summary (1-minute read)

@@ -1,7 +1,10 @@
 # ADR-0006: Prompt Centralization in BAML (Draft)
 
 Date: 2026-02-28
-Status: Draft (decision pending)
+Kind: Decision
+Status: Draft
+Priority: 5
+Requires: []
 Owner: Core architecture + developer experience
 
 ## Context

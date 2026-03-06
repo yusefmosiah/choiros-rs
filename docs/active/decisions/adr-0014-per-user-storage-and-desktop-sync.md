@@ -1,7 +1,10 @@
 # ADR-0014: Per-User Storage Isolation and Desktop Sync
 
 Date: 2026-03-06
+Kind: Decision
 Status: Draft
+Priority: 5
+Requires: []
 Authors: wiz + Claude
 
 ## Narrative Summary (1-minute read)

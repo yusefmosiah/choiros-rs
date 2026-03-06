@@ -1,7 +1,9 @@
 # ADR-0008: OVH Self-Hosted Secrets Architecture (No Repo Secrets, No Sandbox Secrets)
 
 Date: 2026-03-01
+Kind: Decision
 Status: Accepted
+Requires: []
 Owner: Platform / Runtime / Infra
 Supersedes: ADR-0003 implementation approach for platform secret storage
 

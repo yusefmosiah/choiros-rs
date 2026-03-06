@@ -1,6 +1,9 @@
 # Conductor E2E Test Intelligence Report
+Date: 2026-02-10
+Kind: Report
+Status: Active
+Requires: []
 
-**Date:** 2026-02-10
 **Test Suite:** `sandbox/tests/e2e_conductor_scenarios.rs`
 **Test Duration:** 511.67 seconds
 **Model:** Claude Bedrock Opus 4.6 (us.anthropic.claude-opus-4-6-v1)

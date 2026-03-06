@@ -1,5 +1,10 @@
 # Simplified Agent Harness
 
+Date: 2026-02-01
+Kind: Guide
+Status: Accepted
+Requires: []
+
 ## Narrative Summary (1-minute read)
 
 The agent harness has been simplified from a complex multi-phase loop to a clean, unified DECIDE -> EXECUTE -> (loop/return) pattern. This document describes the new architecture, worker integration patterns, and how Conductor spawns harness-based workers.

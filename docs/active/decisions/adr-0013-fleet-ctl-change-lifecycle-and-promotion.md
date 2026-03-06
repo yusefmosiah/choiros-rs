@@ -1,7 +1,10 @@
 # ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion
 
 Date: 2026-03-06
+Kind: Decision
 Status: Draft
+Priority: 5
+Requires: []
 Supersedes: Extends ADR-0010 (VM fleet lifecycle), integrates ADR-0011 (state/compute decoupling)
 Authors: wiz + Claude
 

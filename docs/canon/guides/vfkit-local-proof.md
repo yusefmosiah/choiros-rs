@@ -1,7 +1,9 @@
 # VFKit Local Proof Runbook (Mac)
 
 Date: 2026-02-28
-Status: active
+Kind: Guide
+Status: Accepted
+Requires: []
 Owner: platform/runtime
 
 ## Narrative Summary (1-minute read)

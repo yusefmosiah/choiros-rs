@@ -1,7 +1,9 @@
 # ADR-0007: 3-Tier Control/Runtime/Client Architecture
 
 Date: 2026-02-28
-Status: In Progress (Phase A complete, Phase B-D pending)
+Kind: Decision
+Status: Accepted
+Requires: []
 Owner: Platform/Runtime
 
 ---

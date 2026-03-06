@@ -1,5 +1,11 @@
 # pi_agent_rust Integration Analysis
 
+Date: 2026-02-01
+Kind: Note
+Status: Active
+Priority: 5
+Requires: []
+
 ## Narrative Summary (1-minute read)
 
 This document analyzes refactoring ChoirOS to use [pi_agent_rust](https://github.com/Dicklesworthstone/pi_agent_rust) as the unified agent harness, replacing BAML-constrained agents with full coding agents that communicate via ractor messaging exposed as "tools."

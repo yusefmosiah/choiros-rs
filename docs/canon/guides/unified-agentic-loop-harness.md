@@ -1,7 +1,9 @@
 # Unified Agentic Loop Harness (Chat, Terminal, Researcher)
 
 Date: 2026-02-08
-Status: Draft architecture for implementation
+Kind: Guide
+Status: Accepted
+Requires: []
 
 ## Narrative Summary (1-minute read)
 
