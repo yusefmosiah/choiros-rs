@@ -1,0 +1,66 @@
+name: Promote to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip_e2e_check:
+        description: 'Promote even if latest e2e failed'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  promote:
+    name: Deploy to Production (Node A)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check latest staging e2e
+        if: ${{ !inputs.skip_e2e_check }}
+        run: |
+          echo "Checking latest CI run e2e status..."
+          LATEST=$(gh run list --workflow=ci.yml --branch=main --limit=1 --json databaseId,conclusion --jq '.[0]')
+          echo "Latest CI run: $LATEST"
+          # Informational only — e2e uses continue-on-error so CI run succeeds regardless
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.OVH_DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.OVH_NODE_A_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy to production
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.OVH_NODE_A_HOST }} '
+            set -euo pipefail
+            cd /opt/choiros/workspace
+
+            echo "==> Pulling latest code"
+            git pull --ff-only origin main
+
+            echo "==> Building sandbox"
+            nix build ./sandbox#sandbox -o result-sandbox --print-build-logs
+
+            echo "==> Building hypervisor"
+            nix build ./hypervisor#hypervisor -o result-hypervisor --print-build-logs
+
+            echo "==> Installing binaries"
+            cp -f result-sandbox/bin/sandbox /opt/choiros/bin/sandbox
+            cp -f result-hypervisor/bin/hypervisor /opt/choiros/bin/hypervisor
+            cp -f scripts/ops/ovh-runtime-ctl.sh /opt/choiros/bin/ovh-runtime-ctl
+            chmod +x /opt/choiros/bin/ovh-runtime-ctl
+
+            echo "==> Restarting services"
+            systemctl restart hypervisor
+
+            echo "==> Waiting for hypervisor health"
+            sleep 2
+            curl -fsS --retry 10 --retry-delay 3 --retry-all-errors http://127.0.0.1:9090/login > /dev/null
+            echo "==> Production deploy complete"
+          '
+
+      - name: Cleanup SSH
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

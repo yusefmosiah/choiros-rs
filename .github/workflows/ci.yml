@@ -63,23 +63,22 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --lib --bins
 
-  deploy:
-    name: Deploy to Node A
+  deploy-staging:
+    name: Deploy to Staging (Node B)
     runs-on: ubuntu-latest
     needs: [test]
     if: github.ref == 'refs/heads/main'
-    environment: production
     steps:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.OVH_DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.OVH_NODE_A_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -H ${{ secrets.OVH_NODE_B_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Deploy
+      - name: Deploy to staging
         run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.OVH_NODE_A_HOST }} '
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.OVH_NODE_B_HOST }} '
             set -euo pipefail
             cd /opt/choiros/workspace
 
@@ -95,18 +94,53 @@ jobs:
             echo "==> Installing binaries"
             cp -f result-sandbox/bin/sandbox /opt/choiros/bin/sandbox
             cp -f result-hypervisor/bin/hypervisor /opt/choiros/bin/hypervisor
-            cp -f scripts/ops/ovh-runtime-ctl.sh /opt/choiros/bin/ovh-runtime-ctl
-            chmod +x /opt/choiros/bin/ovh-runtime-ctl
 
             echo "==> Restarting services"
-            systemctl restart hypervisor
+            systemctl restart hypervisor sandbox-live
 
-            echo "==> Waiting for hypervisor health"
+            echo "==> Waiting for health"
             sleep 2
             curl -fsS --retry 10 --retry-delay 3 --retry-all-errors http://127.0.0.1:9090/login > /dev/null
-            echo "==> Deploy complete"
+            curl -fsS --retry 10 --retry-delay 3 --retry-all-errors http://127.0.0.1:8080/health > /dev/null
+            echo "==> Staging deploy complete"
           '
 
       - name: Cleanup SSH
         if: always()
         run: rm -f ~/.ssh/deploy_key
+
+  e2e-staging:
+    name: E2E Tests on Staging
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        working-directory: tests/playwright
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: Run E2E against staging
+        working-directory: tests/playwright
+        env:
+          PLAYWRIGHT_HYPERVISOR_BASE_URL: http://${{ secrets.OVH_NODE_B_HOST }}:9090
+          PLAYWRIGHT_SANDBOX_BASE_URL: http://${{ secrets.OVH_NODE_B_HOST }}:8080
+        run: npx playwright test --project=hypervisor --reporter=list,html
+        continue-on-error: true
+
+      - name: Upload E2E artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-staging-results
+          path: |
+            tests/artifacts/playwright/html-report/
+            tests/artifacts/playwright/test-results/
+          retention-days: 14
