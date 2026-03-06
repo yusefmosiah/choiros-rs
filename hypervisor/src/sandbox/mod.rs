@@ -190,33 +190,34 @@ impl SandboxRegistry {
         user_id: &str,
         role: SandboxRole,
     ) -> anyhow::Result<u16> {
-        let mut entries = self.entries.lock().await;
-        let user_map = entries.entry(user_id.to_string()).or_default();
+        // Check if already running (short lock).
+        {
+            let mut entries = self.entries.lock().await;
+            let user_map = entries.entry(user_id.to_string()).or_default();
 
-        if let Some(entry) = user_map.roles.get_mut(&role) {
-            if entry.status == SandboxStatus::Running {
-                if Self::is_port_ready(entry.port).await {
-                    entry.last_activity = Instant::now();
-                    return Ok(entry.port);
+            if let Some(entry) = user_map.roles.get_mut(&role) {
+                if entry.status == SandboxStatus::Running {
+                    if Self::is_port_ready(entry.port).await {
+                        entry.last_activity = Instant::now();
+                        return Ok(entry.port);
+                    }
+
+                    warn!(
+                        user_id,
+                        %role,
+                        port = entry.port,
+                        "sandbox marked running but port is down; recycling runtime"
+                    );
+                    self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
+                        .await;
+                    entry.status = SandboxStatus::Failed;
                 }
-
-                warn!(
-                    user_id,
-                    %role,
-                    port = entry.port,
-                    "sandbox marked running but port is down; recycling runtime"
-                );
-                self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
-                    .await;
-                entry.status = SandboxStatus::Failed;
             }
         }
+        // Lock released — spawn_instance can take a long time (runtime_ctl + readiness poll).
 
         let port = self.port_for(role);
 
-        // Do not blindly adopt a pre-existing listener on a shared role port.
-        // With per-user runtimes, a stale tunnel can belong to another user.
-        // Always route startup through runtime control so ownership is enforced.
         if Self::is_port_ready(port).await {
             warn!(
                 user_id,
@@ -233,6 +234,8 @@ impl SandboxRegistry {
         {
             Ok(h) => h,
             Err(e) => {
+                let mut entries = self.entries.lock().await;
+                let user_map = entries.entry(user_id.to_string()).or_default();
                 user_map.roles.insert(
                     role,
                     SandboxEntry {
@@ -248,6 +251,9 @@ impl SandboxRegistry {
             }
         };
 
+        // Re-acquire lock to store the running entry.
+        let mut entries = self.entries.lock().await;
+        let user_map = entries.entry(user_id.to_string()).or_default();
         user_map.roles.insert(
             role,
             SandboxEntry {
@@ -559,18 +565,22 @@ impl SandboxRegistry {
             cmd.env("FRONTEND_DIST", frontend_dist);
         }
 
-        let out = cmd.output().await?;
-        if out.status.success() {
+        // Use spawn + wait instead of output() to avoid blocking forever.
+        // The runtime_ctl script spawns background daemons (virtiofsd, cloud-hypervisor,
+        // socat) that inherit stdout/stderr pipes. cmd.output() waits for ALL pipe
+        // readers to close, which never happens while daemons are alive.
+        // By using Stdio::null we avoid this pipe inheritance deadlock entirely.
+        cmd.stdout(std::process::Stdio::null());
+        cmd.stderr(std::process::Stdio::null());
+
+        let status = cmd.status().await?;
+        if status.success() {
             return Ok(());
         }
 
-        let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         Err(anyhow::anyhow!(
-            "runtime ctl failed action={action} runtime={runtime_name} code={:?} stdout='{}' stderr='{}'",
-            out.status.code(),
-            stdout,
-            stderr
+            "runtime ctl failed action={action} runtime={runtime_name} code={:?}",
+            status.code(),
         ))
     }
 
