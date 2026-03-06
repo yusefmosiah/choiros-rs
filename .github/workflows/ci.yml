@@ -130,8 +130,8 @@ jobs:
       - name: Run E2E against staging
         working-directory: tests/playwright
         env:
-          PLAYWRIGHT_HYPERVISOR_BASE_URL: http://${{ secrets.OVH_NODE_B_HOST }}:9090
-          PLAYWRIGHT_SANDBOX_BASE_URL: http://${{ secrets.OVH_NODE_B_HOST }}:8080
+          PLAYWRIGHT_HYPERVISOR_BASE_URL: https://draft.choir-ip.com
+          PLAYWRIGHT_SANDBOX_BASE_URL: https://draft.choir-ip.com
         run: npx playwright test --project=hypervisor --reporter=list,html
         continue-on-error: true
 
