@@ -681,15 +681,34 @@ impl Actor for WriterActor {
                 objective,
                 parent_version_id,
             } => {
-                Self::orchestrate_user_prompt(
-                    &myself,
-                    state,
-                    run_id,
-                    call_id,
-                    objective,
-                    parent_version_id,
-                )
-                .await;
+                // IMPORTANT: Spawn as a background task instead of awaiting.
+                // The orchestration adapter calls back into this actor via
+                // CreateWriterDocumentVersion. Awaiting here would deadlock
+                // because the actor can't process messages while handle() is blocked.
+                let myself_clone = myself.clone();
+                let writer_id = state.writer_id.clone();
+                let user_id = state.user_id.clone();
+                let event_store = state.event_store.clone();
+                let researcher_supervisor = state.researcher_supervisor.clone();
+                let terminal_supervisor = state.terminal_supervisor.clone();
+                let model_registry = state.model_registry.clone();
+
+                tokio::spawn(async move {
+                    Self::orchestrate_user_prompt_bg(
+                        &myself_clone,
+                        writer_id,
+                        user_id,
+                        event_store,
+                        researcher_supervisor,
+                        terminal_supervisor,
+                        model_registry,
+                        run_id,
+                        call_id,
+                        objective,
+                        parent_version_id,
+                    )
+                    .await;
+                });
             }
         }
         Ok(())
@@ -1720,50 +1739,62 @@ impl WriterActor {
     ///
     /// The LLM sees the document, the user's diff, and the user's edited version,
     /// then either produces a revised version directly or delegates to workers first.
-    async fn orchestrate_user_prompt(
+    /// Background orchestration for user prompts.
+    /// Runs outside the actor's message handler to avoid deadlock — the adapter
+    /// calls back into the writer actor via `CreateWriterDocumentVersion`.
+    #[allow(clippy::too_many_arguments)]
+    async fn orchestrate_user_prompt_bg(
         myself: &ActorRef<WriterMsg>,
-        state: &mut WriterState,
+        writer_id: String,
+        user_id: String,
+        event_store: ActorRef<EventStoreMsg>,
+        researcher_supervisor: Option<ActorRef<ResearcherSupervisorMsg>>,
+        terminal_supervisor: Option<ActorRef<TerminalSupervisorMsg>>,
+        model_registry: ModelRegistry,
         run_id: String,
         call_id: String,
         objective: String,
         parent_version_id: u64,
     ) {
-        Self::emit_event(
-            state,
-            "writer.actor.user_prompt_orchestration.dispatched",
-            serde_json::json!({
-                "run_id": &run_id,
-                "call_id": &call_id,
-                "parent_version_id": parent_version_id,
-            }),
-        );
+        let _ = event_store.send_message(EventStoreMsg::AppendAsync {
+            event: AppendEvent {
+                event_type: "writer.actor.user_prompt_orchestration.dispatched".to_string(),
+                payload: serde_json::json!({
+                    "run_id": &run_id,
+                    "call_id": &call_id,
+                    "parent_version_id": parent_version_id,
+                }),
+                actor_id: writer_id.clone(),
+                user_id: user_id.clone(),
+            },
+        });
 
         let adapter = WriterUserPromptAdapter::new(
-            state.writer_id.clone(),
-            state.user_id.clone(),
-            state.event_store.clone(),
+            writer_id.clone(),
+            user_id.clone(),
+            event_store.clone(),
             myself.clone(),
-            state.researcher_supervisor.clone(),
-            state.terminal_supervisor.clone(),
+            researcher_supervisor,
+            terminal_supervisor,
             run_id.clone(),
             parent_version_id,
         );
         let harness = AgentHarness::with_config(
             adapter,
-            state.model_registry.clone(),
+            model_registry,
             HarnessConfig {
                 timeout_budget_ms: 180_000,
                 max_steps: 5,
                 emit_progress: true,
                 emit_worker_report: true,
             },
-            LlmTraceEmitter::new(state.event_store.clone()),
+            LlmTraceEmitter::new(event_store.clone()),
         );
 
         let result = harness
             .run(
-                format!("{}:{call_id}", state.writer_id),
-                state.user_id.clone(),
+                format!("{writer_id}:{call_id}"),
+                user_id.clone(),
                 objective,
                 None,
                 None,
@@ -1772,31 +1803,33 @@ impl WriterActor {
             )
             .await;
 
-        match result {
-            Ok(run_result) => {
-                Self::emit_event(
-                    state,
-                    "writer.actor.user_prompt_orchestration.completed",
-                    serde_json::json!({
-                        "run_id": &run_id,
-                        "call_id": &call_id,
-                        "success": run_result.success,
-                        "summary": run_result.summary,
-                    }),
-                );
-            }
-            Err(e) => {
-                Self::emit_event(
-                    state,
-                    "writer.actor.user_prompt_orchestration.failed",
-                    serde_json::json!({
-                        "run_id": &run_id,
-                        "call_id": &call_id,
-                        "error": e.to_string(),
-                    }),
-                );
-            }
-        }
+        let (event_type, payload) = match result {
+            Ok(run_result) => (
+                "writer.actor.user_prompt_orchestration.completed",
+                serde_json::json!({
+                    "run_id": &run_id,
+                    "call_id": &call_id,
+                    "success": run_result.success,
+                    "summary": run_result.summary,
+                }),
+            ),
+            Err(e) => (
+                "writer.actor.user_prompt_orchestration.failed",
+                serde_json::json!({
+                    "run_id": &run_id,
+                    "call_id": &call_id,
+                    "error": e.to_string(),
+                }),
+            ),
+        };
+        let _ = event_store.send_message(EventStoreMsg::AppendAsync {
+            event: AppendEvent {
+                event_type: event_type.to_string(),
+                payload,
+                actor_id: writer_id,
+                user_id,
+            },
+        });
     }
 
     /// Spawn a non-blocking background task that calls BAML to summarize a document

@@ -14,8 +14,8 @@ allowed_models = [
 
 [callsite_defaults]
 terminal = "ClaudeBedrockHaiku45"
-conductor = "ClaudeBedrockHaiku45"
-writer = "ClaudeBedrockHaiku45"
+conductor = "ClaudeBedrockSonnet46"
+writer = "ClaudeBedrockSonnet46"
 researcher = "ClaudeBedrockHaiku45"
 summarizer = "ClaudeBedrockHaiku45"
 watcher = "ClaudeBedrockHaiku45"
