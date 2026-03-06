@@ -2,28 +2,12 @@ name: Promote to Production
 
 on:
   workflow_dispatch:
-    inputs:
-      skip_e2e_check:
-        description: 'Promote even if latest e2e failed'
-        required: false
-        default: 'false'
-        type: boolean
 
 jobs:
   promote:
     name: Deploy to Production (Node A)
     runs-on: ubuntu-latest
     steps:
-      - name: Check latest staging e2e
-        if: ${{ !inputs.skip_e2e_check }}
-        run: |
-          echo "Checking latest CI run e2e status..."
-          LATEST=$(gh run list --workflow=ci.yml --branch=main --limit=1 --json databaseId,conclusion --jq '.[0]')
-          echo "Latest CI run: $LATEST"
-          # Informational only — e2e uses continue-on-error so CI run succeeds regardless
-        env:
-          GH_TOKEN: ${{ github.token }}
-
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
