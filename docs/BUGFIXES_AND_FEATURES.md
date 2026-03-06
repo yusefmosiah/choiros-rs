@@ -1,6 +1,6 @@
 # ChoirOS Bugfixes and Features Roadmap
 
-*Last updated: 2026-02-06*
+*Last updated: 2026-03-06*
 
 ## Current Status
 
@@ -35,6 +35,17 @@
   - **Note:** Related to deferred auth layer on hypervisor
 
 ### P1 - High
+
+- [ ] **Desktop shows "Error loading desktop" / HTTP 502 on cold start (~10s)**
+  - **Problem:** Hypervisor starts accepting requests before sandbox VM is ready on :8080. During the ~10s boot window, proxy returns 502 Bad Gateway.
+  - **Root cause:** `hypervisor/src/main.rs:75-80` spawns `boot_live_sandbox()` in background while HTTP server starts immediately. Proxy at `hypervisor/src/proxy/mod.rs:39` returns 502 when `TcpStream::connect` to sandbox fails.
+  - **Contributing factor:** `load_initial_desktop_state` in `dioxus-desktop/src/desktop/effects.rs:95-114` makes a single attempt with no retry. Compare to `register_apps` which retries 3x with backoff.
+  - **Fix options:** (a) Add retry+backoff to desktop state loading, (b) show loading splash during cold boot, (c) have hypervisor queue requests until sandbox ready
+
+- [ ] **WebSocket status dot turns green→orange after ~10s, requires page reload**
+  - **Problem:** WS connects (green dot), then disconnects (orange dot) shortly after. No auto-reconnect exists.
+  - **Root cause:** No server-side WS keepalive ping in `sandbox/src/api/websocket.rs:201-286`. No client-side reconnect logic in `dioxus-desktop/src/desktop/ws.rs:569-576` — `onclose` just fires `WsEvent::Disconnected` and stops. Possible Caddy idle timeout or sandbox actor restart during settling.
+  - **Fix options:** (a) Add server-side periodic ping interval, (b) add client-side WS auto-reconnect with backoff, (c) investigate Caddy proxy timeout settings
 
 - [ ] Window animation polish (minimize/maximize transitions)
 - [ ] Chat status UX improvements (thinking/completion states)
