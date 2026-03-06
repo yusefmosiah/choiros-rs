@@ -206,8 +206,6 @@
         "SANDBOX_LIVE_PORT=8080"
         "SANDBOX_DEV_PORT=8081"
         "FRONTEND_DIST=/opt/choiros/workspace/dioxus-desktop/target/dx/dioxus-desktop/release/web/public"
-        "WEBAUTHN_RP_ID=choir-ip.com"
-        "WEBAUTHN_RP_ORIGIN=https://choir-ip.com"
       ];
     };
   };
