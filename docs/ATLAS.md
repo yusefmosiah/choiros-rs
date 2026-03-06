@@ -14,60 +14,91 @@ just local-build-ui && just dev
 # Open http://127.0.0.1:9090/login
 ```
 
-## Active (In Progress)
+## Theory (Thinking / Proposing)
 
-- **[P2]** ADR-0007: 3-Tier Control/Runtime/Client Architecture — Decision (Draft)  
-  `docs/active/decisions/adr-0007-3-tier-control-runtime-client-architecture.md`
-- **[P3]** Unified Agentic Loop Harness (Chat, Terminal, Researcher) — Guide (Active)  
-  `docs/active/guides/unified-agentic-loop-harness.md`
 - **[P3]** Inbox — Note (Active)  
-  `docs/active/notes/inbox.md`
+  `docs/theory/notes/inbox.md`
 - **[P5]** ADR-0002: Rust + Nix Build and Cache Strategy — Decision (Draft)  
-  `docs/active/decisions/adr-0002-rust-nix-build-and-cache-strategy.md`
+  `docs/theory/decisions/adr-0002-rust-nix-build-and-cache-strategy.md`
 - **[P5]** ADR-0003: Hypervisor-Sandbox Secrets Boundary — Decision (Draft)  
-  `docs/active/decisions/adr-0003-hypervisor-sandbox-secrets-boundary.md`
+  `docs/theory/decisions/adr-0003-hypervisor-sandbox-secrets-boundary.md`
 - **[P5]** ADR-0004: Hypervisor-Sandbox UI Runtime Boundary — Decision (Proposed)  
-  `docs/active/decisions/adr-0004-hypervisor-sandbox-ui-runtime-boundary.md`
+  `docs/theory/decisions/adr-0004-hypervisor-sandbox-ui-runtime-boundary.md`
 - **[P5]** ADR-0005: ALM Harness Integration Strategy (Draft) — Decision (Draft)  
-  `docs/active/decisions/adr-0005-alm-harness-integration.md`
+  `docs/theory/decisions/adr-0005-alm-harness-integration.md`
 - **[P5]** ADR-0006: Prompt Centralization in BAML (Draft) — Decision (Draft)  
-  `docs/active/decisions/adr-0006-prompt-centralization-baml.md`
+  `docs/theory/decisions/adr-0006-prompt-centralization-baml.md`
 - **[P5]** ADR-0009: Terminal Renderer Strategy (xterm.js vs Ghostty/libghostty) — Decision (Proposed)  
-  `docs/active/decisions/adr-0009-terminal-renderer-strategy-xterm-vs-libghostty.md`
+  `docs/theory/decisions/adr-0009-terminal-renderer-strategy-xterm-vs-libghostty.md`
 - **[P5]** ADR-0010: OVH Bootstrap VM Fleet Capacity and Minimal 80/20 Lifecycle API — Decision (Proposed)  
-  `docs/active/decisions/adr-0010-ovh-bootstrap-vm-fleet-capacity-and-minimal-lifecycle-api.md`
+  `docs/theory/decisions/adr-0010-ovh-bootstrap-vm-fleet-capacity-and-minimal-lifecycle-api.md`
 - **[P5]** ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes) — Decision (Proposed)  
-  `docs/active/decisions/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
+  `docs/theory/decisions/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
 - **[P5]** ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion — Decision (Draft)  
-  `docs/active/decisions/adr-0013-fleet-ctl-change-lifecycle-and-promotion.md`
+  `docs/theory/decisions/adr-0013-fleet-ctl-change-lifecycle-and-promotion.md`
 - **[P5]** ADR-0014: Per-User Storage Isolation and Desktop Sync — Decision (Draft)  
-  `docs/active/decisions/adr-0014-per-user-storage-and-desktop-sync.md`
+  `docs/theory/decisions/adr-0014-per-user-storage-and-desktop-sync.md`
 - **[P5]** ADR-0015: Documentation Kanban Architecture — Decision (Draft)  
-  `docs/active/decisions/adr-0015-docs-kanban-architecture.md`
+  `docs/theory/decisions/adr-0015-docs-kanban-architecture.md`
 - **[P5]** Deployment Checkpoint and Next Steps — Guide (Active)  
-  `docs/active/guides/deployment-checkpoint-and-next-steps.md`
+  `docs/theory/guides/deployment-checkpoint-and-next-steps.md`
 - **[P5]** Docs Migration File Map — Guide (Active) | Requires: [ADR-0015]  
-  `docs/active/guides/docs-migration-file-map.md`
+  `docs/theory/guides/docs-migration-file-map.md`
 - **[P5]** Docs Migration Guide: v1 → Kanban Architecture — Guide (Active)  
-  `docs/active/guides/docs-migration-guide.md`
+  `docs/theory/guides/docs-migration-guide.md`
 - **[P5]** OVH US-East Bootstrap Runbook: Secrets + Compute Lifecycle — Guide (Active)  
-  `docs/active/guides/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
+  `docs/theory/guides/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
 - **[P5]** Docs as Kanban: The Two-Column Model — Note (Active)  
-  `docs/active/notes/2026-03-06-docs-kanban-model.md`
+  `docs/theory/notes/2026-03-06-docs-kanban-model.md`
 - **[P5]** Docs v2 Problem Framing — Note (Active)  
-  `docs/active/notes/2026-03-06-docs-v2-problem-framing.md`
-- **[P5]** Backend-Authoritative UI State Pattern — Note (Active)  
-  `docs/active/notes/backend-authoritative-ui-state-pattern.md`
+  `docs/theory/notes/2026-03-06-docs-v2-problem-framing.md`
 - **[P5]** Mind Map + Checklist UI: Comprehensive Research Document — Note (Active)  
-  `docs/active/notes/mind-map-ui-research.md`
+  `docs/theory/notes/mind-map-ui-research.md`
 - **[P5]** pi_agent_rust Integration Analysis — Note (Active)  
-  `docs/active/notes/pi_agent_rust_integration_analysis.md`
-- **[P5]** Researcher Search Dual-Interface Runbook — Note (Active)  
-  `docs/active/notes/researcher-search-dual-interface-runbook.md`
+  `docs/theory/notes/pi_agent_rust_integration_analysis.md`
 - **[P5]** Critical Analysis: ChoirOS Roadmap vs. Codebase & Best Practices — Note (Active)  
-  `docs/active/notes/roadmap-critical-analysis.md`
+  `docs/theory/notes/roadmap-critical-analysis.md`
 - **[P5]** ChoirOS Roadmap Dependency Tree (Active) — Note (Active)  
-  `docs/active/notes/roadmap-dependency-tree.md`
+  `docs/theory/notes/roadmap-dependency-tree.md`
+
+## Practice (In Use / Being Built)
+
+- **ADR-0001: EventStore/EventBus Reconciliation** — Decision (Accepted)  
+  `docs/practice/decisions/adr-0001-eventstore-eventbus-reconciliation.md`
+- **ADR-0007: 3-Tier Control/Runtime/Client Architecture** — Decision (Draft)  
+  `docs/practice/decisions/adr-0007-3-tier-control-runtime-client-architecture.md`
+- **ADR-0008: OVH Self-Hosted Secrets Architecture (No Repo Secrets, No Sandbox Secrets)** — Decision (Accepted)  
+  `docs/practice/decisions/adr-0008-ovh-selfhosted-secrets-architecture.md`
+- **ADR-0012: OVH US-East Bootstrap Secrets and Two-Node Compute Lifecycle** — Decision (Accepted)  
+  `docs/practice/decisions/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
+- **ChoirOS Actor Network Orientation** — Guide (Accepted)  
+  `docs/practice/guides/actor-network-orientation.md`
+- **Backend-Authoritative UI State Pattern** — Note (Active)  
+  `docs/practice/guides/backend-authoritative-ui-state-pattern.md`
+- **Files App API Contract** — Guide (Accepted)  
+  `docs/practice/guides/files-api-contract.md`
+- **Local Provider Matrix Validation** — Guide (Accepted)  
+  `docs/practice/guides/local-provider-matrix-validation.md`
+- **Local NixOS + VFKit Miniguide (Manual Run)** — Guide (Accepted)  
+  `docs/practice/guides/local-vfkit-nixos-miniguide.md`
+- **ChoirOS Model-Provider Agnostic LLM Harness Runbook** — Guide (Accepted)  
+  `docs/practice/guides/model-provider-agnostic-runbook.md`
+- **Nix Setup Runbook** — Guide (Accepted)  
+  `docs/practice/guides/nix-setup.md`
+- **OVH Config and Deployment Entrypoint (Comprehensive)** — Guide (Accepted)  
+  `docs/practice/guides/ovh-config-and-deployment-entrypoint.md`
+- **Platform Secrets (ADR-0008 Control-Plane Model)** — Guide (Accepted)  
+  `docs/practice/guides/platform-secrets-sops-nix.md`
+- **Ractor Supervision Best Practices for ChoirOS** — Guide (Accepted)  
+  `docs/practice/guides/ractor-supervision-best-practices.md`
+- **Researcher Search Dual-Interface Runbook** — Note (Active)  
+  `docs/practice/guides/researcher-search-dual-interface-runbook.md`
+- **Simplified Agent Harness** — Guide (Accepted)  
+  `docs/practice/guides/simplified-agent-harness.md`
+- **VFKit Local Proof Runbook (Mac)** — Guide (Accepted)  
+  `docs/practice/guides/vfkit-local-proof.md`
+- **Writer App API Contract** — Guide (Accepted)  
+  `docs/practice/guides/writer-api-contract.md`
 
 ## State (Snapshots & Reports)
 
@@ -88,43 +119,10 @@ just local-build-ui && just dev
 - Checkpoint: Writer, Tracing, and Bootstrap Readiness — Snapshot (Active)  
   `docs/state/snapshots/2026-03-06-writer-tracing-bootstrap-checkpoint.md`
 
-## Canon (Accepted / Operational)
-
-- **ADR-0001: EventStore/EventBus Reconciliation** — Decision (Accepted)  
-  `docs/canon/decisions/adr-0001-eventstore-eventbus-reconciliation.md`
-- **ADR-0008: OVH Self-Hosted Secrets Architecture (No Repo Secrets, No Sandbox Secrets)** — Decision (Accepted)  
-  `docs/canon/decisions/adr-0008-ovh-selfhosted-secrets-architecture.md`
-- **ADR-0012: OVH US-East Bootstrap Secrets and Two-Node Compute Lifecycle** — Decision (Accepted)  
-  `docs/canon/decisions/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
-- **ChoirOS Actor Network Orientation** — Guide (Accepted)  
-  `docs/canon/guides/actor-network-orientation.md`
-- **Files App API Contract** — Guide (Accepted)  
-  `docs/canon/guides/files-api-contract.md`
-- **Local Provider Matrix Validation** — Guide (Accepted)  
-  `docs/canon/guides/local-provider-matrix-validation.md`
-- **Local NixOS + VFKit Miniguide (Manual Run)** — Guide (Accepted)  
-  `docs/canon/guides/local-vfkit-nixos-miniguide.md`
-- **ChoirOS Model-Provider Agnostic LLM Harness Runbook** — Guide (Accepted)  
-  `docs/canon/guides/model-provider-agnostic-runbook.md`
-- **Nix Setup Runbook** — Guide (Accepted)  
-  `docs/canon/guides/nix-setup.md`
-- **OVH Config and Deployment Entrypoint (Comprehensive)** — Guide (Accepted)  
-  `docs/canon/guides/ovh-config-and-deployment-entrypoint.md`
-- **Platform Secrets (ADR-0008 Control-Plane Model)** — Guide (Accepted)  
-  `docs/canon/guides/platform-secrets-sops-nix.md`
-- **Ractor Supervision Best Practices for ChoirOS** — Guide (Accepted)  
-  `docs/canon/guides/ractor-supervision-best-practices.md`
-- **Simplified Agent Harness** — Guide (Accepted)  
-  `docs/canon/guides/simplified-agent-harness.md`
-- **VFKit Local Proof Runbook (Mac)** — Guide (Accepted)  
-  `docs/canon/guides/vfkit-local-proof.md`
-- **Writer App API Contract** — Guide (Accepted)  
-  `docs/canon/guides/writer-api-contract.md`
-
 ## Dependency Graph
 
 ```
 ADR-0015 → Docs Migration File Map
 ```
 
-*Generated 2026-03-06 — 15 canon, 26 active, 8 state docs.*
+*Generated 2026-03-06 — 18 practice, 22 theory, 8 state docs.*

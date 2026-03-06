@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate docs/ATLAS.md from frontmatter across canon/, active/, state/
+# Generate docs/ATLAS.md from frontmatter across theory/, practice/, state/
 # Run: ./scripts/generate-atlas.sh
 # Also runs as pre-commit hook to keep atlas fresh.
 
@@ -46,8 +46,8 @@ scan_dir() {
   done < <(find "$dir" -name '*.md' -print0 | sort -z)
 }
 
-scan_dir "$DOCS_DIR/canon"
-scan_dir "$DOCS_DIR/active"
+scan_dir "$DOCS_DIR/practice"
+scan_dir "$DOCS_DIR/theory"
 scan_dir "$DOCS_DIR/state"
 
 # --- Emit ATLAS.md ---
@@ -71,37 +71,49 @@ just local-build-ui && just dev
 
 HEADER
 
-# --- Active: In Progress (listed first — this is where attention goes) ---
-echo "## Active (In Progress)"
+# --- Theory: thinking, proposing, exploring (listed first — this is where attention goes) ---
+echo "## Theory (Thinking / Proposing)"
 echo ""
 
-# Sort active docs by priority (lower = higher priority)
-active_indices=()
+# Sort theory docs by priority (lower = higher priority)
+theory_indices=()
 for i in $(seq 0 $((idx - 1))); do
-  case "${DOC_PATHS[$i]}" in active/*) active_indices+=("$i") ;; esac
+  case "${DOC_PATHS[$i]}" in theory/*) theory_indices+=("$i") ;; esac
 done
 
 # Simple insertion sort by priority
-for ((a=1; a<${#active_indices[@]}; a++)); do
-  key=${active_indices[$a]}
+for ((a=1; a<${#theory_indices[@]}; a++)); do
+  key=${theory_indices[$a]}
   b=$((a - 1))
-  while [ $b -ge 0 ] && [ "${DOC_PRIORITIES[${active_indices[$b]}]}" -gt "${DOC_PRIORITIES[$key]}" ] 2>/dev/null; do
-    active_indices[$((b + 1))]=${active_indices[$b]}
+  while [ $b -ge 0 ] && [ "${DOC_PRIORITIES[${theory_indices[$b]}]}" -gt "${DOC_PRIORITIES[$key]}" ] 2>/dev/null; do
+    theory_indices[$((b + 1))]=${theory_indices[$b]}
     b=$((b - 1))
   done
-  active_indices[$((b + 1))]=$key
+  theory_indices[$((b + 1))]=$key
 done
 
-has_active=false
-for i in "${active_indices[@]}"; do
-  has_active=true
+has_theory=false
+for i in "${theory_indices[@]}"; do
+  has_theory=true
   local_req="${DOC_REQUIRES[$i]}"
   req_str=""
   [ -n "$local_req" ] && [ "$local_req" != "[]" ] && req_str=" | Requires: $local_req"
   printf -- "- **[P%s]** %s — %s (%s)%s  \n  \`docs/%s\`\n" \
     "${DOC_PRIORITIES[$i]}" "${DOC_TITLES[$i]}" "${DOC_KINDS[$i]:-?}" "${DOC_STATUSES[$i]:-?}" "$req_str" "${DOC_PATHS[$i]}"
 done
-$has_active || echo "_No active docs._"
+$has_theory || echo "_No theory docs._"
+echo ""
+
+# --- Practice: in use, partially or fully implemented ---
+echo "## Practice (In Use / Being Built)"
+echo ""
+has_practice=false
+for i in $(seq 0 $((idx - 1))); do
+  case "${DOC_PATHS[$i]}" in practice/*) has_practice=true ;; *) continue ;; esac
+  printf -- "- **%s** — %s (%s)  \n  \`docs/%s\`\n" \
+    "${DOC_TITLES[$i]}" "${DOC_KINDS[$i]:-?}" "${DOC_STATUSES[$i]:-?}" "${DOC_PATHS[$i]}"
+done
+$has_practice || echo "_No practice docs yet._"
 echo ""
 
 # --- State: Execution Artifacts ---
@@ -114,18 +126,6 @@ for i in $(seq 0 $((idx - 1))); do
     "${DOC_TITLES[$i]}" "${DOC_KINDS[$i]:-?}" "${DOC_STATUSES[$i]:-?}" "${DOC_PATHS[$i]}"
 done
 $has_state || echo "_No state docs yet._"
-echo ""
-
-# --- Canon: The Truth ---
-echo "## Canon (Accepted / Operational)"
-echo ""
-has_canon=false
-for i in $(seq 0 $((idx - 1))); do
-  case "${DOC_PATHS[$i]}" in canon/*) has_canon=true ;; *) continue ;; esac
-  printf -- "- **%s** — %s (%s)  \n  \`docs/%s\`\n" \
-    "${DOC_TITLES[$i]}" "${DOC_KINDS[$i]:-?}" "${DOC_STATUSES[$i]:-?}" "${DOC_PATHS[$i]}"
-done
-$has_canon || echo "_No canon docs yet._"
 echo ""
 
 # --- Dependency Graph ---
@@ -147,16 +147,16 @@ echo '```'
 echo ""
 
 # --- Stats ---
-canon_count=0; active_count=0; state_count=0
+practice_count=0; theory_count=0; state_count=0
 for i in $(seq 0 $((idx - 1))); do
   case "${DOC_PATHS[$i]}" in
-    canon/*) canon_count=$((canon_count + 1)) ;;
-    active/*) active_count=$((active_count + 1)) ;;
+    practice/*) practice_count=$((practice_count + 1)) ;;
+    theory/*) theory_count=$((theory_count + 1)) ;;
     state/*) state_count=$((state_count + 1)) ;;
   esac
 done
-printf "*Generated %s — %d canon, %d active, %d state docs.*\n" \
-  "$(date +%Y-%m-%d)" "$canon_count" "$active_count" "$state_count"
+printf "*Generated %s — %d practice, %d theory, %d state docs.*\n" \
+  "$(date +%Y-%m-%d)" "$practice_count" "$theory_count" "$state_count"
 
 } > "$ATLAS"
 

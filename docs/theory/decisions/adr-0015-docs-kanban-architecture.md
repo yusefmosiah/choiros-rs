@@ -53,7 +53,7 @@ Documentation is a kanban board. The only transition that matters is promotion:
 The directory change IS the event.
 
 This mirrors the change lifecycle in ADR-0013: code flows through propose → test →
-promote. Docs flow through active → canon. Same pipeline, same primitives.
+promote. Docs flow through theory → practice. Same pipeline, same primitives.
 
 ## Decision
 
@@ -61,14 +61,14 @@ promote. Docs flow through active → canon. Same pipeline, same primitives.
 
 ```
 docs/
-  canon/                # promoted: the truth
-    decisions/          # accepted ADRs
-    guides/             # operational guides for existing systems
-    reports/            # durably useful reference reports (rare)
-  active/               # not yet promoted: work in progress
+  theory/               # thinking: proposals, explorations, plans
     decisions/          # draft/proposed ADRs
     guides/             # prescriptive build guides, checklists
     notes/              # thoughts, observations, problem framings
+  practice/             # in use: partially or fully implemented
+    decisions/          # accepted ADRs (and in-progress implementations)
+    guides/             # operational guides for existing systems
+    reports/            # durably useful reference reports (rare)
   state/                # time-bound execution artifacts (off-board)
     snapshots/          # checkpoints, handoffs
     reports/            # test results, benchmarks, research output
@@ -110,11 +110,12 @@ is the attention surface, not the state machine.
 
 ### Promotion Rules
 
-- **Decision:** Draft → Proposed → Accepted (moves `active/decisions/` → `canon/decisions/`)
-- **Guide:** prescriptive build guide → reference ops guide (moves `active/guides/` → `canon/guides/`)
-- **Report:** stays in `state/reports/` unless durably useful → `canon/reports/`
+- **Decision:** Draft → Proposed → Accepted (moves `theory/decisions/` → `practice/decisions/`)
+- **Guide:** prescriptive build guide → reference ops guide (moves `theory/guides/` → `practice/guides/`)
+- **Report:** stays in `state/reports/` unless durably useful → `practice/reports/`
 - **Snapshot:** stays in `state/snapshots/` → `archive/` when stale
-- **Note:** stays in `active/notes/` → promotes to Decision/Guide, or → `archive/`
+- **Note:** stays in `theory/notes/` → promotes to Decision/Guide, or → `archive/`
+- **Partially implemented:** goes to `practice/` (it's in practice, even if incomplete)
 
 ### Atlas (Generated Index)
 
@@ -127,8 +128,8 @@ is the attention surface, not the state machine.
 
 The atlas contains everything an agent (or human) needs to proceed:
 - System summary and quick-start
-- Canon docs (the truth — accepted decisions, operational guides)
-- Active docs (priority-ordered, with dependency chains)
+- Theory docs (priority-ordered, with dependency chains — where attention goes)
+- Practice docs (in use — decisions, guides, reports)
 - State docs (latest snapshots and reports)
 - Dependency graph (reconstructed from `Requires:` fields)
 - Doc counts per column
@@ -137,13 +138,13 @@ The atlas does NOT include `archive/` — that's off-board by design.
 
 ### What This Replaces
 
-- `docs/architecture/` (flat mix) → split across `canon/decisions/` and `active/decisions/`
-- `docs/runbooks/` → `canon/guides/` or `active/guides/`
+- `docs/architecture/` (flat mix) → split across `practice/decisions/` and `theory/decisions/`
+- `docs/runbooks/` → `practice/guides/` or `theory/guides/`
 - `docs/checkpoints/` → `state/snapshots/`
 - `docs/handoffs/` → `state/snapshots/`
 - `docs/reports/` → `state/reports/`
-- `docs/design/` → `active/notes/`
-- NARRATIVE_INDEX → curated view over `canon/`, generated or maintained separately
+- `docs/design/` → `theory/notes/`
+- NARRATIVE_INDEX → `docs/ATLAS.md` (auto-generated)
 
 ## Consequences
 
@@ -151,8 +152,8 @@ The atlas does NOT include `archive/` — that's off-board by design.
 - Path tells you lifecycle stage instantly (no reading frontmatter to know if it's aspirational)
 - Promotion is a visible git event (file moves in a commit)
 - Natural archiving — stale docs have a clear home
-- Low ceremony — just write, file in `active/`, promote when ready
-- Agents can scope reads to `canon/` for truth, `active/` for context
+- Low ceremony — just write, file in `theory/`, promote when ready
+- Agents can scope reads to `practice/` for truth, `theory/` for context
 
 ### Negative
 - Migration effort for existing ~75 active docs
@@ -161,14 +162,13 @@ The atlas does NOT include `archive/` — that's off-board by design.
 
 ### Risks
 - Over-filing: spending time on where to put things instead of writing
-- Mitigation: when in doubt, put it in `active/notes/`. Sort later.
+- Mitigation: when in doubt, put it in `theory/notes/`. Sort later.
 
 ## Verification
 
-- [ ] All accepted ADRs live in `canon/decisions/`
-- [ ] All draft/proposed ADRs live in `active/decisions/`
-- [ ] All operational guides live in `canon/guides/`
-- [ ] No doc in `canon/` has Status: Draft
-- [ ] No doc in `active/` has Status: Accepted
-- [ ] Frontmatter on every doc includes Kind and Status
-- [ ] NARRATIVE_INDEX updated or replaced
+- [x] All accepted/in-progress ADRs live in `practice/decisions/`
+- [x] All draft/proposed ADRs live in `theory/decisions/`
+- [x] All operational guides live in `practice/guides/`
+- [x] Frontmatter on every doc includes Kind and Status
+- [x] ATLAS.md auto-generated, replaces NARRATIVE_INDEX
+- [x] Pre-commit hook regenerates atlas on doc changes
