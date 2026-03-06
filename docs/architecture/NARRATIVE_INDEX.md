@@ -1,6 +1,6 @@
 # ChoirOS Narrative Index (Read This First)
 
-Date: 2026-03-03
+Date: 2026-03-06
 Purpose: single entry point for active architecture and execution docs.
 
 ## 60-Second Story

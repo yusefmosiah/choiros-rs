@@ -7,9 +7,9 @@ Owner: Platform / Runtime / Infra
 ## Narrative Summary (1-minute read)
 
 ChoirOS is running on two OVH bare metal nodes. Gate 1 (persistent secrets) is complete.
-Gate 2 (cloud-hypervisor microVMs) is partially complete — the VM boots NixOS, networking
-works (TAP + bridge), but the sandbox service inside the VM isn't confirmed reachable yet
-(firewall fix committed but untested). CI/CD pipeline is live: push to main → fmt + test →
+Gate 2 (cloud-hypervisor microVMs) is substantially complete — the VM boots NixOS, networking
+works (TAP + bridge), and the sandbox is reachable through socat forwarding on Node A (:8080).
+The blocking issue is now VM state persistence (data lost on idle watchdog restart). CI/CD pipeline is live: push to main → fmt + test →
 deploy to Node A.
 
 The next priority is bootstrapping: developing ChoirOS inside ChoirOS. This means fixing
@@ -51,10 +51,11 @@ needed for development workflows.
 - [ ] Writer reprompt runs invisible in trace — events not recognized by trace parser
 
 ### Incomplete
-- [ ] Gate 2: sandbox inside cloud-hypervisor VM not confirmed reachable (firewall fix untested)
-- [ ] Gate 2: dev VM runner not built yet (only live VM tested)
-- [ ] Node B deployed but not receiving traffic (no LB health checks)
-- [ ] Clippy has 30+ pre-existing warnings (non-blocking in CI for now)
+- [x] ~~Gate 2: sandbox reachable through VM~~ — Working on Node A (socat forwards :8080 to VM)
+- [ ] Gate 2: VM state persistence — **data lost on idle watchdog restart (FATAL)**
+- [ ] Node A: sandbox-dev (:8081) not running (only sandbox-live via VM)
+- [ ] Node B: healthy (caddy, hypervisor, sandbox-live, sandbox-dev all up) but not receiving external traffic (no Caddy LB to choir-ip.com)
+- [x] ~~Clippy~~ — 0 warnings (fixed in 61fe658)
 
 ## CI/CD Pipeline
 
