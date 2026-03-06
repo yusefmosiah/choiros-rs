@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Pre-commit hook for ChoirOS.
+# No framework needed — just bash + just commands.
+#
+# Checks:
+#   1. cargo fmt (fast, always)
+#   2. atlas regeneration (if docs changed)
+set -euo pipefail
+
+# --- Formatting ---
+# Only check staged .rs files to keep it fast
+if git diff --cached --name-only | grep -qE '\.rs$'; then
+  echo "pre-commit: checking cargo fmt..."
+  cargo fmt --all -- --check || {
+    echo "pre-commit: formatting failed. Run 'cargo fmt --all' to fix."
+    exit 1
+  }
+fi
+
+# --- Atlas ---
+if git diff --cached --name-only | grep -qE '^(docs/|scripts/generate-atlas\.sh)'; then
+  echo "pre-commit: regenerating docs/ATLAS.md..."
+  ./scripts/generate-atlas.sh
+  git add docs/ATLAS.md
+fi

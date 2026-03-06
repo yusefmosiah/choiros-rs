@@ -108,10 +108,11 @@ To `archive/` (completed or superseded):
 - [ ] `BUGFIXES_AND_FEATURES.md` → `archive/` or `state/`
 - [ ] Remaining loose files → case-by-case into `active/notes/` or `archive/`
 
-## Phase 8: Update References
+## Phase 8: Atlas & References
 
-- [ ] Replace or update NARRATIVE_INDEX to point to new paths
-- [ ] Update CLAUDE.md doc references
+- [ ] Move NARRATIVE_INDEX to `archive/` (superseded by ATLAS.md)
+- [ ] Verify `just atlas` generates correct output
+- [ ] Update CLAUDE.md to reference `docs/ATLAS.md` instead of NARRATIVE_INDEX
 - [ ] Update any cross-references between docs
 - [ ] Verify no broken links
 

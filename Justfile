@@ -5,6 +5,10 @@
 default:
     @just --list
 
+# Regenerate docs/ATLAS.md from doc frontmatter
+atlas:
+    ./scripts/generate-atlas.sh
+
 # Development commands (vfkit cutover flow)
 # 1) Build static release frontend assets
 local-build-ui:

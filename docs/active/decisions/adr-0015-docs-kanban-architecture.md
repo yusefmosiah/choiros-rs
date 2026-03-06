@@ -114,6 +114,25 @@ is the attention surface, not the state machine.
 - **Snapshot:** stays in `state/snapshots/` → `archive/` when stale
 - **Note:** stays in `active/notes/` → promotes to Decision/Guide, or → `archive/`
 
+### Atlas (Generated Index)
+
+`docs/ATLAS.md` replaces NARRATIVE_INDEX as the single entry point. It is:
+
+- **Auto-generated** by `scripts/generate-atlas.sh` from doc frontmatter
+- **Committed** in git (always readable without running tools)
+- **Refreshed** on every commit via pre-commit hook (`.githooks/pre-commit`)
+- **Manually runnable** via `just atlas`
+
+The atlas contains everything an agent (or human) needs to proceed:
+- System summary and quick-start
+- Canon docs (the truth — accepted decisions, operational guides)
+- Active docs (priority-ordered, with dependency chains)
+- State docs (latest snapshots and reports)
+- Dependency graph (reconstructed from `Requires:` fields)
+- Doc counts per column
+
+The atlas does NOT include `archive/` — that's off-board by design.
+
 ### What This Replaces
 
 - `docs/architecture/` (flat mix) → split across `canon/decisions/` and `active/decisions/`
