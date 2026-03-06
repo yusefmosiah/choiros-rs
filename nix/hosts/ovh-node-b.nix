@@ -15,7 +15,7 @@
   };
 
   # WebAuthn: draft.choir-ip.com origin for e2e tests
-  systemd.services.hypervisor.serviceConfig.Environment = [
+  systemd.services.hypervisor.serviceConfig.Environment = lib.mkForce [
     "HYPERVISOR_PORT=9090"
     "HYPERVISOR_DATABASE_URL=sqlite:/opt/choiros/data/hypervisor.db"
     "SANDBOX_VFKIT_CTL=/opt/choiros/bin/ovh-runtime-ctl"
