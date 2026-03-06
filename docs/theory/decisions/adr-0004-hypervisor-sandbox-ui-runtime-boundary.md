@@ -3,8 +3,8 @@
 Date: 2026-02-22
 Kind: Decision
 Status: Proposed
-Priority: 5
-Requires: []
+Priority: 4
+Requires: [ADR-0007]
 Owner: ChoirOS runtime and deployment
 
 ## Implementation Verification

@@ -26,28 +26,26 @@ agent sessions.
 <details open>
 <summary><h2>Theory (What We're Thinking)</h2></summary>
 
+- **[P1]** ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync — Decision (Draft) | Requires: [ADR-0007, ADR-0012]  
+  `docs/theory/decisions/adr-0014-per-user-storage-and-desktop-sync.md`
+- **[P2]** ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion — Decision (Draft) | Requires: [ADR-0014]  
+  `docs/theory/decisions/adr-0013-fleet-ctl-change-lifecycle-and-promotion.md`
+- **[P3]** ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes) — Decision (Proposed) | Requires: [ADR-0014]  
+  `docs/theory/decisions/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
 - **[P3]** Inbox — Note (Active)  
   `docs/theory/notes/inbox.md`
+- **[P4]** ADR-0003: Hypervisor-Sandbox Secrets Boundary — Decision (Draft) | Requires: [ADR-0008, ADR-0014]  
+  `docs/theory/decisions/adr-0003-hypervisor-sandbox-secrets-boundary.md`
+- **[P4]** ADR-0004: Hypervisor-Sandbox UI Runtime Boundary — Decision (Proposed) | Requires: [ADR-0007]  
+  `docs/theory/decisions/adr-0004-hypervisor-sandbox-ui-runtime-boundary.md`
 - **[P5]** ADR-0002: Rust + Nix Build and Cache Strategy — Decision (Draft)  
   `docs/theory/decisions/adr-0002-rust-nix-build-and-cache-strategy.md`
-- **[P5]** ADR-0003: Hypervisor-Sandbox Secrets Boundary — Decision (Draft)  
-  `docs/theory/decisions/adr-0003-hypervisor-sandbox-secrets-boundary.md`
-- **[P5]** ADR-0004: Hypervisor-Sandbox UI Runtime Boundary — Decision (Proposed)  
-  `docs/theory/decisions/adr-0004-hypervisor-sandbox-ui-runtime-boundary.md`
 - **[P5]** ADR-0005: ALM Harness Integration Strategy (Draft) — Decision (Draft)  
   `docs/theory/decisions/adr-0005-alm-harness-integration.md`
 - **[P5]** ADR-0006: Prompt Centralization in BAML (Draft) — Decision (Draft)  
   `docs/theory/decisions/adr-0006-prompt-centralization-baml.md`
 - **[P5]** ADR-0009: Terminal Renderer Strategy (xterm.js vs Ghostty/libghostty) — Decision (Proposed)  
   `docs/theory/decisions/adr-0009-terminal-renderer-strategy-xterm-vs-libghostty.md`
-- **[P5]** ADR-0010: OVH Bootstrap VM Fleet Capacity and Minimal 80/20 Lifecycle API — Decision (Proposed)  
-  `docs/theory/decisions/adr-0010-ovh-bootstrap-vm-fleet-capacity-and-minimal-lifecycle-api.md`
-- **[P5]** ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes) — Decision (Proposed)  
-  `docs/theory/decisions/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
-- **[P5]** ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion — Decision (Draft)  
-  `docs/theory/decisions/adr-0013-fleet-ctl-change-lifecycle-and-promotion.md`
-- **[P5]** ADR-0014: Per-User Storage Isolation and Desktop Sync — Decision (Draft)  
-  `docs/theory/decisions/adr-0014-per-user-storage-and-desktop-sync.md`
 - **[P5]** ADR-0015: Documentation Kanban Architecture — Decision (Draft)  
   `docs/theory/decisions/adr-0015-docs-kanban-architecture.md`
 - **[P5]** Deployment Checkpoint and Next Steps — Guide (Active)  
@@ -126,7 +124,11 @@ agent sessions.
 ## Dependency Graph
 
 ```
-(no dependencies declared yet)
+ADR-0008, ADR-0014 → ADR-0003: Hypervisor-Sandbox Secrets Boundary
+ADR-0007 → ADR-0004: Hypervisor-Sandbox UI Runtime Boundary
+ADR-0014 → ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes)
+ADR-0014 → ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion
+ADR-0007, ADR-0012 → ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync
 ```
 
-*Generated 2026-03-06 — 18 practice, 15 theory, 8 state docs.*
+*Generated 2026-03-06 — 18 practice, 14 theory, 8 state docs.*

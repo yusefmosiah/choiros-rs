@@ -96,8 +96,8 @@ Every doc gets minimal frontmatter:
 Date: YYYY-MM-DD
 Kind: Decision | Guide | Report | Snapshot | Note
 Status: Draft | Active | Accepted | Superseded | Archived
-Priority: 1-5          # attention ordering (1 = highest, optional)
-Requires: [list]        # dependency chain — doc IDs this depends on
+Priority: 5
+Requires: []
 ```
 
 The directory tells you lifecycle stage. Frontmatter tells you everything else.

@@ -3,8 +3,8 @@
 Date: 2026-03-02
 Kind: Decision
 Status: Proposed
-Priority: 5
-Requires: []
+Priority: 3
+Requires: [ADR-0014]
 Owner: Platform / Runtime / Product
 
 ## Narrative Summary (1-minute read)

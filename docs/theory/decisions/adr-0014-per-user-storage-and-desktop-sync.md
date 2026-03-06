@@ -1,47 +1,51 @@
-# ADR-0014: Per-User Storage Isolation and Desktop Sync
+# ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync
 
 Date: 2026-03-06
 Kind: Decision
 Status: Draft
-Priority: 5
-Requires: []
+Priority: 1
+Requires: [ADR-0007, ADR-0012]
 Authors: wiz + Claude
 
 ## Narrative Summary (1-minute read)
 
-ChoirOS needs per-user persistent, isolated, snapshotable, forkable storage that can
-eventually sync to desktop clients like Dropbox. Seven storage approaches and six sync
-approaches were evaluated via deep research.
+ChoirOS needs per-user persistent, isolated, snapshotable, forkable VMs with storage
+that can eventually sync to desktop clients. This ADR covers the full per-user VM
+lifecycle: how VMs are created, sized, started, stopped, snapshotted, restored, and
+how their storage is provisioned.
 
-**Storage recommendation: virtiofs + btrfs host** — the Replit-proven pattern. Per-user
-btrfs subvolumes on the host, shared into VMs via virtiofs. Native performance, instant
-snapshots/forks, incremental migration via `btrfs send/receive`. Already partially in use
-(ChoirOS uses virtiofs today).
+**Storage: virtiofs + btrfs host** — the Replit-proven pattern. Per-user btrfs subvolumes
+on the host, shared into VMs via virtiofs. Native performance, instant snapshots/forks,
+incremental migration via `btrfs send/receive`.
 
-**Desktop sync recommendation: Mutagen (phase 1) → metadata index + placeholder files (phase 2)**.
-Don't build a custom sync engine. Mutagen (used by Docker Desktop) solves VM↔host bidirectional
-sync with three-way merge. Later, add a SQLite metadata index for smart/lazy sync with
-OS-native placeholder files.
+**Lifecycle API:** Minimal 80/20 fleet API — create, start, stop, snapshot, restore,
+delete, get, list. Storage provisioning is a create-time operation, snapshot/restore
+operates on both VM state and btrfs subvolume atomically.
 
-**SQLite FUSE was considered but rejected** for primary storage due to single-writer bottleneck
-(kills `cargo build` parallelism) and FUSE overhead (up to 83% degradation for metadata-heavy
-workloads). However, SQLite remains valuable as a **metadata/sync index** alongside the real
-filesystem.
+**Desktop sync: Mutagen (phase 1) → metadata index + placeholder files (phase 2)**.
+Mutagen (used by Docker Desktop) solves VM↔host bidirectional sync. Later, SQLite
+metadata index for smart/lazy sync with OS-native placeholder files.
+
+**SQLite FUSE rejected** for primary storage (single-writer bottleneck, FUSE overhead).
+Retained for sync metadata index.
 
 ## What Changed
 
-- Evaluated 7 storage approaches with performance data and production references
-- Evaluated 6 sync approaches including cr-sqlite, Mutagen, Syncthing, Nextcloud model
-- Identified Replit as closest architectural analogue (btrfs + Nix + per-user workspaces)
-- Determined that FUSE+SQLite is wrong for primary storage but right for sync metadata
+- Merged ADR-0010 (fleet lifecycle API + capacity) into this ADR
+- Storage and compute lifecycle are one system, not two decisions
+- Evaluated 7 storage approaches with performance data
+- Evaluated 6 sync approaches including cr-sqlite, Mutagen, Syncthing
+- Identified Replit as closest architectural analogue
 
 ## What To Do Next
 
-1. Format OVH host data partition as btrfs
-2. Create per-user subvolumes (`/data/users/{user_id}/`)
-3. Update virtiofsd to share per-user dirs instead of shared `/opt/choiros/data/sandbox`
-4. Wire btrfs snapshot into fleet-ctl for snapshot/fork/rollback
-5. (Later) Evaluate Mutagen for desktop sync prototype
+1. Implement lifecycle API endpoints on hypervisor (create/start/stop/snapshot/restore)
+2. Format OVH host data partition as btrfs
+3. Create per-user subvolumes on VM create (`/data/users/{user_id}/`)
+4. Update virtiofsd to share per-user dirs instead of shared `/opt/choiros/data/sandbox`
+5. Wire btrfs snapshot into snapshot/restore lifecycle operations
+6. Add per-VM telemetry (CPU, RSS, snapshot latency, disk throughput)
+7. (Later) Evaluate Mutagen for desktop sync prototype
 
 ---
 
@@ -127,6 +131,57 @@ Guest VM:
   with `chattr +C` (nodatacow) on specific directories.
 - **reflink copy** can be slow on highly fragmented files. Defragment first if needed.
 - **Quotas** (qgroups) add overhead. Enable only when multitenancy requires enforcement.
+
+---
+
+## VM Lifecycle API (merged from ADR-0010)
+
+### 80/20 Lifecycle Endpoints
+
+```
+POST   /v1/vms                    create (provisions btrfs subvolume + VM)
+POST   /v1/vms/{vm_id}/start
+POST   /v1/vms/{vm_id}/stop
+POST   /v1/vms/{vm_id}/snapshot   (VM state + btrfs snapshot, atomic)
+POST   /v1/vms/{vm_id}/restore    (from snapshot)
+DELETE /v1/vms/{vm_id}
+GET    /v1/vms/{vm_id}
+GET    /v1/vms?owner_id=...
+```
+
+Required rails: idempotency key on mutating requests, strict state-machine
+validation, quota checks on create/start/restore, lifecycle events for every
+state transition.
+
+### Lifecycle State Machine
+
+```
+creating -> stopped -> running -> stopping -> stopped
+                                    |
+running -> pausing -> paused -> snapshotting -> snapshotted -> restoring -> running
+                                    |
+                                 deleted / failed
+```
+
+No live migration, autoscaling, or multi-node placement in bootstrap scope.
+
+### Bootstrap Sizing
+
+Default session: `2 vCPU / 3 GiB RAM`. Idle timeout + snapshot park for cost control.
+
+| Profile | Usable RAM | SLO-safe Active | Stretch | Parked Snapshots |
+|---------|-----------|----------------|---------|-----------------|
+| KS-2 (Xeon D-1540, 64 GB) | 52 GiB | 11 | 14-16 | 63-95 |
+| EPYC 7351P (256 GB) | 224 GiB | 22 | 28-32 | 71-107 |
+
+Assumptions: CPU overcommit 2.0, RAM overcommit 1.0, 20% host reserve,
+4-6 GiB snapshot footprint per parked session.
+
+### Validation Required Before "Accepted"
+
+1. Per-VM metrics: CPU, RSS, snapshot create/restore latency, disk throughput
+2. Controlled load tests on both profiles (interactive, burst, park/restore)
+3. 7-day canary on one OVH node with observed SLO data
 
 ---
 
