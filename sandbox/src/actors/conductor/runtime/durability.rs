@@ -5,12 +5,12 @@
 //! for recent runs after process restart.
 
 use crate::actors::conductor::actor::{ConductorActor, ConductorState};
-use crate::actors::event_store::{get_latest_seq, get_recent_events};
+use crate::actors::event_store::get_recent_events;
 use shared_types::{ConductorOutputMode, ConductorRunState, ConductorRunStatus};
 use std::collections::HashMap;
 
-/// Number of recent conductor lifecycle events to scan for recovery.
-const RUN_RECOVERY_SCAN_LIMIT: i64 = 1000;
+/// Maximum number of conductor lifecycle events to load for recovery.
+const RUN_RECOVERY_SCAN_LIMIT: i64 = 5000;
 
 fn payload_field<'a>(payload: &'a serde_json::Value, key: &str) -> Option<&'a serde_json::Value> {
     payload.get(key).or_else(|| payload.get("data")?.get(key))
@@ -68,24 +68,14 @@ impl ConductorActor {
     /// Called from `post_start`. Errors are logged but never propagated —
     /// durability is best-effort; a clean state is always safe to start with.
     pub(crate) async fn restore_run_states(&self, state: &mut ConductorState) {
-        let latest_seq = match get_latest_seq(&state.event_store).await {
-            Ok(Ok(Some(seq))) => seq,
-            Ok(Ok(None)) => return,
-            Ok(Err(e)) => {
-                tracing::warn!(error = %e, "Run state recovery: latest-seq query error");
-                return;
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, "Run state recovery: latest-seq query failed");
-                return;
-            }
-        };
-        let since_seq = (latest_seq - RUN_RECOVERY_SCAN_LIMIT).max(0);
+        // Scan from the beginning with a conductor-specific prefix filter.
+        // This avoids missing conductor events when chatty supervisor/desktop
+        // events push them outside a fixed tail window.
         let events = match get_recent_events(
             &state.event_store,
-            since_seq,
+            0,
             RUN_RECOVERY_SCAN_LIMIT,
-            None,
+            Some("conductor.".to_string()),
             None,
             None,
         )
