@@ -91,10 +91,6 @@ jobs:
             echo "==> Building hypervisor"
             nix build ./hypervisor#hypervisor -o result-hypervisor --print-build-logs
 
-            echo "==> Building sandbox VM"
-            nix build ".#nixosConfigurations.choiros-ch-sandbox-live.config.microvm.runner.cloud-hypervisor" \
-              -o result-vm-live --print-build-logs
-
             echo "==> Installing binaries"
             cp -f result-sandbox/bin/sandbox /opt/choiros/bin/sandbox
             cp -f result-hypervisor/bin/hypervisor /opt/choiros/bin/hypervisor
@@ -112,11 +108,7 @@ jobs:
             sleep 2
             curl -fsS --retry 10 --retry-delay 3 --retry-all-errors http://127.0.0.1:9090/login > /dev/null
 
-            echo "==> Ensuring sandbox VM is running (cold boot ~2 min)"
-            /opt/choiros/bin/ovh-runtime-ctl ensure \
-              --user-id ci --runtime sandbox --port 8080 --role live
-            curl -fsS --retry 30 --retry-delay 5 --retry-all-errors http://127.0.0.1:8080/health > /dev/null
-            echo "==> Staging deploy complete"
+            echo "==> Staging deploy complete (sandbox VM boots on first request)"
           '
 
       - name: Cleanup SSH
