@@ -16,24 +16,110 @@ just local-build-ui && just dev
 
 ## Canon (Accepted / Operational)
 
-_No canon docs yet._
+- **ADR-0001: EventStore/EventBus Reconciliation** — ? (Accepted)  
+  `docs/canon/decisions/adr-0001-eventstore-eventbus-reconciliation.md`
+- **ADR-0007: 3-Tier Control/Runtime/Client Architecture** — ? (In Progress (Phase A complete, Phase B-D pending))  
+  `docs/canon/decisions/adr-0007-3-tier-control-runtime-client-architecture.md`
+- **ADR-0008: OVH Self-Hosted Secrets Architecture (No Repo Secrets, No Sandbox Secrets)** — ? (Accepted)  
+  `docs/canon/decisions/adr-0008-ovh-selfhosted-secrets-architecture.md`
+- **ADR-0012: OVH US-East Bootstrap Secrets and Two-Node Compute Lifecycle** — ? (Accepted)  
+  `docs/canon/decisions/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
+- **ChoirOS Actor Network Orientation** — ? (?)  
+  `docs/canon/guides/actor-network-orientation.md`
+- **Files App API Contract** — ? (?)  
+  `docs/canon/guides/files-api-contract.md`
+- **Local Provider Matrix Validation** — ? (?)  
+  `docs/canon/guides/local-provider-matrix-validation.md`
+- **Local NixOS + VFKit Miniguide (Manual Run)** — ? (Active  )  
+  `docs/canon/guides/local-vfkit-nixos-miniguide.md`
+- **ChoirOS Model-Provider Agnostic LLM Harness Runbook** — ? (?)  
+  `docs/canon/guides/model-provider-agnostic-runbook.md`
+- **Nix Setup Runbook** — ? (?)  
+  `docs/canon/guides/nix-setup.md`
+- **OVH Config and Deployment Entrypoint (Comprehensive)** — ? (Active)  
+  `docs/canon/guides/ovh-config-and-deployment-entrypoint.md`
+- **Platform Secrets (ADR-0008 Control-Plane Model)** — ? (?)  
+  `docs/canon/guides/platform-secrets-sops-nix.md`
+- **Ractor Supervision Best Practices for ChoirOS** — ? (?)  
+  `docs/canon/guides/ractor-supervision-best-practices.md`
+- **Simplified Agent Harness** — ? (?)  
+  `docs/canon/guides/simplified-agent-harness.md`
+- **Unified Agentic Loop Harness (Chat, Terminal, Researcher)** — ? (Draft architecture for implementation)  
+  `docs/canon/guides/unified-agentic-loop-harness.md`
+- **VFKit Local Proof Runbook (Mac)** — ? (active)  
+  `docs/canon/guides/vfkit-local-proof.md`
+- **Writer App API Contract** — ? (?)  
+  `docs/canon/guides/writer-api-contract.md`
 
 ## Active (In Progress)
 
 - **[P3]** Inbox — Note (Active)  
   `docs/active/notes/inbox.md`
+- **[P5]** ADR-0002: Rust + Nix Build and Cache Strategy — ? (Accepted with Gaps)  
+  `docs/active/decisions/adr-0002-rust-nix-build-and-cache-strategy.md`
+- **[P5]** ADR-0003: Hypervisor-Sandbox Secrets Boundary — ? (Accepted with Gaps)  
+  `docs/active/decisions/adr-0003-hypervisor-sandbox-secrets-boundary.md`
+- **[P5]** ADR-0004: Hypervisor-Sandbox UI Runtime Boundary — ? (Proposed)  
+  `docs/active/decisions/adr-0004-hypervisor-sandbox-ui-runtime-boundary.md`
+- **[P5]** ADR-0005: ALM Harness Integration Strategy (Draft) — ? (Draft (decision pending))  
+  `docs/active/decisions/adr-0005-alm-harness-integration.md`
+- **[P5]** ADR-0006: Prompt Centralization in BAML (Draft) — ? (Draft (decision pending))  
+  `docs/active/decisions/adr-0006-prompt-centralization-baml.md`
+- **[P5]** ADR-0009: Terminal Renderer Strategy (xterm.js vs Ghostty/libghostty) — ? (Proposed)  
+  `docs/active/decisions/adr-0009-terminal-renderer-strategy-xterm-vs-libghostty.md`
+- **[P5]** ADR-0010: OVH Bootstrap VM Fleet Capacity and Minimal 80/20 Lifecycle API — ? (Proposed)  
+  `docs/active/decisions/adr-0010-ovh-bootstrap-vm-fleet-capacity-and-minimal-lifecycle-api.md`
+- **[P5]** ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes) — ? (Proposed)  
+  `docs/active/decisions/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
+- **[P5]** ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion — ? (Draft)  
+  `docs/active/decisions/adr-0013-fleet-ctl-change-lifecycle-and-promotion.md`
+- **[P5]** ADR-0014: Per-User Storage Isolation and Desktop Sync — ? (Draft)  
+  `docs/active/decisions/adr-0014-per-user-storage-and-desktop-sync.md`
 - **[P5]** ADR-0015: Documentation Kanban Architecture — Decision (Draft)  
   `docs/active/decisions/adr-0015-docs-kanban-architecture.md`
+- **[P5]** Deployment Checkpoint and Next Steps — ? (Active)  
+  `docs/active/guides/deployment-checkpoint-and-next-steps.md`
 - **[P5]** Docs Migration File Map — Guide (Active) | Requires: [ADR-0015]  
   `docs/active/guides/docs-migration-file-map.md`
 - **[P5]** Docs Migration Guide: v1 → Kanban Architecture — Guide (Active)  
   `docs/active/guides/docs-migration-guide.md`
+- **[P5]** OVH US-East Bootstrap Runbook: Secrets + Compute Lifecycle — ? (Active (executing))  
+  `docs/active/guides/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
 - **[P5]** Docs as Kanban: The Two-Column Model — Note (Active)  
   `docs/active/notes/2026-03-06-docs-kanban-model.md`
+- **[P5]** Docs v2 Problem Framing — ? (Draft)  
+  `docs/active/notes/2026-03-06-docs-v2-problem-framing.md`
+- **[P5]** Backend-Authoritative UI State Pattern — ? (Adopted (architecture baseline))  
+  `docs/active/notes/backend-authoritative-ui-state-pattern.md`
+- **[P5]** Mind Map + Checklist UI: Comprehensive Research Document — ? (?)  
+  `docs/active/notes/mind-map-ui-research.md`
+- **[P5]** pi_agent_rust Integration Analysis — ? (?)  
+  `docs/active/notes/pi_agent_rust_integration_analysis.md`
+- **[P5]** Researcher Search Dual-Interface Runbook — ? (Authoritative implementation + hardening runbook (current architecture aligned))  
+  `docs/active/notes/researcher-search-dual-interface-runbook.md`
+- **[P5]** Critical Analysis: ChoirOS Roadmap vs. Codebase & Best Practices — ? (?)  
+  `docs/active/notes/roadmap-critical-analysis.md`
+- **[P5]** ChoirOS Roadmap Dependency Tree (Active) — ? (Authoritative order)  
+  `docs/active/notes/roadmap-dependency-tree.md`
 
 ## State (Snapshots & Reports)
 
-_No state docs yet._
+- Provider Matrix Report (2026-02-26-022407) — ? (?)  
+  `docs/state/reports/2026-02-26-022407-provider-matrix-kimi.md`
+- Provider Matrix Report (2026-02-26-022532) — ? (?)  
+  `docs/state/reports/2026-02-26-022532-provider-matrix-all-models.md`
+- Local Cutover Step 1 Report — ? (?)  
+  `docs/state/reports/2026-02-26-local-cutover-step1.md`
+- ChoirOS Logging Security & Compliance Report — ? (?)  
+  `docs/state/reports/choiros-logging-security-report.md`
+- Conductor E2E Test Intelligence Report — ? (?)  
+  `docs/state/reports/conductor-intelligence-2026-02-10.md`
+- Local NixOS Builder VM Setup Handoff - 2026-02-28 — ? (?)  
+  `docs/state/snapshots/2026-02-28-local-nixos-builder-vm-setup.md`
+- Handoff: OVH Bootstrap and Local Startup Documentation Status — ? (?)  
+  `docs/state/snapshots/2026-03-04-231800-ovh-bootstrap-current-status.md`
+- Checkpoint: Writer, Tracing, and Bootstrap Readiness — ? (Active)  
+  `docs/state/snapshots/2026-03-06-writer-tracing-bootstrap-checkpoint.md`
 
 ## Dependency Graph
 
@@ -41,4 +127,4 @@ _No state docs yet._
 ADR-0015 → Docs Migration File Map
 ```
 
-*Generated 2026-03-06 — 0 canon, 5 active, 0 state docs.*
+*Generated 2026-03-06 — 17 canon, 24 active, 8 state docs.*
