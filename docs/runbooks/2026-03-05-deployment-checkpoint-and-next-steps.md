@@ -99,6 +99,14 @@ Open question: what does it mean to have diverging user branches and global sand
 - How do global platform updates propagate to user-customized branches?
 - Snapshot/restore for branch switching?
 
+### Priority 2.5: Per-User Storage (btrfs + virtiofs)
+ADR-0014 decision: virtiofs passthrough of per-user btrfs subvolumes on host.
+1. Format host data partition as btrfs
+2. Create per-user subvolumes (`/data/users/{user_id}/`)
+3. Update virtiofsd to share per-user dir instead of shared `/opt/choiros/data/sandbox`
+4. Wire btrfs snapshot into fleet-ctl
+5. User data survives VM restarts (fixes fatal P0 bug)
+
 ### Later Gates (unchanged)
 - Gate 3: Lifecycle API (start/stop/get/list with node placement)
 - Gate 4: Snapshot Lifecycle (snapshot/restore/delete for session parking)
