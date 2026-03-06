@@ -14,45 +14,12 @@ just local-build-ui && just dev
 # Open http://127.0.0.1:9090/login
 ```
 
-## Canon (Accepted / Operational)
-
-- **ADR-0001: EventStore/EventBus Reconciliation** — Decision (Accepted)  
-  `docs/canon/decisions/adr-0001-eventstore-eventbus-reconciliation.md`
-- **ADR-0007: 3-Tier Control/Runtime/Client Architecture** — Decision (Accepted)  
-  `docs/canon/decisions/adr-0007-3-tier-control-runtime-client-architecture.md`
-- **ADR-0008: OVH Self-Hosted Secrets Architecture (No Repo Secrets, No Sandbox Secrets)** — Decision (Accepted)  
-  `docs/canon/decisions/adr-0008-ovh-selfhosted-secrets-architecture.md`
-- **ADR-0012: OVH US-East Bootstrap Secrets and Two-Node Compute Lifecycle** — Decision (Accepted)  
-  `docs/canon/decisions/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
-- **ChoirOS Actor Network Orientation** — Guide (Accepted)  
-  `docs/canon/guides/actor-network-orientation.md`
-- **Files App API Contract** — Guide (Accepted)  
-  `docs/canon/guides/files-api-contract.md`
-- **Local Provider Matrix Validation** — Guide (Accepted)  
-  `docs/canon/guides/local-provider-matrix-validation.md`
-- **Local NixOS + VFKit Miniguide (Manual Run)** — Guide (Accepted)  
-  `docs/canon/guides/local-vfkit-nixos-miniguide.md`
-- **ChoirOS Model-Provider Agnostic LLM Harness Runbook** — Guide (Accepted)  
-  `docs/canon/guides/model-provider-agnostic-runbook.md`
-- **Nix Setup Runbook** — Guide (Accepted)  
-  `docs/canon/guides/nix-setup.md`
-- **OVH Config and Deployment Entrypoint (Comprehensive)** — Guide (Accepted)  
-  `docs/canon/guides/ovh-config-and-deployment-entrypoint.md`
-- **Platform Secrets (ADR-0008 Control-Plane Model)** — Guide (Accepted)  
-  `docs/canon/guides/platform-secrets-sops-nix.md`
-- **Ractor Supervision Best Practices for ChoirOS** — Guide (Accepted)  
-  `docs/canon/guides/ractor-supervision-best-practices.md`
-- **Simplified Agent Harness** — Guide (Accepted)  
-  `docs/canon/guides/simplified-agent-harness.md`
-- **Unified Agentic Loop Harness (Chat, Terminal, Researcher)** — Guide (Accepted)  
-  `docs/canon/guides/unified-agentic-loop-harness.md`
-- **VFKit Local Proof Runbook (Mac)** — Guide (Accepted)  
-  `docs/canon/guides/vfkit-local-proof.md`
-- **Writer App API Contract** — Guide (Accepted)  
-  `docs/canon/guides/writer-api-contract.md`
-
 ## Active (In Progress)
 
+- **[P2]** ADR-0007: 3-Tier Control/Runtime/Client Architecture — Decision (Draft)  
+  `docs/active/decisions/adr-0007-3-tier-control-runtime-client-architecture.md`
+- **[P3]** Unified Agentic Loop Harness (Chat, Terminal, Researcher) — Guide (Active)  
+  `docs/active/guides/unified-agentic-loop-harness.md`
 - **[P3]** Inbox — Note (Active)  
   `docs/active/notes/inbox.md`
 - **[P5]** ADR-0002: Rust + Nix Build and Cache Strategy — Decision (Draft)  
@@ -121,10 +88,43 @@ just local-build-ui && just dev
 - Checkpoint: Writer, Tracing, and Bootstrap Readiness — Snapshot (Active)  
   `docs/state/snapshots/2026-03-06-writer-tracing-bootstrap-checkpoint.md`
 
+## Canon (Accepted / Operational)
+
+- **ADR-0001: EventStore/EventBus Reconciliation** — Decision (Accepted)  
+  `docs/canon/decisions/adr-0001-eventstore-eventbus-reconciliation.md`
+- **ADR-0008: OVH Self-Hosted Secrets Architecture (No Repo Secrets, No Sandbox Secrets)** — Decision (Accepted)  
+  `docs/canon/decisions/adr-0008-ovh-selfhosted-secrets-architecture.md`
+- **ADR-0012: OVH US-East Bootstrap Secrets and Two-Node Compute Lifecycle** — Decision (Accepted)  
+  `docs/canon/decisions/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
+- **ChoirOS Actor Network Orientation** — Guide (Accepted)  
+  `docs/canon/guides/actor-network-orientation.md`
+- **Files App API Contract** — Guide (Accepted)  
+  `docs/canon/guides/files-api-contract.md`
+- **Local Provider Matrix Validation** — Guide (Accepted)  
+  `docs/canon/guides/local-provider-matrix-validation.md`
+- **Local NixOS + VFKit Miniguide (Manual Run)** — Guide (Accepted)  
+  `docs/canon/guides/local-vfkit-nixos-miniguide.md`
+- **ChoirOS Model-Provider Agnostic LLM Harness Runbook** — Guide (Accepted)  
+  `docs/canon/guides/model-provider-agnostic-runbook.md`
+- **Nix Setup Runbook** — Guide (Accepted)  
+  `docs/canon/guides/nix-setup.md`
+- **OVH Config and Deployment Entrypoint (Comprehensive)** — Guide (Accepted)  
+  `docs/canon/guides/ovh-config-and-deployment-entrypoint.md`
+- **Platform Secrets (ADR-0008 Control-Plane Model)** — Guide (Accepted)  
+  `docs/canon/guides/platform-secrets-sops-nix.md`
+- **Ractor Supervision Best Practices for ChoirOS** — Guide (Accepted)  
+  `docs/canon/guides/ractor-supervision-best-practices.md`
+- **Simplified Agent Harness** — Guide (Accepted)  
+  `docs/canon/guides/simplified-agent-harness.md`
+- **VFKit Local Proof Runbook (Mac)** — Guide (Accepted)  
+  `docs/canon/guides/vfkit-local-proof.md`
+- **Writer App API Contract** — Guide (Accepted)  
+  `docs/canon/guides/writer-api-contract.md`
+
 ## Dependency Graph
 
 ```
 ADR-0015 → Docs Migration File Map
 ```
 
-*Generated 2026-03-06 — 17 canon, 24 active, 8 state docs.*
+*Generated 2026-03-06 — 15 canon, 26 active, 8 state docs.*

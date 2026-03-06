@@ -71,19 +71,7 @@ just local-build-ui && just dev
 
 HEADER
 
-# --- Canon: The Truth ---
-echo "## Canon (Accepted / Operational)"
-echo ""
-has_canon=false
-for i in $(seq 0 $((idx - 1))); do
-  case "${DOC_PATHS[$i]}" in canon/*) has_canon=true ;; *) continue ;; esac
-  printf -- "- **%s** — %s (%s)  \n  \`docs/%s\`\n" \
-    "${DOC_TITLES[$i]}" "${DOC_KINDS[$i]:-?}" "${DOC_STATUSES[$i]:-?}" "${DOC_PATHS[$i]}"
-done
-$has_canon || echo "_No canon docs yet._"
-echo ""
-
-# --- Active: In Progress ---
+# --- Active: In Progress (listed first — this is where attention goes) ---
 echo "## Active (In Progress)"
 echo ""
 
@@ -126,6 +114,18 @@ for i in $(seq 0 $((idx - 1))); do
     "${DOC_TITLES[$i]}" "${DOC_KINDS[$i]:-?}" "${DOC_STATUSES[$i]:-?}" "${DOC_PATHS[$i]}"
 done
 $has_state || echo "_No state docs yet._"
+echo ""
+
+# --- Canon: The Truth ---
+echo "## Canon (Accepted / Operational)"
+echo ""
+has_canon=false
+for i in $(seq 0 $((idx - 1))); do
+  case "${DOC_PATHS[$i]}" in canon/*) has_canon=true ;; *) continue ;; esac
+  printf -- "- **%s** — %s (%s)  \n  \`docs/%s\`\n" \
+    "${DOC_TITLES[$i]}" "${DOC_KINDS[$i]:-?}" "${DOC_STATUSES[$i]:-?}" "${DOC_PATHS[$i]}"
+done
+$has_canon || echo "_No canon docs yet._"
 echo ""
 
 # --- Dependency Graph ---

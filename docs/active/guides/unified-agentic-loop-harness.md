@@ -2,7 +2,8 @@
 
 Date: 2026-02-08
 Kind: Guide
-Status: Accepted
+Status: Active
+Priority: 3
 Requires: []
 
 ## Narrative Summary (1-minute read)
