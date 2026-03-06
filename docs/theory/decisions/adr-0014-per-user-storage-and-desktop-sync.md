@@ -283,18 +283,114 @@ The hybrid is correct: real filesystem for performance, SQLite metadata index fo
 
 ---
 
-## Verification Criteria
+## Verification (TDD — write these tests before implementation)
 
-- [ ] Host data partition formatted as btrfs
-- [ ] Per-user btrfs subvolumes created on user registration
-- [ ] virtiofsd shares per-user subvolume (not shared dir)
-- [ ] User data survives VM restart (the P0 fatal bug)
-- [ ] `btrfs snapshot` works for user workspace (<1s)
-- [ ] `btrfs send/receive` works for cross-node migration
-- [ ] P7 benchmark: fio, cargo build, git operations measured on virtiofs+btrfs
-- [ ] (Phase 1) Mutagen syncs workspace to desktop client bidirectionally
-- [ ] (Phase 2) SQLite metadata index tracks file tree for smart sync
-- [ ] (Phase 3) Placeholder files work on at least one OS (macOS or Linux)
+### Gate 1: Host storage (run on Node A)
+
+```bash
+# T1: btrfs partition exists
+test "$(stat -f -c %T /data)" = "btrfs" && echo PASS
+
+# T2: can create per-user subvolume
+btrfs subvolume create /data/users/test-user-$$
+test -d /data/users/test-user-$$ && echo PASS
+
+# T3: can snapshot in <1s
+time btrfs subvolume snapshot /data/users/test-user-$$ /data/snapshots/test-snap-$$
+# assert wall time < 1s
+
+# T4: can delete subvolume + snapshot
+btrfs subvolume delete /data/snapshots/test-snap-$$
+btrfs subvolume delete /data/users/test-user-$$
+```
+
+### Gate 2: VM sees per-user storage
+
+```bash
+# T5: virtiofsd serves per-user dir (not shared /opt/choiros/data/sandbox)
+# From inside VM:
+mount | grep virtiofs | grep -q "/workspace" && echo PASS
+touch /workspace/canary-$$ && echo PASS
+
+# T6: file persists on host
+# From host:
+test -f /data/users/{user_id}/canary-$$ && echo PASS
+```
+
+### Gate 3: Persistence across VM restart (the P0 fatal bug)
+
+```bash
+# T7: write → stop → start → read
+# From inside VM:
+echo "persist-test-$$" > /workspace/persist-test.txt
+
+# Stop VM, start VM (via lifecycle API or ovh-runtime-ctl)
+
+# From inside VM after restart:
+test "$(cat /workspace/persist-test.txt)" = "persist-test-$$" && echo PASS
+```
+
+### Gate 4: Lifecycle API
+
+```bash
+# T8: create returns VM with storage
+curl -sf -X POST http://localhost:9090/v1/vms \
+  -d '{"owner_id":"test","flavor":"2vcpu-3gib"}' | jq -e '.vm_id' && echo PASS
+
+# T9: start → running
+VM_ID=$(curl -sf ... | jq -r .vm_id)
+curl -sf -X POST http://localhost:9090/v1/vms/$VM_ID/start
+curl -sf http://localhost:9090/v1/vms/$VM_ID | jq -e '.status == "running"' && echo PASS
+
+# T10: snapshot → snapshotted (includes btrfs snapshot)
+curl -sf -X POST http://localhost:9090/v1/vms/$VM_ID/snapshot
+curl -sf http://localhost:9090/v1/vms/$VM_ID | jq -e '.status == "snapshotted"' && echo PASS
+# Verify btrfs snapshot exists on host:
+test -d /data/snapshots/$VM_ID && echo PASS
+
+# T11: restore → running with data intact
+curl -sf -X POST http://localhost:9090/v1/vms/$VM_ID/restore
+# Verify data written before snapshot is present
+
+# T12: delete cleans up subvolume + snapshot
+curl -sf -X DELETE http://localhost:9090/v1/vms/$VM_ID
+test ! -d /data/users/$VM_ID && echo PASS
+test ! -d /data/snapshots/$VM_ID && echo PASS
+
+# T13: idempotency — duplicate create with same key returns same VM
+# T14: quota — create beyond limit returns 429
+```
+
+### Gate 5: Cross-node migration
+
+```bash
+# T15: btrfs send/receive to Node B
+btrfs send /data/snapshots/$VM_ID | ssh node-b btrfs receive /data/users/
+ssh node-b test -d /data/users/$VM_ID && echo PASS
+```
+
+### Gate 6: Performance baselines (P7, non-blocking)
+
+```bash
+# T16: fio random read/write IOPS on virtiofs+btrfs (inside VM)
+fio --name=randwrite --ioengine=libaio --rw=randwrite --bs=4k \
+    --numjobs=4 --size=256M --runtime=30 --directory=/workspace
+# Record IOPS, compare to direct btrfs baseline
+
+# T17: cargo build inside VM
+cd /workspace/choiros-rs && time cargo build 2>&1
+# Record wall time, compare to host build time
+
+# T18: git operations inside VM
+cd /workspace/choiros-rs && time git status && time git log --oneline -100
+# Record latency
+```
+
+### Future gates (not blocking promotion to Accepted)
+
+- Mutagen bidirectional sync (desktop → host → VM)
+- SQLite metadata index tracks file tree
+- Placeholder files on at least one OS
 
 ---
 
