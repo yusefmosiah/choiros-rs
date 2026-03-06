@@ -57,10 +57,14 @@ Detailed runbook:
 14. `docs/architecture/2026-02-28-3-tier-gap-closure-plan.md` - Gap closure plan
 15. `docs/architecture/roadmap-dependency-tree.md` - Dependency tree
 
+### Checkpoints
+
+16. `docs/checkpoints/2026-03-06-writer-tracing-bootstrap-checkpoint.md` - **Latest: writer bugs, tracing gap, deploy status**
+
 ### Runbooks
 
-16. `docs/runbooks/ovh-config-and-deployment-entrypoint.md`
-17. `docs/runbooks/2026-03-05-deployment-checkpoint-and-next-steps.md` - **Current ops checklist**
+17. `docs/runbooks/ovh-config-and-deployment-entrypoint.md`
+18. `docs/runbooks/2026-03-05-deployment-checkpoint-and-next-steps.md` - **Current ops checklist**
 18. `docs/runbooks/2026-02-28-local-vfkit-nixos-miniguide.md`
 19. `docs/runbooks/vfkit-local-proof.md`
 20. `docs/runbooks/local-provider-matrix-validation.md`

@@ -38,10 +38,13 @@ needed for development workflows.
 - [x] All providers proxied (Bedrock, Z.ai, Kimi, OpenAI, Inception, Tavily, Brave, Exa)
 
 ### Known Bugs (blocking bootstrap)
-- [ ] **Writer "Failed to canonicalize sandbox root"** — `CHOIR_WRITER_ROOT_DIR` path
-      doesn't exist or isn't set correctly (visible in production UI)
-- [ ] Writer draft.md race condition (frontend opens before writer creates file)
-- [ ] Writer shows raw search results, not rewritten document
+- [x] ~~Writer "Failed to canonicalize sandbox root"~~ — Fixed (85651cc, 237ca75)
+- [x] ~~Writer draft.md race condition~~ — Fixed (frontend retries with backoff)
+- [x] ~~Writer reprompting deadlock~~ — Fixed (90e5e66, tokio::spawn background task)
+- [x] ~~Model defaults all Haiku~~ — Writer/conductor upgraded to Sonnet 4.6
+- [ ] Writer circular revisions — reprompt creates multiple versions that overwrite each other
+- [ ] Writer citation markers broken — `[^s1]` in doc body doesn't link to sidebar sources
+- [ ] Writer reprompt runs invisible in trace — events not recognized by trace parser
 
 ### Incomplete
 - [ ] Gate 2: sandbox inside cloud-hypervisor VM not confirmed reachable (firewall fix untested)
@@ -63,10 +66,14 @@ GitHub secrets: `FLAKEHUB_AUTH_TOKEN`, `OVH_DEPLOY_SSH_KEY`, `OVH_NODE_A_HOST`, 
 ## Path to Bootstrap (Developing ChoirOS Inside ChoirOS)
 
 ### Priority 1: Fix Writer Bugs
-The Writer is the primary development surface. These bugs block self-hosting:
-1. Fix "Failed to canonicalize sandbox root" error
-2. Fix draft.md race condition
-3. Fix raw search results rendering
+The Writer is the primary development surface. Remaining bugs:
+1. ~~Fix "Failed to canonicalize sandbox root" error~~ DONE
+2. ~~Fix draft.md race condition~~ DONE
+3. ~~Fix reprompting deadlock~~ DONE
+4. Fix circular revisions (version-aware writer context)
+5. Fix citation markers (system prompt + citation index contract)
+6. Fix reprompt trace visibility (parser recognition)
+See: `docs/checkpoints/2026-03-06-writer-tracing-bootstrap-checkpoint.md`
 
 ### Priority 2: Complete Gate 2 (Cloud-Hypervisor)
 1. Test firewall fix (rebuild VM on server)
