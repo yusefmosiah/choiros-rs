@@ -1573,7 +1573,11 @@ impl WriterActor {
              - Deletions (honor them)\n\
              - Replacements (use the new content)\n\n\
              If the changes are purely editorial (typo fixes, reformatting), apply them as-is.\n\
-             If the changes require research or code inspection, delegate to workers first.\n\n\
+             If the changes require research or code inspection, delegate to workers first.\n\
+             After you submit a satisfactory write_revision, call finished instead of creating \
+             another revision unless fresh worker results still require a change.\n\
+             Do not use markdown footnote markers like [^s1] or [1] unless the document already \
+             has a working citation system. Prefer inline source mentions or plain prose.\n\n\
              ## Current Document (before user edit)\n\n{base_content}\n\n\
              ## User's Changes (unified diff)\n\n```diff\n{unified_diff}```\n\n\
              ## User's Edited Version\n\n{prompted_content}"
@@ -1763,6 +1767,10 @@ impl WriterActor {
                     "run_id": &run_id,
                     "call_id": &call_id,
                     "parent_version_id": parent_version_id,
+                    "objective": "Review the user's edits and produce a revised document.",
+                    "phase": "run_start",
+                    "status": "running",
+                    "message": "Writer reprompt orchestration started",
                 }),
                 actor_id: writer_id.clone(),
                 user_id: user_id.clone(),
@@ -1804,23 +1812,36 @@ impl WriterActor {
             .await;
 
         let (event_type, payload) = match result {
-            Ok(run_result) => (
-                "writer.actor.user_prompt_orchestration.completed",
-                serde_json::json!({
-                    "run_id": &run_id,
-                    "call_id": &call_id,
-                    "success": run_result.success,
-                    "summary": run_result.summary,
-                }),
-            ),
-            Err(e) => (
-                "writer.actor.user_prompt_orchestration.failed",
-                serde_json::json!({
-                    "run_id": &run_id,
-                    "call_id": &call_id,
-                    "error": e.to_string(),
-                }),
-            ),
+            Ok(run_result) => {
+                let summary = run_result.summary;
+                (
+                    "writer.actor.user_prompt_orchestration.completed",
+                    serde_json::json!({
+                        "run_id": &run_id,
+                        "call_id": &call_id,
+                        "success": run_result.success,
+                        "phase": "completion",
+                        "status": "completed",
+                        "message": &summary,
+                        "summary": summary,
+                    }),
+                )
+            }
+            Err(e) => {
+                let error = e.to_string();
+                (
+                    "writer.actor.user_prompt_orchestration.failed",
+                    serde_json::json!({
+                        "run_id": &run_id,
+                        "call_id": &call_id,
+                        "phase": "failure",
+                        "status": "failed",
+                        "message": "Writer reprompt orchestration failed",
+                        "error_message": &error,
+                        "error": error,
+                    }),
+                )
+            }
         };
         let _ = event_store.send_message(EventStoreMsg::AppendAsync {
             event: AppendEvent {

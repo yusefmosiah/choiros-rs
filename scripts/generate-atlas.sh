@@ -110,18 +110,19 @@ Agents (conductor, writer, researcher, terminal) run inside per-user
 MicroVMs on OVH bare metal, fronted by a hypervisor control plane
 that handles auth, provider gateway, and VM lifecycle.
 
-**Current state:** Two OVH nodes running. CI/CD deploys to Node A.
-Sandbox runs inside a cloud-hypervisor VM with virtiofs shares.
-Writer, researcher, and terminal agents are functional. Conductor
-orchestrates via model-led control flow.
+**Current state:** Two OVH nodes running. CI/CD deploys to Node A
+(hard restart). Sandbox runs inside a cloud-hypervisor VM with virtiofs
+shares. Writer, researcher, and terminal agents are functional.
+Conductor orchestrates via model-led control flow.
 
-**Critical blocker:** VM state is lost on idle watchdog restart —
-no snapshotting or persistent volumes yet (see ADR-0014 for the plan).
+**Next step:** Rolling deploys (P1). Deploy to Node B as staging, run
+e2e tests with video artifacts, human approves, promote to Node A.
+This is the meta-enabler — once the deploy loop is autonomous, agents
+can implement and verify the rest of the roadmap.
 
-**Where we're going:** Fix VM persistence, then build fleet-ctl for
-change lifecycle and promotion (ADR-0013), per-user storage isolation
-(ADR-0014), and an orchestration layer between conductor and long-lived
-agent sessions.
+**Then:** Per-user VM lifecycle and persistent storage (ADR-0014, P2),
+fleet-ctl for change promotion (ADR-0013, P3), state/compute
+decoupling for publishing (ADR-0011, P3).
 
 HEADER
 

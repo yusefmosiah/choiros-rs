@@ -382,7 +382,13 @@ pub fn parse_trace_event(event: &LogsEvent) -> Option<TraceEvent> {
 }
 
 pub fn parse_prompt_event(event: &LogsEvent) -> Option<PromptEvent> {
-    if event.event_type != "trace.prompt.received" && event.event_type != "conductor.task.started" {
+    let is_prompt = matches!(
+        event.event_type.as_str(),
+        "trace.prompt.received"
+            | "conductor.task.started"
+            | "writer.actor.user_prompt_orchestration.dispatched"
+    );
+    if !is_prompt {
         return None;
     }
 
@@ -558,6 +564,9 @@ pub fn parse_conductor_run_event(event: &LogsEvent) -> Option<ConductorRunEvent>
             | "conductor.task.completed"
             | "conductor.task.failed"
             | "conductor.task.progress"
+            | "writer.actor.user_prompt_orchestration.dispatched"
+            | "writer.actor.user_prompt_orchestration.completed"
+            | "writer.actor.user_prompt_orchestration.failed"
     );
     if !is_run {
         return None;
@@ -565,6 +574,30 @@ pub fn parse_conductor_run_event(event: &LogsEvent) -> Option<ConductorRunEvent>
 
     let payload = &event.payload;
     let run_id = payload_run_id(payload)?;
+    let synthetic_status = match event.event_type.as_str() {
+        "writer.actor.user_prompt_orchestration.dispatched" => Some("running"),
+        "writer.actor.user_prompt_orchestration.completed" => Some("completed"),
+        "writer.actor.user_prompt_orchestration.failed" => Some("failed"),
+        _ => None,
+    };
+    let synthetic_phase = match event.event_type.as_str() {
+        "writer.actor.user_prompt_orchestration.dispatched" => Some("run_start"),
+        "writer.actor.user_prompt_orchestration.completed" => Some("completion"),
+        "writer.actor.user_prompt_orchestration.failed" => Some("failure"),
+        _ => None,
+    };
+    let synthetic_message = match event.event_type.as_str() {
+        "writer.actor.user_prompt_orchestration.dispatched" => {
+            Some("Writer reprompt orchestration started")
+        }
+        "writer.actor.user_prompt_orchestration.completed" => {
+            payload.get("summary").and_then(|v| v.as_str())
+        }
+        "writer.actor.user_prompt_orchestration.failed" => {
+            Some("Writer reprompt orchestration failed")
+        }
+        _ => None,
+    };
     Some(ConductorRunEvent {
         seq: event.seq,
         event_id: event.event_id.clone(),
@@ -574,14 +607,17 @@ pub fn parse_conductor_run_event(event: &LogsEvent) -> Option<ConductorRunEvent>
         phase: payload
             .get("phase")
             .and_then(|v| v.as_str())
+            .or(synthetic_phase)
             .map(ToString::to_string),
         status: payload
             .get("status")
             .and_then(|v| v.as_str())
+            .or(synthetic_status)
             .map(ToString::to_string),
         message: payload
             .get("message")
             .and_then(|v| v.as_str())
+            .or(synthetic_message)
             .map(ToString::to_string),
         error_code: payload
             .get("error_code")
@@ -590,8 +626,80 @@ pub fn parse_conductor_run_event(event: &LogsEvent) -> Option<ConductorRunEvent>
         error_message: payload
             .get("error_message")
             .and_then(|v| v.as_str())
+            .or_else(|| payload.get("error").and_then(|v| v.as_str()))
             .map(ToString::to_string),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_conductor_run_event, parse_prompt_event};
+    use crate::api::LogsEvent;
+    use serde_json::json;
+
+    fn logs_event(event_type: &str, payload: serde_json::Value) -> LogsEvent {
+        LogsEvent {
+            seq: 42,
+            event_id: format!("event-{event_type}"),
+            timestamp: "2026-03-06T12:00:00Z".to_string(),
+            event_type: event_type.to_string(),
+            actor_id: "writer:test".to_string(),
+            user_id: "user-test".to_string(),
+            payload,
+        }
+    }
+
+    #[test]
+    fn parse_prompt_event_accepts_writer_reprompt_dispatch() {
+        let event = logs_event(
+            "writer.actor.user_prompt_orchestration.dispatched",
+            json!({
+                "run_id": "run-writer-1",
+                "objective": "Revise the document with the user's edits."
+            }),
+        );
+
+        let parsed = parse_prompt_event(&event).expect("writer reprompt prompt event");
+
+        assert_eq!(parsed.run_id, "run-writer-1");
+        assert_eq!(parsed.objective, "Revise the document with the user's edits.");
+    }
+
+    #[test]
+    fn parse_conductor_run_event_normalizes_writer_reprompt_completion() {
+        let event = logs_event(
+            "writer.actor.user_prompt_orchestration.completed",
+            json!({
+                "run_id": "run-writer-2",
+                "summary": "Revision saved",
+            }),
+        );
+
+        let parsed = parse_conductor_run_event(&event).expect("writer reprompt completion");
+
+        assert_eq!(parsed.run_id, "run-writer-2");
+        assert_eq!(parsed.status.as_deref(), Some("completed"));
+        assert_eq!(parsed.phase.as_deref(), Some("completion"));
+        assert_eq!(parsed.message.as_deref(), Some("Revision saved"));
+    }
+
+    #[test]
+    fn parse_conductor_run_event_normalizes_writer_reprompt_failure() {
+        let event = logs_event(
+            "writer.actor.user_prompt_orchestration.failed",
+            json!({
+                "run_id": "run-writer-3",
+                "error": "model timed out"
+            }),
+        );
+
+        let parsed = parse_conductor_run_event(&event).expect("writer reprompt failure");
+
+        assert_eq!(parsed.run_id, "run-writer-3");
+        assert_eq!(parsed.status.as_deref(), Some("failed"));
+        assert_eq!(parsed.phase.as_deref(), Some("failure"));
+        assert_eq!(parsed.error_message.as_deref(), Some("model timed out"));
+    }
 }
 
 pub fn parse_worker_lifecycle_event(event: &LogsEvent) -> Option<WorkerLifecycleEvent> {

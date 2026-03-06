@@ -3,8 +3,8 @@
 Date: 2026-03-06
 Kind: Decision
 Status: Draft
-Priority: 2
-Requires: [ADR-0014]
+Priority: 3
+Requires: []
 Supersedes: Extends ADR-0010 (VM fleet lifecycle), integrates ADR-0011 (state/compute decoupling)
 Authors: wiz + Claude
 

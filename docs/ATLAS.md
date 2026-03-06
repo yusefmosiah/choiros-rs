@@ -10,30 +10,33 @@ Agents (conductor, writer, researcher, terminal) run inside per-user
 MicroVMs on OVH bare metal, fronted by a hypervisor control plane
 that handles auth, provider gateway, and VM lifecycle.
 
-**Current state:** Two OVH nodes running. CI/CD deploys to Node A.
-Sandbox runs inside a cloud-hypervisor VM with virtiofs shares.
-Writer, researcher, and terminal agents are functional. Conductor
-orchestrates via model-led control flow.
+**Current state:** Two OVH nodes running. CI/CD deploys to Node A
+(hard restart). Sandbox runs inside a cloud-hypervisor VM with virtiofs
+shares. Writer, researcher, and terminal agents are functional.
+Conductor orchestrates via model-led control flow.
 
-**Critical blocker:** VM state is lost on idle watchdog restart —
-no snapshotting or persistent volumes yet (see ADR-0014 for the plan).
+**Next step:** Rolling deploys (P1). Deploy to Node B as staging, run
+e2e tests with video artifacts, human approves, promote to Node A.
+This is the meta-enabler — once the deploy loop is autonomous, agents
+can implement and verify the rest of the roadmap.
 
-**Where we're going:** Fix VM persistence, then build fleet-ctl for
-change lifecycle and promotion (ADR-0013), per-user storage isolation
-(ADR-0014), and an orchestration layer between conductor and long-lived
-agent sessions.
+**Then:** Per-user VM lifecycle and persistent storage (ADR-0014, P2),
+fleet-ctl for change promotion (ADR-0013, P3), state/compute
+decoupling for publishing (ADR-0011, P3).
 
 <details open>
 <summary><h2>Theory (What We're Thinking)</h2></summary>
 
-- **[P1]** ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync — Decision (Draft) | Requires: [ADR-0007, ADR-0012]  
+- **[P1]** Rolling Deploys: Staging → E2E → Promote — Guide (Active)  
+  `docs/theory/guides/rolling-deploys.md`
+- **[P2]** ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync — Decision (Draft) | Requires: [ADR-0007, ADR-0012]  
   `docs/theory/decisions/adr-0014-per-user-storage-and-desktop-sync.md`
-- **[P1]** Implementing ADR-0014: Per-User VM Lifecycle and Storage — Guide (Active) | Requires: [ADR-0014]  
+- **[P2]** Implementing ADR-0014: Per-User VM Lifecycle and Storage — Guide (Active) | Requires: [ADR-0014]  
   `docs/theory/guides/adr-0014-implementation.md`
-- **[P2]** ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion — Decision (Draft) | Requires: [ADR-0014]  
-  `docs/theory/decisions/adr-0013-fleet-ctl-change-lifecycle-and-promotion.md`
 - **[P3]** ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes) — Decision (Proposed) | Requires: [ADR-0014]  
   `docs/theory/decisions/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
+- **[P3]** ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion — Decision (Draft)  
+  `docs/theory/decisions/adr-0013-fleet-ctl-change-lifecycle-and-promotion.md`
 - **[P3]** Inbox — Note (Active)  
   `docs/theory/notes/inbox.md`
 - **[P4]** ADR-0003: Hypervisor-Sandbox Secrets Boundary — Decision (Draft) | Requires: [ADR-0008, ADR-0014]  
@@ -129,9 +132,8 @@ agent sessions.
 ADR-0008, ADR-0014 → ADR-0003: Hypervisor-Sandbox Secrets Boundary
 ADR-0007 → ADR-0004: Hypervisor-Sandbox UI Runtime Boundary
 ADR-0014 → ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes)
-ADR-0014 → ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion
 ADR-0007, ADR-0012 → ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync
 ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
 ```
 
-*Generated 2026-03-06 — 18 practice, 15 theory, 8 state docs.*
+*Generated 2026-03-06 — 18 practice, 16 theory, 8 state docs.*

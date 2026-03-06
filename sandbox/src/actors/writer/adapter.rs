@@ -415,6 +415,8 @@ impl WriterUserPromptAdapter {
                         output: serde_json::json!({
                             "mode": "write_revision",
                             "version_id": version.version_id,
+                            "status": "revision_applied",
+                            "next_step": "If this revision satisfies the objective and you have no pending delegations, call finished now. Do not emit another write_revision unless new worker results require a materially different document.",
                         })
                         .to_string(),
                         error: None,
@@ -553,7 +555,9 @@ Instructions:
 - Use "delegate_terminal" when you need to inspect the local codebase, run commands, or check files before revising.
 - You may delegate first, then call write_revision with the final content.
 - If the user's changes are purely editorial (typo fixes, reformatting, direct content changes), apply them directly via write_revision.
-- Always call write_revision before calling `finished` — the revision is the primary output."#
+- Always call write_revision before calling `finished` — the revision is the primary output.
+- After write_revision succeeds, call `finished` immediately unless you still need unresolved worker delegation.
+- Do not use markdown footnote syntax like [^s1] or [1] unless the document already contains a resolved citation system. Prefer inline source mentions or plain prose; source URLs are rendered separately in the UI."#
             .to_string()
     }
 
@@ -574,6 +578,11 @@ Instructions:
                 delegate to workers first, then revise.\n\
              4. The write_revision content must be the COMPLETE revised document, not a partial diff.\n\
              5. Always call write_revision with your final output before calling finished.\n\
+             6. After write_revision succeeds, call finished immediately unless unresolved \
+                worker delegation still needs to change the document.\n\
+             7. Do not invent markdown footnote markers like [^s1] or [1] unless the \
+                document already contains a working citation system. Prefer inline source \
+                mentions or plain prose; the UI renders source URLs separately.\n\
              \n\
              Run ID: {:?}\n\
              Call ID: {:?}\n\

@@ -3,7 +3,7 @@
 Date: 2026-03-06
 Kind: Decision
 Status: Draft
-Priority: 1
+Priority: 2
 Requires: [ADR-0007, ADR-0012]
 Authors: wiz + Claude
 

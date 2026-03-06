@@ -241,14 +241,19 @@ pub fn build_run_graph_summaries(
         if run_event.timestamp > entry.timestamp {
             entry.timestamp = run_event.timestamp.clone();
         }
-        match run_event.event_type.as_str() {
-            "conductor.task.completed" => {
+        let normalized_status = run_event.status.as_deref().or(match run_event.event_type.as_str() {
+            "conductor.task.completed" => Some("completed"),
+            "conductor.task.failed" => Some("failed"),
+            _ => None,
+        });
+        match normalized_status {
+            Some("completed") => {
                 if run_event.seq >= entry.run_terminal_seq {
                     entry.run_status = "completed".to_string();
                     entry.run_terminal_seq = run_event.seq;
                 }
             }
-            "conductor.task.failed" => {
+            Some("failed") => {
                 if run_event.seq >= entry.run_terminal_seq {
                     entry.run_status = "failed".to_string();
                     entry.run_terminal_seq = run_event.seq;
@@ -294,6 +299,42 @@ pub fn build_run_graph_summaries(
         .collect();
     result.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_run_graph_summaries;
+    use crate::components::trace::types::ConductorRunEvent;
+
+    #[test]
+    fn run_graph_uses_normalized_run_event_status() {
+        let run_events = vec![ConductorRunEvent {
+            seq: 7,
+            event_id: "event-1".to_string(),
+            event_type: "writer.actor.user_prompt_orchestration.completed".to_string(),
+            timestamp: "2026-03-06T12:00:00Z".to_string(),
+            run_id: "run-writer-graph".to_string(),
+            phase: Some("completion".to_string()),
+            status: Some("completed".to_string()),
+            message: Some("Revision saved".to_string()),
+            error_code: None,
+            error_message: None,
+        }];
+
+        let summaries = build_run_graph_summaries(
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &run_events,
+            &[],
+        );
+
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].run_id, "run-writer-graph");
+        assert_eq!(summaries[0].run_status, "completed");
+    }
 }
 
 // ── Graph node building ──────────────────────────────────────────────────────

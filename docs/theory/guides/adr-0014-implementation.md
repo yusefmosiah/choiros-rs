@@ -3,7 +3,7 @@
 Date: 2026-03-06
 Kind: Guide
 Status: Active
-Priority: 1
+Priority: 2
 Requires: [ADR-0014]
 
 ## What This Guide Is
