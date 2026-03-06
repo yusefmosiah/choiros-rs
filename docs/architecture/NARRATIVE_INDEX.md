@@ -47,6 +47,7 @@ Detailed runbook:
 7. `docs/architecture/adr-0010-ovh-bootstrap-vm-fleet-capacity-and-minimal-lifecycle-api.md` - OVH VM Fleet Bootstrap Capacity + Lifecycle API (Proposed)
 8. `docs/architecture/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md` - Bootstrap Into Publishing: State/Compute Decoupling + Runtime Modes (Proposed)
 9. `docs/architecture/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md` - OVH US-East Bootstrap Secrets + Two-Node Compute Lifecycle (Accepted)
+10. `docs/architecture/adr-0013-fleet-ctl-change-lifecycle-and-promotion.md` - **Fleet-Ctl, Change Lifecycle, User-to-Global Promotion (Draft)**
 
 ### Execution Plans (Feb 28, 2026)
 
@@ -119,6 +120,7 @@ ADRs are the **canonical** architecture documents. They are living documents tha
 | 0010 | OVH Bootstrap VM Fleet Capacity and Minimal 80/20 Lifecycle API | Proposed | Platform / Runtime / Infra |
 | 0011 | Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes) | Proposed | Platform / Runtime / Product |
 | 0012 | OVH US-East Bootstrap Secrets and Two-Node Compute Lifecycle | Accepted | Platform / Runtime / Infra |
+| 0013 | Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion | Draft | Platform / Runtime / Product |
 
 ### ADR Status Definitions
 

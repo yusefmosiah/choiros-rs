@@ -42,6 +42,10 @@ needed for development workflows.
 - [x] ~~Writer draft.md race condition~~ — Fixed (frontend retries with backoff)
 - [x] ~~Writer reprompting deadlock~~ — Fixed (90e5e66, tokio::spawn background task)
 - [x] ~~Model defaults all Haiku~~ — Writer/conductor upgraded to Sonnet 4.6
+- [ ] **VM state lost on restart (FATAL)** — idle watchdog kills VM, all in-VM data gone, no snapshotting
+- [ ] **`last_activity` not updated by browsing** — only proxy requests reset idle timer, reading docs doesn't
+- [ ] **502 on cold boot** — VM killed by watchdog, next request gets 502 during ~2min cold boot
+- [ ] **WebSocket disconnect on idle** — no ping keepalive, connections die silently
 - [ ] Writer circular revisions — reprompt creates multiple versions that overwrite each other
 - [ ] Writer citation markers broken — `[^s1]` in doc body doesn't link to sidebar sources
 - [ ] Writer reprompt runs invisible in trace — events not recognized by trace parser

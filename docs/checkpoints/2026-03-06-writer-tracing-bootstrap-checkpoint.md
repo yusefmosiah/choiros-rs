@@ -165,22 +165,80 @@ To move from local Claude Code to cloud-based agents developing ChoirOS:
 - [ ] Branch-based deploys (dev vs prod sandbox)
 - [ ] Claude Code cloud agent with repo access + deploy permissions
 
+## VM State Persistence (Fatal Bug)
+
+### Problem
+
+The idle watchdog (`SandboxRegistry::run_idle_watchdog`) kills user VMs after 30 minutes of
+inactivity (configurable via `SANDBOX_IDLE_TIMEOUT_SECS`, default 1800). When a VM is killed,
+**all in-VM state is lost** — documents, session data, everything. There is no snapshotting.
+Every restart is a full cold boot (~2 minutes: TAP → virtiofsd → cloud-hypervisor → NixOS boot
+→ sandbox binary start → health check).
+
+This is the single most critical production bug: users lose their work when the system
+"helpfully" parks their idle VM.
+
+### Root causes
+
+1. **No snapshot/restore**: `ovh-runtime-ctl.sh` only supports `ensure` and `stop`. Cloud-
+   hypervisor supports snapshotting, but it's not wired.
+
+2. **`last_activity` only updated by proxy requests**: The hypervisor middleware calls
+   `ensure_running()` on each proxied request to the sandbox, which updates `last_activity`.
+   But non-proxy activity (reading already-loaded documents, idle browsing, WebSocket
+   keepalive) does NOT update `last_activity`. A user actively reading their documents
+   for 30 minutes will have their VM killed.
+
+   Relevant code:
+   - `hypervisor/src/sandbox/mod.rs:190-216` — `ensure_running()` updates `last_activity`
+   - `hypervisor/src/middleware.rs:237` — proxy calls `ensure_running()`
+   - `hypervisor/src/sandbox/mod.rs:448-485` — `run_idle_watchdog()` checks every 60s
+
+3. **WebSocket disconnect on idle**: No ping keepalive at any layer (frontend, sandbox,
+   socat, Caddy). Long-lived WebSocket connections silently die, causing "Sandbox
+   disconnected" errors that require page reload.
+
+4. **502 on cold boot**: When a killed VM is restarted by the next request, the user gets
+   a 502 error while the VM cold boots. The `ensure_running()` call starts the VM but
+   returns before it's healthy, so the proxied request fails.
+
+### Required fixes
+
+1. **Persistent sandbox state**: Sandbox data (documents, session state, DB) must survive
+   VM restarts. Options:
+   - virtiofs shared directory for sandbox data (already partially exists for `/nix/store`)
+   - Persistent disk image mounted into VM
+   - Snapshot/restore via cloud-hypervisor API
+
+2. **Decouple `last_activity` from proxy**: Frontend should send periodic heartbeats
+   (e.g., every 60s via WebSocket or HTTP) that update `last_activity` independently of
+   sandbox proxy requests.
+
+3. **WebSocket keepalive**: Add ping/pong at the WebSocket layer to keep connections alive
+   through Caddy/socat/idle timeouts.
+
+4. **Graceful cold boot**: When `ensure_running()` has to start a VM, return a "loading"
+   response instead of proxying to a not-yet-healthy backend.
+
 ## What To Do Next
 
 ### Immediate (unblock daily use)
-1. Fix circular revisions: add version-aware context to writer system prompt, add
+1. **Fix VM state persistence** — sandbox data must survive VM restarts (fatal production bug)
+2. **Add frontend heartbeat** — decouple `last_activity` from sandbox proxy
+3. Fix circular revisions: add version-aware context to writer system prompt, add
    "call finished after write_revision unless you have pending delegations" instruction
-2. Fix citation markers: add system prompt instruction to not use footnote syntax,
+4. Fix citation markers: add system prompt instruction to not use footnote syntax,
    reference sources by URL inline or let the sidebar handle it
-3. Fix trace visibility: teach trace parser to recognize writer reprompt events as runs
+5. Fix trace visibility: teach trace parser to recognize writer reprompt events as runs
 
 ### Near-term (enable cloud development)
-4. Add sandbox VM restart to CI deploy pipeline
-5. Implement rolling deploy: start new → health check → stop old
-6. Set up branch-based deploy (dev sandbox for testing, live for production)
+6. Add sandbox VM restart to CI deploy pipeline
+7. Implement rolling deploy: start new → health check → stop old
+8. Set up branch-based deploy (dev sandbox for testing, live for production)
+9. WebSocket keepalive (ping/pong at WS layer)
 
 ### Strategic (message-level tracing)
-7. Design actor message trace event schema
-8. Instrument key actor message paths (conductor→writer, writer→researcher, etc.)
-9. Build message sequence diagram view in trace UI
-10. Deprecate per-agent timeline as the primary trace view
+10. Design actor message trace event schema
+11. Instrument key actor message paths (conductor→writer, writer→researcher, etc.)
+12. Build message sequence diagram view in trace UI
+13. Deprecate per-agent timeline as the primary trace view
