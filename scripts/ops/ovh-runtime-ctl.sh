@@ -12,10 +12,17 @@ export PATH="/run/current-system/sw/bin:/run/current-system/sw/sbin:$PATH"
 #   2. virtiofsd-run: starts virtiofs daemons (supervisord)
 #   3. microvm-run: starts cloud-hypervisor
 #
-# Usage: ovh-runtime-ctl.sh <ensure|stop> --user-id <id> --runtime <name> --port <port> [--role <live|dev>] [--branch <branch>]
+# Lifecycle verbs:
+#   ensure    — resume from VM snapshot if available, otherwise cold boot
+#   hibernate — pause + snapshot VM state to disk + stop process (fast resume next ensure)
+#   stop      — hard stop, no VM snapshot (data snapshot still taken)
+#
+# Usage: ovh-runtime-ctl.sh <ensure|hibernate|stop> --user-id <id> --runtime <name> --port <port> [--role <live|dev>] [--branch <branch>]
 
 WORKSPACE="${CHOIR_WORKSPACE_ROOT:-/opt/choiros/workspace}"
 VM_STATE_DIR="${CHOIR_VM_STATE_DIR:-/opt/choiros/vms/state}"
+SANDBOX_DATA_DIR="${CHOIR_SANDBOX_DATA_DIR:-/opt/choiros/data/sandbox}"
+SNAPSHOT_DIR="${CHOIR_SNAPSHOT_DIR:-/data/snapshots}"
 BRIDGE="br-choiros"
 
 # VM network assignments (static for Gate 2; dynamic per-user in Gate 3)
@@ -42,6 +49,8 @@ VM_PID_FILE="${VM_DIR}/vm.pid"
 VIRTIOFSD_PID_FILE="${VM_DIR}/virtiofsd.pid"
 SOCAT_PID_FILE="${VM_DIR}/socat.pid"
 VM_IP_ADDR="${VM_IP[${ROLE:-live}]:-10.0.0.10}"
+VM_SNAPSHOT_DIR="${VM_DIR}/vm-snapshot"
+API_SOCK="${VM_DIR}/sandbox-${VM_NAME}.sock"
 
 # Runner directory (built by deploy script)
 RUNNER_DIR="${WORKSPACE}/result-vm-${VM_NAME}"
@@ -49,6 +58,65 @@ RUNNER_DIR="${WORKSPACE}/result-vm-${VM_NAME}"
 log() { echo "[ovh-runtime-ctl] $*" >&2; }
 
 pid_alive() { kill -0 "$1" 2>/dev/null; }
+
+# Btrfs snapshot: save sandbox data
+snapshot_data() {
+  if ! btrfs subvolume show "$SANDBOX_DATA_DIR" &>/dev/null; then
+    log "Skipping data snapshot: $SANDBOX_DATA_DIR is not a btrfs subvolume"
+    return 0
+  fi
+
+  local snap_name snap_path
+  snap_name="$(date -u +%Y%m%dT%H%M%SZ)-${VM_NAME}"
+  snap_path="${SNAPSHOT_DIR}/${snap_name}"
+  mkdir -p "$SNAPSHOT_DIR"
+
+  log "Creating btrfs data snapshot: $snap_path"
+  btrfs subvolume snapshot -r "$SANDBOX_DATA_DIR" "$snap_path"
+
+  # Prune old snapshots (keep last 5)
+  local snaps
+  snaps=$(find "$SNAPSHOT_DIR" -maxdepth 1 -name "*-${VM_NAME}" -type d | sort)
+  local count
+  count=$(echo "$snaps" | wc -l)
+  if (( count > 5 )); then
+    echo "$snaps" | head -n $((count - 5)) | while read -r old; do
+      log "Pruning old data snapshot: $old"
+      btrfs subvolume delete "$old" 2>/dev/null || true
+    done
+  fi
+}
+
+# Restore from latest btrfs data snapshot on cold start
+restore_data_from_snapshot() {
+  if btrfs subvolume show "$SANDBOX_DATA_DIR" &>/dev/null; then
+    # Subvolume exists and has data — nothing to restore
+    if [ "$(ls -A "$SANDBOX_DATA_DIR" 2>/dev/null)" ]; then
+      return 0
+    fi
+  fi
+
+  local latest
+  latest=$(find "$SNAPSHOT_DIR" -maxdepth 1 -name "*-${VM_NAME}" -type d 2>/dev/null | sort | tail -1)
+  if [[ -z "$latest" ]]; then
+    log "No data snapshots found to restore"
+    return 0
+  fi
+
+  log "Restoring data from snapshot: $latest"
+
+  # If sandbox data dir is a subvolume, delete it first
+  if btrfs subvolume show "$SANDBOX_DATA_DIR" &>/dev/null; then
+    btrfs subvolume delete "$SANDBOX_DATA_DIR"
+  else
+    rm -rf "$SANDBOX_DATA_DIR"
+  fi
+
+  # Create writable snapshot from the readonly backup
+  btrfs subvolume snapshot "$latest" "$SANDBOX_DATA_DIR"
+  chown -R choiros:choiros "$SANDBOX_DATA_DIR"
+  log "Data restore complete"
+}
 
 setup_tap() {
   local tap="tap-${VM_NAME}"
@@ -97,7 +165,7 @@ start_virtiofsd() {
   local max_wait=15 elapsed=0
   while (( elapsed < max_wait )); do
     local sock_count
-    sock_count=$(find "$VM_DIR" -maxdepth 1 -name "*.sock" -not -name "*.api.sock" | wc -l)
+    sock_count=$(find "$VM_DIR" -maxdepth 1 -name "*.sock" -not -name "*.api.sock" -not -name "sandbox-*.sock" | wc -l)
     if (( sock_count >= 3 )); then
       log "virtiofsd sockets ready ($sock_count found)"
       return 0
@@ -121,46 +189,109 @@ stop_virtiofsd() {
   fi
 }
 
-start_vm() {
-  if [[ -f "$VM_PID_FILE" ]]; then
-    local pid; pid=$(cat "$VM_PID_FILE")
-    if pid_alive "$pid"; then
-      log "VM already running (PID $pid)"
-      return 0
-    fi
-    rm -f "$VM_PID_FILE"
-  fi
-
+# Cold boot: start cloud-hypervisor from microvm-run script
+cold_boot_vm() {
   local runner="${RUNNER_DIR}/bin/microvm-run"
   if [[ ! -x "$runner" ]]; then
     log "ERROR: microvm-run not found at $runner"
     exit 1
   fi
 
-  log "Starting VM $VM_NAME"
+  log "Cold booting VM $VM_NAME"
   cd "$VM_DIR"
   nohup "$runner" > "${VM_DIR}/vm.log" 2>&1 &
   local pid=$!
   echo "$pid" > "$VM_PID_FILE"
-  log "VM started (PID $pid)"
+  log "VM cold boot started (PID $pid)"
 }
 
-stop_vm() {
-  # Try graceful shutdown via API socket first
-  local api_sock="${VM_DIR}/${VM_NAME}.sock"
-  if [[ -S "$api_sock" ]] 2>/dev/null; then
-    log "Requesting VM shutdown via API socket"
-    curl -s --unix-socket "$api_sock" -X PUT \
-      "http://localhost/api/v1/vm.shutdown" 2>/dev/null || true
-    sleep 2
+# Restore VM from cloud-hypervisor snapshot (fast resume)
+restore_vm() {
+  if [[ ! -d "$VM_SNAPSHOT_DIR" ]] || [[ ! -f "$VM_SNAPSHOT_DIR/state.json" ]]; then
+    return 1  # No snapshot available
   fi
 
+  log "Restoring VM $VM_NAME from snapshot"
+
+  # Remove stale API socket (cloud-hypervisor creates a new one)
+  rm -f "$API_SOCK"
+
+  cd "$VM_DIR"
+  nohup cloud-hypervisor \
+    --restore "source_url=file://${VM_SNAPSHOT_DIR}" \
+    --api-socket "$API_SOCK" \
+    > "${VM_DIR}/vm.log" 2>&1 &
+  local pid=$!
+  echo "$pid" > "$VM_PID_FILE"
+
+  # Wait briefly for the process to either start or crash
+  sleep 2
+
+  if ! pid_alive "$pid"; then
+    log "VM restore failed (process exited), falling back to cold boot"
+    rm -f "$VM_PID_FILE"
+    rm -rf "$VM_SNAPSHOT_DIR"
+    return 1
+  fi
+
+  # The VM resumes in paused state after restore — resume it
+  sleep 1
+  if [[ -S "$API_SOCK" ]]; then
+    curl -s --unix-socket "$API_SOCK" -X PUT \
+      "http://localhost/api/v1/vm.resume" 2>/dev/null || true
+  fi
+
+  log "VM restored from snapshot (PID $pid)"
+  return 0
+}
+
+# Hibernate: pause + snapshot VM state + stop process
+# Keeps virtiofsd and TAP alive for fast restore
+hibernate_vm() {
+  if [[ ! -S "$API_SOCK" ]]; then
+    log "No API socket — VM not running, skipping hibernate"
+    return 1
+  fi
+
+  log "Hibernating VM $VM_NAME"
+
+  # Pause vCPUs
+  curl -s --unix-socket "$API_SOCK" -X PUT \
+    "http://localhost/api/v1/vm.pause" 2>/dev/null || true
+  sleep 1
+
+  # Snapshot VM state to disk
+  mkdir -p "$VM_SNAPSHOT_DIR"
+  local snapshot_result
+  snapshot_result=$(curl -s --unix-socket "$API_SOCK" -X PUT \
+    "http://localhost/api/v1/vm.snapshot" \
+    -H "Content-Type: application/json" \
+    -d "{\"destination_url\": \"file://${VM_SNAPSHOT_DIR}\"}" 2>&1)
+
+  if echo "$snapshot_result" | grep -qi "error"; then
+    log "VM snapshot failed: $snapshot_result"
+    # Resume the VM since hibernate failed
+    curl -s --unix-socket "$API_SOCK" -X PUT \
+      "http://localhost/api/v1/vm.resume" 2>/dev/null || true
+    return 1
+  fi
+
+  log "VM state saved to $VM_SNAPSHOT_DIR"
+
+  # Stop the VM process (state is on disk now)
+  stop_vm_process
+  return 0
+}
+
+# Stop VM process without graceful shutdown (used after hibernate)
+stop_vm_process() {
   if [[ -f "$VM_PID_FILE" ]]; then
     local pid; pid=$(cat "$VM_PID_FILE")
     if pid_alive "$pid"; then
-      log "Stopping VM (PID $pid)"
+      log "Stopping VM process (PID $pid)"
       kill "$pid" 2>/dev/null || true
-      for _ in $(seq 1 10); do
+      local i
+      for i in $(seq 1 5); do
         pid_alive "$pid" || break
         sleep 1
       done
@@ -168,6 +299,19 @@ stop_vm() {
     fi
     rm -f "$VM_PID_FILE"
   fi
+  rm -f "$API_SOCK"
+}
+
+# Graceful VM shutdown (for hard stop)
+stop_vm() {
+  if [[ -S "$API_SOCK" ]] 2>/dev/null; then
+    log "Requesting VM shutdown via API socket"
+    curl -s --unix-socket "$API_SOCK" -X PUT \
+      "http://localhost/api/v1/vm.shutdown" 2>/dev/null || true
+    sleep 2
+  fi
+
+  stop_vm_process
 }
 
 start_socat() {
@@ -180,7 +324,7 @@ start_socat() {
     rm -f "$SOCAT_PID_FILE"
   fi
 
-  log "Starting socat forwarder 127.0.0.1:${PORT} → ${VM_IP_ADDR}:${PORT}"
+  log "Starting socat forwarder 127.0.0.1:${PORT} -> ${VM_IP_ADDR}:${PORT}"
   socat TCP-LISTEN:"${PORT}",bind=127.0.0.1,reuseaddr,fork \
         TCP:"${VM_IP_ADDR}":"${PORT}" &
   local pid=$!
@@ -236,20 +380,49 @@ case "$ACTION" in
       rm -f "$VM_PID_FILE"
     fi
 
+    restore_data_from_snapshot
+    # Ensure per-user directories exist inside sandbox data
+    mkdir -p "${SANDBOX_DATA_DIR}/users"
+    chown choiros:choiros "${SANDBOX_DATA_DIR}/users"
     setup_tap
     start_virtiofsd
-    start_vm
+
+    # Try fast restore from VM snapshot, fall back to cold boot
+    if restore_vm; then
+      log "VM resumed from snapshot"
+    else
+      cold_boot_vm
+    fi
+
     wait_for_vm_health
     start_socat
     ;;
+
+  hibernate)
+    stop_socat
+    snapshot_data
+    if hibernate_vm; then
+      log "VM $VM_NAME hibernated (virtiofsd + TAP kept alive for fast restore)"
+    else
+      log "Hibernate failed, falling back to hard stop"
+      stop_vm
+      stop_virtiofsd
+      teardown_tap
+    fi
+    ;;
+
   stop)
     stop_socat
+    snapshot_data
     stop_vm
     stop_virtiofsd
     teardown_tap
+    # Clean up VM snapshot since we did a full stop
+    rm -rf "$VM_SNAPSHOT_DIR"
     ;;
+
   *)
-    echo "invalid action '$ACTION' (expected ensure|stop)" >&2
+    echo "invalid action '$ACTION' (expected ensure|hibernate|stop)" >&2
     exit 2
     ;;
 esac

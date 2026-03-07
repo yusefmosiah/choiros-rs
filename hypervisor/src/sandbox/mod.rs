@@ -392,6 +392,19 @@ impl SandboxRegistry {
         Ok(())
     }
 
+    /// Touch the activity timestamp for a running sandbox.
+    /// Called by the proxy on every request to prevent idle watchdog kills.
+    pub async fn touch_activity(&self, user_id: &str, role: SandboxRole) {
+        let mut entries = self.entries.lock().await;
+        if let Some(user_map) = entries.get_mut(user_id) {
+            if let Some(entry) = user_map.roles.get_mut(&role) {
+                if entry.status == SandboxStatus::Running {
+                    entry.last_activity = Instant::now();
+                }
+            }
+        }
+    }
+
     /// Return the port for a running sandbox role, if any.
     pub async fn port_of(&self, user_id: &str, role: SandboxRole) -> Option<u16> {
         let mut entries = self.entries.lock().await;
@@ -458,9 +471,9 @@ impl SandboxRegistry {
                         warn!(
                             user_id,
                             role = ?entry.role,
-                            "sandbox idle timeout — stopping"
+                            "sandbox idle timeout — hibernating"
                         );
-                        self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
+                        self.hibernate_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
                             .await;
                         entry.status = SandboxStatus::Stopped;
                     }
@@ -473,9 +486,9 @@ impl SandboxRegistry {
                         warn!(
                             user_id,
                             branch = ?entry.branch,
-                            "branch sandbox idle timeout — stopping"
+                            "branch sandbox idle timeout — hibernating"
                         );
-                        self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
+                        self.hibernate_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
                             .await;
                         entry.status = SandboxStatus::Stopped;
                     }
@@ -654,6 +667,40 @@ impl SandboxRegistry {
                         branch = ?branch,
                         runtime = handle.runtime_name,
                         "failed to stop sandbox runtime: {e}"
+                    );
+                }
+            }
+        }
+    }
+
+    async fn hibernate_handle(
+        &self,
+        user_id: &str,
+        branch: Option<&str>,
+        handle: &mut Option<SandboxHandle>,
+    ) {
+        let Some(handle) = handle.take() else {
+            return;
+        };
+
+        match handle {
+            SandboxHandle::RuntimeCtl(handle) => {
+                if let Err(e) = self
+                    .run_runtime_ctl(
+                        "hibernate",
+                        &handle.user_id,
+                        &handle.runtime_name,
+                        handle.role,
+                        handle.branch.as_deref(),
+                        handle.port,
+                    )
+                    .await
+                {
+                    warn!(
+                        user_id,
+                        branch = ?branch,
+                        runtime = handle.runtime_name,
+                        "failed to hibernate sandbox runtime: {e}"
                     );
                 }
             }

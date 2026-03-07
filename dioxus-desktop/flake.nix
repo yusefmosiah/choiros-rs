@@ -56,11 +56,72 @@ EOF
         };
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+
+        # WASM toolchain and crane instance
+        wasmToolchain = pkgs.rust-bin.stable.latest.default.override {
+          extensions = [ "rust-src" ];
+          targets = [ "wasm32-unknown-unknown" ];
+        };
+        wasmCraneLib = (crane.mkLib pkgs).overrideToolchain wasmToolchain;
+        wasmArgs = commonArgs // {
+          pname = "dioxus-desktop-wasm";
+          CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
+          doCheck = false;
+          # cdylib doesn't produce an installable binary
+          installPhaseCommand = "mkdir -p $out";
+        };
+        wasmArtifacts = wasmCraneLib.buildDepsOnly wasmArgs;
+        wasmBuild = wasmCraneLib.buildPackage (wasmArgs // {
+          cargoArtifacts = wasmArtifacts;
+          cargoExtraArgs = "--lib";
+          installPhaseCommand = ''
+            mkdir -p $out/lib
+            cp target/wasm32-unknown-unknown/release/dioxus_desktop.wasm $out/lib/
+          '';
+        });
       in {
         packages.desktop = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
           cargoExtraArgs = "--bin dioxus-desktop";
         });
+
+        packages.web = pkgs.stdenv.mkDerivation {
+          name = "dioxus-desktop-web";
+          nativeBuildInputs = [ pkgs.wasm-bindgen-cli pkgs.binaryen ];
+          dontUnpack = true;
+          buildPhase = ''
+            mkdir -p out
+            wasm-bindgen --target web --out-dir out ${wasmBuild}/lib/dioxus_desktop.wasm
+            wasm-opt -Os out/dioxus_desktop_bg.wasm -o out/dioxus_desktop_bg.wasm
+          '';
+          installPhase = ''
+            mkdir -p $out/assets
+            # Move WASM + JS to assets/ (matches dx output structure)
+            mv out/dioxus_desktop_bg.wasm $out/assets/
+            mv out/dioxus_desktop.js $out/assets/
+            # Copy public assets
+            cp -r ${./public}/* $out/
+            # Generate index.html
+            cat > $out/index.html <<'HTML'
+            <!DOCTYPE html>
+            <html>
+              <head>
+                <title>ChoirOS</title>
+                <meta content="text/html;charset=utf-8" http-equiv="Content-Type">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <meta charset="UTF-8">
+              </head>
+              <body>
+                <div id="main"></div>
+                <script type="module">
+                  import init from './assets/dioxus_desktop.js';
+                  init();
+                </script>
+              </body>
+            </html>
+            HTML
+          '';
+        };
 
         packages.default = self.packages.${system}.desktop;
 

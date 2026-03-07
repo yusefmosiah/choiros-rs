@@ -91,6 +91,9 @@ jobs:
             echo "==> Building hypervisor"
             nix build ./hypervisor#hypervisor -o result-hypervisor --print-build-logs
 
+            echo "==> Building frontend (WASM)"
+            nix build ./dioxus-desktop#web -o result-frontend --print-build-logs
+
             echo "==> Installing binaries"
             cp -f result-sandbox/bin/sandbox /opt/choiros/bin/sandbox
             cp -f result-hypervisor/bin/hypervisor /opt/choiros/bin/hypervisor

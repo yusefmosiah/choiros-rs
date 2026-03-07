@@ -75,6 +75,19 @@ fn default_working_dir() -> String {
         .unwrap_or_else(|_| "/".to_string())
 }
 
+/// Derive a per-user home directory under the sandbox root.
+/// Creates the directory if it doesn't exist.
+fn user_home_dir(user_id: &str) -> Option<String> {
+    let sandbox_root = std::env::var("CHOIR_SANDBOX_ROOT").ok()?;
+    let home = std::path::PathBuf::from(&sandbox_root)
+        .join("users")
+        .join(user_id);
+    if !home.exists() {
+        std::fs::create_dir_all(&home).ok()?;
+    }
+    Some(home.to_string_lossy().to_string())
+}
+
 pub async fn terminal_websocket(
     ws: WebSocketUpgrade,
     Path(terminal_id): Path<String>,
@@ -103,11 +116,18 @@ async fn handle_terminal_socket(
         }
     });
 
+    // Use per-user home directory when the client sends the default working dir.
+    let working_dir = if query.working_dir == default_working_dir() || query.working_dir == "/" {
+        user_home_dir(&query.user_id).unwrap_or(query.working_dir.clone())
+    } else {
+        query.working_dir.clone()
+    };
+
     let terminal_args = TerminalArguments {
         terminal_id: terminal_id.clone(),
         user_id: query.user_id.clone(),
         shell: query.shell.clone(),
-        working_dir: query.working_dir.clone(),
+        working_dir,
         event_store: app_state.event_store(),
     };
 
