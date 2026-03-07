@@ -17,6 +17,7 @@
     "xhci_pci"
     "raid1"
     "md_mod"
+    "btrfs"
   ];
   boot.swraid.enable = true;
   boot.swraid.mdadmConf = "MAILADDR root";
@@ -95,6 +96,7 @@
   # System packages
   environment.systemPackages = with pkgs; [
     bash
+    btrfs-progs
     btop
     cloud-hypervisor
     coreutils
@@ -122,6 +124,9 @@
     "d /opt/choiros/workspace 0755 root root -"
     "d /opt/choiros/data 0755 root choiros -"
     "d /opt/choiros/data/sandbox 0750 choiros choiros -"
+    # Per-user storage on btrfs @data subvolume
+    "d /data/users 0755 root root -"
+    "d /data/snapshots 0755 root root -"
     # Persistent secrets (survive reboot, on NVMe)
     "d /opt/choiros/secrets 0700 root root -"
     "d /opt/choiros/secrets/platform 0700 root root -"

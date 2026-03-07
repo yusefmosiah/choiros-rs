@@ -1,5 +1,6 @@
 # Disko disk configuration for OVH SYS-1 bare metal
 # 2x NVMe drives in RAID1 with UEFI boot
+# Root on btrfs (md RAID1) with subvolumes: @ (root), @data (per-user storage)
 {
   disko.devices = {
     disk = {
@@ -76,9 +77,18 @@
         type = "mdadm";
         level = 1;
         content = {
-          type = "filesystem";
-          format = "ext4";
-          mountpoint = "/";
+          type = "btrfs";
+          extraArgs = [ "-f" ];
+          subvolumes = {
+            "@" = {
+              mountpoint = "/";
+              mountOptions = [ "compress=zstd" "noatime" ];
+            };
+            "@data" = {
+              mountpoint = "/data";
+              mountOptions = [ "compress=zstd" "noatime" ];
+            };
+          };
         };
       };
     };
