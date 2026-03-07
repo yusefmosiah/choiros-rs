@@ -205,6 +205,11 @@ cold_boot_vm() {
   log "VM cold boot started (PID $pid)"
 }
 
+# Check if a VM snapshot exists
+has_vm_snapshot() {
+  [[ -d "$VM_SNAPSHOT_DIR" ]] && [[ -f "$VM_SNAPSHOT_DIR/state.json" ]]
+}
+
 # Restore VM from cloud-hypervisor snapshot (fast resume)
 restore_vm() {
   if [[ ! -d "$VM_SNAPSHOT_DIR" ]] || [[ ! -f "$VM_SNAPSHOT_DIR/state.json" ]]; then
@@ -388,8 +393,17 @@ case "$ACTION" in
     start_virtiofsd
 
     # Try fast restore from VM snapshot, fall back to cold boot
-    if restore_vm; then
-      log "VM resumed from snapshot"
+    if has_vm_snapshot; then
+      # Restart virtiofsd to get fresh sockets (old ones go stale after VM stop)
+      stop_virtiofsd
+      # Clean up stale virtiofsd sockets before restarting
+      rm -f "${VM_DIR}"/sandbox-*-virtiofs-*.sock
+      start_virtiofsd
+      if restore_vm; then
+        log "VM resumed from snapshot"
+      else
+        cold_boot_vm
+      fi
     else
       cold_boot_vm
     fi
