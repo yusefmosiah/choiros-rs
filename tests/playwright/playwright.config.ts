@@ -29,6 +29,8 @@ export default defineConfig({
         "vfkit-terminal-proof.spec.ts",
         "writer-concurrency-hypervisor.spec.ts",
         "writer-bugfix-e2e.spec.ts",
+        "vm-lifecycle-report.spec.ts",
+        "vm-lifecycle-stress.spec.ts",
       ],
       use: {
         baseURL: hypervisorBaseUrl,

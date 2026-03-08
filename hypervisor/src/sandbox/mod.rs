@@ -196,21 +196,33 @@ impl SandboxRegistry {
             let user_map = entries.entry(user_id.to_string()).or_default();
 
             if let Some(entry) = user_map.roles.get_mut(&role) {
-                if entry.status == SandboxStatus::Running {
-                    if Self::is_port_ready(entry.port).await {
-                        entry.last_activity = Instant::now();
-                        return Ok(entry.port);
+                match entry.status {
+                    SandboxStatus::Running => {
+                        if Self::is_port_ready(entry.port).await {
+                            entry.last_activity = Instant::now();
+                            return Ok(entry.port);
+                        }
+                        warn!(
+                            user_id,
+                            %role,
+                            port = entry.port,
+                            "sandbox marked running but port is down; recycling runtime"
+                        );
+                        self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
+                            .await;
+                        entry.status = SandboxStatus::Failed;
                     }
-
-                    warn!(
-                        user_id,
-                        %role,
-                        port = entry.port,
-                        "sandbox marked running but port is down; recycling runtime"
-                    );
-                    self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
-                        .await;
-                    entry.status = SandboxStatus::Failed;
+                    SandboxStatus::Stopped | SandboxStatus::Failed => {
+                        // Clean up any residual handle before re-spawning.
+                        self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
+                            .await;
+                        info!(
+                            user_id,
+                            %role,
+                            status = ?entry.status,
+                            "sandbox not running; will re-spawn"
+                        );
+                    }
                 }
             }
         }
@@ -282,21 +294,32 @@ impl SandboxRegistry {
         {
             let user_map = entries.entry(user_id.to_string()).or_default();
             if let Some(entry) = user_map.branches.get_mut(branch) {
-                if entry.status == SandboxStatus::Running {
-                    if Self::is_port_ready(entry.port).await {
-                        entry.last_activity = Instant::now();
-                        return Ok(entry.port);
+                match entry.status {
+                    SandboxStatus::Running => {
+                        if Self::is_port_ready(entry.port).await {
+                            entry.last_activity = Instant::now();
+                            return Ok(entry.port);
+                        }
+                        warn!(
+                            user_id,
+                            branch,
+                            port = entry.port,
+                            "branch sandbox marked running but port is down; recycling"
+                        );
+                        self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
+                            .await;
+                        entry.status = SandboxStatus::Failed;
                     }
-
-                    warn!(
-                        user_id,
-                        branch,
-                        port = entry.port,
-                        "branch sandbox marked running but port is down; recycling runtime"
-                    );
-                    self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
-                        .await;
-                    entry.status = SandboxStatus::Failed;
+                    SandboxStatus::Stopped | SandboxStatus::Failed => {
+                        self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
+                            .await;
+                        info!(
+                            user_id,
+                            branch,
+                            status = ?entry.status,
+                            "branch sandbox not running; will re-spawn"
+                        );
+                    }
                 }
             }
         }
