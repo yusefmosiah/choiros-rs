@@ -100,9 +100,20 @@ test("hibernate → restore vs stop → cold boot comparison", async ({ page }) 
   const started = await ensureRunning(page.request, userId);
   expect(started).toBe(true);
 
-  const h0 = await page.request.get("/health", { timeout: 60_000 });
-  expect(h0.ok()).toBe(true);
-  recordMetric("baseline-health", h0.status());
+  // Health may take a while if sandbox is cold booting after CI deploy
+  let h0Status = 0;
+  for (let i = 0; i < 120; i++) {
+    try {
+      const h0 = await page.request.get("/health", { timeout: 5_000 });
+      h0Status = h0.status();
+      if (h0.ok()) break;
+    } catch {
+      // timeout — keep polling
+    }
+    await page.waitForTimeout(1000);
+  }
+  expect(h0Status).toBe(200);
+  recordMetric("baseline-health", h0Status);
 
   // Load the app to generate some state
   await page.goto("/");
