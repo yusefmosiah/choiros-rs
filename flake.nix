@@ -156,6 +156,10 @@ EOF
             mkdir -p $out/assets
             mv out/dioxus_desktop_bg.wasm $out/assets/
             mv out/dioxus_desktop.js $out/assets/
+            # wasm-bindgen generates a snippets/ dir with JS dependencies
+            if [ -d out/snippets ]; then
+              cp -r out/snippets $out/assets/snippets
+            fi
             cp -r ${./dioxus-desktop/public}/* $out/
             cat > $out/index.html <<'HTML'
             <!DOCTYPE html>
