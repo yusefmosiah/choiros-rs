@@ -62,17 +62,26 @@ pub fn DesktopShell(desktop_id: String) -> Element {
         });
     });
 
-    // Force auth modal when unauthenticated so `/` does not sit in a blank shell.
-    // URL intent (/login or /register) still determines the initial mode label.
+    // Show auth modal when explicitly navigating to /login or /register,
+    // or when unauthenticated on the root path. Public content paths (e.g.
+    // published documents) should render without auth — the modal only
+    // appears when something downstream sets AuthState::Required.
     use_effect(move || {
         let current = auth.read().clone();
-        if matches!(current, AuthState::Unauthenticated) {
-            auth.set(AuthState::Required);
-            return;
-        }
+        let needs_auth_page = require_auth_from_url();
 
-        if require_auth_from_url() && matches!(current, AuthState::Unknown) {
-            auth.set(AuthState::Required);
+        match current {
+            AuthState::Unauthenticated => {
+                // Only force modal on auth-related or root paths.
+                // Public content paths skip the modal entirely.
+                if needs_auth_page || is_root_path() {
+                    auth.set(AuthState::Required);
+                }
+            }
+            AuthState::Unknown if needs_auth_page => {
+                auth.set(AuthState::Required);
+            }
+            _ => {}
         }
     });
 
@@ -403,6 +412,16 @@ fn should_require_auth_from_url() -> bool {
         return false;
     };
     matches!(pathname.as_str(), "/login" | "/register")
+}
+
+fn is_root_path() -> bool {
+    let Some(window) = web_sys::window() else {
+        return true;
+    };
+    let Ok(pathname) = window.location().pathname() else {
+        return true;
+    };
+    pathname == "/"
 }
 
 const DEFAULT_TOKENS: &str = r#"

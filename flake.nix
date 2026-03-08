@@ -161,7 +161,7 @@ EOF
               cp -r out/snippets $out/assets/snippets
             fi
             cp -r ${./dioxus-desktop/public}/* $out/
-            cat > $out/index.html <<'HTML'
+            cat > $out/index.html <<'HTMLEOF'
             <!DOCTYPE html>
             <html>
               <head>
@@ -169,16 +169,117 @@ EOF
                 <meta content="text/html;charset=utf-8" http-equiv="Content-Type">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
                 <meta charset="UTF-8">
+                <style>
+                  * { margin: 0; padding: 0; box-sizing: border-box; }
+                  html, body { height: 100%; overflow: hidden; background: #0a0e1a; }
+                  #bios-boot {
+                    position: fixed; inset: 0; z-index: 99999;
+                    background: #0a0e1a;
+                    font-family: 'IBM Plex Mono', 'Menlo', 'Consolas', monospace;
+                    font-size: 13px; line-height: 1.55;
+                    color: #c0c8d8;
+                    padding: 1.5rem 2rem;
+                    overflow: hidden;
+                    transition: opacity 0.4s ease-out;
+                  }
+                  #bios-boot.fade-out { opacity: 0; pointer-events: none; }
+                  .bios-header {
+                    color: #7aa2f7; font-weight: bold; font-size: 14px;
+                    border-bottom: 1px solid #2a3050; padding-bottom: 0.5rem;
+                    margin-bottom: 0.75rem;
+                  }
+                  .bios-line { opacity: 0; animation: line-in 0.06s forwards; white-space: pre; }
+                  .bios-ok { color: #9ece6a; }
+                  .bios-warn { color: #e0af68; }
+                  .bios-dim { color: #565f89; }
+                  .bios-bright { color: #c0caf5; }
+                  @keyframes line-in { to { opacity: 1; } }
+                  @keyframes cursor-blink {
+                    0%, 100% { opacity: 1; } 50% { opacity: 0; }
+                  }
+                  .bios-cursor {
+                    display: inline-block; width: 7px; height: 13px;
+                    background: #c0caf5; vertical-align: text-bottom;
+                    animation: cursor-blink 1s step-end infinite;
+                    margin-left: 2px;
+                  }
+                </style>
               </head>
               <body>
+                <div id="bios-boot">
+                  <div class="bios-header">ChoirOS v0.1.0 System Bootstrap</div>
+                  <div id="bios-lines"></div>
+                </div>
                 <div id="main"></div>
+                <script>
+                  (function() {
+                    var lines = [
+                      { t: "POST: CPU . . . . . . . . . . . . . . ", s: "ok", d: 80 },
+                      { t: "POST: Memory 2048 MB . . . . . . . .  ", s: "ok", d: 60 },
+                      { t: "POST: Storage (virtio-blk) . . . . .  ", s: "ok", d: 90 },
+                      { t: "POST: Network (virtio-net) . . . . .  ", s: "ok", d: 70 },
+                      { t: "POST: virtiofs /nix/store . . . . . . ", s: "ok", d: 100 },
+                      { t: "", d: 40 },
+                      { t: "Loading kernel modules:", s: "", d: 50, cls: "bios-bright" },
+                      { t: "  sandbox-runtime . . . . . . . . . . ", s: "ok", d: 45 },
+                      { t: "  provider-gateway  . . . . . . . . . ", s: "ok", d: 40 },
+                      { t: "  event-bus . . . . . . . . . . . . . ", s: "ok", d: 35 },
+                      { t: "  conductor . . . . . . . . . . . . . ", s: "ok", d: 40 },
+                      { t: "  writer-runtime  . . . . . . . . . . ", s: "ok", d: 45 },
+                      { t: "  terminal-actor  . . . . . . . . . . ", s: "ok", d: 35 },
+                      { t: "", d: 40 },
+                      { t: "Initializing display server:", s: "", d: 60, cls: "bios-bright" },
+                      { t: "  WASM runtime  . . . . . . . . . . . ", s: "loading", d: 0, id: "wasm-line" },
+                    ];
+                    var el = document.getElementById("bios-lines");
+                    var i = 0;
+                    var totalDelay = 0;
+                    lines.forEach(function(line) {
+                      totalDelay += line.d;
+                      setTimeout(function() {
+                        var div = document.createElement("div");
+                        div.className = "bios-line" + (line.cls ? " " + line.cls : "");
+                        div.style.animationDelay = "0s";
+                        if (line.id) div.id = line.id;
+                        if (line.t === "") {
+                          div.innerHTML = "&nbsp;";
+                        } else if (line.s === "ok") {
+                          div.innerHTML = '<span class="bios-dim">' + line.t + '</span><span class="bios-ok">[  OK  ]</span>';
+                        } else if (line.s === "loading") {
+                          div.innerHTML = '<span class="bios-dim">' + line.t + '</span><span class="bios-warn">[  ..  ]</span>';
+                        } else {
+                          div.textContent = line.t;
+                        }
+                        el.appendChild(div);
+                      }, totalDelay);
+                    });
+                    window.__biosBootEl = document.getElementById("bios-boot");
+                    window.__biosComplete = function() {
+                      var wl = document.getElementById("wasm-line");
+                      if (wl) wl.innerHTML = '<span class="bios-dim">  WASM runtime  . . . . . . . . . . . </span><span class="bios-ok">[  OK  ]</span>';
+                      var ready = document.createElement("div");
+                      ready.className = "bios-line bios-bright";
+                      ready.style.marginTop = "0.5rem";
+                      ready.innerHTML = 'System ready. <span class="bios-cursor"></span>';
+                      el.appendChild(ready);
+                      setTimeout(function() {
+                        document.getElementById("bios-boot").classList.add("fade-out");
+                        setTimeout(function() {
+                          document.getElementById("bios-boot").style.display = "none";
+                        }, 500);
+                      }, 400);
+                    };
+                  })();
+                </script>
                 <script type="module">
                   import init from './assets/dioxus_desktop.js';
-                  init();
+                  init().then(function() {
+                    // WASM loaded — signal will be sent from Dioxus after auth
+                  });
                 </script>
               </body>
             </html>
-            HTML
+            HTMLEOF
           '';
         };
 

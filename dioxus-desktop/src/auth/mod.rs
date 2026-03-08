@@ -1,15 +1,14 @@
-//! Auth context and terminal-style auth modal.
+//! Auth context and BIOS-style auth modal.
 //!
 //! Design: auth is a capability upgrade, not a gate.  The desktop loads
 //! showing public content.  When something needs a session it sets
 //! `AuthState::Required`, which renders this modal over the desktop.
 //! Hard-cut dismiss on success.
 //!
-//! The modal is a full-screen dark scrim with a terminal prompt at the
-//! bottom.  One field at a time.  Lines scroll up as each field is
-//! committed.  The winking tell: the cursor hesitates exactly once
-//! before the passkey dialog fires, as if the system is deciding
-//! whether to bother.
+//! The modal looks like an ncurses BIOS setup screen: a centered bordered
+//! panel with scan-line header, tabbed mode selector, and highlighted
+//! input fields.  The passkey ceremony fires automatically after email
+//! entry, with POST-style status lines showing progress.
 
 pub mod passkey;
 
@@ -56,8 +55,6 @@ struct MeResponse {
 }
 
 /// Probe /auth/me once and update the context signal.
-/// Called at startup from DesktopShell so the rest of the app knows
-/// whether there's already a session without blocking render.
 pub async fn probe_session(mut auth: Signal<AuthState>) {
     match Request::get("/auth/me").send().await {
         Ok(resp) if resp.ok() => {
@@ -78,12 +75,34 @@ pub async fn probe_session(mut auth: Signal<AuthState>) {
     }
 }
 
-// ── Terminal history line ─────────────────────────────────────────────────────
+/// Prefetch: fire a HEAD request to /health to wake the sandbox early.
+/// Called when the user starts typing their email, before auth completes.
+pub fn prefetch_sandbox() {
+    spawn(async move {
+        // Wake the sandbox so it's warm by the time auth finishes
+        let _ = Request::get("/health").send().await;
+    });
+}
+
+// ── Step state ────────────────────────────────────────────────────────────────
 
 #[derive(Clone, PartialEq)]
-struct HistoryLine {
-    prompt: &'static str,
-    value: String,
+enum Step {
+    Email,
+    Passkey(String), // email
+}
+
+#[derive(Clone, PartialEq)]
+struct StatusLine {
+    text: String,
+    state: LineState,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum LineState {
+    Ok,
+    Working,
+    Failed,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -100,33 +119,13 @@ impl AuthIntent {
         }
     }
 
-    fn mode_label(self) -> &'static str {
+    fn tab_label(self) -> &'static str {
         match self {
-            AuthIntent::Login => "Log in",
-            AuthIntent::Register => "Sign up",
+            AuthIntent::Login => " Login ",
+            AuthIntent::Register => " Register ",
         }
     }
 
-    fn helper_copy(self) -> &'static str {
-        match self {
-            AuthIntent::Login => "Enter your email and complete your passkey login.",
-            AuthIntent::Register => "Create an account with your email and a new passkey.",
-        }
-    }
-
-    fn switch_label(self) -> &'static str {
-        match self {
-            AuthIntent::Login => "Need an account? Sign up",
-            AuthIntent::Register => "Already have an account? Log in",
-        }
-    }
-
-    fn switched(self) -> Self {
-        match self {
-            AuthIntent::Login => AuthIntent::Register,
-            AuthIntent::Register => AuthIntent::Login,
-        }
-    }
 }
 
 fn auth_intent_from_url() -> AuthIntent {
@@ -163,32 +162,40 @@ fn is_valid_email(value: &str) -> bool {
 
 // ── AuthModal ─────────────────────────────────────────────────────────────────
 
-/// Renders over the desktop when auth is required.
-/// Consumes the `Signal<AuthState>` context provided by `DesktopShell`.
 #[component]
 pub fn AuthModal() -> Element {
     let mut auth = use_context::<Signal<AuthState>>();
 
-    // Only render when Required
     if *auth.read() != AuthState::Required {
         return rsx! {};
     }
 
-    // committed lines scrolled above the current input
-    let mut history = use_signal(Vec::<HistoryLine>::new);
-    // current input value
     let mut input_value = use_signal(String::new);
     let mut intent = use_signal(auth_intent_from_url);
-    // which step we're on
     let mut step = use_signal(|| Step::Email);
-    // error to show on the current line
     let mut error = use_signal(|| None::<String>);
-    // are we waiting for the passkey dialog / network?
     let busy = use_signal(|| false);
+    let mut status_lines = use_signal(Vec::<StatusLine>::new);
+    let mut prefetch_fired = use_signal(|| false);
 
-    // auto-focus the input whenever it renders
     let input_id = "auth-terminal-input";
 
+    // Dismiss the BIOS boot screen once auth modal is visible
+    use_effect(move || {
+        if let Some(window) = web_sys::window() {
+            let _ = window
+                .document()
+                .and_then(|doc| {
+                    doc.get_element_by_id("bios-boot").map(|el| {
+                        // Call __biosComplete if available
+                        let _ = js_sys::eval("window.__biosComplete && window.__biosComplete()");
+                        el
+                    })
+                });
+        }
+    });
+
+    // Auto-focus
     use_effect(move || {
         if let Some(window) = web_sys::window() {
             if let Some(doc) = window.document() {
@@ -210,27 +217,28 @@ pub fn AuthModal() -> Element {
             match current_step {
                 Step::Email => {
                     if !is_valid_email(&val) {
-                        error.set(Some("enter a valid email address".to_string()));
+                        error.set(Some("invalid email address".to_string()));
                         return;
                     }
-                    // commit the email line, move to passkey
-                    history.write().push(HistoryLine {
-                        prompt: "email:",
-                        value: val.clone(),
-                    });
-                    input_value.set(String::new());
                     error.set(None);
                     step.set(Step::Passkey(val));
                 }
-                Step::Passkey(ref username) => {
-                    // shouldn't be reachable — passkey fires automatically
-                    let _ = username;
-                }
+                Step::Passkey(_) => {}
             }
         }
     };
 
-    // When step transitions to Passkey, fire the ceremony automatically.
+    // Prefetch when user starts typing (fire once)
+    let on_input = move |e: Event<FormData>| {
+        let val = e.value();
+        input_value.set(val.clone());
+        if !*prefetch_fired.read() && val.len() >= 3 {
+            prefetch_fired.set(true);
+            prefetch_sandbox();
+        }
+    };
+
+    // Fire passkey ceremony when step transitions
     {
         let step_val = step.read().clone();
         if let Step::Passkey(ref username) = step_val {
@@ -239,165 +247,164 @@ pub fn AuthModal() -> Element {
                 let username = username.clone();
                 let flow = *intent.read();
                 spawn(async move {
-                    run_passkey_ceremony(username, flow, busy, error, history, step, auth).await;
+                    run_passkey_ceremony(
+                        username, flow, busy, error, status_lines, step, auth,
+                    )
+                    .await;
                 });
             });
         }
     }
 
-    let current_prompt = match &*step.read() {
-        Step::Email => "email:",
-        Step::Passkey(_) => "",
-    };
-
     let show_input = !matches!(*step.read(), Step::Passkey(_)) || !*busy.read();
+    let current_intent = *intent.read();
 
     rsx! {
-        // scrim
         div {
             "data-testid": "auth-modal",
-            style: "
-                position: fixed; inset: 0; z-index: 9999;
-                background: rgba(0,0,0,0.82);
-                display: flex; flex-direction: column; justify-content: flex-end;
-                font-family: 'Menlo', 'Consolas', 'Monaco', monospace;
-                font-size: 14px; line-height: 1.6;
-                color: #e2e8f0;
-                padding: 0 0 3.5rem 0;
-            ",
-            // click-outside to dismiss (if they decide not to auth)
+            style: "{SCRIM_STYLE}",
             onclick: move |_| {
                 if !*busy.read() {
-                    // only dismiss if we're not mid-ceremony
                     auth.set(AuthState::Unauthenticated);
                 }
             },
 
-            // terminal lines container — bottom-anchored, scrolls up
+            // BIOS-style centered panel
             div {
-                style: "
-                    display: flex; flex-direction: column; justify-content: flex-end;
-                    padding: 2rem 3rem;
-                    gap: 0;
-                    max-height: 100vh;
-                    overflow: hidden;
-                ",
-                // stop click-through on the terminal content
+                style: "{PANEL_STYLE}",
                 onclick: move |e| e.stop_propagation(),
 
+                // ┌─ Header bar ─┐
                 div {
-                    style: "display:flex; gap: 1rem; align-items: baseline; margin-bottom: 0.35rem;",
-                    strong {
-                        "data-testid": "auth-mode-label",
-                        style: "font-size: 15px; letter-spacing: 0.01em; color: #f8fafc;",
-                        "{intent.read().mode_label()}"
+                    style: "{HEADER_STYLE}",
+                    span { style: "color: #7aa2f7; font-weight: bold;", "ChoirOS Setup Utility v0.1.0" }
+                    span { style: "color: #565f89; font-size: 11px;", "(C) 2026 ChoirOS Project" }
+                }
+
+                // ┌─ Tab bar ─┐
+                div {
+                    style: "display: flex; gap: 0; margin-bottom: 1rem; border-bottom: 1px solid #2a3050;",
+
+                    button {
+                        "data-testid": "auth-mode-login",
+                        r#type: "button",
+                        style: if current_intent == AuthIntent::Login { TAB_ACTIVE_STYLE } else { TAB_STYLE },
+                        onclick: move |_| {
+                            if *busy.read() { return; }
+                            intent.set(AuthIntent::Login);
+                            set_auth_path(AuthIntent::Login);
+                            status_lines.set(Vec::new());
+                            input_value.set(String::new());
+                            error.set(None);
+                            step.set(Step::Email);
+                        },
+                        "{AuthIntent::Login.tab_label()}"
                     }
-                    span {
-                        style: "font-size: 12px; color: #94a3b8;",
-                        "{intent.read().helper_copy()}"
+                    button {
+                        "data-testid": "auth-mode-register",
+                        r#type: "button",
+                        style: if current_intent == AuthIntent::Register { TAB_ACTIVE_STYLE } else { TAB_STYLE },
+                        onclick: move |_| {
+                            if *busy.read() { return; }
+                            intent.set(AuthIntent::Register);
+                            set_auth_path(AuthIntent::Register);
+                            status_lines.set(Vec::new());
+                            input_value.set(String::new());
+                            error.set(None);
+                            step.set(Step::Email);
+                        },
+                        "{AuthIntent::Register.tab_label()}"
                     }
                 }
 
-                button {
-                    "data-testid": "auth-mode-switch",
-                    r#type: "button",
-                    style: "
-                        align-self: flex-start;
-                        margin-bottom: 0.85rem;
-                        background: transparent;
-                        border: none;
-                        color: #93c5fd;
-                        cursor: pointer;
-                        font: inherit;
-                        padding: 0;
-                    ",
-                    onclick: move |_| {
+                // ┌─ Form area ─┐
+                div {
+                    style: "flex: 1; display: flex; flex-direction: column;",
+
+                    // Email field row (BIOS-style: label on left, field on right)
+                    div {
+                        style: "{FIELD_ROW_STYLE}",
+                        span { style: "color: #c0caf5; min-width: 12ch;", "Email:" }
+                        if show_input {
+                            input {
+                                id: input_id,
+                                "data-testid": "auth-input",
+                                r#type: "text",
+                                value: "{input_value}",
+                                autocomplete: "email",
+                                spellcheck: false,
+                                style: "{INPUT_STYLE}",
+                                oninput: on_input,
+                                onkeydown: on_keydown,
+                            }
+                        } else {
+                            span { style: "color: #7aa2f7;",
+                                "{input_value}"
+                            }
+                        }
+                    }
+
+                    // Passkey field row
+                    div {
+                        style: "{FIELD_ROW_STYLE}",
+                        span { style: "color: #c0caf5; min-width: 12ch;", "Passkey:" }
                         if *busy.read() {
-                            return;
+                            span { style: "color: #e0af68;",
+                                "Waiting for authenticator..."
+                            }
+                        } else if matches!(*step.read(), Step::Passkey(_)) {
+                            span { style: "color: #565f89;", "Ready" }
+                        } else {
+                            span { style: "color: #565f89;", "---" }
                         }
-                        let next_intent = intent.read().switched();
-                        intent.set(next_intent);
-                        set_auth_path(next_intent);
-                        history.set(Vec::new());
-                        input_value.set(String::new());
-                        error.set(None);
-                        step.set(Step::Email);
-                    },
-                    "{intent.read().switch_label()}"
-                }
-
-                // committed history lines
-                for line in history.read().iter() {
-                    div {
-                        style: "display: flex; gap: 1ch; opacity: 0.45;",
-                        span { style: "color: #64748b; user-select: none;", "{line.prompt}" }
-                        span { "{line.value}" }
                     }
-                }
 
-                // error line if any
-                if let Some(err) = error.read().as_deref() {
-                    div {
-                        "data-testid": "auth-error",
-                        style: "color: #f87171; margin-top: 0.15rem; font-size: 12px; opacity: 0.8;",
-                        "{err}"
+                    // Error display
+                    if let Some(err) = error.read().as_deref() {
+                        div {
+                            "data-testid": "auth-error",
+                            style: "color: #f7768e; margin-top: 0.5rem; padding: 0.25rem 0;",
+                            "Error: {err}"
+                        }
                     }
-                }
 
-                // current input line
-                if show_input {
-                    div {
-                        style: "display: flex; gap: 1ch; align-items: baseline; margin-top: 0.15rem;",
-                        onclick: move |e| e.stop_propagation(),
-                        span { style: "color: #64748b; user-select: none;", "{current_prompt}" }
-                        input {
-                            id: input_id,
-                            "data-testid": "auth-input",
-                            r#type: "text",
-                            value: "{input_value}",
-                            autocomplete: "email",
-                            spellcheck: false,
-                            style: "
-                                background: transparent; border: none; outline: none;
-                                color: #e2e8f0; font: inherit; caret-color: #e2e8f0;
-                                min-width: 16ch; flex: 1;
-                                padding: 0; margin: 0;
-                            ",
-                            oninput: move |e| input_value.set(e.value()),
-                            onkeydown: on_keydown,
+                    // Status lines (POST-style progress during ceremony)
+                    if !status_lines.read().is_empty() {
+                        div {
+                            style: "margin-top: 0.75rem; border-top: 1px solid #2a3050; padding-top: 0.5rem;",
+                            for line in status_lines.read().iter() {
+                                div {
+                                    style: "display: flex; justify-content: space-between; padding: 1px 0;",
+                                    span { style: "color: #565f89;", "{line.text}" }
+                                    match line.state {
+                                        LineState::Ok => rsx! {
+                                            span { style: "color: #9ece6a;", "[  OK  ]" }
+                                        },
+                                        LineState::Working => rsx! {
+                                            span { style: "color: #e0af68;", "[  ..  ]" }
+                                        },
+                                        LineState::Failed => rsx! {
+                                            span { style: "color: #f7768e;", "[ FAIL ]" }
+                                        },
+                                    }
+                                }
+                            }
                         }
                     }
                 }
 
-                // busy: show a blinking cursor line while the passkey dialog is open
-                if *busy.read() {
-                    div {
-                        "data-testid": "auth-busy",
-                        style: "margin-top: 0.15rem; display: flex; gap: 1ch;",
-                        span { style: "color: #64748b;", "·" }
-                        span {
-                            style: "
-                                display: inline-block; width: 8px; height: 1em;
-                                background: #e2e8f0; vertical-align: text-bottom;
-                                animation: blink 1.1s step-end infinite;
-                            ",
-                        }
+                // ┌─ Footer ─┐
+                div {
+                    style: "{FOOTER_STYLE}",
+                    span { style: "color: #565f89;",
+                        "Enter = Submit    Tab = Switch Mode    Esc = Cancel"
                     }
                 }
             }
         }
 
-        // blink keyframe injected once
-        style { {BLINK_CSS} }
+        style { {BIOS_CSS} }
     }
-}
-
-// ── Step state ────────────────────────────────────────────────────────────────
-
-#[derive(Clone, PartialEq)]
-enum Step {
-    Email,
-    Passkey(String), // email
 }
 
 // ── Passkey ceremony ──────────────────────────────────────────────────────────
@@ -407,20 +414,35 @@ async fn run_passkey_ceremony(
     flow: AuthIntent,
     mut busy: Signal<bool>,
     mut error: Signal<Option<String>>,
-    history: Signal<Vec<HistoryLine>>,
+    mut status_lines: Signal<Vec<StatusLine>>,
     step: Signal<Step>,
     auth: Signal<AuthState>,
 ) {
     busy.set(true);
     error.set(None);
+    status_lines.set(Vec::new());
 
     match flow {
         AuthIntent::Login => {
-            run_login_ceremony(email, busy, error, history, step, auth).await;
+            run_login_ceremony(email, busy, error, status_lines, step, auth).await;
         }
         AuthIntent::Register => {
-            run_register_ceremony(email, busy, error, history, step, auth).await;
+            run_register_ceremony(email, busy, error, status_lines, step, auth).await;
         }
+    }
+}
+
+fn push_status(status_lines: &mut Signal<Vec<StatusLine>>, text: &str, state: LineState) {
+    status_lines.write().push(StatusLine {
+        text: text.to_string(),
+        state,
+    });
+}
+
+fn update_last_status(status_lines: &mut Signal<Vec<StatusLine>>, state: LineState) {
+    let mut lines = status_lines.write();
+    if let Some(last) = lines.last_mut() {
+        last.state = state;
     }
 }
 
@@ -428,10 +450,12 @@ async fn run_login_ceremony(
     email: String,
     mut busy: Signal<bool>,
     mut error: Signal<Option<String>>,
-    mut history: Signal<Vec<HistoryLine>>,
+    mut status_lines: Signal<Vec<StatusLine>>,
     mut step: Signal<Step>,
     mut auth: Signal<AuthState>,
 ) {
+    push_status(&mut status_lines, "Contacting auth server . . . . . . ", LineState::Working);
+
     let start_res = Request::post("/auth/login/start")
         .json(&serde_json::json!({ "username": email }))
         .unwrap()
@@ -439,21 +463,21 @@ async fn run_login_ceremony(
         .await;
 
     let start_body = match start_res {
-        Ok(r) if r.ok() => match r.text().await {
-            Ok(t) => t,
-            Err(e) => {
-                finish_with_error(
-                    format!("network error: {e}"),
-                    &mut busy,
-                    &mut error,
-                    &mut step,
-                );
-                return;
+        Ok(r) if r.ok() => {
+            update_last_status(&mut status_lines, LineState::Ok);
+            match r.text().await {
+                Ok(t) => t,
+                Err(e) => {
+                    update_last_status(&mut status_lines, LineState::Failed);
+                    finish_with_error(format!("network error: {e}"), &mut busy, &mut error, &mut step);
+                    return;
+                }
             }
-        },
+        }
         Ok(r) if r.status() == 404 => {
+            update_last_status(&mut status_lines, LineState::Failed);
             finish_with_error(
-                "no account found for this email; use sign up first".to_string(),
+                "no account found — use Register tab".to_string(),
                 &mut busy,
                 &mut error,
                 &mut step,
@@ -461,28 +485,33 @@ async fn run_login_ceremony(
             return;
         }
         Ok(r) => {
+            update_last_status(&mut status_lines, LineState::Failed);
             let txt = r.text().await.unwrap_or_default();
             finish_with_error(txt, &mut busy, &mut error, &mut step);
             return;
         }
         Err(e) => {
-            finish_with_error(
-                format!("network error: {e}"),
-                &mut busy,
-                &mut error,
-                &mut step,
-            );
+            update_last_status(&mut status_lines, LineState::Failed);
+            finish_with_error(format!("network error: {e}"), &mut busy, &mut error, &mut step);
             return;
         }
     };
 
+    push_status(&mut status_lines, "Passkey challenge . . . . . . . . ", LineState::Working);
+
     let cred_json = match passkey::get_credential(&start_body).await {
-        Ok(j) => j,
+        Ok(j) => {
+            update_last_status(&mut status_lines, LineState::Ok);
+            j
+        }
         Err(e) => {
+            update_last_status(&mut status_lines, LineState::Failed);
             finish_with_error(e, &mut busy, &mut error, &mut step);
             return;
         }
     };
+
+    push_status(&mut status_lines, "Verifying credential . . . . . .  ", LineState::Working);
 
     let finish_res = Request::post("/auth/login/finish")
         .header("Content-Type", "application/json")
@@ -493,26 +522,21 @@ async fn run_login_ceremony(
 
     match finish_res {
         Ok(r) if r.ok() => {
-            history.write().push(HistoryLine {
-                prompt: "email:",
-                value: email.clone(),
-            });
+            update_last_status(&mut status_lines, LineState::Ok);
+            push_status(&mut status_lines, "Session established . . . . . . . ", LineState::Ok);
             auth.set(AuthState::Authenticated(AuthUser {
                 user_id: String::new(),
                 username: email,
             }));
         }
         Ok(r) => {
+            update_last_status(&mut status_lines, LineState::Failed);
             let txt = r.text().await.unwrap_or_default();
             finish_with_error(txt, &mut busy, &mut error, &mut step);
         }
         Err(e) => {
-            finish_with_error(
-                format!("network error: {e}"),
-                &mut busy,
-                &mut error,
-                &mut step,
-            );
+            update_last_status(&mut status_lines, LineState::Failed);
+            finish_with_error(format!("network error: {e}"), &mut busy, &mut error, &mut step);
         }
     }
 }
@@ -521,7 +545,7 @@ async fn run_register_ceremony(
     email: String,
     mut busy: Signal<bool>,
     mut error: Signal<Option<String>>,
-    mut history: Signal<Vec<HistoryLine>>,
+    mut status_lines: Signal<Vec<StatusLine>>,
     mut step: Signal<Step>,
     mut auth: Signal<AuthState>,
 ) {
@@ -532,6 +556,8 @@ async fn run_register_ceremony(
         .unwrap_or("user")
         .to_string();
 
+    push_status(&mut status_lines, "Creating identity . . . . . . . . ", LineState::Working);
+
     let start_res = Request::post("/auth/register/start")
         .json(&serde_json::json!({ "username": email.clone(), "display_name": display_name }))
         .unwrap()
@@ -539,24 +565,30 @@ async fn run_register_ceremony(
         .await;
 
     let start_body = match start_res {
-        Ok(r) if r.ok() => match r.text().await {
-            Ok(t) => t,
-            Err(e) => {
-                finish_with_error(
-                    format!("network error: {e}"),
-                    &mut busy,
-                    &mut error,
-                    &mut step,
-                );
-                return;
+        Ok(r) if r.ok() => {
+            update_last_status(&mut status_lines, LineState::Ok);
+            match r.text().await {
+                Ok(t) => t,
+                Err(e) => {
+                    update_last_status(&mut status_lines, LineState::Failed);
+                    finish_with_error(
+                        format!("network error: {e}"),
+                        &mut busy,
+                        &mut error,
+                        &mut step,
+                    );
+                    return;
+                }
             }
-        },
+        }
         Ok(r) => {
+            update_last_status(&mut status_lines, LineState::Failed);
             let txt = r.text().await.unwrap_or_default();
             finish_with_error(txt, &mut busy, &mut error, &mut step);
             return;
         }
         Err(e) => {
+            update_last_status(&mut status_lines, LineState::Failed);
             finish_with_error(
                 format!("network error: {e}"),
                 &mut busy,
@@ -567,13 +599,21 @@ async fn run_register_ceremony(
         }
     };
 
+    push_status(&mut status_lines, "Passkey enrollment  . . . . . . . ", LineState::Working);
+
     let cred_json = match passkey::create_credential(&start_body).await {
-        Ok(j) => j,
+        Ok(j) => {
+            update_last_status(&mut status_lines, LineState::Ok);
+            j
+        }
         Err(e) => {
+            update_last_status(&mut status_lines, LineState::Failed);
             finish_with_error(e, &mut busy, &mut error, &mut step);
             return;
         }
     };
+
+    push_status(&mut status_lines, "Registering credential . . . . .  ", LineState::Working);
 
     let finish_res = Request::post("/auth/register/finish")
         .header("Content-Type", "application/json")
@@ -584,20 +624,20 @@ async fn run_register_ceremony(
 
     match finish_res {
         Ok(r) if r.ok() => {
-            history.write().push(HistoryLine {
-                prompt: "email:",
-                value: email.clone(),
-            });
+            update_last_status(&mut status_lines, LineState::Ok);
+            push_status(&mut status_lines, "Account provisioned . . . . . . . ", LineState::Ok);
             auth.set(AuthState::Authenticated(AuthUser {
                 user_id: String::new(),
                 username: email,
             }));
         }
         Ok(r) => {
+            update_last_status(&mut status_lines, LineState::Failed);
             let txt = r.text().await.unwrap_or_default();
             finish_with_error(txt, &mut busy, &mut error, &mut step);
         }
         Err(e) => {
+            update_last_status(&mut status_lines, LineState::Failed);
             finish_with_error(
                 format!("network error: {e}"),
                 &mut busy,
@@ -619,9 +659,69 @@ fn finish_with_error(
     step.set(Step::Email);
 }
 
-// ── CSS ───────────────────────────────────────────────────────────────────────
+// ── CSS constants ─────────────────────────────────────────────────────────────
 
-const BLINK_CSS: &str = r#"
+const SCRIM_STYLE: &str = "
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(10, 14, 26, 0.92);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'IBM Plex Mono', 'Menlo', 'Consolas', 'Monaco', monospace;
+    font-size: 13px; line-height: 1.55;
+    color: #c0c8d8;
+";
+
+const PANEL_STYLE: &str = "
+    width: min(520px, 92vw);
+    min-height: 320px;
+    background: #0f1320;
+    border: 1px solid #3b4261;
+    box-shadow: 0 0 0 1px #1a1e32, 0 8px 40px rgba(0,0,0,0.6);
+    display: flex; flex-direction: column;
+    padding: 0;
+    position: relative;
+";
+
+const HEADER_STYLE: &str = "
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0.5rem 1rem;
+    background: #1a1e32;
+    border-bottom: 1px solid #3b4261;
+";
+
+const TAB_STYLE: &str = "
+    background: transparent; border: none; border-bottom: 2px solid transparent;
+    color: #565f89; cursor: pointer;
+    font: inherit; padding: 0.5rem 1rem;
+";
+
+const TAB_ACTIVE_STYLE: &str = "
+    background: #1a1e32; border: none; border-bottom: 2px solid #7aa2f7;
+    color: #c0caf5; cursor: pointer;
+    font: inherit; padding: 0.5rem 1rem;
+    font-weight: bold;
+";
+
+const FIELD_ROW_STYLE: &str = "
+    display: flex; align-items: center; gap: 1rem;
+    padding: 0.5rem 1rem;
+";
+
+const INPUT_STYLE: &str = "
+    background: #1a1e32; border: 1px solid #3b4261;
+    color: #c0caf5; font: inherit;
+    padding: 0.3rem 0.5rem; flex: 1;
+    outline: none;
+    caret-color: #7aa2f7;
+";
+
+const FOOTER_STYLE: &str = "
+    padding: 0.5rem 1rem;
+    border-top: 1px solid #2a3050;
+    margin-top: auto;
+    text-align: center;
+";
+
+const BIOS_CSS: &str = r#"
 @keyframes blink {
     0%, 100% { opacity: 1; }
     50%       { opacity: 0; }

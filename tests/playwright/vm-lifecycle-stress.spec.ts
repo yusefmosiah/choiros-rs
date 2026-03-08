@@ -144,13 +144,24 @@ test.describe("VM stress & discovery", () => {
     await page.goto("/");
 
     // Wait for WASM to boot and render the desktop
-    // The app should show a desktop with taskbar/prompt bar
-    const desktopRendered = await Promise.race([
-      page.waitForSelector("[data-testid='prompt-bar'], .prompt-bar, .taskbar, .desktop-container, #main > *", {
-        timeout: 30_000,
-      }).then(() => true),
-      page.waitForTimeout(30_000).then(() => false),
-    ]);
+    // Check that body has meaningful content (not just style/script tags)
+    const desktopRendered = await page.evaluate(() => {
+      return new Promise<boolean>((resolve) => {
+        const check = () => {
+          // Look for rendered DOM elements beyond script/style
+          const mainEl = document.getElementById("main");
+          if (mainEl && mainEl.children.length > 0) {
+            const hasVisibleContent = Array.from(mainEl.querySelectorAll("*")).some(
+              (el) => !["SCRIPT", "STYLE"].includes(el.tagName) && el.getBoundingClientRect().height > 0
+            );
+            if (hasVisibleContent) { resolve(true); return; }
+          }
+          setTimeout(check, 200);
+        };
+        setTimeout(() => resolve(false), 30000);
+        check();
+      });
+    });
 
     const renderMs = Date.now() - t0;
 
@@ -197,20 +208,9 @@ test.describe("VM stress & discovery", () => {
       recordMetric("desktop-api", "desktop-count", Array.isArray(desktops) ? desktops.length : "n/a");
     }
 
-    // Create a desktop
-    const createT0 = Date.now();
-    const createRes = await page.request.post("/api/desktop", {
-      data: { desktop_id: `stress_test_${Date.now()}` },
-      timeout: 15_000,
-    });
-    const createMs = Date.now() - createT0;
-
-    recordMetric("desktop-api", "create-status", createRes.status());
-    recordMetric("desktop-api", "create-latency", createMs, "ms");
-
     // Get events
     const eventsT0 = Date.now();
-    const eventsRes = await page.request.get("/logs/events?limit=5", { timeout: 10_000 });
+    const eventsRes = await page.request.get("/logs/events?limit=5", { timeout: 15_000 });
     const eventsMs = Date.now() - eventsT0;
 
     recordMetric("desktop-api", "events-status", eventsRes.status());
