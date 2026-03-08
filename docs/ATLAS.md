@@ -131,6 +131,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/state/snapshots/2026-03-04-231800-ovh-bootstrap-current-status.md`
 - Checkpoint: Writer, Tracing, and Bootstrap Readiness — Snapshot (Active)  
   `docs/state/snapshots/2026-03-06-writer-tracing-bootstrap-checkpoint.md`
+- VM Lifecycle Testing & Fixes — Node B — ? (?)  
+  `docs/state/snapshots/2026-03-08-vm-lifecycle-testing-and-fixes.md`
 
 </details>
 
@@ -147,4 +149,4 @@ ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-08 — 20 practice, 18 theory, 8 state docs.*
+*Generated 2026-03-08 — 20 practice, 18 theory, 9 state docs.*
