@@ -61,6 +61,7 @@
       };
 
       # Cloud-hypervisor sandbox microVMs (x86_64-linux, run on OVH hosts)
+      # The virtiofsd-vhost-fix overlay patches virtiofsd for snapshot/restore support
       nixosConfigurations.choiros-ch-sandbox-live = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
         specialArgs = {
@@ -71,6 +72,7 @@
           vmTap = "tap-live";
         };
         modules = [
+          { nixpkgs.overlays = [ (import ./nix/overlays/virtiofsd-vhost-fix.nix) ]; }
           microvm.nixosModules.microvm
           ./nix/ch/sandbox-vm.nix
         ];
@@ -86,6 +88,7 @@
           vmTap = "tap-dev";
         };
         modules = [
+          { nixpkgs.overlays = [ (import ./nix/overlays/virtiofsd-vhost-fix.nix) ]; }
           microvm.nixosModules.microvm
           ./nix/ch/sandbox-vm.nix
         ];
