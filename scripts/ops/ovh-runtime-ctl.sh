@@ -148,6 +148,9 @@ start_virtiofsd() {
     rm -f "$VIRTIOFSD_PID_FILE"
   fi
 
+  # Clean stale sockets before starting
+  rm -f "${VM_DIR}"/*-virtiofs-*.sock
+
   local runner="${RUNNER_DIR}/bin/virtiofsd-run"
   if [[ ! -x "$runner" ]]; then
     log "ERROR: virtiofsd-run not found at $runner"
@@ -187,6 +190,8 @@ stop_virtiofsd() {
     fi
     rm -f "$VIRTIOFSD_PID_FILE"
   fi
+  # Also kill any orphaned virtiofsd children
+  pkill -f "virtiofsd.*${VM_NAME}" 2>/dev/null || true
 }
 
 # Cold boot: start cloud-hypervisor from microvm-run script
@@ -229,11 +234,25 @@ restore_vm() {
   local pid=$!
   echo "$pid" > "$VM_PID_FILE"
 
-  # Wait briefly for the process to either start or crash
-  sleep 2
+  # Wait for the process to start and the API socket to appear
+  local max_wait=30 elapsed=0
+  while (( elapsed < max_wait )); do
+    if ! pid_alive "$pid"; then
+      log "VM restore failed (process exited), falling back to cold boot"
+      rm -f "$VM_PID_FILE"
+      rm -rf "$VM_SNAPSHOT_DIR"
+      return 1
+    fi
+    if [[ -S "$API_SOCK" ]]; then
+      break
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
 
-  if ! pid_alive "$pid"; then
-    log "VM restore failed (process exited), falling back to cold boot"
+  if [[ ! -S "$API_SOCK" ]]; then
+    log "VM restore timed out waiting for API socket"
+    kill "$pid" 2>/dev/null || true
     rm -f "$VM_PID_FILE"
     rm -rf "$VM_SNAPSHOT_DIR"
     return 1
@@ -241,17 +260,14 @@ restore_vm() {
 
   # The VM resumes in paused state after restore — resume it
   sleep 1
-  if [[ -S "$API_SOCK" ]]; then
-    curl -s --unix-socket "$API_SOCK" -X PUT \
-      "http://localhost/api/v1/vm.resume" 2>/dev/null || true
-  fi
+  curl -s --max-time 5 --unix-socket "$API_SOCK" -X PUT \
+    "http://localhost/api/v1/vm.resume" 2>/dev/null || true
 
   log "VM restored from snapshot (PID $pid)"
   return 0
 }
 
 # Hibernate: pause + snapshot VM state + stop process
-# Keeps virtiofsd and TAP alive for fast restore
 hibernate_vm() {
   if [[ ! -S "$API_SOCK" ]]; then
     log "No API socket — VM not running, skipping hibernate"
@@ -261,14 +277,14 @@ hibernate_vm() {
   log "Hibernating VM $VM_NAME"
 
   # Pause vCPUs
-  curl -s --unix-socket "$API_SOCK" -X PUT \
+  curl -s --max-time 5 --unix-socket "$API_SOCK" -X PUT \
     "http://localhost/api/v1/vm.pause" 2>/dev/null || true
   sleep 1
 
   # Snapshot VM state to disk
   mkdir -p "$VM_SNAPSHOT_DIR"
   local snapshot_result
-  snapshot_result=$(curl -s --unix-socket "$API_SOCK" -X PUT \
+  snapshot_result=$(curl -s --max-time 30 --unix-socket "$API_SOCK" -X PUT \
     "http://localhost/api/v1/vm.snapshot" \
     -H "Content-Type: application/json" \
     -d "{\"destination_url\": \"file://${VM_SNAPSHOT_DIR}\"}" 2>&1)
@@ -276,7 +292,7 @@ hibernate_vm() {
   if echo "$snapshot_result" | grep -qi "error"; then
     log "VM snapshot failed: $snapshot_result"
     # Resume the VM since hibernate failed
-    curl -s --unix-socket "$API_SOCK" -X PUT \
+    curl -s --max-time 5 --unix-socket "$API_SOCK" -X PUT \
       "http://localhost/api/v1/vm.resume" 2>/dev/null || true
     return 1
   fi
@@ -311,7 +327,7 @@ stop_vm_process() {
 stop_vm() {
   if [[ -S "$API_SOCK" ]] 2>/dev/null; then
     log "Requesting VM shutdown via API socket"
-    curl -s --unix-socket "$API_SOCK" -X PUT \
+    curl -s --max-time 5 --unix-socket "$API_SOCK" -X PUT \
       "http://localhost/api/v1/vm.shutdown" 2>/dev/null || true
     sleep 2
   fi
@@ -390,21 +406,20 @@ case "$ACTION" in
     mkdir -p "${SANDBOX_DATA_DIR}/users"
     chown choiros:choiros "${SANDBOX_DATA_DIR}/users"
     setup_tap
-    start_virtiofsd
 
     # Try fast restore from VM snapshot, fall back to cold boot
     if has_vm_snapshot; then
       # Restart virtiofsd to get fresh sockets (old ones go stale after VM stop)
       stop_virtiofsd
-      # Clean up stale virtiofsd sockets before restarting
-      rm -f "${VM_DIR}"/*-virtiofs-*.sock
       start_virtiofsd
       if restore_vm; then
         log "VM resumed from snapshot"
       else
+        log "Snapshot restore failed, cold booting"
         cold_boot_vm
       fi
     else
+      start_virtiofsd
       cold_boot_vm
     fi
 
