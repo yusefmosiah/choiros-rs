@@ -2,6 +2,9 @@
 # Intel Xeon-E 2136 / 32GB RAM / 2x NVMe RAID1 / UEFI
 { config, lib, pkgs, ... }:
 {
+  nixpkgs.overlays = [
+    (import ../overlays/virtiofsd-vhost-fix.nix)
+  ];
   boot.loader.efi.canTouchEfiVariables = true;
   boot.loader.efi.efiSysMountPoint = "/boot/efi";
   boot.loader.grub = {
