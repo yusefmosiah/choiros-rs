@@ -67,7 +67,8 @@
         src = ./dioxus-desktop;
         filter = path: type:
           (craneLib.filterCargoSources path type)
-          || (builtins.baseNameOf path) == "Cargo.lock";
+          || (builtins.baseNameOf path) == "Cargo.lock"
+          || (pkgs.lib.hasSuffix ".js" path);
       };
 
       frontendCommonArgs = {
