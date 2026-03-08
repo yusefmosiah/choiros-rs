@@ -33,6 +33,9 @@ jobs:
             echo "==> Building frontend (WASM)"
             nix build ./dioxus-desktop#web -o result-frontend --print-build-logs
 
+            echo "==> Building VM runner"
+            nix build .#nixosConfigurations.choiros-ch-sandbox-live.config.microvm.runner.cloud-hypervisor -o result-vm-live --print-build-logs
+
             echo "==> Installing binaries"
             cp -f result-sandbox/bin/sandbox /opt/choiros/bin/sandbox
             cp -f result-hypervisor/bin/hypervisor /opt/choiros/bin/hypervisor
