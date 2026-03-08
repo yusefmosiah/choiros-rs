@@ -60,9 +60,11 @@ async function openAuthModal(page: Page, path: "/" | "/login" | "/register"): Pr
   await expect(page.getByTestId("auth-input")).toBeVisible({ timeout: 60_000 });
 }
 
-async function expectAuthMode(page: Page, label: "Log in" | "Sign up"): Promise<void> {
-  await expect(page.getByTestId("auth-mode-label")).toHaveText(label);
-  await expect(page.locator("span", { hasText: "email:" }).first()).toBeVisible();
+async function expectAuthMode(page: Page, mode: "login" | "register"): Promise<void> {
+  // New BIOS-style modal uses tab buttons with data-testid="auth-mode-login" / "auth-mode-register"
+  const activeTab = page.getByTestId(`auth-mode-${mode}`);
+  await expect(activeTab).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("auth-input")).toBeVisible({ timeout: 30_000 });
 }
 
 async function submitUsername(page: Page, username: string): Promise<void> {
@@ -111,7 +113,7 @@ async function loginViaModal(page: Page, username: string): Promise<void> {
 test.describe("WASM auth modal", () => {
   test("/login boots in login mode with email input", async ({ page }) => {
     await openAuthModal(page, "/login");
-    await expectAuthMode(page, "Log in");
+    await expectAuthMode(page, "login");
 
     const me = await authMe(page);
     expect(me.authenticated).toBe(false);
@@ -119,7 +121,7 @@ test.describe("WASM auth modal", () => {
 
   test("/register boots in signup mode with email input", async ({ page }) => {
     await openAuthModal(page, "/register");
-    await expectAuthMode(page, "Sign up");
+    await expectAuthMode(page, "register");
 
     const me = await authMe(page);
     expect(me.authenticated).toBe(false);
@@ -130,7 +132,7 @@ test.describe("WASM auth modal", () => {
     const username = `${uniqueUsername()}@example.com`;
 
     await openAuthModal(page, "/register");
-    await expectAuthMode(page, "Sign up");
+    await expectAuthMode(page, "register");
     const finish = await registerViaModal(page, username);
 
     expect(finish.is_first_passkey).toBe(true);
@@ -146,7 +148,7 @@ test.describe("WASM auth modal", () => {
     const username = `${uniqueUsername()}@example.com`;
 
     await openAuthModal(page, "/register");
-    await expectAuthMode(page, "Sign up");
+    await expectAuthMode(page, "register");
     await registerViaModal(page, username);
 
     const logout = await page.request.post("/auth/logout");
@@ -157,7 +159,7 @@ test.describe("WASM auth modal", () => {
     expect(me.authenticated).toBe(false);
 
     await openAuthModal(page, "/login");
-    await expectAuthMode(page, "Log in");
+    await expectAuthMode(page, "login");
     await loginViaModal(page, username);
 
     me = await authMe(page);
@@ -182,7 +184,7 @@ test.describe("WASM auth modal", () => {
 
   test("login mode does not auto-register unknown email", async ({ page }) => {
     await openAuthModal(page, "/login");
-    await expectAuthMode(page, "Log in");
+    await expectAuthMode(page, "login");
 
     await submitUsername(page, `unknown_${Date.now()}@example.com`);
     await expect(page.getByTestId("auth-error")).toContainText("no account found");
