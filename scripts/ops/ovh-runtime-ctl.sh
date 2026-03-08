@@ -21,7 +21,6 @@ export PATH="/run/current-system/sw/bin:/run/current-system/sw/sbin:$PATH"
 
 WORKSPACE="${CHOIR_WORKSPACE_ROOT:-/opt/choiros/workspace}"
 VM_STATE_DIR="${CHOIR_VM_STATE_DIR:-/opt/choiros/vms/state}"
-SANDBOX_DATA_DIR="${CHOIR_SANDBOX_DATA_DIR:-/opt/choiros/data/sandbox}"
 SNAPSHOT_DIR="${CHOIR_SNAPSHOT_DIR:-/data/snapshots}"
 BRIDGE="br-choiros"
 
@@ -59,63 +58,33 @@ log() { echo "[ovh-runtime-ctl] $*" >&2; }
 
 pid_alive() { kill -0 "$1" 2>/dev/null; }
 
-# Btrfs snapshot: save sandbox data
+# Snapshot data disk image (simple file copy with reflink if on btrfs)
 snapshot_data() {
-  if ! btrfs subvolume show "$SANDBOX_DATA_DIR" &>/dev/null; then
-    log "Skipping data snapshot: $SANDBOX_DATA_DIR is not a btrfs subvolume"
+  local data_img="${VM_DIR}/data.img"
+  if [[ ! -f "$data_img" ]]; then
+    log "No data.img found, skipping data snapshot"
     return 0
   fi
 
   local snap_name snap_path
   snap_name="$(date -u +%Y%m%dT%H%M%SZ)-${VM_NAME}"
-  snap_path="${SNAPSHOT_DIR}/${snap_name}"
+  snap_path="${SNAPSHOT_DIR}/${snap_name}.img"
   mkdir -p "$SNAPSHOT_DIR"
 
-  log "Creating btrfs data snapshot: $snap_path"
-  btrfs subvolume snapshot -r "$SANDBOX_DATA_DIR" "$snap_path"
+  log "Snapshotting data disk: $snap_path"
+  cp --reflink=auto "$data_img" "$snap_path"
 
-  # Prune old snapshots (keep last 5)
+  # Prune old snapshots (keep last 3)
   local snaps
-  snaps=$(find "$SNAPSHOT_DIR" -maxdepth 1 -name "*-${VM_NAME}" -type d | sort)
+  snaps=$(find "$SNAPSHOT_DIR" -maxdepth 1 -name "*-${VM_NAME}.img" -type f | sort)
   local count
   count=$(echo "$snaps" | wc -l)
-  if (( count > 5 )); then
-    echo "$snaps" | head -n $((count - 5)) | while read -r old; do
+  if (( count > 3 )); then
+    echo "$snaps" | head -n $((count - 3)) | while read -r old; do
       log "Pruning old data snapshot: $old"
-      btrfs subvolume delete "$old" 2>/dev/null || true
+      rm -f "$old"
     done
   fi
-}
-
-# Restore from latest btrfs data snapshot on cold start
-restore_data_from_snapshot() {
-  if btrfs subvolume show "$SANDBOX_DATA_DIR" &>/dev/null; then
-    # Subvolume exists and has data — nothing to restore
-    if [ "$(ls -A "$SANDBOX_DATA_DIR" 2>/dev/null)" ]; then
-      return 0
-    fi
-  fi
-
-  local latest
-  latest=$(find "$SNAPSHOT_DIR" -maxdepth 1 -name "*-${VM_NAME}" -type d 2>/dev/null | sort | tail -1)
-  if [[ -z "$latest" ]]; then
-    log "No data snapshots found to restore"
-    return 0
-  fi
-
-  log "Restoring data from snapshot: $latest"
-
-  # If sandbox data dir is a subvolume, delete it first
-  if btrfs subvolume show "$SANDBOX_DATA_DIR" &>/dev/null; then
-    btrfs subvolume delete "$SANDBOX_DATA_DIR"
-  else
-    rm -rf "$SANDBOX_DATA_DIR"
-  fi
-
-  # Create writable snapshot from the readonly backup
-  btrfs subvolume snapshot "$latest" "$SANDBOX_DATA_DIR"
-  chown -R choiros:choiros "$SANDBOX_DATA_DIR"
-  log "Data restore complete"
 }
 
 setup_tap() {
@@ -164,12 +133,13 @@ start_virtiofsd() {
   echo "$pid" > "$VIRTIOFSD_PID_FILE"
   log "virtiofsd started (PID $pid)"
 
-  # Wait for sockets to appear (4 shares: nix-store, choiros-bin, choiros-data, choiros-creds)
+  # Wait for sockets to appear (3 shares: nix-store, choiros-bin, choiros-creds)
+  # Note: sandbox data is on virtio-blk (not virtiofs) for snapshot/restore support
   local max_wait=30 elapsed=0
   while (( elapsed < max_wait )); do
     local sock_count
     sock_count=$(find "$VM_DIR" -maxdepth 1 -name "*-virtiofs-*.sock" 2>/dev/null | wc -l)
-    if (( sock_count >= 4 )); then
+    if (( sock_count >= 3 )); then
       log "virtiofsd sockets ready ($sock_count found in ${elapsed}s)"
       return 0
     fi
@@ -401,10 +371,6 @@ case "$ACTION" in
       rm -f "$VM_PID_FILE"
     fi
 
-    restore_data_from_snapshot
-    # Ensure per-user directories exist inside sandbox data
-    mkdir -p "${SANDBOX_DATA_DIR}/users"
-    chown choiros:choiros "${SANDBOX_DATA_DIR}/users"
     setup_tap
 
     # Try fast restore from VM snapshot, fall back to cold boot

@@ -16,9 +16,11 @@
       mac = vmMac;
     }];
 
+    # Mutable sandbox data on virtio-blk — survives VM snapshot/restore
+    # (virtiofs can't restore FUSE file handle state, virtio-blk can)
     volumes = [{
       image = "data.img";
-      mountPoint = "/var/lib/choiros";
+      mountPoint = "/opt/choiros/data/sandbox";
       size = 2048;
     }];
 
@@ -36,12 +38,6 @@
         tag = "choiros-bin";
         source = "/opt/choiros/bin";
         mountPoint = "/opt/choiros/bin";
-      }
-      {
-        proto = "virtiofs";
-        tag = "choiros-data";
-        source = "/opt/choiros/data/sandbox";
-        mountPoint = "/opt/choiros/data/sandbox";
       }
       {
         proto = "virtiofs";
