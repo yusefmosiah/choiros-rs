@@ -37,8 +37,14 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/decisions/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
 - **[P3]** ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion — Decision (Draft)  
   `docs/theory/decisions/adr-0013-fleet-ctl-change-lifecycle-and-promotion.md`
+- **[P3]** ADR-0016: NixOS Declarative Deployment — Decision (Draft) | Requires: [ADR-0002, ADR-0014]  
+  `docs/theory/decisions/adr-0016-nixos-declarative-deployment.md`
+- **[P3]** Implementing ADR-0016: NixOS Declarative Deployment — Guide (Draft) | Requires: [ADR-0016]  
+  `docs/theory/guides/adr-0016-implementation.md`
 - **[P3]** Inbox — Note (Active)  
   `docs/theory/notes/inbox.md`
+- **[P3]** Per-User VMs as the Deployment Unit — Note (Draft) | Requires: [ADR-0014, ADR-0016]  
+  `docs/theory/notes/per-user-vms-as-deployment-unit.md`
 - **[P4]** ADR-0003: Hypervisor-Sandbox Secrets Boundary — Decision (Draft) | Requires: [ADR-0008, ADR-0014]  
   `docs/theory/decisions/adr-0003-hypervisor-sandbox-secrets-boundary.md`
 - **[P4]** ADR-0004: Hypervisor-Sandbox UI Runtime Boundary — Decision (Proposed) | Requires: [ADR-0007]  
@@ -57,6 +63,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/guides/deployment-checkpoint-and-next-steps.md`
 - **[P5]** OVH US-East Bootstrap Runbook: Secrets + Compute Lifecycle — Guide (Active)  
   `docs/theory/guides/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
+- **[P5]** nix-bench — ? (?)  
+  `docs/theory/notes/nix-bench.md`
 - **[P5]** ChoirOS Roadmap Dependency Tree (Active) — Note (Active)  
   `docs/theory/notes/roadmap-dependency-tree.md`
 
@@ -133,7 +141,10 @@ ADR-0008, ADR-0014 → ADR-0003: Hypervisor-Sandbox Secrets Boundary
 ADR-0007 → ADR-0004: Hypervisor-Sandbox UI Runtime Boundary
 ADR-0014 → ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes)
 ADR-0007, ADR-0012 → ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync
+ADR-0002, ADR-0014 → ADR-0016: NixOS Declarative Deployment
 ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
+ADR-0016 → Implementing ADR-0016: NixOS Declarative Deployment
+ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-06 — 18 practice, 16 theory, 8 state docs.*
+*Generated 2026-03-07 — 18 practice, 20 theory, 8 state docs.*
