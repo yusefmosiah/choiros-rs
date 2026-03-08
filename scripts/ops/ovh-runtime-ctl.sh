@@ -263,6 +263,15 @@ restore_vm() {
   curl -s --max-time 5 --unix-socket "$API_SOCK" -X PUT \
     "http://localhost/api/v1/vm.resume" 2>/dev/null || true
 
+  # After restore, application processes inside the guest have stale socket
+  # bindings and broken file descriptors. Reboot the guest kernel via the
+  # cloud-hypervisor API — this is fast (~6s) since the VM process is already
+  # running and virtiofsd/TAP are established.
+  sleep 2
+  log "Rebooting guest after restore (application state is stale)"
+  curl -s --max-time 5 --unix-socket "$API_SOCK" -X PUT \
+    "http://localhost/api/v1/vm.reboot" 2>/dev/null || true
+
   log "VM restored from snapshot (PID $pid)"
   return 0
 }
