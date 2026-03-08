@@ -72,6 +72,23 @@ pub async fn stop_sandbox(
     }
 }
 
+/// POST /admin/sandboxes/:user_id/:role/hibernate
+pub async fn hibernate_sandbox(
+    State(state): State<Arc<AppState>>,
+    Path(p): Path<SandboxActionPath>,
+) -> impl IntoResponse {
+    let Some(role) = parse_role(&p.role) else {
+        return (StatusCode::BAD_REQUEST, "role must be 'live' or 'dev'").into_response();
+    };
+    match state.sandbox_registry.hibernate(&p.user_id, role).await {
+        Ok(()) => StatusCode::OK.into_response(),
+        Err(e) => {
+            error!("hibernate sandbox: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
 /// POST /admin/sandboxes/:user_id/swap — promote dev to live
 pub async fn swap_sandbox_roles(
     State(state): State<Arc<AppState>>,

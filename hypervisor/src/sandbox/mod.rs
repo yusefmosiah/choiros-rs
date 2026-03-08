@@ -52,6 +52,8 @@ impl std::fmt::Display for SandboxRole {
 pub enum SandboxStatus {
     Running,
     Stopped,
+    /// VM snapshot saved to disk — fast restore available via `runtime_ctl ensure`.
+    Hibernated,
     /// Process exited unexpectedly.
     Failed,
 }
@@ -212,6 +214,15 @@ impl SandboxRegistry {
                             .await;
                         entry.status = SandboxStatus::Failed;
                     }
+                    SandboxStatus::Hibernated => {
+                        // VM snapshot exists on disk — runtime_ctl ensure will
+                        // restore from it (fast resume) instead of cold booting.
+                        info!(
+                            user_id,
+                            %role,
+                            "sandbox hibernated; will restore from snapshot"
+                        );
+                    }
                     SandboxStatus::Stopped | SandboxStatus::Failed => {
                         // Clean up any residual handle before re-spawning.
                         self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
@@ -310,6 +321,12 @@ impl SandboxRegistry {
                             .await;
                         entry.status = SandboxStatus::Failed;
                     }
+                    SandboxStatus::Hibernated => {
+                        info!(
+                            user_id,
+                            branch, "branch sandbox hibernated; will restore from snapshot"
+                        );
+                    }
                     SandboxStatus::Stopped | SandboxStatus::Failed => {
                         self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
                             .await;
@@ -374,6 +391,27 @@ impl SandboxRegistry {
                     .await;
                 entry.status = SandboxStatus::Stopped;
                 info!(user_id, %role, "sandbox stopped");
+            }
+        }
+        Ok(())
+    }
+
+    /// Hibernate a sandbox: pause + snapshot VM state, preserving it for fast restore.
+    pub async fn hibernate(
+        self: &Arc<Self>,
+        user_id: &str,
+        role: SandboxRole,
+    ) -> anyhow::Result<()> {
+        let mut entries = self.entries.lock().await;
+        if let Some(user_map) = entries.get_mut(user_id) {
+            if let Some(entry) = user_map.roles.get_mut(&role) {
+                if entry.status != SandboxStatus::Running {
+                    return Err(anyhow::anyhow!("sandbox is not running"));
+                }
+                self.hibernate_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
+                    .await;
+                entry.status = SandboxStatus::Hibernated;
+                info!(user_id, %role, "sandbox hibernated");
             }
         }
         Ok(())
@@ -498,7 +536,7 @@ impl SandboxRegistry {
                         );
                         self.hibernate_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
                             .await;
-                        entry.status = SandboxStatus::Stopped;
+                        entry.status = SandboxStatus::Hibernated;
                     }
                 }
 
@@ -513,7 +551,7 @@ impl SandboxRegistry {
                         );
                         self.hibernate_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
                             .await;
-                        entry.status = SandboxStatus::Stopped;
+                        entry.status = SandboxStatus::Hibernated;
                     }
                 }
             }
@@ -814,6 +852,7 @@ impl serde::Serialize for SandboxStatus {
         let v = match self {
             SandboxStatus::Running => "running",
             SandboxStatus::Stopped => "stopped",
+            SandboxStatus::Hibernated => "hibernated",
             SandboxStatus::Failed => "failed",
         };
         s.serialize_str(v)

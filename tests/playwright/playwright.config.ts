@@ -31,6 +31,7 @@ export default defineConfig({
         "writer-bugfix-e2e.spec.ts",
         "vm-lifecycle-report.spec.ts",
         "vm-lifecycle-stress.spec.ts",
+        "vm-snapshot-restore.spec.ts",
       ],
       use: {
         baseURL: hypervisorBaseUrl,

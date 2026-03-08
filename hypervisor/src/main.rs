@@ -134,6 +134,10 @@ async fn main() -> anyhow::Result<()> {
             post(api::stop_sandbox),
         )
         .route(
+            "/admin/sandboxes/{user_id}/{role}/hibernate",
+            post(api::hibernate_sandbox),
+        )
+        .route(
             "/admin/sandboxes/{user_id}/swap",
             post(api::swap_sandbox_roles),
         )
