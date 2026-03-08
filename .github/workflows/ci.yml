@@ -85,8 +85,8 @@ jobs:
             echo "==> Pulling latest code"
             git pull --ff-only origin main
 
-            echo "==> Updating flake lock"
-            nix flake update --commit-lock-file 2>/dev/null || true
+            echo "==> Resetting stale systemd units"
+            systemctl reset-failed nixos-rebuild-switch-to-configuration.service 2>/dev/null || true
 
             echo "==> Building and activating NixOS config"
             nixos-rebuild switch --flake .#choiros-b --print-build-logs 2>&1
