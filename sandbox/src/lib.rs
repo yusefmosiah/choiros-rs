@@ -15,6 +15,7 @@ pub mod app_state;
 pub mod baml_client;
 pub mod markdown;
 pub mod observability;
+pub mod paths;
 pub mod runtime_env;
 pub mod tools;
 

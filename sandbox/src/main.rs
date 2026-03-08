@@ -119,10 +119,14 @@ fn frontend_dist_from_env() -> String {
         return path;
     }
 
-    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."));
+    let workspace_root = if cfg!(debug_assertions) {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."))
+    } else {
+        PathBuf::from(".")
+    };
 
     let release = workspace_root.join("dioxus-desktop/target/dx/dioxus-desktop/release/web/public");
     if release.join("index.html").exists() {

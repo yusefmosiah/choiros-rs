@@ -1,6 +1,6 @@
 # Node B: draft/staging server for CI rolling deploys
 # 147.135.70.196 — ns106285.ip-147-135-70.us — us-east-vin
-{ lib, ... }:
+{ lib, choirosPackages, vmRunnerLive, ... }:
 {
   imports = [ ./ovh-node.nix ];
   networking.hostName = "choiros-b";

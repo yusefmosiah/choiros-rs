@@ -20,6 +20,8 @@ export PATH="/run/current-system/sw/bin:/run/current-system/sw/sbin:$PATH"
 # Usage: ovh-runtime-ctl.sh <ensure|hibernate|stop> --user-id <id> --runtime <name> --port <port> [--role <live|dev>] [--branch <branch>]
 
 WORKSPACE="${CHOIR_WORKSPACE_ROOT:-/opt/choiros/workspace}"
+# Prefer injected store path for VM runner (set by NixOS systemd unit)
+VM_RUNNER_OVERRIDE="${CHOIR_VM_RUNNER_DIR:-}"
 VM_STATE_DIR="${CHOIR_VM_STATE_DIR:-/opt/choiros/vms/state}"
 SNAPSHOT_DIR="${CHOIR_SNAPSHOT_DIR:-/data/snapshots}"
 BRIDGE="br-choiros"
@@ -51,8 +53,12 @@ VM_IP_ADDR="${VM_IP[${ROLE:-live}]:-10.0.0.10}"
 VM_SNAPSHOT_DIR="${VM_DIR}/vm-snapshot"
 API_SOCK="${VM_DIR}/sandbox-${VM_NAME}.sock"
 
-# Runner directory (built by deploy script)
-RUNNER_DIR="${WORKSPACE}/result-vm-${VM_NAME}"
+# Runner directory: prefer store path from env, fall back to workspace symlink
+if [[ -n "$VM_RUNNER_OVERRIDE" ]]; then
+  RUNNER_DIR="$VM_RUNNER_OVERRIDE"
+else
+  RUNNER_DIR="${WORKSPACE}/result-vm-${VM_NAME}"
+fi
 
 log() { echo "[ovh-runtime-ctl] $*" >&2; }
 
@@ -133,13 +139,13 @@ start_virtiofsd() {
   echo "$pid" > "$VIRTIOFSD_PID_FILE"
   log "virtiofsd started (PID $pid)"
 
-  # Wait for sockets to appear (3 shares: nix-store, choiros-bin, choiros-creds)
-  # Note: sandbox data is on virtio-blk (not virtiofs) for snapshot/restore support
+  # Wait for sockets to appear (2 shares: nix-store, choiros-creds)
+  # Note: sandbox data is on virtio-blk, sandbox binary is in /nix/store
   local max_wait=30 elapsed=0
   while (( elapsed < max_wait )); do
     local sock_count
     sock_count=$(find "$VM_DIR" -maxdepth 1 -name "*-virtiofs-*.sock" 2>/dev/null | wc -l)
-    if (( sock_count >= 3 )); then
+    if (( sock_count >= 2 )); then
       log "virtiofsd sockets ready ($sock_count found in ${elapsed}s)"
       return 0
     fi

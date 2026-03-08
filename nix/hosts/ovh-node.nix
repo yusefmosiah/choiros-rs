@@ -1,6 +1,6 @@
 # NixOS host configuration for OVH SYS-1 bare metal (x86_64-linux)
 # Intel Xeon-E 2136 / 32GB RAM / 2x NVMe RAID1 / UEFI
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, choirosPackages, vmRunnerLive, ... }:
 {
   nixpkgs.overlays = [
     (import ../overlays/virtiofsd-vhost-fix.nix)
@@ -121,10 +121,9 @@
     virtiofsd
   ];
 
-  # Workspace and runtime directories
+  # Workspace directory (still needed for git pull during deploys)
   systemd.tmpfiles.rules = [
     "d /opt/choiros 0755 root root -"
-    "d /opt/choiros/bin 0755 root root -"
     "d /opt/choiros/workspace 0755 root root -"
     "d /opt/choiros/data 0755 root choiros -"
     "d /opt/choiros/data/sandbox 0750 choiros choiros -"
@@ -184,7 +183,7 @@
     '';
   };
 
-  # ChoirOS Hypervisor service
+  # ChoirOS Hypervisor service — ExecStart points to nix store path
   systemd.services.hypervisor = {
     description = "ChoirOS Hypervisor";
     wantedBy = [ "multi-user.target" ];
@@ -192,7 +191,7 @@
     wants = [ "network-online.target" ];
     requires = [ "choiros-secrets-materialize.service" ];
     serviceConfig = {
-      ExecStart = "/opt/choiros/bin/hypervisor";
+      ExecStart = "${choirosPackages.hypervisor}/bin/hypervisor";
       Restart = "on-failure";
       RestartSec = 3;
       WorkingDirectory = "/opt/choiros/workspace";
@@ -211,17 +210,15 @@
       Environment = [
         "HYPERVISOR_PORT=9090"
         "HYPERVISOR_DATABASE_URL=sqlite:/opt/choiros/data/hypervisor.db"
-        "SANDBOX_VFKIT_CTL=/opt/choiros/bin/ovh-runtime-ctl"
+        "SANDBOX_VFKIT_CTL=${choirosPackages.runtime-ctl}/bin/ovh-runtime-ctl"
         "SANDBOX_LIVE_PORT=8080"
         "SANDBOX_DEV_PORT=8081"
-        "FRONTEND_DIST=/opt/choiros/workspace/result-frontend"
+        "FRONTEND_DIST=${choirosPackages.frontend}"
+        "CHOIR_VM_RUNNER_DIR=${vmRunnerLive}"
       ];
     };
   };
 
-  # Sandbox VMs are managed dynamically by ovh-runtime-ctl.sh via cloud-hypervisor.
-  # The hypervisor's SandboxRegistry calls the runtime-ctl to ensure/stop VMs.
-  # Static sandbox-live and sandbox-dev systemd services are no longer needed.
   # VM state directory
   systemd.tmpfiles.settings."10-choiros-vms" = {
     "/opt/choiros/vms".d = { mode = "0755"; user = "root"; group = "root"; };

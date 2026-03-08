@@ -1,7 +1,8 @@
 # Cloud-hypervisor guest NixOS config for sandbox microVMs (x86_64-linux).
 # Used on OVH bare metal hosts. Per-instance values (role, port, IP, MAC)
 # are passed via specialArgs from flake.nix.
-{ config, lib, pkgs, sandboxRole, sandboxPort, vmIp, vmMac, vmTap, ... }:
+{ config, lib, pkgs, sandboxRole, sandboxPort, vmIp, vmMac, vmTap,
+  sandboxPackage, ... }:
 {
   networking.hostName = "sandbox-${sandboxRole}";
 
@@ -27,17 +28,11 @@
     shares = [
       {
         # Host nix store (read-only) — needed because the sandbox binary
-        # is dynamically linked against specific nix store paths.
+        # and its runtime closure live in /nix/store on the host.
         proto = "virtiofs";
         tag = "nix-store";
         source = "/nix/store";
         mountPoint = "/nix/store";
-      }
-      {
-        proto = "virtiofs";
-        tag = "choiros-bin";
-        source = "/opt/choiros/bin";
-        mountPoint = "/opt/choiros/bin";
       }
       {
         proto = "virtiofs";
@@ -64,14 +59,14 @@
     };
   };
 
-  # Sandbox service
+  # Sandbox service — binary from nix store (via virtiofs /nix/store mount)
   systemd.services.choir-sandbox = {
     description = "ChoirOS Sandbox (${sandboxRole})";
     wantedBy = [ "multi-user.target" ];
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
     serviceConfig = {
-      ExecStart = "/opt/choiros/bin/sandbox";
+      ExecStart = "${sandboxPackage}/bin/sandbox";
       Restart = "on-failure";
       RestartSec = 1;
       EnvironmentFile = "/run/choiros/credentials/sandbox/sandbox.env";

@@ -1,6 +1,6 @@
 # Node A: production (choir-ip.com)
 # 51.81.93.94 — ns1004307.ip-51-81-93.us — us-east-vin
-{ ... }:
+{ choirosPackages, vmRunnerLive, ... }:
 {
   imports = [ ./ovh-node.nix ];
   networking.hostName = "choiros-a";

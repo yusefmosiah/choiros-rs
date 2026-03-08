@@ -12,15 +12,7 @@ use std::path::{Component, Path, PathBuf};
 use tokio::fs;
 
 use crate::api::ApiState;
-
-/// Sandbox root path - all file operations are constrained to this directory.
-/// Uses CHOIR_SANDBOX_ROOT at runtime (set in production), falls back to
-/// CARGO_MANIFEST_DIR for local dev.
-fn sandbox_root() -> PathBuf {
-    std::env::var("CHOIR_SANDBOX_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
-}
+use crate::paths::sandbox_root;
 
 /// Maximum file read size (1MB)
 const MAX_READ_SIZE: usize = 1_048_576;

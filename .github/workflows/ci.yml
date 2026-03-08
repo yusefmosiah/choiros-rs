@@ -85,36 +85,17 @@ jobs:
             echo "==> Pulling latest code"
             git pull --ff-only origin main
 
-            echo "==> Building sandbox"
-            nix build ./sandbox#sandbox -o result-sandbox --print-build-logs
+            echo "==> Updating flake lock"
+            nix flake update --commit-lock-file 2>/dev/null || true
 
-            echo "==> Building hypervisor"
-            nix build ./hypervisor#hypervisor -o result-hypervisor --print-build-logs
-
-            echo "==> Building frontend (WASM)"
-            nix build ./dioxus-desktop#web -o result-frontend --print-build-logs
-
-            echo "==> Building VM runner"
-            nix build .#nixosConfigurations.choiros-ch-sandbox-live.config.microvm.runner.cloud-hypervisor -o result-vm-live --print-build-logs
-
-            echo "==> Installing binaries"
-            cp -f result-sandbox/bin/sandbox /opt/choiros/bin/sandbox
-            cp -f result-hypervisor/bin/hypervisor /opt/choiros/bin/hypervisor
-            cp -f scripts/ops/ovh-runtime-ctl.sh /opt/choiros/bin/ovh-runtime-ctl
-            chmod +x /opt/choiros/bin/ovh-runtime-ctl
-
-            echo "==> Ensuring bridge has IP"
-            ip addr show br-choiros | grep -q "10.0.0.1" || \
-              ip addr add 10.0.0.1/24 dev br-choiros
-
-            echo "==> Restarting hypervisor"
-            systemctl restart hypervisor
+            echo "==> Building and activating NixOS config"
+            nixos-rebuild switch --flake .#choiros-b --print-build-logs 2>&1
 
             echo "==> Waiting for hypervisor"
             sleep 2
             curl -fsS --retry 10 --retry-delay 3 --retry-all-errors http://127.0.0.1:9090/login > /dev/null
 
-            echo "==> Staging deploy complete (sandbox VM boots on first request)"
+            echo "==> Staging deploy complete"
           '
 
       - name: Cleanup SSH

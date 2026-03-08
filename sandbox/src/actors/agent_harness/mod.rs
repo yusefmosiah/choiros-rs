@@ -209,23 +209,13 @@ fn is_retryable_decision_error_message(message: &str) -> bool {
         || lower.contains("missing required fields")
 }
 
-/// Resolve the base directory for tool-output artifacts.
-///
-/// Preference order:
-/// 1. `CHOIROS_DATA_DIR` env var (set by the runtime/container)
-/// 2. `CARGO_MANIFEST_DIR` (fallback for local dev builds)
-///
-/// Using `CARGO_MANIFEST_DIR` via `env!()` is a compile-time macro that bakes
-/// in the source-tree path. That is fine for local dev but breaks in CI /
-/// containers / installed binaries where the source tree is absent.
 fn artifact_base_dir() -> PathBuf {
     if let Ok(data_dir) = std::env::var("CHOIROS_DATA_DIR") {
         if !data_dir.is_empty() {
             return PathBuf::from(data_dir);
         }
     }
-    // Compile-time fallback — acceptable for local dev, not for production.
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    crate::paths::sandbox_root()
 }
 
 async fn persist_tool_execution_artifact(

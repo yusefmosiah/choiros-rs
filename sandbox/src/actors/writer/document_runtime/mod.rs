@@ -52,7 +52,7 @@ impl WriterDocumentRuntime {
             .root_dir
             .as_deref()
             .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+            .unwrap_or_else(|| crate::paths::writer_root());
 
         let document_path = root_dir.join(&document_path_relative);
         let document_meta_path = root_dir.join(&document_meta_path_relative);

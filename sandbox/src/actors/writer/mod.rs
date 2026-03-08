@@ -440,8 +440,7 @@ pub(crate) fn dispatch_delegate_capability(
                             terminal_id: terminal_id.clone(),
                             user_id: user_id.clone(),
                             shell: "/bin/zsh".to_string(),
-                            working_dir: std::env::var("CHOIR_SANDBOX_ROOT")
-                                .unwrap_or_else(|_| env!("CARGO_MANIFEST_DIR").to_string()),
+                            working_dir: crate::paths::sandbox_root().to_string_lossy().to_string(),
                             reply,
                         }
                     })
@@ -724,9 +723,7 @@ impl WriterActor {
     const DEFAULT_RESTORED_DESKTOP_ID: &'static str = "default-desktop";
 
     fn run_document_dir(run_id: &str) -> PathBuf {
-        std::env::var("CHOIR_WRITER_ROOT_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
+        crate::paths::writer_root()
             .join(Self::RUN_DOCUMENTS_ROOT)
             .join(run_id)
     }
@@ -757,10 +754,7 @@ impl WriterActor {
             objective: String::new(),
             session_id: Self::DEFAULT_RESTORED_DESKTOP_ID.to_string(),
             thread_id: run_id.to_string(),
-            root_dir: Some(
-                std::env::var("CHOIR_WRITER_ROOT_DIR")
-                    .unwrap_or_else(|_| env!("CARGO_MANIFEST_DIR").to_string()),
-            ),
+            root_dir: Some(crate::paths::writer_root().to_string_lossy().to_string()),
             event_store: state.event_store.clone(),
         })
         .await
@@ -797,10 +791,7 @@ impl WriterActor {
             objective: objective.clone(),
             session_id: desktop_id,
             thread_id: run_id.clone(),
-            root_dir: Some(
-                std::env::var("CHOIR_WRITER_ROOT_DIR")
-                    .unwrap_or_else(|_| env!("CARGO_MANIFEST_DIR").to_string()),
-            ),
+            root_dir: Some(crate::paths::writer_root().to_string_lossy().to_string()),
             event_store: state.event_store.clone(),
         })
         .await
@@ -2255,7 +2246,7 @@ mod tests {
     use ractor::Actor;
 
     fn run_dir(run_id: &str) -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        crate::paths::writer_root()
             .join(WriterActor::RUN_DOCUMENTS_ROOT)
             .join(run_id)
     }

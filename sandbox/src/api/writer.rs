@@ -18,24 +18,7 @@ use crate::actors::writer::{
     DocumentVersion, Overlay, OverlayStatus, VersionSource, WriterError, WriterMsg,
 };
 use crate::api::ApiState;
-
-/// Sandbox root path - all file operations are constrained to this directory.
-/// Uses CHOIR_SANDBOX_ROOT at runtime (set in production), falls back to
-/// CARGO_MANIFEST_DIR for local dev.
-fn sandbox_root() -> PathBuf {
-    std::env::var("CHOIR_SANDBOX_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
-}
-
-/// Writer root path - where WriterDocumentRuntime persists run draft files.
-/// Uses CHOIR_WRITER_ROOT_DIR, falling back to CHOIR_SANDBOX_ROOT, then CARGO_MANIFEST_DIR.
-fn writer_root() -> PathBuf {
-    std::env::var("CHOIR_WRITER_ROOT_DIR")
-        .or_else(|_| std::env::var("CHOIR_SANDBOX_ROOT"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
-}
+use crate::paths::{sandbox_root, writer_root};
 
 /// Writer error codes for machine-readable error responses
 #[derive(Debug, Clone)]

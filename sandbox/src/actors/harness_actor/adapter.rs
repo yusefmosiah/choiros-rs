@@ -9,7 +9,7 @@
 //! - Context bundle injected into system prompt
 //! - Progress emitted as events to EventStore
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use async_trait::async_trait;
 use ractor::ActorRef;
@@ -23,23 +23,7 @@ use crate::actors::researcher::providers;
 use crate::actors::researcher::{ResearcherFetchUrlRequest, ResearcherWebSearchRequest};
 use crate::baml_client::types::Union8BashToolCallOrFetchUrlToolCallOrFileEditToolCallOrFileReadToolCallOrFileWriteToolCallOrFinishedToolCallOrMessageWriterToolCallOrWebSearchToolCall as AgentToolCall;
 
-/// Sandbox root for file operations.
-///
-/// Uses `CHOIROS_DATA_DIR` when set (container/CI/prod), falls back to the
-/// compile-time `CARGO_MANIFEST_DIR` for local dev.
-fn sandbox_root() -> PathBuf {
-    if let Ok(root) = std::env::var("CHOIR_SANDBOX_ROOT") {
-        if !root.is_empty() {
-            return PathBuf::from(root);
-        }
-    }
-    if let Ok(data_dir) = std::env::var("CHOIROS_DATA_DIR") {
-        if !data_dir.is_empty() {
-            return PathBuf::from(data_dir);
-        }
-    }
-    Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
-}
+use crate::paths::sandbox_root;
 
 fn validate_sandbox_path(user_path: &str) -> Result<PathBuf, String> {
     if user_path.starts_with('/') || user_path.starts_with('\\') || user_path.contains(':') {
