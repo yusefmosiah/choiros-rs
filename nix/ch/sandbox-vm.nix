@@ -17,8 +17,9 @@
       mac = vmMac;
     }];
 
-    # Mutable sandbox data on virtio-blk — survives VM snapshot/restore
-    # (virtiofs can't restore FUSE file handle state, virtio-blk can)
+    # Mutable sandbox runtime state on virtio-blk — needed for VM snapshot/restore.
+    # (cloud-hypervisor snapshots capture virtio-blk state atomically; virtiofs
+    # can't restore FUSE file handles after restore.)
     volumes = [{
       image = "data.img";
       mountPoint = "/opt/choiros/data/sandbox";
@@ -40,6 +41,11 @@
         source = "/run/choiros/credentials/sandbox";
         mountPoint = "/run/choiros/credentials/sandbox";
       }
+      # NOTE: per-user data is on virtio-blk (data.img), NOT virtiofs.
+      # virtiofs FUSE handles are not captured by cloud-hypervisor VM snapshots
+      # (issue #6931), so mutable data must use virtio-blk which IS snapshot-safe.
+      # The data.img file lives on a per-user btrfs subvolume on the host,
+      # symlinked into the VM state dir by runtime-ctl.
     ];
   };
 
@@ -79,6 +85,7 @@
         "HOME=/var/lib/choiros"
         "CHOIR_SANDBOX_ROOT=/opt/choiros/data/sandbox"
         "CHOIR_WRITER_ROOT_DIR=/opt/choiros/data/sandbox"
+        "CHOIR_WORKSPACE_DIR=/opt/choiros/data/sandbox/workspace"
       ];
     };
   };

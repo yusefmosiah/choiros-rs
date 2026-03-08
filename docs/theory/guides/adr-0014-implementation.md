@@ -47,54 +47,49 @@ fileSystems."/data" = {
 };
 ```
 
-## Phase 2: Per-user virtiofsd (Gate 2)
+## Phase 2: Per-user virtio-blk on btrfs (Gate 2)
 
-**Goal:** Each VM gets its own virtiofsd sharing its own subvolume.
+**Goal:** Each user's `data.img` lives on a per-user btrfs subvolume.
+
+**Key insight:** virtiofs CANNOT survive VM snapshot/restore (cloud-hypervisor
+issue #6931 — FUSE file handles not captured in snapshots). All mutable data
+must be on virtio-blk, which IS captured atomically by snapshots.
 
 **Files to modify:**
-- `scripts/ops/ovh-runtime-ctl.sh` — currently starts one virtiofsd for
-  `/opt/choiros/data/sandbox`. Change to start per-user virtiofsd for
-  `/data/users/{user_id}/`.
-- `nix/ch/sandbox-vm.nix` — update virtiofs mount from shared sandbox dir
-  to per-user `/workspace`.
+- `scripts/ops/ovh-runtime-ctl.sh` — create per-user btrfs subvolume,
+  symlink `data.img` from btrfs to VM state dir.
+- `nix/ch/sandbox-vm.nix` — remove virtiofs `/workspace` mount, add
+  `CHOIR_WORKSPACE_DIR` pointing within virtio-blk mount.
 
 **Key change in `ovh-runtime-ctl.sh`:**
 ```bash
-# Before: single shared virtiofsd
-virtiofsd --socket-path=/tmp/virtiofs-sandbox.sock \
-  --shared-dir=/opt/choiros/data/sandbox
-
-# After: per-user virtiofsd
-virtiofsd --socket-path=/tmp/virtiofs-${USER_ID}.sock \
-  --shared-dir=/data/users/${USER_ID}
-```
-
-**On VM create**, create the btrfs subvolume first:
-```bash
+# Create per-user btrfs subvolume
 btrfs subvolume create /data/users/${USER_ID}
+
+# Symlink data.img into VM state dir (microvm expects it there)
+ln -sf /data/users/${USER_ID}/data.img ${VM_DIR}/data.img
 ```
 
-**Run Gate 2 tests.** File written in VM must be visible on host at
-`/data/users/{user_id}/`.
+**NO per-user virtiofsd needed.** The existing virtiofsd handles only
+read-only shares (nix-store, credentials). User data goes through
+virtio-blk which is already configured in sandbox-vm.nix.
+
+**Run Gate 2 tests.** data.img must live on btrfs subvolume.
 
 ## Phase 3: Persistence across restart (Gate 3)
 
-**Goal:** Stop VM, start VM, data is still there.
+**Goal:** Stop VM, start VM, data is still there. Hibernate, restore, data
+is still there.
 
-This should work automatically once Phase 2 is correct — the subvolume
-persists on the host, virtiofsd re-shares it on next start. The fix is
-that storage lives on the host filesystem, not inside the VM.
+This works automatically because:
+1. virtio-blk `data.img` persists on disk (it's just a file on btrfs)
+2. `ovh-runtime-ctl.sh stop` kills cloud-hypervisor but data.img persists
+3. `ovh-runtime-ctl.sh ensure` boots a new VM using the same data.img
+4. Hibernate/restore also works: cloud-hypervisor snapshots capture
+   virtio-blk state, and `vm.restore` resumes with data intact
 
-**What to verify:**
-1. `ovh-runtime-ctl.sh stop` kills cloud-hypervisor but NOT virtiofsd's
-   shared dir (the btrfs subvolume persists regardless)
-2. `ovh-runtime-ctl.sh ensure` re-creates virtiofsd + cloud-hypervisor
-   pointing at the same subvolume
-3. Inside VM, `/workspace` mounts the same data
-
-**Run Gate 3 tests.** Write → stop → start → read must succeed.
-
-If this gate passes, the P0 fatal bug is fixed.
+**Run Gate 3 tests.** Write → stop → start → read AND write → hibernate →
+restore → read must both succeed.
 
 ## Phase 4: Lifecycle API (Gate 4)
 
@@ -154,16 +149,16 @@ This is an operator-level operation for now, not API-exposed.
 ## Order of Operations
 
 ```
-Phase 1 (host btrfs)     ← can do right now, no code changes
-Phase 2 (per-user virtiofsd)  ← scripts + nix config
-Phase 3 (persistence)    ← should pass automatically after Phase 2
-Phase 4 (lifecycle API)  ← Rust code in hypervisor
-Phase 5 (watchdog fix)   ← Rust code in hypervisor
-Phase 6 (migration)      ← operator tooling
+Phase 1 (host btrfs)              ← DONE on Node B
+Phase 2 (per-user virtio-blk)     ← scripts + nix config (symlink data.img to btrfs)
+Phase 3 (persistence)             ← should pass automatically after Phase 2
+Phase 4 (lifecycle API)           ← Rust code in hypervisor
+Phase 5 (watchdog → hibernate)    ← DONE (hibernate + heartbeat)
+Phase 6 (migration)               ← operator tooling
 ```
 
-Phases 1-3 are the critical path to fixing the P0 bug. Phase 4-5 are
-the API layer. Phase 6 is operational tooling.
+Phases 1-3 are the critical path to per-user isolation. Phase 4 is the
+API layer. Phase 5 is done. Phase 6 is operational tooling.
 
 ## What NOT to Do
 

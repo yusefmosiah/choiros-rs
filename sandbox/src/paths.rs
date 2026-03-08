@@ -33,3 +33,12 @@ pub fn writer_root() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|_| sandbox_root())
 }
+
+/// Root directory for user workspace files (projects, user-created content).
+/// Falls back to sandbox_root if CHOIR_WORKSPACE_DIR is not set.
+/// Separate from sandbox_root to support runtime/workspace data separation.
+pub fn workspace_dir() -> PathBuf {
+    std::env::var("CHOIR_WORKSPACE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| sandbox_root())
+}

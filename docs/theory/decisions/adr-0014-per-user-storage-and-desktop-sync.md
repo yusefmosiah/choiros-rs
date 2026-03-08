@@ -14,13 +14,19 @@ that can eventually sync to desktop clients. This ADR covers the full per-user V
 lifecycle: how VMs are created, sized, started, stopped, snapshotted, restored, and
 how their storage is provisioned.
 
-**Storage: virtiofs + btrfs host** — the Replit-proven pattern. Per-user btrfs subvolumes
-on the host, shared into VMs via virtiofs. Native performance, instant snapshots/forks,
-incremental migration via `btrfs send/receive`.
+**Storage: virtio-blk + btrfs host** — per-user virtio-blk volumes (data.img files)
+stored on host btrfs subvolumes. virtio-blk survives VM snapshot/restore (cloud-hypervisor
+captures block device state atomically). btrfs provides instant CoW snapshots, forks,
+and incremental migration via `btrfs send/receive` on the host side.
+
+**Why NOT virtiofs for mutable data:** virtiofs uses FUSE file handles that are NOT
+captured in cloud-hypervisor VM snapshots (issue #6931). After restore, the guest kernel
+tries to resume FUSE operations on stale handles → I/O errors and data loss. virtiofs is
+correct for read-only shares (nix-store, credentials) but WRONG for mutable user data.
 
 **Lifecycle API:** Minimal 80/20 fleet API — create, start, stop, snapshot, restore,
 delete, get, list. Storage provisioning is a create-time operation, snapshot/restore
-operates on both VM state and btrfs subvolume atomically.
+operates on both VM state and virtio-blk volume atomically.
 
 **Desktop sync: Mutagen (phase 1) → metadata index + placeholder files (phase 2)**.
 Mutagen (used by Docker Desktop) solves VM↔host bidirectional sync. Later, SQLite
@@ -31,21 +37,28 @@ Retained for sync metadata index.
 
 ## What Changed
 
+- **2026-03-08: CRITICAL CORRECTION** — virtiofs cannot survive VM snapshot/restore.
+  Changed from "virtiofs + btrfs host" to "virtio-blk + btrfs host" for all mutable
+  data. virtiofs retained ONLY for read-only shares (nix-store, credentials).
+  See "Why NOT virtiofs for Mutable Data" section below.
 - Merged ADR-0010 (fleet lifecycle API + capacity) into this ADR
 - Storage and compute lifecycle are one system, not two decisions
 - Evaluated 7 storage approaches with performance data
 - Evaluated 6 sync approaches including cr-sqlite, Mutagen, Syncthing
 - Identified Replit as closest architectural analogue
+- Identified Fly.io (NVMe thin LVM → virtio-blk) as the correct pattern for
+  persistent data that must survive VM snapshots
 
 ## What To Do Next
 
-1. Implement lifecycle API endpoints on hypervisor (create/start/stop/snapshot/restore)
-2. Format OVH host data partition as btrfs
-3. Create per-user subvolumes on VM create (`/data/users/{user_id}/`)
-4. Update virtiofsd to share per-user dirs instead of shared `/opt/choiros/data/sandbox`
-5. Wire btrfs snapshot into snapshot/restore lifecycle operations
-6. Add per-VM telemetry (CPU, RSS, snapshot latency, disk throughput)
-7. (Later) Evaluate Mutagen for desktop sync prototype
+1. Format OVH host data partition as btrfs (DONE on Node B)
+2. Create per-user btrfs subvolumes on VM create (`/data/users/{user_id}/`)
+3. Store per-user `data.img` on btrfs subvolume, symlink into VM state dir
+4. Separate sandbox data layout: `/opt/choiros/data/sandbox/runtime/` vs `workspace/`
+5. Wire btrfs snapshot into hibernate/restore lifecycle operations
+6. Implement lifecycle API endpoints on hypervisor (create/start/stop/snapshot/restore)
+7. Add per-VM telemetry (CPU, RSS, snapshot latency, disk throughput)
+8. (Later) Evaluate Mutagen for desktop sync prototype
 
 ---
 
@@ -63,16 +76,36 @@ Retained for sync metadata index.
 | **6. Virtiofs + btrfs** | Near-native | Instant | Instant | Incremental | Needs external | **Lowest** |
 | **7. 9p** | 2-8x slower than virtiofs | N/A | N/A | N/A | N/A | Don't use |
 
-### Why Virtiofs + Btrfs Host
+### Why Virtio-blk + Btrfs Host
 
-1. **Already in use.** ChoirOS uses virtiofs for `/nix/store` and sandbox data sharing. Incremental change.
-2. **Replit-proven.** "All Repls use btrfs as their filesystem of choice." Chosen for quotas + CoW snapshots.
-3. **Native performance.** cargo/git/rustc work at full speed. No FUSE daemon, no SQLite bottleneck.
-4. **Instant snapshots.** `btrfs subvolume snapshot` — metadata-only, <1s regardless of size.
-5. **Instant forks.** Same mechanism, writable snapshot = fork.
-6. **Incremental migration.** `btrfs send -p parent new | ssh node-b btrfs receive /data/users/` — only changed blocks.
-7. **Per-user quotas.** `btrfs qgroup limit 10G /data/users/alice` — kernel-enforced.
-8. **Crash safety.** btrfs CoW + metadata checksumming. VM kill = last consistent state preserved.
+1. **Snapshot-safe.** cloud-hypervisor VM snapshots capture virtio-blk state atomically.
+   After `vm.restore`, the block device is exactly as it was — no stale handles, no I/O errors.
+2. **Already in use.** ChoirOS uses virtio-blk `data.img` for sandbox mutable state since ADR-0016.
+3. **Industry-proven.** Fly.io uses NVMe thin LVM → virtio-blk for persistent volumes.
+   Replit uses btrfs + NBD (network block device) to GCS. Both are block-device-first.
+4. **Btrfs host backing.** Per-user `data.img` files live on host btrfs subvolumes →
+   instant CoW snapshots, forks, and incremental migration via `btrfs send/receive`.
+5. **Near-native performance.** virtio-blk is the fastest guest I/O path. No FUSE daemon overhead.
+6. **Per-user quotas.** `btrfs qgroup limit 10G /data/users/alice` — kernel-enforced on host.
+7. **Crash safety.** btrfs CoW + ext4 journal inside data.img = double safety net.
+
+### Why NOT Virtiofs for Mutable Data
+
+virtiofs was the original choice (this ADR, pre-correction). It fails for one critical reason:
+
+**VM snapshot/restore breaks virtiofs.** cloud-hypervisor `vm.snapshot` saves CPU state,
+memory, and virtio-blk device state — but NOT virtiofs FUSE file handle state. After
+`vm.restore`, the guest kernel resumes with stale FUSE file descriptors. Any in-flight
+I/O or cached file handles produce errors. This is cloud-hypervisor issue #6931.
+
+virtiofs remains correct for:
+- `/nix/store` (read-only, no state to preserve)
+- `/run/choiros/credentials/sandbox` (read-only secrets, re-read on service start)
+
+virtiofs is WRONG for:
+- User workspace data (must survive hibernate/restore)
+- Runtime state like SQLite DBs (must survive hibernate/restore)
+- Anything that the sandbox writes to and expects to persist across VM lifecycle
 
 ### Why Not FUSE+SQLite for Primary Storage
 
@@ -111,19 +144,29 @@ Best raw guest performance via virtio-blk, but:
 ### Architecture
 
 ```
-Host (btrfs):
-  /data/users/{user_id}/          btrfs subvolume per user
-  /data/snapshots/{user_id}/      btrfs snapshots for rollback
-  /data/shared/nix-store/         shared read-only (existing)
+Host (btrfs at /data):
+  /data/users/{user_id}/              btrfs subvolume per user
+  /data/users/{user_id}/data.img      virtio-blk volume (ext4, 2-10 GB)
+  /data/snapshots/{user_id}/          btrfs snapshots (captures data.img atomically)
 
-Per-user virtiofsd:
-  shares /data/users/{user_id}/ into VM as /workspace
+VM state dir (/opt/choiros/vms/state/{vm_name}/):
+  data.img -> /data/users/{user_id}/data.img   (symlink to btrfs)
+  vm.pid, vm.log, *.sock                       (ephemeral process state)
 
 Guest VM:
-  /workspace     (virtiofs mount, user's persistent data)
-  /nix/store     (virtiofs mount, shared read-only, existing)
-  /tmp           (tmpfs, ephemeral scratch)
+  /opt/choiros/data/sandbox/          (virtio-blk mount — ALL mutable data)
+    ├── runtime/                      events.db, conductor runs, writer state
+    └── workspace/                    user files, projects
+  /nix/store                          (virtiofs mount, shared read-only)
+  /run/choiros/credentials/sandbox    (virtiofs mount, secrets, read-only)
+  /tmp                                (tmpfs, ephemeral scratch)
 ```
+
+**Data flow:** User writes go to `/opt/choiros/data/sandbox/workspace/` inside the VM,
+which is on the virtio-blk volume. The backing `data.img` file lives on a per-user btrfs
+subvolume on the host. `btrfs subvolume snapshot` captures the entire data.img atomically
+(CoW, metadata-only, <1s). VM `hibernate` saves VM state + btrfs snapshot = complete
+point-in-time capture. VM `restore` resumes from snapshot with all data intact.
 
 ### Btrfs Gotchas to Watch
 
@@ -304,30 +347,38 @@ btrfs subvolume delete /data/snapshots/test-snap-$$
 btrfs subvolume delete /data/users/test-user-$$
 ```
 
-### Gate 2: VM sees per-user storage
+### Gate 2: Per-user virtio-blk on btrfs
 
 ```bash
-# T5: virtiofsd serves per-user dir (not shared /opt/choiros/data/sandbox)
-# From inside VM:
-mount | grep virtiofs | grep -q "/workspace" && echo PASS
-touch /workspace/canary-$$ && echo PASS
+# T5: data.img lives on per-user btrfs subvolume
+test -f /data/users/{user_id}/data.img && echo PASS
+# Verify it's a btrfs subvolume
+btrfs subvolume show /data/users/{user_id}/ && echo PASS
 
-# T6: file persists on host
-# From host:
-test -f /data/users/{user_id}/canary-$$ && echo PASS
+# T6: VM state dir symlinks to btrfs-backed data.img
+readlink /opt/choiros/vms/state/{vm_name}/data.img | grep -q "/data/users/" && echo PASS
+
+# T7: write inside VM persists to virtio-blk
+# From inside VM:
+echo "canary-$$" > /opt/choiros/data/sandbox/workspace/test.txt && echo PASS
 ```
 
 ### Gate 3: Persistence across VM restart (the P0 fatal bug)
 
 ```bash
-# T7: write → stop → start → read
+# T8: write → stop → start → read
 # From inside VM:
-echo "persist-test-$$" > /workspace/persist-test.txt
+echo "persist-test-$$" > /opt/choiros/data/sandbox/workspace/persist-test.txt
 
 # Stop VM, start VM (via lifecycle API or ovh-runtime-ctl)
 
 # From inside VM after restart:
-test "$(cat /workspace/persist-test.txt)" = "persist-test-$$" && echo PASS
+test "$(cat /opt/choiros/data/sandbox/workspace/persist-test.txt)" = "persist-test-$$" && echo PASS
+
+# T9: write → hibernate → restore → read (snapshot/restore path)
+echo "hibernate-test-$$" > /opt/choiros/data/sandbox/workspace/hibernate-test.txt
+# Hibernate VM (ovh-runtime-ctl hibernate), then ensure (restore)
+test "$(cat /opt/choiros/data/sandbox/workspace/hibernate-test.txt)" = "hibernate-test-$$" && echo PASS
 ```
 
 ### Gate 4: Lifecycle API
@@ -372,17 +423,17 @@ ssh node-b test -d /data/users/$VM_ID && echo PASS
 ### Gate 6: Performance baselines (P7, non-blocking)
 
 ```bash
-# T16: fio random read/write IOPS on virtiofs+btrfs (inside VM)
+# T16: fio random read/write IOPS on virtio-blk+ext4 (inside VM)
 fio --name=randwrite --ioengine=libaio --rw=randwrite --bs=4k \
-    --numjobs=4 --size=256M --runtime=30 --directory=/workspace
-# Record IOPS, compare to direct btrfs baseline
+    --numjobs=4 --size=256M --runtime=30 --directory=/opt/choiros/data/sandbox/workspace
+# Record IOPS, compare to direct host baseline
 
 # T17: cargo build inside VM
-cd /workspace/choiros-rs && time cargo build 2>&1
+cd /opt/choiros/data/sandbox/workspace/choiros-rs && time cargo build 2>&1
 # Record wall time, compare to host build time
 
 # T18: git operations inside VM
-cd /workspace/choiros-rs && time git status && time git log --oneline -100
+cd /opt/choiros/data/sandbox/workspace/choiros-rs && time git status && time git log --oneline -100
 # Record latency
 ```
 

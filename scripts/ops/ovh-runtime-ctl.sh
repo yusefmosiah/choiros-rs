@@ -24,6 +24,7 @@ WORKSPACE="${CHOIR_WORKSPACE_ROOT:-/opt/choiros/workspace}"
 VM_RUNNER_OVERRIDE="${CHOIR_VM_RUNNER_DIR:-}"
 VM_STATE_DIR="${CHOIR_VM_STATE_DIR:-/opt/choiros/vms/state}"
 SNAPSHOT_DIR="${CHOIR_SNAPSHOT_DIR:-/data/snapshots}"
+USER_DATA_DIR="${CHOIR_USER_DATA_DIR:-/data/users}"
 BRIDGE="br-choiros"
 
 # VM network assignments (static for Gate 2; dynamic per-user in Gate 3)
@@ -60,37 +61,71 @@ else
   RUNNER_DIR="${WORKSPACE}/result-vm-${VM_NAME}"
 fi
 
+USER_SUBVOL="${USER_DATA_DIR}/${USER_ID}"
+
 log() { echo "[ovh-runtime-ctl] $*" >&2; }
 
 pid_alive() { kill -0 "$1" 2>/dev/null; }
 
-# Snapshot data disk image (simple file copy with reflink if on btrfs)
+# Create per-user btrfs subvolume if it doesn't exist
+ensure_user_subvolume() {
+  if [[ -d "$USER_SUBVOL" ]]; then
+    return 0
+  fi
+  log "Creating btrfs subvolume for user $USER_ID at $USER_SUBVOL"
+  mkdir -p "$USER_DATA_DIR"
+  btrfs subvolume create "$USER_SUBVOL"
+}
+
+# Snapshot user data via btrfs (instant, metadata-only)
 snapshot_data() {
-  local data_img="${VM_DIR}/data.img"
-  if [[ ! -f "$data_img" ]]; then
-    log "No data.img found, skipping data snapshot"
+  if [[ ! -d "$USER_SUBVOL" ]]; then
+    log "No user subvolume found at $USER_SUBVOL, skipping data snapshot"
     return 0
   fi
 
-  local snap_name snap_path
+  local snap_dir="${SNAPSHOT_DIR}/${USER_ID}"
+  local snap_name
   snap_name="$(date -u +%Y%m%dT%H%M%SZ)-${VM_NAME}"
-  snap_path="${SNAPSHOT_DIR}/${snap_name}.img"
-  mkdir -p "$SNAPSHOT_DIR"
+  mkdir -p "$snap_dir"
 
-  log "Snapshotting data disk: $snap_path"
-  cp --reflink=auto "$data_img" "$snap_path"
+  log "Snapshotting user data: $snap_dir/$snap_name"
+  btrfs subvolume snapshot -r "$USER_SUBVOL" "$snap_dir/$snap_name"
 
   # Prune old snapshots (keep last 3)
   local snaps
-  snaps=$(find "$SNAPSHOT_DIR" -maxdepth 1 -name "*-${VM_NAME}.img" -type f | sort)
+  snaps=$(find "$snap_dir" -maxdepth 1 -mindepth 1 -type d -name "*-${VM_NAME}" | sort)
   local count
-  count=$(echo "$snaps" | wc -l)
+  count=$(echo "$snaps" | grep -c . || echo 0)
   if (( count > 3 )); then
     echo "$snaps" | head -n $((count - 3)) | while read -r old; do
       log "Pruning old data snapshot: $old"
-      rm -f "$old"
+      btrfs subvolume delete "$old" 2>/dev/null || rm -rf "$old"
     done
   fi
+}
+
+# Symlink per-user data.img from btrfs subvolume into VM state dir.
+# microvm expects data.img at VM_DIR/data.img (relative path in nix config).
+# By symlinking, the actual file lives on btrfs for instant CoW snapshots.
+link_user_data_img() {
+  ensure_user_subvolume
+  local target="${USER_SUBVOL}/data.img"
+  local link="${VM_DIR}/data.img"
+  if [[ -L "$link" ]] && [[ "$(readlink "$link")" == "$target" ]]; then
+    return 0  # Already correctly linked
+  fi
+  # Remove any existing data.img (first boot: microvm may have created one locally)
+  # Move it to the btrfs subvolume if it exists and target doesn't
+  if [[ -f "$link" ]] && [[ ! -L "$link" ]] && [[ ! -f "$target" ]]; then
+    log "Migrating existing data.img to btrfs subvolume"
+    mv "$link" "$target"
+  elif [[ -f "$link" ]] && [[ ! -L "$link" ]]; then
+    log "WARNING: data.img exists both locally and on btrfs, removing local copy"
+    rm -f "$link"
+  fi
+  ln -sf "$target" "$link"
+  log "data.img symlinked: $link -> $target"
 }
 
 setup_tap() {
@@ -139,12 +174,12 @@ start_virtiofsd() {
   echo "$pid" > "$VIRTIOFSD_PID_FILE"
   log "virtiofsd started (PID $pid)"
 
-  # Wait for sockets to appear (2 shares: nix-store, choiros-creds)
-  # Note: sandbox data is on virtio-blk, sandbox binary is in /nix/store
+  # Wait for sockets to appear (2 microvm-managed shares: nix-store, choiros-creds)
+  # All mutable user data is on virtio-blk, NOT virtiofs (snapshot-safe).
   local max_wait=30 elapsed=0
   while (( elapsed < max_wait )); do
     local sock_count
-    sock_count=$(find "$VM_DIR" -maxdepth 1 -name "*-virtiofs-*.sock" 2>/dev/null | wc -l)
+    sock_count=$(find "$VM_DIR" -maxdepth 1 -name "*-virtiofs-nix-store.sock" -o -name "*-virtiofs-choiros-creds.sock" 2>/dev/null | wc -l)
     if (( sock_count >= 2 )); then
       log "virtiofsd sockets ready ($sock_count found in ${elapsed}s)"
       return 0
@@ -152,7 +187,7 @@ start_virtiofsd() {
     sleep 0.5
     elapsed=$((elapsed + 1))
   done
-  log "WARNING: virtiofsd sockets may not be fully ready after ${max_wait} checks (found $(find "$VM_DIR" -maxdepth 1 -name "*-virtiofs-*.sock" 2>/dev/null | wc -l))"
+  log "WARNING: virtiofsd sockets may not be fully ready after ${max_wait} checks"
 }
 
 stop_virtiofsd() {
@@ -178,8 +213,9 @@ cold_boot_vm() {
     exit 1
   fi
 
-  log "Cold booting VM $VM_NAME"
+  log "Cold booting VM $VM_NAME (user=$USER_ID)"
   cd "$VM_DIR"
+
   nohup "$runner" > "${VM_DIR}/vm.log" 2>&1 &
   local pid=$!
   echo "$pid" > "$VM_PID_FILE"
@@ -203,6 +239,9 @@ restore_vm() {
   rm -f "$API_SOCK"
 
   cd "$VM_DIR"
+  # NOTE: --restore replays the full VM config from the snapshot, including
+  # --fs entries for virtiofsd (read-only shares) and --disk for virtio-blk.
+  # virtiofsd sockets must be at the same paths as when snapshot was taken.
   nohup cloud-hypervisor \
     --restore "source_url=file://${VM_SNAPSHOT_DIR}" \
     --api-socket "$API_SOCK" \
@@ -378,6 +417,7 @@ case "$ACTION" in
     fi
 
     setup_tap
+    link_user_data_img
 
     # Try fast restore from VM snapshot, fall back to cold boot
     if has_vm_snapshot; then
