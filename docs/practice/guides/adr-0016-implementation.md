@@ -2,22 +2,21 @@
 
 Date: 2026-03-08
 Kind: Guide
-Status: Draft
+Status: Accepted
 Priority: 3
 Requires: [ADR-0016]
 
 ## What This Guide Is
 
-Sequenced implementation steps for ADR-0016. The ADR defines *what* and *why*.
-This guide defines *how*, *where*, and *in what order*. Each phase has a
-validation gate — pass it before moving to the next.
+Implementation record for ADR-0016. All phases completed on Node B.
+Retained as reference for Node A promotion and future maintenance.
 
-## Prerequisites
+## Current State (2026-03-08)
 
-- SSH access to Node B (`ssh -i ~/.ssh/id_ed25519_ovh root@147.135.70.196`)
-- Node A is production, do NOT touch it until Phase 5
-- Current state: CI deploys binaries to `/opt/choiros/bin/` via `cp -f`
-- Working virtio-blk + snapshot/restore on Node B (validated 2026-03-08)
+- Node B: fully deployed, CI green, E2E green, WASM app renders
+- Node A: failed during first promotion (OOM during nix build), needs rescue + rollback
+- CI pipeline: `nixos-rebuild switch --flake .#choiros-b` on every push to main
+- All CARGO_MANIFEST_DIR fallbacks replaced with `crate::paths` module
 
 ## Current File Map
 

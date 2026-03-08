@@ -2,40 +2,42 @@
 
 Date: 2026-03-08
 Kind: Decision
-Status: Draft
+Status: Accepted
 Priority: 3
 Requires: [ADR-0002, ADR-0014]
 Owner: ChoirOS infrastructure
 
 ## Narrative Summary (1-minute read)
 
-Our deployment is half-declarative, half-imperative. NixOS manages the OS
-(kernel, networking, Caddy, systemd) but application binaries are manually
-copied to `/opt/choiros/bin/` by CI scripts. This split caused an incident
-where a manual `nixos-rebuild switch` bricked Node A because the system
-and application layers were out of sync.
+Deployment is now fully declarative. `nixos-rebuild switch` is the single
+mechanism for all changes — OS, application binaries, VM runners, and
+frontend assets are all nix store paths referenced by systemd units.
+CI pushes to main, Node B deploys atomically via `nixos-rebuild switch
+--flake .#choiros-b`. Node A promotion uses `--flake .#choiros-a`.
 
-This ADR designs a fully declarative deployment where `nixos-rebuild` is
-the single mechanism for all changes. Application binaries become nix store
-paths referenced by systemd units. CI builds the system closure and
-activates it safely with automatic rollback.
+The unified root flake builds all packages with shared `cargoArtifacts`
+(deps built once). Sub-flakes remain only for `nix develop` dev shells.
+CARGO_MANIFEST_DIR fallbacks are eliminated — release builds use
+centralized `crate::paths::{sandbox_root, writer_root}`.
 
 ## What Changed
 
-We need this ADR because:
+Implemented 2026-03-08. All 7 phases complete on Node B:
 
-1. Node A was bricked by an untested `nixos-rebuild switch` (2026-03-08)
-2. Binary deployment via `cp -f` is fragile (no rollback, version tracking)
-3. VM runner builds are disconnected from host NixOS generations
-4. Bridge IP requires a manual workaround in CI
-5. We can't answer "what version is running?" without SSH
+1. Unified root flake with shared crane cargoArtifacts
+2. Host systemd units reference nix store paths (no `/opt/choiros/bin/`)
+3. runtime-ctl packaged as nix derivation with injected PATH
+4. Guest VM uses sandbox from nix store (3→2 virtiofs shares)
+5. CI simplified to single `nixos-rebuild switch` command
+6. Bridge IP — deferred (NixOS networking quirk, workaround in place)
+7. CARGO_MANIFEST_DIR fallbacks replaced with `crate::paths` module
 
 ## What To Do Next
 
-1. Read this ADR and understand the current vs target architecture
-2. Implement Phase 1 (unified flake) on a branch
-3. Test on Node B via `nixos-rebuild boot` (not switch)
-4. Validate, then promote to Node A
+1. Recover Node A from failed promotion (rescue mode, rollback generation)
+2. Re-attempt Node A promotion with `nixos-rebuild boot` (not switch)
+3. Debug bridge IP persistence (Phase 6)
+4. Evaluate microvm.nix declarative mode (Phase 7, future)
 
 ---
 
