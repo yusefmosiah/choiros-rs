@@ -115,6 +115,8 @@ decoupling for publishing (ADR-0011, P3).
 <details>
 <summary><h2>State (Snapshots & Reports)</h2></summary>
 
+- Node B E2E Test Report — 2026-03-08 — ? (?)  
+  `docs/state/2026-03-08-node-b-e2e-report.md`
 - Provider Matrix Report (2026-02-26-022407) — Report (Active)  
   `docs/state/reports/2026-02-26-022407-provider-matrix-kimi.md`
 - Provider Matrix Report (2026-02-26-022532) — Report (Active)  
@@ -149,4 +151,4 @@ ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-08 — 20 practice, 18 theory, 9 state docs.*
+*Generated 2026-03-08 — 20 practice, 18 theory, 10 state docs.*
