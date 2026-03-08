@@ -120,6 +120,18 @@ where
     connect_websocket(&desktop_id, on_event)
 }
 
+/// Send periodic heartbeats to keep the sandbox alive.
+/// Runs every 5 minutes — well below the 30-minute idle timeout.
+pub async fn run_heartbeat_loop() {
+    use gloo_net::http::Request;
+    use gloo_timers::future::TimeoutFuture;
+
+    loop {
+        TimeoutFuture::new(5 * 60 * 1000).await; // 5 minutes
+        let _ = Request::post("/heartbeat").send().await;
+    }
+}
+
 pub async fn register_core_apps_once(
     desktop_id: String,
     apps: Vec<AppDefinition>,

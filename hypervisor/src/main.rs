@@ -123,6 +123,8 @@ async fn main() -> anyhow::Result<()> {
             "/provider/v1/{provider}/{*rest}",
             any(provider_gateway::forward_provider_request),
         )
+        // Heartbeat — keeps sandbox alive without proxying
+        .route("/heartbeat", post(api::heartbeat))
         // Admin sandbox management
         .route("/admin/sandboxes", get(api::list_sandboxes))
         .route(

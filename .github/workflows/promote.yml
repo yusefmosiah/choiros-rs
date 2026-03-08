@@ -24,7 +24,10 @@ jobs:
             echo "==> Pulling latest code"
             git pull --ff-only origin main
 
-            echo "==> Building and activating NixOS config"
+            echo "==> Pre-building NixOS closure (catches OOM before switch)"
+            nix build .#nixosConfigurations.choiros-a.config.system.build.toplevel --print-build-logs 2>&1
+
+            echo "==> Activating NixOS config"
             nixos-rebuild switch --flake .#choiros-a --print-build-logs 2>&1
 
             echo "==> Waiting for hypervisor health"

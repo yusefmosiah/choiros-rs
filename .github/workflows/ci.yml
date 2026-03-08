@@ -88,7 +88,10 @@ jobs:
             echo "==> Resetting stale systemd units"
             systemctl reset-failed nixos-rebuild-switch-to-configuration.service 2>/dev/null || true
 
-            echo "==> Building and activating NixOS config"
+            echo "==> Pre-building NixOS closure (catches OOM before switch)"
+            nix build .#nixosConfigurations.choiros-b.config.system.build.toplevel --print-build-logs 2>&1
+
+            echo "==> Activating NixOS config"
             nixos-rebuild switch --flake .#choiros-b --print-build-logs 2>&1
 
             echo "==> Waiting for hypervisor"

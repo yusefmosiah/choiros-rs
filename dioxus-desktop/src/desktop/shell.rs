@@ -146,6 +146,18 @@ pub fn DesktopShell(desktop_id: String) -> Element {
         });
     });
 
+    // Start heartbeat loop once authenticated — keeps sandbox alive during long idle UI sessions.
+    let mut heartbeat_started = use_signal(|| false);
+    use_effect(move || {
+        let auth_state = auth.read().clone();
+        if matches!(auth_state, AuthState::Authenticated(_)) && !heartbeat_started() {
+            heartbeat_started.set(true);
+            spawn(async move {
+                effects::run_heartbeat_loop().await;
+            });
+        }
+    });
+
     // Desktop API currently requires an authenticated session through hypervisor middleware.
     // Avoid loading desktop state pre-auth (which returns HTML redirects and stale parse errors),
     // then load/reload once auth is established.

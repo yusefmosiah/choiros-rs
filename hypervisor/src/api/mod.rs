@@ -8,11 +8,27 @@ use axum::{
 };
 use tracing::error;
 
+use tower_sessions::Session;
+
 use crate::{
+    auth::session as sess,
     runtime_registry::{self, PointerTarget},
     sandbox::SandboxRole,
     AppState,
 };
+
+/// POST /heartbeat — touch sandbox activity timestamp without proxying.
+/// Keeps the idle watchdog from hibernating an active user's sandbox.
+pub async fn heartbeat(State(state): State<Arc<AppState>>, session: Session) -> impl IntoResponse {
+    let Some(user_id) = sess::get_user_id(&session).await else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    state
+        .sandbox_registry
+        .touch_activity(&user_id, SandboxRole::Live)
+        .await;
+    StatusCode::OK.into_response()
+}
 
 /// GET /admin/sandboxes — list all sandbox statuses
 pub async fn list_sandboxes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
