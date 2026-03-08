@@ -147,11 +147,15 @@ pub fn DesktopShell(desktop_id: String) -> Element {
     });
 
     // Start heartbeat loop once authenticated — keeps sandbox alive during long idle UI sessions.
+    // Also dismiss the BIOS boot screen for already-authenticated sessions (the auth modal
+    // handles this for fresh logins, but pre-authenticated sessions skip the modal entirely).
     let mut heartbeat_started = use_signal(|| false);
     use_effect(move || {
         let auth_state = auth.read().clone();
         if matches!(auth_state, AuthState::Authenticated(_)) && !heartbeat_started() {
             heartbeat_started.set(true);
+            // Dismiss BIOS boot screen (may already be dismissed by auth modal)
+            let _ = js_sys::eval("window.__biosComplete && window.__biosComplete()");
             spawn(async move {
                 effects::run_heartbeat_loop().await;
             });

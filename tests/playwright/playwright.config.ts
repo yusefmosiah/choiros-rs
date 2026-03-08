@@ -32,6 +32,7 @@ export default defineConfig({
         "vm-lifecycle-report.spec.ts",
         "vm-lifecycle-stress.spec.ts",
         "vm-snapshot-restore.spec.ts",
+        "concurrency-load-test.spec.ts",
       ],
       use: {
         baseURL: hypervisorBaseUrl,
