@@ -161,19 +161,19 @@ start_virtiofsd() {
   echo "$pid" > "$VIRTIOFSD_PID_FILE"
   log "virtiofsd started (PID $pid)"
 
-  # Wait for sockets to appear
-  local max_wait=15 elapsed=0
+  # Wait for sockets to appear (4 shares: nix-store, choiros-bin, choiros-data, choiros-creds)
+  local max_wait=30 elapsed=0
   while (( elapsed < max_wait )); do
     local sock_count
-    sock_count=$(find "$VM_DIR" -maxdepth 1 -name "*.sock" -not -name "*.api.sock" -not -name "sandbox-*.sock" | wc -l)
-    if (( sock_count >= 3 )); then
-      log "virtiofsd sockets ready ($sock_count found)"
+    sock_count=$(find "$VM_DIR" -maxdepth 1 -name "*-virtiofs-*.sock" 2>/dev/null | wc -l)
+    if (( sock_count >= 4 )); then
+      log "virtiofsd sockets ready ($sock_count found in ${elapsed}s)"
       return 0
     fi
-    sleep 1
+    sleep 0.5
     elapsed=$((elapsed + 1))
   done
-  log "WARNING: virtiofsd sockets may not be fully ready after ${max_wait}s"
+  log "WARNING: virtiofsd sockets may not be fully ready after ${max_wait} checks (found $(find "$VM_DIR" -maxdepth 1 -name "*-virtiofs-*.sock" 2>/dev/null | wc -l))"
 }
 
 stop_virtiofsd() {
@@ -397,7 +397,7 @@ case "$ACTION" in
       # Restart virtiofsd to get fresh sockets (old ones go stale after VM stop)
       stop_virtiofsd
       # Clean up stale virtiofsd sockets before restarting
-      rm -f "${VM_DIR}"/sandbox-*-virtiofs-*.sock
+      rm -f "${VM_DIR}"/*-virtiofs-*.sock
       start_virtiofsd
       if restore_vm; then
         log "VM resumed from snapshot"
