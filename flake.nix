@@ -178,26 +178,31 @@ EOF
           '';
         };
 
-        runtime-ctl = let
-          # Strip the shebang and 'set -euo pipefail' from the original script
-          # since writeScriptBin adds its own; also strip the PATH export since
-          # we inject a nix-store PATH instead
-          rawLines = pkgs.lib.splitString "\n" (builtins.readFile ./scripts/ops/ovh-runtime-ctl.sh);
-          filteredLines = builtins.filter (line:
-            !(pkgs.lib.hasPrefix "#!" line)
-            && line != "set -euo pipefail"
-            && !(pkgs.lib.hasPrefix "export PATH=" line)
-          ) rawLines;
-          scriptBody = builtins.concatStringsSep "\n" filteredLines;
-        in pkgs.writeScriptBin "ovh-runtime-ctl" ''
-          #!/usr/bin/env bash
-          set -euo pipefail
-          export PATH="${pkgs.lib.makeBinPath (with pkgs; [
-            bash coreutils curl findutils gnugrep gnused gawk
-            iproute2 procps socat util-linux cloud-hypervisor
-          ])}:$PATH"
-          ${scriptBody}
-        '';
+        runtime-ctl = pkgs.writeTextFile {
+          name = "ovh-runtime-ctl";
+          executable = true;
+          destination = "/bin/ovh-runtime-ctl";
+          text = let
+            runtimePath = pkgs.lib.makeBinPath (with pkgs; [
+              bash coreutils curl findutils gnugrep gnused gawk
+              iproute2 procps socat util-linux cloud-hypervisor
+            ]);
+            # Read the script and strip lines that conflict with our wrapper
+            rawLines = pkgs.lib.splitString "\n"
+              (builtins.readFile ./scripts/ops/ovh-runtime-ctl.sh);
+            filteredLines = builtins.filter (line:
+              !(pkgs.lib.hasPrefix "#!" line)
+              && line != "set -euo pipefail"
+              && !(pkgs.lib.hasPrefix "export PATH=" line)
+            ) rawLines;
+            scriptBody = builtins.concatStringsSep "\n" filteredLines;
+          in ''
+            #!${pkgs.bash}/bin/bash
+            set -euo pipefail
+            export PATH="${runtimePath}:$PATH"
+            ${scriptBody}
+          '';
+        };
       };
 
       nixosModules = {
