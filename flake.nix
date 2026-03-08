@@ -289,7 +289,7 @@ EOF
           destination = "/bin/ovh-runtime-ctl";
           text = let
             runtimePath = pkgs.lib.makeBinPath (with pkgs; [
-              bash coreutils curl findutils gnugrep gnused gawk
+              bash btrfs-progs coreutils curl findutils gnugrep gnused gawk
               iproute2 procps socat util-linux cloud-hypervisor
             ]);
             # Read the script and strip lines that conflict with our wrapper
