@@ -31,6 +31,7 @@
   # and picked up via dhcp-hostsfile. SIGHUP reloads without restart.
   services.dnsmasq = {
     enable = true;
+    resolveLocalQueries = false; # Don't override /etc/resolv.conf
     settings = {
       interface = "br-choiros";
       bind-interfaces = true;
