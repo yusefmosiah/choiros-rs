@@ -261,18 +261,33 @@ impl SandboxRegistry {
             port
         } else {
             // Check if user already had a port assigned (e.g. after hibernation)
-            let entries = self.entries.lock().await;
+            let mut entries = self.entries.lock().await;
             let existing_port = entries
                 .get(user_id)
                 .and_then(|u| u.roles.get(&role))
                 .map(|e| e.port);
-            drop(entries);
 
             if let Some(port) = existing_port {
+                drop(entries);
                 port
             } else {
-                let entries = self.entries.lock().await;
-                self.allocate_port(&entries).await?
+                let port = self.allocate_port(&entries).await?;
+                // Insert placeholder immediately to prevent concurrent allocations
+                // from claiming the same port during the slow spawn_instance() call.
+                let user_map = entries.entry(user_id.to_string()).or_default();
+                user_map.roles.insert(
+                    role,
+                    SandboxEntry {
+                        role: Some(role),
+                        branch: None,
+                        port,
+                        status: SandboxStatus::Stopped,
+                        last_activity: Instant::now(),
+                        handle: None,
+                    },
+                );
+                drop(entries);
+                port
             }
         };
 

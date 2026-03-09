@@ -267,10 +267,12 @@ impl SystemdLifecycle {
             return;
         }
 
-        // Filter out old entries for this MAC, add new one
+        // Filter out old entries for this MAC or this IP to prevent duplicates.
+        // dnsmasq rejects all reservations for an IP if multiple MACs claim it.
+        let ip_suffix = format!(",{ip}");
         let mut lines: Vec<&str> = existing
             .lines()
-            .filter(|line| !line.starts_with(mac))
+            .filter(|line| !line.starts_with(mac) && !line.ends_with(ip_suffix.as_str()))
             .collect();
         lines.push(&new_entry);
         let content = lines.join("\n") + "\n";
