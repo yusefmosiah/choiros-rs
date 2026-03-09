@@ -47,10 +47,15 @@
     "/var/lib/dnsmasq/choiros-hosts".f = { mode = "0644"; user = "root"; group = "root"; };
   };
 
-  # NAT for VM internet access (e.g., DNS resolution)
   # KSM (Kernel Same-page Merging) — deduplicates identical memory pages across VMs
-  boot.kernel.sysctl."vm.ksm_run" = 1;
+  # KSM control lives in /sys/kernel/mm/ksm/ (not /proc/sys/), so we use a tmpfile rule
+  systemd.tmpfiles.settings."10-ksm" = {
+    "/sys/kernel/mm/ksm/run".w = { argument = "1"; };
+    "/sys/kernel/mm/ksm/sleep_millisecs".w = { argument = "200"; };
+    "/sys/kernel/mm/ksm/pages_to_scan".w = { argument = "1000"; };
+  };
 
+  # NAT for VM internet access (e.g., DNS resolution)
   boot.kernel.sysctl."net.ipv4.ip_forward" = 1;
   networking.nat = {
     enable = true;
