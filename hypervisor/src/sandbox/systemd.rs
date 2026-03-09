@@ -282,11 +282,15 @@ impl SystemdLifecycle {
             return;
         }
 
-        // SIGHUP dnsmasq to reload hosts
-        let _ = Command::new("pkill")
-            .args(["-HUP", "dnsmasq"])
+        // Reload dnsmasq to pick up the new hosts file.
+        // Use systemctl (in PATH) instead of pkill (not in hypervisor PATH).
+        let reload_result = Command::new("systemctl")
+            .args(["reload", "dnsmasq"])
             .status()
             .await;
+        if let Err(e) = reload_result {
+            warn!("failed to reload dnsmasq: {e}");
+        }
         info!(mac, ip, "registered DHCP host reservation");
     }
 
