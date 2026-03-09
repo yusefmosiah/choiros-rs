@@ -30,7 +30,7 @@ However, **ALM harness is fully implemented but completely unused**. All product
 | `AlmHarness::run_turn()` | Complete, unused | 1,298 | ~150KB test files |
 | `ActorAlmPort` | Complete, unused | 463 | Integration tests only |
 | `execute_dag()` | Complete, unused | ~200 | DAG eval tests |
-| `RlmTurn` BAML | Available, uninvoked | ~100 | None |
+| `AlmTurn` BAML | Available, uninvoked | ~100 | None |
 
 ### The Problem
 
@@ -88,7 +88,7 @@ Maintaining two harness implementations creates:
 **Specific Changes**:
 1. Delete `alm.rs`, `alm_port.rs`
 2. Delete 7 ALM-specific test files (~150KB)
-3. Remove `RlmTurn` BAML functions
+3. Remove `AlmTurn` BAML functions
 4. Add explicit working memory to AgentHarness if needed
 
 **Pros**:
@@ -202,5 +202,5 @@ Rationale:
 
 - `simplified-agent-harness.md` - AgentHarness documentation
 - `unified-agentic-loop-harness.md` - Overlapping concepts (should merge)
-- `RLM_INTEGRATION_REPORT.md` - ALM architecture (now archived)
+- `RLM_INTEGRATION_REPORT.md` - archived ALM architecture report
 - `state_index_addendum.md` - Frame context details (now archived)

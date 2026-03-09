@@ -1,19 +1,22 @@
-//! MemoryActor — local symbolic memory service.
+//! MemoryActor — per-user symbolic memory retrieval service.
 //!
-//! Manages four SQLite collections for retrieval by lexical relevance:
+//! Memory is document-centered and provenance-preserving. Living documents remain
+//! canonical; this actor stores derived retrieval artifacts curated by explicit
+//! producers and, later, a background memory curator.
 //!
-//! | Collection          | Unit                                          | Trigger                            |
-//! |---------------------|-----------------------------------------------|------------------------------------|
-//! | `user_inputs`       | Human directive text (objective/prompt diff)  | EventType::UserInput               |
-//! | `version_snapshots` | Whole doc at VersionSource::Writer boundary   | AgentHarness::run() completion     |
-//! | `run_trajectories`  | Summary of one harness run                    | AgentResult returned               |
-//! | `doc_trajectories`  | Rolled-up summary across all runs for a doc   | Updated on new version_snapshot    |
+//! The four current collections are:
 //!
-//! Dedup: every item is keyed by `chunk_hash` (SHA-256 hex of content).
-//! Re-indexing is skipped if the hash already exists in the table.
+//! | Collection          | Intended Unit                                 |
+//! |---------------------|-----------------------------------------------|
+//! | `user_inputs`       | User objective summaries and prompt diffs     |
+//! | `version_snapshots` | Canonical document or section snapshots       |
+//! | `run_trajectories`  | Bounded run outcomes and verification results |
+//! | `doc_trajectories`  | Cross-run continuity for a document           |
 //!
-//! Retrieval is intentionally symbolic-first for local memory. Global vector
-//! search can be introduced later at the publishing layer.
+//! Dedup uses `chunk_hash` (SHA-256 hex of content).
+//!
+//! Retrieval is intentionally symbolic-first for per-user memory. Richer
+//! retrieval can be added later only if real traces justify it.
 
 use std::sync::{Arc, Mutex};
 
@@ -226,7 +229,7 @@ pub fn chunk_hash(content: &str) -> String {
 
 // ─── CollectionKind ──────────────────────────────────────────────────────────
 
-/// The four canonical local vector collections.
+/// The four canonical local memory collections.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CollectionKind {
     UserInputs,
@@ -269,7 +272,7 @@ pub struct MemoryActor;
 #[derive(Clone)]
 pub struct MemoryArguments {
     pub event_store: ActorRef<EventStoreMsg>,
-    /// Path to the SQLite file for the vector store. Use `":memory:"` for tests.
+    /// Path to the SQLite file for the memory store. Use `":memory:"` for tests.
     pub vec_db_path: String,
 }
 

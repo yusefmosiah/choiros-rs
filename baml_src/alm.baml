@@ -1,21 +1,21 @@
-// ChoirOS RLM (Recursive Language Model) Harness Contract
+// ChoirOS ALM (Actor Language Model) Harness Contract
 //
-// The RLM harness is the GENERAL execution mode. The model outputs a program
+// The ALM harness is the GENERAL execution mode. The model outputs a program
 // each turn that specifies:
 //   1. What context to load (sources)
 //   2. Its reasoning state (working_memory)
 //   3. What to do next (next_action)
 //
 // Linear tool loops are NextAction::ToolCalls — one degenerate case.
-// Conductor single-shot is an RLM with max_turns=1.
-// Everything is an RLM.
+// Conductor single-shot is an ALM with max_turns=1.
+// Everything is an ALM.
 
 // ============================================================================
 // Context Sources — the model selects what to include each turn
 // ============================================================================
 
 enum ContextSourceKind {
-  /// Query episodic memory for relevant patterns
+  /// Query the per-user memory service for relevant artifacts
   MemoryQuery
   /// Load a specific file or document
   Document
@@ -213,10 +213,10 @@ class NextAction {
 }
 
 // ============================================================================
-// RLM Turn Output — the "program" the model writes each turn
+// ALM Turn Output — the "program" the model writes each turn
 // ============================================================================
 
-class RlmTurn {
+class AlmTurn {
   /// What context to load for this turn. The harness resolves these into text.
   /// Empty sources = the model is working from working_memory alone.
   sources ContextSource[]
@@ -235,7 +235,7 @@ class RlmTurn {
 // Turn Context — what the harness provides to the model each turn
 // ============================================================================
 
-class RlmTurnContext {
+class AlmTurnContext {
   /// The original objective (constant across turns)
   objective string
   /// Current turn number
@@ -254,13 +254,13 @@ class RlmTurnContext {
 }
 
 // ============================================================================
-// The RLM Compose Function
+// The ALM Compose Function
 // ============================================================================
 
-function RlmCompose(turn_ctx: RlmTurnContext, capabilities: string) -> RlmTurn {
+function AlmCompose(turn_ctx: AlmTurnContext, capabilities: string) -> AlmTurn {
   client Orchestrator
   prompt #"
-    You are operating within a Recursive Language Model (RLM) harness.
+    You are operating within an Actor Language Model (ALM) harness.
 
     OBJECTIVE: {{ turn_ctx.objective }}
     TURN: {{ turn_ctx.turn_number }}/{{ turn_ctx.max_turns }}
@@ -288,10 +288,10 @@ function RlmCompose(turn_ctx: RlmTurnContext, capabilities: string) -> RlmTurn {
     CAPABILITIES:
     {{ capabilities }}
 
-    YOUR TASK: Output an RlmTurn that specifies:
+    YOUR TASK: Output an AlmTurn that specifies:
 
     1. SOURCES — What context do you need? Request specific documents,
-       memory queries, or prior turn outputs. The harness will resolve
+       memory queries for relevant artifacts, or prior turn outputs. The harness will resolve
        these and provide them on the next turn. Leave empty if you have
        enough context already.
 

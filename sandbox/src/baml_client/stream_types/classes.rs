@@ -35,6 +35,54 @@ impl AsRef<AgentDecision> for AgentDecision {
 
 #[derive(Debug, Clone, Default, BamlDecode)]
 
+pub struct AlmTurn {
+    /// What context to load for this turn. The harness resolves these into text.
+    /// Empty sources = the model is working from working_memory alone.
+    pub sources: Vec<ContextSource>,
+
+    /// The model's articulation of its current reasoning state.
+    /// This carries focus across turns. It is ephemeral — rewritten each turn.
+    /// This IS the metacognition: the model reflecting on what it knows,
+    /// what it's uncertain about, and what it needs next.
+    pub working_memory: Option<String>,
+
+    /// What to do next. The harness executes this.
+    pub next_action: Option<NextAction>,
+}
+
+impl AsRef<AlmTurn> for AlmTurn {
+    fn as_ref(&self) -> &AlmTurn {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
+pub struct AlmTurnContext {
+    /// The original objective (constant across turns)
+    pub objective: Option<String>,
+
+    pub turn_number: Option<i64>,
+
+    pub max_turns: Option<i64>,
+
+    pub previous_working_memory: Option<String>,
+
+    pub assembled_context: Option<String>,
+
+    pub action_results: Option<String>,
+
+    pub turn_history_summary: Option<String>,
+}
+
+impl AsRef<AlmTurnContext> for AlmTurnContext {
+    fn as_ref(&self) -> &AlmTurnContext {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct AlternativeAction {
     pub action: Option<types::EscalationAction>,
 
@@ -721,54 +769,6 @@ pub struct RiskItem {
 
 impl AsRef<RiskItem> for RiskItem {
     fn as_ref(&self) -> &RiskItem {
-        self
-    }
-}
-
-#[derive(Debug, Clone, Default, BamlDecode)]
-
-pub struct RlmTurn {
-    /// What context to load for this turn. The harness resolves these into text.
-    /// Empty sources = the model is working from working_memory alone.
-    pub sources: Vec<ContextSource>,
-
-    /// The model's articulation of its current reasoning state.
-    /// This carries focus across turns. It is ephemeral — rewritten each turn.
-    /// This IS the metacognition: the model reflecting on what it knows,
-    /// what it's uncertain about, and what it needs next.
-    pub working_memory: Option<String>,
-
-    /// What to do next. The harness executes this.
-    pub next_action: Option<NextAction>,
-}
-
-impl AsRef<RlmTurn> for RlmTurn {
-    fn as_ref(&self) -> &RlmTurn {
-        self
-    }
-}
-
-#[derive(Debug, Clone, Default, BamlDecode)]
-
-pub struct RlmTurnContext {
-    /// The original objective (constant across turns)
-    pub objective: Option<String>,
-
-    pub turn_number: Option<i64>,
-
-    pub max_turns: Option<i64>,
-
-    pub previous_working_memory: Option<String>,
-
-    pub assembled_context: Option<String>,
-
-    pub action_results: Option<String>,
-
-    pub turn_history_summary: Option<String>,
-}
-
-impl AsRef<RlmTurnContext> for RlmTurnContext {
-    fn as_ref(&self) -> &RlmTurnContext {
         self
     }
 }

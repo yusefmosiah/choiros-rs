@@ -1,6 +1,6 @@
-//! RLM (Recursive Language Model) Harness
+//! ALM (Actor Language Model) Harness
 //!
-//! Every turn the model outputs an `RlmTurn`:
+//! Every turn the model outputs an `AlmTurn`:
 //!   - `sources`: what context to load (documents, memory, prior turns)
 //!   - `working_memory`: the model's articulated reasoning state
 //!   - `next_action`: what to do next
@@ -40,24 +40,24 @@ use tracing::{debug, info, warn};
 
 use crate::actors::model_config::ModelRegistry;
 use crate::baml_client::types::{
-    ContextSourceKind, DagStep, NextActionKind, RlmTurn, RlmTurnContext, StepOp,
+    AlmTurn, AlmTurnContext, ContextSourceKind, DagStep, NextActionKind, StepOp,
 };
 use crate::baml_client::{new_collector, ClientRegistry, B};
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
-/// Result of an RLM harness run.
+/// Result of an ALM harness run.
 #[derive(Debug, Clone)]
 pub struct AlmRunResult {
     pub final_working_memory: String,
     pub completion_reason: String,
     pub turns_taken: usize,
     pub tool_executions: Vec<AlmToolExecution>,
-    pub turn_log: Vec<RlmTurnLog>,
+    pub turn_log: Vec<AlmTurnLog>,
     pub dag_traces: Vec<DagTrace>,
 }
 
-/// Record of a single tool execution within the RLM loop.
+/// Record of a single tool execution within the ALM loop.
 #[derive(Debug, Clone)]
 pub struct AlmToolExecution {
     pub turn: usize,
@@ -90,9 +90,9 @@ pub struct DagTrace {
     pub total_elapsed_ms: u64,
 }
 
-/// Record of a single RLM turn (for observability/eval).
+/// Record of a single ALM turn (for observability/eval).
 #[derive(Debug, Clone)]
-pub struct RlmTurnLog {
+pub struct AlmTurnLog {
     pub turn_number: usize,
     pub working_memory: String,
     pub sources_requested: Vec<String>,
@@ -101,7 +101,7 @@ pub struct RlmTurnLog {
     pub elapsed_ms: u64,
 }
 
-/// Configuration for the RLM harness.
+/// Configuration for the ALM harness.
 #[derive(Debug, Clone)]
 pub struct AlmConfig {
     pub max_turns: usize,
@@ -134,7 +134,7 @@ pub struct LlmCallResult {
 /// Trait for executing tools, LLM calls, and resolving context sources.
 ///
 /// This is the execution boundary — the harness calls the model, the port
-/// executes actions. Analogous to `WorkerPort` but designed for RLM semantics.
+/// executes actions. Analogous to `WorkerPort` but designed for ALM semantics.
 #[async_trait::async_trait]
 pub trait AlmPort: Send + Sync {
     /// Get the capabilities description (tool list, available resources).
@@ -623,7 +623,7 @@ pub async fn execute_dag<P: AlmPort>(
     ))
 }
 
-// ─── The RLM Harness ─────────────────────────────────────────────────────────
+// ─── The ALM Harness ─────────────────────────────────────────────────────────
 
 pub struct AlmHarness<P: AlmPort> {
     port: P,
@@ -640,10 +640,10 @@ impl<P: AlmPort> AlmHarness<P> {
         }
     }
 
-    /// Run the RLM loop.
+    /// Run the ALM loop.
     ///
     /// Each turn:
-    /// 1. Call `RlmCompose` with the current turn context
+    /// 1. Call `AlmCompose` with the current turn context
     /// 2. Resolve the sources the model requested
     /// 3. Execute the next_action (ToolCalls, Program, FanOut, Recurse)
     /// 4. Feed results back into the next turn's context
@@ -666,7 +666,7 @@ impl<P: AlmPort> AlmHarness<P> {
         let mut turn_history: Vec<String> = Vec::new();
         let mut all_tool_executions: Vec<AlmToolExecution> = Vec::new();
         let mut all_dag_traces: Vec<DagTrace> = Vec::new();
-        let mut turn_log: Vec<RlmTurnLog> = Vec::new();
+        let mut turn_log: Vec<AlmTurnLog> = Vec::new();
         // Durability tracking
         let mut pending_replies: Vec<shared_types::PendingReply> = Vec::new();
         let mut pending_corr_ids: Vec<String> = Vec::new();
@@ -687,7 +687,7 @@ impl<P: AlmPort> AlmHarness<P> {
                     run_id = %self.port.run_id(),
                     turn,
                     budget_ms = self.config.timeout_budget_ms,
-                    "RLM harness timeout budget exceeded"
+                    "ALM harness timeout budget exceeded"
                 );
                 return Ok(AlmRunResult {
                     final_working_memory: working_memory.unwrap_or_default(),
@@ -716,8 +716,8 @@ impl<P: AlmPort> AlmHarness<P> {
                 Some(turn_history.join("\n"))
             };
 
-            // 1. Call RlmCompose
-            let turn_ctx = RlmTurnContext {
+            // 1. Call AlmCompose
+            let turn_ctx = AlmTurnContext {
                 objective: objective.clone(),
                 turn_number: turn as i64,
                 max_turns: self.config.max_turns as i64,
@@ -763,7 +763,7 @@ impl<P: AlmPort> AlmHarness<P> {
                         .clone()
                         .unwrap_or_else(|| "completed".to_string());
 
-                    turn_log.push(RlmTurnLog {
+                    turn_log.push(AlmTurnLog {
                         turn_number: turn,
                         working_memory: rlm_turn.working_memory.clone(),
                         sources_requested: rlm_turn
@@ -792,7 +792,7 @@ impl<P: AlmPort> AlmHarness<P> {
                         .clone()
                         .unwrap_or_else(|| "blocked".to_string());
 
-                    turn_log.push(RlmTurnLog {
+                    turn_log.push(AlmTurnLog {
                         turn_number: turn,
                         working_memory: rlm_turn.working_memory.clone(),
                         sources_requested: vec![],
@@ -885,7 +885,7 @@ impl<P: AlmPort> AlmHarness<P> {
                             turn,
                             depth = recurse_dispatches,
                             max = self.config.max_recurse_depth,
-                            "RLM FanOut blocked: max_recurse_depth reached"
+                            "ALM FanOut blocked: max_recurse_depth reached"
                         );
                         action_results = Some(format!(
                             "[BLOCKED] max_recurse_depth ({}) reached; FanOut not dispatched",
@@ -937,7 +937,7 @@ impl<P: AlmPort> AlmHarness<P> {
                             turn,
                             depth = recurse_dispatches,
                             max = self.config.max_recurse_depth,
-                            "RLM Recurse blocked: max_recurse_depth reached"
+                            "ALM Recurse blocked: max_recurse_depth reached"
                         );
                         action_results = Some(format!(
                             "[BLOCKED] max_recurse_depth ({}) reached; Recurse not dispatched for: {}",
@@ -1009,7 +1009,7 @@ impl<P: AlmPort> AlmHarness<P> {
                 self.port.write_checkpoint(&checkpoint).await;
             }
 
-            turn_log.push(RlmTurnLog {
+            turn_log.push(AlmTurnLog {
                 turn_number: turn,
                 working_memory: rlm_turn.working_memory,
                 sources_requested: rlm_turn
@@ -1037,20 +1037,20 @@ impl<P: AlmPort> AlmHarness<P> {
     async fn call_compose(
         &self,
         client_registry: &ClientRegistry,
-        turn_ctx: &RlmTurnContext,
+        turn_ctx: &AlmTurnContext,
         capabilities: &str,
-    ) -> Result<RlmTurn, String> {
-        let collector = new_collector("RlmCompose");
+    ) -> Result<AlmTurn, String> {
+        let collector = new_collector("AlmCompose");
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(30),
-            B.RlmCompose
+            B.AlmCompose
                 .with_client_registry(client_registry)
                 .with_collector(&collector)
                 .call(turn_ctx, capabilities),
         )
         .await
-        .map_err(|_| "RlmCompose timed out".to_string())?
-        .map_err(|e| format!("RlmCompose call error: {e}"))?;
+        .map_err(|_| "AlmCompose timed out".to_string())?
+        .map_err(|e| format!("AlmCompose call error: {e}"))?;
 
         Ok(result)
     }

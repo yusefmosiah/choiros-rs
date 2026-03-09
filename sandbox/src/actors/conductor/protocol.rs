@@ -152,8 +152,8 @@ pub struct HarnessResult {
 /// Strongly-typed next action for conductor decision steps.
 ///
 /// Mirrors the `ConductorAction` BAML enum, extended with Phase 4 variants.
-/// Used by the conductor ALM harness turn (Phase 4.3) rather than
-/// the bootstrap path which still uses `ConductorBootstrapOutput`.
+/// Reserved for the experimental ALM harness path rather than
+/// the current bootstrap path, which still uses `ConductorBootstrapOutput`.
 #[derive(Debug, Clone)]
 pub enum NextAction {
     /// Dispatch a named worker capability.

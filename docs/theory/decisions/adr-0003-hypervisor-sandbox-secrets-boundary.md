@@ -138,6 +138,5 @@ Revisit this ADR when any of the following becomes true:
 
 ## References
 
-- `docs/architecture/2026-02-17-codesign-runbook.md`
-- `docs/architecture/adr-0002-rust-nix-build-and-cache-strategy.md`
+- `docs/theory/decisions/adr-0002-rust-nix-build-and-cache-strategy.md`
 - `AGENTS.md`

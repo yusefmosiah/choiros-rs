@@ -25,6 +25,10 @@ pub use baml::{Checked, StreamState};
 pub enum Types {
     AgentDecision(AgentDecision),
 
+    AlmTurn(AlmTurn),
+
+    AlmTurnContext(AlmTurnContext),
+
     AlternativeAction(AlternativeAction),
 
     BashToolArgs(BashToolArgs),
@@ -99,10 +103,6 @@ pub enum Types {
 
     RiskItem(RiskItem),
 
-    RlmTurn(RlmTurn),
-
-    RlmTurnContext(RlmTurnContext),
-
     RunStateSnapshot(RunStateSnapshot),
 
     StreamChunk(StreamChunk),
@@ -170,6 +170,10 @@ impl baml::KnownTypes for Types {
         match self {
 
             Types::AgentDecision(_) => "AgentDecision",
+
+            Types::AlmTurn(_) => "AlmTurn",
+
+            Types::AlmTurnContext(_) => "AlmTurnContext",
 
             Types::AlternativeAction(_) => "AlternativeAction",
 
@@ -244,10 +248,6 @@ impl baml::KnownTypes for Types {
             Types::ReviewScope(_) => "ReviewScope",
 
             Types::RiskItem(_) => "RiskItem",
-
-            Types::RlmTurn(_) => "RlmTurn",
-
-            Types::RlmTurnContext(_) => "RlmTurnContext",
 
             Types::RunStateSnapshot(_) => "RunStateSnapshot",
 

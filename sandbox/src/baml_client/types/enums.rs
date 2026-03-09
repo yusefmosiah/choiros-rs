@@ -155,7 +155,7 @@ impl AsRef<ConductorAction> for ConductorAction {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
 
 pub enum ContextSourceKind {
-    /// Query episodic memory for relevant patterns
+    /// Query the per-user memory service for relevant artifacts
     /// Load a specific file or document
     MemoryQuery,
 

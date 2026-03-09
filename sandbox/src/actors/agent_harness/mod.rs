@@ -6,7 +6,7 @@
 //! - Structured event emission (started, progress, completed/failed)
 //! - WorkerTurnReport generation at completion
 //!
-//! The `rlm` submodule provides the ALM (Agentic Language Model) harness —
+//! The `alm` submodule provides the ALM (Actor Language Model) harness —
 //! the general execution mode where the model composes its own context each turn.
 //! The linear `AgentHarness` loop is a degenerate case of the ALM pattern.
 //!

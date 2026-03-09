@@ -108,6 +108,8 @@ macro_rules! baml_function_sync {
 // Generate function structs
 // =============================================================================
 
+baml_function_sync!(AlmCompose(turn_ctx: &types::AlmTurnContext, capabilities: impl AsRef<str> + BamlEncode, ) -> (stream_types::AlmTurn, types::AlmTurn));
+
 baml_function_sync!(ConductorBootstrapAgenda(input: &types::ConductorBootstrapInput, ) -> (stream_types::ConductorBootstrapOutput, types::ConductorBootstrapOutput));
 
 baml_function_sync!(ConductorDecide(input: &types::ConductorDecisionInput, ) -> (stream_types::ConductorDecision, types::ConductorDecision));
@@ -124,8 +126,6 @@ baml_function_sync!(QuickResponse(user_message: impl AsRef<str> + BamlEncode, co
 
 baml_function_sync!(ResearcherPlanStep(input: &types::ResearcherPlanInput, ) -> (stream_types::ResearcherPlanOutput, types::ResearcherPlanOutput));
 
-baml_function_sync!(RlmCompose(turn_ctx: &types::RlmTurnContext, capabilities: impl AsRef<str> + BamlEncode, ) -> (stream_types::RlmTurn, types::RlmTurn));
-
 baml_function_sync!(SummarizeChangeset(input: &types::ChangesetInput, ) -> (stream_types::ChangesetSummaryOutput, types::ChangesetSummaryOutput));
 
 baml_function_sync!(WatcherRecommendMitigation(input: &types::WatcherMitigationInput, ) -> (stream_types::WatcherMitigationOutput, types::WatcherMitigationOutput));
@@ -139,6 +139,8 @@ baml_function_sync!(WatcherReviewLogWindow(input: &types::WatcherLogWindowInput,
 #[derive(Clone)]
 pub struct BamlSyncClient {
     options: FunctionOptions,
+
+    pub AlmCompose: AlmCompose,
 
     pub ConductorBootstrapAgenda: ConductorBootstrapAgenda,
 
@@ -156,8 +158,6 @@ pub struct BamlSyncClient {
 
     pub ResearcherPlanStep: ResearcherPlanStep,
 
-    pub RlmCompose: RlmCompose,
-
     pub SummarizeChangeset: SummarizeChangeset,
 
     pub WatcherRecommendMitigation: WatcherRecommendMitigation,
@@ -169,6 +169,8 @@ impl BamlSyncClient {
     pub const fn new() -> Self {
         Self {
             options: FunctionOptions::new(),
+
+            AlmCompose: AlmCompose::new(),
 
             ConductorBootstrapAgenda: ConductorBootstrapAgenda::new(),
 
@@ -186,8 +188,6 @@ impl BamlSyncClient {
 
             ResearcherPlanStep: ResearcherPlanStep::new(),
 
-            RlmCompose: RlmCompose::new(),
-
             SummarizeChangeset: SummarizeChangeset::new(),
 
             WatcherRecommendMitigation: WatcherRecommendMitigation::new(),
@@ -200,6 +200,10 @@ impl BamlSyncClient {
     pub fn with_options(&self, options: FunctionOptions) -> Self {
         Self {
             options: options.clone(),
+
+            AlmCompose: AlmCompose {
+                options: options.clone(),
+            },
 
             ConductorBootstrapAgenda: ConductorBootstrapAgenda {
                 options: options.clone(),
@@ -230,10 +234,6 @@ impl BamlSyncClient {
             },
 
             ResearcherPlanStep: ResearcherPlanStep {
-                options: options.clone(),
-            },
-
-            RlmCompose: RlmCompose {
                 options: options.clone(),
             },
 

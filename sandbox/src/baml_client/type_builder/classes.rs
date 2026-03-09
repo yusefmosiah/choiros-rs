@@ -51,6 +51,135 @@ impl AgentDecisionClassBuilder {
     }
 }
 
+/// Wrapper for the `AlmTurn` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct AlmTurnClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl AlmTurnClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner
+            .as_type()
+            .expect("AlmTurn is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `sources` field builder.
+    pub fn property_sources(&self) -> baml::ClassPropertyBuilder {
+        self.inner
+            .get_property("sources")
+            .expect("AlmTurn.sources is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `working_memory` field builder.
+    pub fn property_working_memory(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("working_memory").expect(
+            "AlmTurn.working_memory is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `next_action` field builder.
+    pub fn property_next_action(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("next_action").expect(
+            "AlmTurn.next_action is statically defined in .baml and should always be present",
+        )
+    }
+}
+
+/// Wrapper for the `AlmTurnContext` class builder.
+///
+/// Provides type-safe method access to fields defined in the schema.
+/// Access fields via methods: `builder.field_name()`
+
+pub struct AlmTurnContextClassBuilder {
+    inner: baml::ClassBuilder,
+}
+
+impl AlmTurnContextClassBuilder {
+    /// Create wrapper from runtime ClassBuilder.
+    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying ClassBuilder.
+    pub fn inner(&self) -> &baml::ClassBuilder {
+        &self.inner
+    }
+
+    /// Get the class as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner
+            .as_type()
+            .expect("AlmTurnContext is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Field Accessors (1:1 with schema field names)
+    // =========================================================================
+
+    /// Access the `objective` field builder.
+    pub fn property_objective(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("objective").expect(
+            "AlmTurnContext.objective is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `turn_number` field builder.
+    pub fn property_turn_number(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("turn_number")
+            .expect("AlmTurnContext.turn_number is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `max_turns` field builder.
+    pub fn property_max_turns(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("max_turns").expect(
+            "AlmTurnContext.max_turns is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `previous_working_memory` field builder.
+    pub fn property_previous_working_memory(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("previous_working_memory")
+            .expect("AlmTurnContext.previous_working_memory is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `assembled_context` field builder.
+    pub fn property_assembled_context(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("assembled_context")
+            .expect("AlmTurnContext.assembled_context is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `action_results` field builder.
+    pub fn property_action_results(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("action_results")
+            .expect("AlmTurnContext.action_results is statically defined in .baml and should always be present")
+    }
+
+    /// Access the `turn_history_summary` field builder.
+    pub fn property_turn_history_summary(&self) -> baml::ClassPropertyBuilder {
+        self.inner.get_property("turn_history_summary")
+            .expect("AlmTurnContext.turn_history_summary is statically defined in .baml and should always be present")
+    }
+}
+
 /// Wrapper for the `AlternativeAction` class builder.
 ///
 /// Provides type-safe method access to fields defined in the schema.
@@ -2203,135 +2332,6 @@ impl RiskItemClassBuilder {
     pub fn property_mitigating_factors(&self) -> baml::ClassPropertyBuilder {
         self.inner.get_property("mitigating_factors")
             .expect("RiskItem.mitigating_factors is statically defined in .baml and should always be present")
-    }
-}
-
-/// Wrapper for the `RlmTurn` class builder.
-///
-/// Provides type-safe method access to fields defined in the schema.
-/// Access fields via methods: `builder.field_name()`
-
-pub struct RlmTurnClassBuilder {
-    inner: baml::ClassBuilder,
-}
-
-impl RlmTurnClassBuilder {
-    /// Create wrapper from runtime ClassBuilder.
-    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
-        Self { inner }
-    }
-
-    /// Get the underlying ClassBuilder.
-    pub fn inner(&self) -> &baml::ClassBuilder {
-        &self.inner
-    }
-
-    /// Get the class as a type definition.
-    pub fn r#type(&self) -> baml::TypeDef {
-        self.inner
-            .as_type()
-            .expect("RlmTurn is statically defined in .baml and should always have a type")
-    }
-
-    // =========================================================================
-    // Field Accessors (1:1 with schema field names)
-    // =========================================================================
-
-    /// Access the `sources` field builder.
-    pub fn property_sources(&self) -> baml::ClassPropertyBuilder {
-        self.inner
-            .get_property("sources")
-            .expect("RlmTurn.sources is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `working_memory` field builder.
-    pub fn property_working_memory(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("working_memory").expect(
-            "RlmTurn.working_memory is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `next_action` field builder.
-    pub fn property_next_action(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("next_action").expect(
-            "RlmTurn.next_action is statically defined in .baml and should always be present",
-        )
-    }
-}
-
-/// Wrapper for the `RlmTurnContext` class builder.
-///
-/// Provides type-safe method access to fields defined in the schema.
-/// Access fields via methods: `builder.field_name()`
-
-pub struct RlmTurnContextClassBuilder {
-    inner: baml::ClassBuilder,
-}
-
-impl RlmTurnContextClassBuilder {
-    /// Create wrapper from runtime ClassBuilder.
-    pub(crate) fn new(inner: baml::ClassBuilder) -> Self {
-        Self { inner }
-    }
-
-    /// Get the underlying ClassBuilder.
-    pub fn inner(&self) -> &baml::ClassBuilder {
-        &self.inner
-    }
-
-    /// Get the class as a type definition.
-    pub fn r#type(&self) -> baml::TypeDef {
-        self.inner
-            .as_type()
-            .expect("RlmTurnContext is statically defined in .baml and should always have a type")
-    }
-
-    // =========================================================================
-    // Field Accessors (1:1 with schema field names)
-    // =========================================================================
-
-    /// Access the `objective` field builder.
-    pub fn property_objective(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("objective").expect(
-            "RlmTurnContext.objective is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `turn_number` field builder.
-    pub fn property_turn_number(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("turn_number")
-            .expect("RlmTurnContext.turn_number is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `max_turns` field builder.
-    pub fn property_max_turns(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("max_turns").expect(
-            "RlmTurnContext.max_turns is statically defined in .baml and should always be present",
-        )
-    }
-
-    /// Access the `previous_working_memory` field builder.
-    pub fn property_previous_working_memory(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("previous_working_memory")
-            .expect("RlmTurnContext.previous_working_memory is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `assembled_context` field builder.
-    pub fn property_assembled_context(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("assembled_context")
-            .expect("RlmTurnContext.assembled_context is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `action_results` field builder.
-    pub fn property_action_results(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("action_results")
-            .expect("RlmTurnContext.action_results is statically defined in .baml and should always be present")
-    }
-
-    /// Access the `turn_history_summary` field builder.
-    pub fn property_turn_history_summary(&self) -> baml::ClassPropertyBuilder {
-        self.inner.get_property("turn_history_summary")
-            .expect("RlmTurnContext.turn_history_summary is statically defined in .baml and should always be present")
     }
 }
 

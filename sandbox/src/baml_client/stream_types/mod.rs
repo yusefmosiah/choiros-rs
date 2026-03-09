@@ -20,6 +20,10 @@ pub use unions::*;
 pub enum StreamTypes {
     AgentDecision(AgentDecision),
 
+    AlmTurn(AlmTurn),
+
+    AlmTurnContext(AlmTurnContext),
+
     AlternativeAction(AlternativeAction),
 
     BashToolArgs(BashToolArgs),
@@ -94,10 +98,6 @@ pub enum StreamTypes {
 
     RiskItem(RiskItem),
 
-    RlmTurn(RlmTurn),
-
-    RlmTurnContext(RlmTurnContext),
-
     RunStateSnapshot(RunStateSnapshot),
 
     StreamChunk(StreamChunk),
@@ -136,6 +136,10 @@ impl baml::KnownTypes for StreamTypes {
         match self {
 
             StreamTypes::AgentDecision(_) => "AgentDecision",
+
+            StreamTypes::AlmTurn(_) => "AlmTurn",
+
+            StreamTypes::AlmTurnContext(_) => "AlmTurnContext",
 
             StreamTypes::AlternativeAction(_) => "AlternativeAction",
 
@@ -210,10 +214,6 @@ impl baml::KnownTypes for StreamTypes {
             StreamTypes::ReviewScope(_) => "ReviewScope",
 
             StreamTypes::RiskItem(_) => "RiskItem",
-
-            StreamTypes::RlmTurn(_) => "RlmTurn",
-
-            StreamTypes::RlmTurnContext(_) => "RlmTurnContext",
 
             StreamTypes::RunStateSnapshot(_) => "RunStateSnapshot",
 

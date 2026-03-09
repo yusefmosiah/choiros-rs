@@ -59,6 +59,24 @@ impl TypeBuilder {
         )
     }
 
+    /// Access the `AlmTurn` class builder.
+    pub fn AlmTurn(&self) -> AlmTurnClassBuilder {
+        AlmTurnClassBuilder::new(
+            self.inner
+                .get_class("AlmTurn")
+                .expect("class AlmTurn is defined in schema"),
+        )
+    }
+
+    /// Access the `AlmTurnContext` class builder.
+    pub fn AlmTurnContext(&self) -> AlmTurnContextClassBuilder {
+        AlmTurnContextClassBuilder::new(
+            self.inner
+                .get_class("AlmTurnContext")
+                .expect("class AlmTurnContext is defined in schema"),
+        )
+    }
+
     /// Access the `AlternativeAction` class builder.
     pub fn AlternativeAction(&self) -> AlternativeActionClassBuilder {
         AlternativeActionClassBuilder::new(
@@ -389,24 +407,6 @@ impl TypeBuilder {
             self.inner
                 .get_class("RiskItem")
                 .expect("class RiskItem is defined in schema"),
-        )
-    }
-
-    /// Access the `RlmTurn` class builder.
-    pub fn RlmTurn(&self) -> RlmTurnClassBuilder {
-        RlmTurnClassBuilder::new(
-            self.inner
-                .get_class("RlmTurn")
-                .expect("class RlmTurn is defined in schema"),
-        )
-    }
-
-    /// Access the `RlmTurnContext` class builder.
-    pub fn RlmTurnContext(&self) -> RlmTurnContextClassBuilder {
-        RlmTurnContextClassBuilder::new(
-            self.inner
-                .get_class("RlmTurnContext")
-                .expect("class RlmTurnContext is defined in schema"),
         )
     }
 

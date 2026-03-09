@@ -1538,9 +1538,10 @@ pub struct CitationRef {
     pub rationale: String,
 }
 
-/// A snapshot of context retrieved by the MemoryActor for a conductor turn.
+/// A snapshot of context retrieved by the memory service for an actor turn.
 ///
-/// Passed as the `context` bundle when spawning a `HarnessActor`.
+/// This is a best-effort retrieval bundle that may be consumed by Conductor,
+/// Writer, Terminal, or later actors without becoming canonical state.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
 pub struct ContextSnapshot {

@@ -30,7 +30,7 @@ pub struct SessionSupervisor;
 pub struct SessionSupervisorArgs {
     pub event_store: ActorRef<EventStoreMsg>,
     pub application_supervisor: ActorRef<ApplicationSupervisorMsg>,
-    /// Path for the vector store SQLite file.
+    /// Path for the memory SQLite file.
     /// Defaults to `:memory:` if not provided (e.g. in tests).
     pub vec_db_path: Option<String>,
 }
@@ -91,7 +91,8 @@ impl Actor for SessionSupervisor {
     ) -> Result<Self::State, ActorProcessingErr> {
         info!(supervisor = %myself.get_id(), "SessionSupervisor starting");
 
-        // Spawn MemoryActor first — it's a shared service used by Conductor.
+        // Spawn MemoryActor first. It is a shared per-user retrieval service
+        // currently consumed by Conductor and intended for Writer/Terminal later.
         let vec_db_path = args
             .vec_db_path
             .clone()
