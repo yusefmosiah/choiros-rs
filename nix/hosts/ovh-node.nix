@@ -47,11 +47,14 @@
   };
 
   # KSM (Kernel Same-page Merging) — deduplicates identical memory pages across VMs
-  # KSM control lives in /sys/kernel/mm/ksm/ (not /proc/sys/), so we use a tmpfile rule
+  # KSM control lives in /sys/kernel/mm/ksm/ (not /proc/sys/), so we use a tmpfile rule.
+  # THP must be disabled: KSM only works on 4KB pages, not 2MB hugepages.
+  # Cloud-hypervisor calls MADV_HUGEPAGE which blocks KSM merging.
   systemd.tmpfiles.settings."10-ksm" = {
     "/sys/kernel/mm/ksm/run".w = { argument = "1"; };
     "/sys/kernel/mm/ksm/sleep_millisecs".w = { argument = "200"; };
     "/sys/kernel/mm/ksm/pages_to_scan".w = { argument = "1000"; };
+    "/sys/kernel/mm/transparent_hugepage/enabled".w = { argument = "never"; };
   };
 
   # NAT for VM internet access (e.g., DNS resolution)

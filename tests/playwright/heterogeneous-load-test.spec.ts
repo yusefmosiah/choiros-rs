@@ -20,9 +20,9 @@ import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 // ── Config ───────────────────────────────────────────────────────────────────
 
 const PROFILES = {
-  idle: 3,
-  light: 3,
-  medium: 2,
+  idle: 6,
+  light: 5,
+  medium: 3,
   heavy: 2,
 } as const;
 
