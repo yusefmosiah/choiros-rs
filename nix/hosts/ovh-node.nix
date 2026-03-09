@@ -180,6 +180,8 @@
     after = [ "network-online.target" "choiros-secrets-materialize.service" ];
     wants = [ "network-online.target" ];
     requires = [ "choiros-secrets-materialize.service" ];
+    # ADR-0017: hypervisor calls btrfs/mkfs.ext4/systemctl from Rust
+    path = [ pkgs.btrfs-progs pkgs.e2fsprogs pkgs.util-linux pkgs.curl ];
     serviceConfig = {
       ExecStart = "${choirosPackages.hypervisor}/bin/hypervisor";
       Restart = "on-failure";
