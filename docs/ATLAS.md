@@ -129,6 +129,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/state/reports/2026-02-26-022532-provider-matrix-all-models.md`
 - Local Cutover Step 1 Report — Report (Active)  
   `docs/state/reports/2026-02-26-local-cutover-step1.md`
+- Per-User VM Load Test Report — ? (?)  
+  `docs/state/reports/2026-03-09-per-user-vm-load-test.md`
 - ChoirOS Logging Security & Compliance Report — Report (Active)  
   `docs/state/reports/choiros-logging-security-report.md`
 - Conductor E2E Test Intelligence Report — Report (Active)  
@@ -158,4 +160,4 @@ ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-09 — 23 practice, 18 theory, 10 state docs.*
+*Generated 2026-03-09 — 23 practice, 18 theory, 11 state docs.*
