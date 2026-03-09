@@ -89,6 +89,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/practice/guides/adr-0017-implementation.md`
 - Backend-Authoritative UI State Pattern — Note (Active)  
   `docs/practice/guides/backend-authoritative-ui-state-pattern.md`
+- cagent Spec And Implementation Guide — Spec + implementation handoff (Draft)  
+  `docs/practice/guides/cagent-spec-and-implementation-guide.md`
 - Files App API Contract — Guide (Accepted)  
   `docs/practice/guides/files-api-contract.md`
 - Local Provider Matrix Validation — Guide (Accepted)  
@@ -156,4 +158,4 @@ ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-09 — 22 practice, 18 theory, 10 state docs.*
+*Generated 2026-03-09 — 23 practice, 18 theory, 10 state docs.*

@@ -20,6 +20,10 @@ allocation) is the remaining critical work. Phase 6 (migration) is deferred.
 
 ## What Changed
 
+- 2026-03-09: Phase 4 complete on Node B. Per-user VMs verified with 4 concurrent
+  users on unique ports (12000-12004), IPs (10.0.0.102-106), MACs, and TAP devices.
+  Key bugs fixed: allocate_port race condition, dnsmasq DHCP host reload (pkill→systemctl),
+  duplicate IP filtering in hosts file.
 - 2026-03-09: Phases 1-3, 5 complete. Guide rewritten for Phase 4 focus.
 - ADR-0017 (systemd lifecycle) deployed — `SystemdLifecycle` in Rust handles
   btrfs subvolumes, data.img creation, and systemd unit management.
@@ -32,7 +36,7 @@ allocation) is the remaining critical work. Phase 6 (migration) is deferred.
 Phase 1 (host btrfs)              ✓ DONE — both nodes, @data subvolume
 Phase 2 (per-user virtio-blk)     ✓ DONE — SystemdLifecycle creates subvol + data.img + symlink
 Phase 3 (persistence)             ✓ DONE — data.img survives stop/start (virtio-blk)
-Phase 4 (per-user routing)        ← THIS IS THE WORK
+Phase 4 (per-user routing)        ✓ DONE — dynamic ports, DHCP reservations, per-user VMs on Node B
 Phase 5 (idle watchdog)           ✓ DONE — hibernate + heartbeat
 Phase 6 (cross-node migration)    deferred — operator tooling
 ```
