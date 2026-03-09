@@ -237,9 +237,11 @@ pub async fn proxy_to_sandbox(
             match state.sandbox_registry.ensure_running(&user_id, *role).await {
                 Ok(p) => p,
                 Err(e) => {
+                    let msg = format!("sandbox unavailable: {e}");
                     return (
                         StatusCode::SERVICE_UNAVAILABLE,
-                        format!("sandbox unavailable: {e}"),
+                        [("Retry-After", "30")],
+                        msg,
                     )
                         .into_response();
                 }
@@ -253,9 +255,11 @@ pub async fn proxy_to_sandbox(
             {
                 Ok(p) => p,
                 Err(e) => {
+                    let msg = format!("branch sandbox unavailable: {e}");
                     return (
                         StatusCode::SERVICE_UNAVAILABLE,
-                        format!("branch sandbox unavailable: {e}"),
+                        [("Retry-After", "30")],
+                        msg,
                     )
                         .into_response();
                 }

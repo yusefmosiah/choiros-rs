@@ -11,6 +11,58 @@ use tracing::{error, info, warn};
 
 use self::systemd::SystemdLifecycle;
 
+// ── Memory pressure helpers (ADR-0018) ──────────────────────────────────────
+
+/// Read MemAvailable from /proc/meminfo (in MB).
+fn read_available_memory_mb() -> Option<u64> {
+    let contents = std::fs::read_to_string("/proc/meminfo").ok()?;
+    for line in contents.lines() {
+        if let Some(rest) = line.strip_prefix("MemAvailable:") {
+            let kb: u64 = rest.trim().split_whitespace().next()?.parse().ok()?;
+            return Some(kb / 1024);
+        }
+    }
+    None
+}
+
+/// Read available memory as percentage of total.
+fn read_memory_percent_available() -> Option<u64> {
+    let contents = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let mut total_kb = 0u64;
+    let mut avail_kb = 0u64;
+    for line in contents.lines() {
+        if let Some(rest) = line.strip_prefix("MemTotal:") {
+            total_kb = rest.trim().split_whitespace().next()?.parse().ok()?;
+        } else if let Some(rest) = line.strip_prefix("MemAvailable:") {
+            avail_kb = rest.trim().split_whitespace().next()?.parse().ok()?;
+        }
+    }
+    if total_kb == 0 {
+        return None;
+    }
+    Some(avail_kb * 100 / total_kb)
+}
+
+/// Count running VMs across all users.
+fn count_running_vms(entries: &HashMap<String, UserSandboxes>) -> usize {
+    entries
+        .values()
+        .map(|u| {
+            u.roles
+                .values()
+                .filter(|e| e.status == SandboxStatus::Running)
+                .count()
+                + u.branches
+                    .values()
+                    .filter(|e| e.status == SandboxStatus::Running)
+                    .count()
+        })
+        .sum()
+}
+
+const MAX_CONCURRENT_VMS: usize = 50;
+const MIN_AVAILABLE_MB: u64 = 1024; // 1 GB minimum before spawning new VM
+
 fn validate_branch_name(branch: &str) -> anyhow::Result<()> {
     if branch.trim().is_empty() {
         return Err(anyhow::anyhow!("branch name cannot be empty"));
@@ -245,6 +297,33 @@ impl SandboxRegistry {
             }
         }
         // Lock released — spawn_instance can take a long time (runtime_ctl + readiness poll).
+
+        // ADR-0018: capacity gate — refuse new VMs when system is at limit.
+        // Only checked for new spawns (existing Running/Hibernated VMs skip this).
+        {
+            let entries = self.entries.lock().await;
+            let is_existing = entries
+                .get(user_id)
+                .and_then(|u| u.roles.get(&role))
+                .is_some();
+            if !is_existing {
+                let running = count_running_vms(&entries);
+                if running >= MAX_CONCURRENT_VMS {
+                    return Err(anyhow::anyhow!(
+                        "Server at capacity ({running}/{MAX_CONCURRENT_VMS} VMs). \
+                         Please try again in 30 seconds."
+                    ));
+                }
+                if let Some(avail_mb) = read_available_memory_mb() {
+                    if avail_mb < MIN_AVAILABLE_MB {
+                        return Err(anyhow::anyhow!(
+                            "Insufficient memory ({avail_mb} MB available). \
+                             Please try again in 30 seconds."
+                        ));
+                    }
+                }
+            }
+        }
 
         // ADR-0014: "default" user gets fixed ports (bootstrap/unauthenticated),
         // all other users get dynamic ports for per-user VM isolation.
@@ -565,19 +644,102 @@ impl SandboxRegistry {
         out
     }
 
-    /// Background task: kill idle sandboxes.
+    /// ADR-0018: Compute effective idle timeout based on memory pressure.
+    /// More aggressive hibernation as available memory shrinks.
+    fn effective_idle_timeout(&self) -> Duration {
+        match read_memory_percent_available() {
+            Some(pct) if pct > 60 => self.idle_timeout, // normal: configured (30 min)
+            Some(pct) if pct > 30 => Duration::from_secs(300), // warning: 5 min
+            Some(pct) if pct > 15 => Duration::from_secs(30), // high: 30 sec
+            Some(_) => Duration::from_secs(0),          // critical: immediate
+            None => self.idle_timeout,                  // fallback
+        }
+    }
+
+    /// Background task: hibernate idle sandboxes (ADR-0018: memory-pressure-aware).
     pub async fn run_idle_watchdog(self: Arc<Self>) {
         loop {
-            sleep(Duration::from_secs(60)).await;
+            sleep(Duration::from_secs(30)).await;
+            let timeout = self.effective_idle_timeout();
+            let mem_pct = read_memory_percent_available().unwrap_or(100);
+
+            if mem_pct <= 60 {
+                info!(
+                    mem_pct,
+                    timeout_secs = timeout.as_secs(),
+                    "idle watchdog: memory pressure detected"
+                );
+            }
+
             let mut entries = self.entries.lock().await;
+
+            // At critical pressure (<15%), force-hibernate the least-recently-active
+            // VMs regardless of idle time, until we're above 15%.
+            if mem_pct < 15 {
+                let mut running: Vec<(&str, &str, Duration)> = Vec::new();
+                for (user_id, user_map) in entries.iter() {
+                    for entry in user_map.roles.values() {
+                        if entry.status == SandboxStatus::Running {
+                            running.push((user_id.as_str(), "role", entry.last_activity.elapsed()));
+                        }
+                    }
+                    for entry in user_map.branches.values() {
+                        if entry.status == SandboxStatus::Running {
+                            running.push((
+                                user_id.as_str(),
+                                "branch",
+                                entry.last_activity.elapsed(),
+                            ));
+                        }
+                    }
+                }
+                // Sort by idle duration descending (most idle first)
+                running.sort_by(|a, b| b.2.cmp(&a.2));
+
+                // Hibernate up to 5 VMs per cycle to reclaim memory
+                let to_hibernate = running.len().min(5);
+                if to_hibernate > 0 {
+                    warn!(
+                        mem_pct,
+                        to_hibernate,
+                        "CRITICAL memory pressure — force-hibernating least-active VMs"
+                    );
+                }
+                // Collect user_ids to hibernate (avoid borrow issues)
+                let targets: Vec<String> = running
+                    .iter()
+                    .take(to_hibernate)
+                    .map(|(uid, _, _)| uid.to_string())
+                    .collect();
+                for uid in &targets {
+                    if let Some(user_map) = entries.get_mut(uid.as_str()) {
+                        for entry in user_map.roles.values_mut() {
+                            if entry.status == SandboxStatus::Running {
+                                self.hibernate_handle(
+                                    uid,
+                                    entry.branch.as_deref(),
+                                    &mut entry.handle,
+                                )
+                                .await;
+                                entry.status = SandboxStatus::Hibernated;
+                                break; // one per user per cycle
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Normal idle timeout sweep (with pressure-adjusted threshold)
             for (user_id, user_map) in entries.iter_mut() {
                 for entry in user_map.roles.values_mut() {
                     if entry.status == SandboxStatus::Running
-                        && entry.last_activity.elapsed() >= self.idle_timeout
+                        && entry.last_activity.elapsed() >= timeout
                     {
                         warn!(
                             user_id,
                             role = ?entry.role,
+                            idle_secs = entry.last_activity.elapsed().as_secs(),
+                            mem_pct,
                             "sandbox idle timeout — hibernating"
                         );
                         self.hibernate_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
@@ -588,11 +750,13 @@ impl SandboxRegistry {
 
                 for entry in user_map.branches.values_mut() {
                     if entry.status == SandboxStatus::Running
-                        && entry.last_activity.elapsed() >= self.idle_timeout
+                        && entry.last_activity.elapsed() >= timeout
                     {
                         warn!(
                             user_id,
                             branch = ?entry.branch,
+                            idle_secs = entry.last_activity.elapsed().as_secs(),
+                            mem_pct,
                             "branch sandbox idle timeout — hibernating"
                         );
                         self.hibernate_handle(user_id, entry.branch.as_deref(), &mut entry.handle)

@@ -25,5 +25,13 @@
     options = [ "fmask=0022" "dmask=0022" ];
   };
 
-  swapDevices = [ ];
+  fileSystems."/swap" = {
+    device = "/dev/disk/by-uuid/9a03773d-24c3-49ca-8937-7296869a6135";
+    fsType = "btrfs";
+    options = [ "subvol=@swap" "noatime" ];
+  };
+
+  swapDevices = [{
+    device = "/swap/swapfile";
+  }];
 }

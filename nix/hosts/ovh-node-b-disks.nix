@@ -25,5 +25,13 @@
     options = [ "umask=0077" ];
   };
 
-  swapDevices = [ ];
+  fileSystems."/swap" = {
+    device = "/dev/disk/by-uuid/3b71f2a6-7820-47a1-ba22-c44c65e31ea1";
+    fsType = "btrfs";
+    options = [ "subvol=@swap" "noatime" ];
+  };
+
+  swapDevices = [{
+    device = "/swap/swapfile";
+  }];
 }
