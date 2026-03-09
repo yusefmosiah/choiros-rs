@@ -342,8 +342,8 @@ EOF
           vmRunnerLive = vmRunnerLive;
         };
         modules = [
-          disko.nixosModules.disko
-          ./nix/hosts/ovh-node-disk-config.nix
+          ./nix/hosts/ovh-node-hardware.nix
+          ./nix/hosts/ovh-node-a-disks.nix
           ./nix/hosts/ovh-node-a.nix
         ];
       };
@@ -355,8 +355,8 @@ EOF
           vmRunnerLive = vmRunnerLive;
         };
         modules = [
-          disko.nixosModules.disko
-          ./nix/hosts/ovh-node-disk-config.nix
+          ./nix/hosts/ovh-node-hardware.nix
+          ./nix/hosts/ovh-node-b-disks.nix
           ./nix/hosts/ovh-node-b.nix
         ];
       };

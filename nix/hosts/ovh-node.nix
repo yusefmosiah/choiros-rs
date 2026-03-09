@@ -13,17 +13,7 @@
     devices = [ "nodev" ];
   };
 
-  boot.initrd.availableKernelModules = [
-    "ahci"
-    "nvme"
-    "sd_mod"
-    "xhci_pci"
-    "raid1"
-    "md_mod"
-    "btrfs"
-  ];
-  boot.swraid.enable = true;
-  boot.swraid.mdadmConf = "MAILADDR root";
+  # Hardware config (initrd modules, swraid) is in ovh-node-hardware.nix
 
   networking.useDHCP = true;
 
@@ -215,6 +205,8 @@
         "SANDBOX_DEV_PORT=8081"
         "FRONTEND_DIST=${choirosPackages.frontend}"
         "CHOIR_VM_RUNNER_DIR=${vmRunnerLive}"
+        # ADR-0017: opt-in to systemd-native VM lifecycle
+        "CHOIR_SYSTEMD_LIFECYCLE=1"
       ];
     };
   };
@@ -223,6 +215,204 @@
   systemd.tmpfiles.settings."10-choiros-vms" = {
     "/opt/choiros/vms".d = { mode = "0755"; user = "root"; group = "root"; };
     "/opt/choiros/vms/state".d = { mode = "0755"; user = "root"; group = "root"; };
+  };
+
+  # ── ADR-0017: systemd unit templates for VM lifecycle ──────────────────
+  # Each unit is parameterized by instance ID (%i), e.g., "live" or "dev".
+  # The hypervisor starts these via `systemctl start socat-sandbox@live`,
+  # which pulls in the full dependency chain automatically.
+
+  # TAP device setup (oneshot, persists after exit for other units)
+  systemd.services."tap-setup@" = {
+    description = "TAP device for sandbox %i";
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "tap-setup-start" ''
+        set -euo pipefail
+        INSTANCE="$1"
+        TAP="tap-''${INSTANCE}"
+        # Truncate to 15 chars (IFNAMSIZ limit)
+        TAP="''${TAP:0:15}"
+        if ${pkgs.iproute2}/bin/ip link show "$TAP" &>/dev/null; then
+          echo "TAP $TAP already exists"
+          exit 0
+        fi
+        echo "Creating TAP $TAP on br-choiros"
+        ${pkgs.iproute2}/bin/ip tuntap add dev "$TAP" mode tap vnet_hdr multi_queue
+        ${pkgs.iproute2}/bin/ip link set "$TAP" master br-choiros
+        ${pkgs.iproute2}/bin/ip link set "$TAP" up
+      '' + " %i";
+      ExecStop = pkgs.writeShellScript "tap-setup-stop" ''
+        set -euo pipefail
+        INSTANCE="$1"
+        TAP="tap-''${INSTANCE}"
+        TAP="''${TAP:0:15}"
+        if ${pkgs.iproute2}/bin/ip link show "$TAP" &>/dev/null; then
+          echo "Removing TAP $TAP"
+          ${pkgs.iproute2}/bin/ip link delete "$TAP" 2>/dev/null || true
+        fi
+      '' + " %i";
+    };
+  };
+
+  # virtiofsd (runs the microvm.nix-generated virtiofsd-run script)
+  systemd.services."virtiofsd@" = {
+    description = "virtiofsd for sandbox %i";
+    requires = [ "tap-setup@%i.service" ];
+    after = [ "tap-setup@%i.service" ];
+    serviceConfig = {
+      Type = "simple";
+      KillMode = "control-group";
+      TimeoutStopSec = 10;
+      WorkingDirectory = "/opt/choiros/vms/state/%i";
+      ExecStart = pkgs.writeShellScript "virtiofsd-start" ''
+        set -euo pipefail
+        INSTANCE="$1"
+        STATE_DIR="/opt/choiros/vms/state/''${INSTANCE}"
+        RUNNER_DIR="${vmRunnerLive}"
+
+        # Clean stale sockets
+        rm -f "''${STATE_DIR}"/*-virtiofs-*.sock
+
+        cd "$STATE_DIR"
+        exec "''${RUNNER_DIR}/bin/virtiofsd-run"
+      '' + " %i";
+    };
+  };
+
+  # cloud-hypervisor VM (cold boot or snapshot restore based on boot-mode file)
+  systemd.services."cloud-hypervisor@" = {
+    description = "Cloud Hypervisor VM for sandbox %i";
+    requires = [ "virtiofsd@%i.service" ];
+    after = [ "virtiofsd@%i.service" ];
+    serviceConfig = {
+      Type = "simple";
+      KillMode = "control-group";
+      TimeoutStopSec = 15;
+      WorkingDirectory = "/opt/choiros/vms/state/%i";
+      ExecStart = pkgs.writeShellScript "cloud-hypervisor-start" ''
+        set -euo pipefail
+        INSTANCE="$1"
+        STATE_DIR="/opt/choiros/vms/state/''${INSTANCE}"
+        RUNNER_DIR="${vmRunnerLive}"
+        BOOT_MODE_FILE="''${STATE_DIR}/boot-mode"
+        SNAPSHOT_DIR="''${STATE_DIR}/vm-snapshot"
+        API_SOCK="''${STATE_DIR}/sandbox-''${INSTANCE}.sock"
+
+        cd "$STATE_DIR"
+
+        # Wait for virtiofsd sockets (max 30s)
+        ELAPSED=0
+        while (( ELAPSED < 30 )); do
+          SOCK_COUNT=$(find "$STATE_DIR" -maxdepth 1 \( -name "*-virtiofs-nix-store.sock" -o -name "*-virtiofs-choiros-creds.sock" \) 2>/dev/null | wc -l)
+          if (( SOCK_COUNT >= 2 )); then
+            echo "virtiofsd sockets ready (''${SOCK_COUNT} found in ''${ELAPSED}s)"
+            break
+          fi
+          sleep 1
+          ELAPSED=$((ELAPSED + 1))
+        done
+
+        BOOT_MODE="cold"
+        if [[ -f "$BOOT_MODE_FILE" ]]; then
+          BOOT_MODE=$(cat "$BOOT_MODE_FILE")
+        fi
+
+        if [[ "$BOOT_MODE" == "restore" ]] && [[ -d "$SNAPSHOT_DIR" ]] && [[ -f "$SNAPSHOT_DIR/state.json" ]]; then
+          echo "Restoring VM from snapshot"
+          rm -f "$API_SOCK"
+          exec ${pkgs.cloud-hypervisor}/bin/cloud-hypervisor \
+            --restore "source_url=file://''${SNAPSHOT_DIR}" \
+            --api-socket "$API_SOCK"
+        else
+          echo "Cold booting VM"
+          exec "''${RUNNER_DIR}/bin/microvm-run"
+        fi
+      '' + " %i";
+      # After VM starts from restore, resume vCPUs
+      ExecStartPost = pkgs.writeShellScript "cloud-hypervisor-resume" ''
+        set -euo pipefail
+        INSTANCE="$1"
+        STATE_DIR="/opt/choiros/vms/state/''${INSTANCE}"
+        API_SOCK="''${STATE_DIR}/sandbox-''${INSTANCE}.sock"
+        BOOT_MODE_FILE="''${STATE_DIR}/boot-mode"
+
+        BOOT_MODE="cold"
+        if [[ -f "$BOOT_MODE_FILE" ]]; then
+          BOOT_MODE=$(cat "$BOOT_MODE_FILE")
+        fi
+
+        if [[ "$BOOT_MODE" == "restore" ]]; then
+          # Wait for API socket
+          for i in $(seq 1 15); do
+            [[ -S "$API_SOCK" ]] && break
+            sleep 1
+          done
+          if [[ -S "$API_SOCK" ]]; then
+            sleep 1
+            ${pkgs.curl}/bin/curl -s --max-time 5 --unix-socket "$API_SOCK" \
+              -X PUT "http://localhost/api/v1/vm.resume" 2>/dev/null || true
+            echo "VM resumed from snapshot"
+          fi
+        fi
+      '' + " %i";
+    };
+  };
+
+  # socat port forwarding (localhost:PORT -> VM_IP:PORT)
+  systemd.services."socat-sandbox@" = {
+    description = "Socat port forward for sandbox %i";
+    requires = [ "cloud-hypervisor@%i.service" ];
+    after = [ "cloud-hypervisor@%i.service" ];
+    bindsTo = [ "cloud-hypervisor@%i.service" ];
+    serviceConfig = {
+      Type = "simple";
+      KillMode = "control-group";
+      ExecStartPre = pkgs.writeShellScript "socat-wait-health" ''
+        set -euo pipefail
+        INSTANCE="$1"
+        # Derive VM IP from instance name
+        case "$INSTANCE" in
+          live*) VM_IP="10.0.0.10" ;;
+          dev*)  VM_IP="10.0.0.11" ;;
+          *)     VM_IP="10.0.0.10" ;;
+        esac
+        # Derive port from env or default
+        PORT="''${CHOIR_SANDBOX_PORT:-8080}"
+        case "$INSTANCE" in
+          live*) PORT="8080" ;;
+          dev*)  PORT="8081" ;;
+        esac
+
+        echo "Waiting for sandbox health at ''${VM_IP}:''${PORT}"
+        MAX_WAIT=90
+        ELAPSED=0
+        while (( ELAPSED < MAX_WAIT )); do
+          if ${pkgs.curl}/bin/curl -fsS --connect-timeout 2 "http://''${VM_IP}:''${PORT}/health" &>/dev/null; then
+            echo "Sandbox healthy after ''${ELAPSED}s"
+            exit 0
+          fi
+          sleep 3
+          ELAPSED=$((ELAPSED + 3))
+        done
+        echo "WARNING: Sandbox not healthy after ''${MAX_WAIT}s, starting socat anyway"
+      '' + " %i";
+      ExecStart = pkgs.writeShellScript "socat-start" ''
+        set -euo pipefail
+        INSTANCE="$1"
+        case "$INSTANCE" in
+          live*) VM_IP="10.0.0.10"; PORT="8080" ;;
+          dev*)  VM_IP="10.0.0.11"; PORT="8081" ;;
+          *)     VM_IP="10.0.0.10"; PORT="8080" ;;
+        esac
+
+        echo "Starting socat 127.0.0.1:''${PORT} -> ''${VM_IP}:''${PORT}"
+        exec ${pkgs.socat}/bin/socat \
+          TCP-LISTEN:''${PORT},bind=127.0.0.1,reuseaddr,fork \
+          TCP:''${VM_IP}:''${PORT}
+      '' + " %i";
+    };
   };
 
   # Timezone

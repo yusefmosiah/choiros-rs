@@ -1,3 +1,5 @@
+pub mod systemd;
+
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -6,6 +8,8 @@ use std::{
 
 use tokio::{net::TcpStream, process::Command, sync::Mutex, time::sleep};
 use tracing::{error, info, warn};
+
+use self::systemd::SystemdLifecycle;
 
 fn validate_branch_name(branch: &str) -> anyhow::Result<()> {
     if branch.trim().is_empty() {
@@ -97,6 +101,8 @@ pub struct SandboxRegistry {
     branch_port_end: u16,
     provider_gateway_base_url: Option<String>,
     provider_gateway_token: Option<String>,
+    /// When set, use systemd unit templates instead of bash runtime-ctl (ADR-0017).
+    systemd_lifecycle: Option<SystemdLifecycle>,
 }
 
 impl SandboxRegistry {
@@ -111,6 +117,10 @@ impl SandboxRegistry {
         provider_gateway_base_url: Option<String>,
         provider_gateway_token: Option<String>,
     ) -> Arc<Self> {
+        let systemd_lifecycle = SystemdLifecycle::from_env();
+        if systemd_lifecycle.is_some() {
+            info!("ADR-0017: systemd lifecycle manager available");
+        }
         Arc::new(Self {
             runtime_ctl,
             idle_timeout,
@@ -121,6 +131,7 @@ impl SandboxRegistry {
             branch_port_end,
             provider_gateway_base_url,
             provider_gateway_token,
+            systemd_lifecycle,
         })
     }
 
@@ -666,8 +677,17 @@ impl SandboxRegistry {
         branch: Option<&str>,
         port: u16,
     ) -> anyhow::Result<SandboxHandle> {
-        self.run_runtime_ctl("ensure", user_id, runtime_name, role, branch, port)
-            .await?;
+        // ADR-0017: prefer systemd lifecycle when available
+        if let Some(lifecycle) = &self.systemd_lifecycle {
+            info!(
+                user_id,
+                runtime_name, port, "using systemd lifecycle (ADR-0017)"
+            );
+            lifecycle.ensure(runtime_name, user_id, port).await?;
+        } else {
+            self.run_runtime_ctl("ensure", user_id, runtime_name, role, branch, port)
+                .await?;
+        }
 
         // Poll for host-facing runtime readiness after runtime control succeeds.
         let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
@@ -712,7 +732,16 @@ impl SandboxRegistry {
 
         match handle {
             SandboxHandle::RuntimeCtl(handle) => {
-                if let Err(e) = self
+                // ADR-0017: prefer systemd lifecycle when available
+                if let Some(lifecycle) = &self.systemd_lifecycle {
+                    if let Err(e) = lifecycle.stop(&handle.runtime_name, &handle.user_id).await {
+                        warn!(
+                            user_id,
+                            runtime = handle.runtime_name,
+                            "systemd stop failed: {e}"
+                        );
+                    }
+                } else if let Err(e) = self
                     .run_runtime_ctl(
                         "stop",
                         &handle.user_id,
@@ -746,7 +775,19 @@ impl SandboxRegistry {
 
         match handle {
             SandboxHandle::RuntimeCtl(handle) => {
-                if let Err(e) = self
+                // ADR-0017: prefer systemd lifecycle when available
+                if let Some(lifecycle) = &self.systemd_lifecycle {
+                    if let Err(e) = lifecycle
+                        .hibernate(&handle.runtime_name, &handle.user_id)
+                        .await
+                    {
+                        warn!(
+                            user_id,
+                            runtime = handle.runtime_name,
+                            "systemd hibernate failed: {e}"
+                        );
+                    }
+                } else if let Err(e) = self
                     .run_runtime_ctl(
                         "hibernate",
                         &handle.user_id,

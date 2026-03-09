@@ -71,6 +71,8 @@ decoupling for publishing (ADR-0011, P3).
 
 - ADR-0007: 3-Tier Control/Runtime/Client Architecture — Decision (Draft)  
   `docs/practice/decisions/adr-0007-3-tier-control-runtime-client-architecture.md`
+- ADR-0017: systemd-Native VM Lifecycle Management — Decision (Accepted) | Requires: [ADR-0014, ADR-0016]  
+  `docs/practice/decisions/adr-0017-systemd-native-vm-lifecycle.md`
 - ADR-0016: NixOS Declarative Deployment — Decision (Accepted) | Requires: [ADR-0002, ADR-0014]  
   `docs/practice/decisions/adr-0016-nixos-declarative-deployment.md`
 - Implementing ADR-0016: NixOS Declarative Deployment — Guide (Accepted) | Requires: [ADR-0016]  
@@ -83,6 +85,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/practice/decisions/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
 - ChoirOS Actor Network Orientation — Guide (Accepted)  
   `docs/practice/guides/actor-network-orientation.md`
+- ADR-0017 Implementation Guide: systemd-Native VM Lifecycle — ? (?)  
+  `docs/practice/guides/adr-0017-implementation.md`
 - Backend-Authoritative UI State Pattern — Note (Active)  
   `docs/practice/guides/backend-authoritative-ui-state-pattern.md`
 - Files App API Contract — Guide (Accepted)  
@@ -142,6 +146,7 @@ decoupling for publishing (ADR-0011, P3).
 
 ```
 ADR-0002, ADR-0014 → ADR-0016: NixOS Declarative Deployment
+ADR-0014, ADR-0016 → ADR-0017: systemd-Native VM Lifecycle Management
 ADR-0016 → Implementing ADR-0016: NixOS Declarative Deployment
 ADR-0008, ADR-0014 → ADR-0003: Hypervisor-Sandbox Secrets Boundary
 ADR-0007 → ADR-0004: Hypervisor-Sandbox UI Runtime Boundary
@@ -151,4 +156,4 @@ ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-08 — 20 practice, 18 theory, 10 state docs.*
+*Generated 2026-03-09 — 22 practice, 18 theory, 10 state docs.*
