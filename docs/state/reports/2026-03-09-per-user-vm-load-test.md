@@ -124,14 +124,22 @@ All 25 VMs hit simultaneously, 5 rounds.
 
 ## Recommendations
 
-1. **Set memory limit per VM to 1024 MB** — Guests only use ~400 MB.
-   Reducing from 3072 to 1024 would allow ~90 concurrent VMs instead of 46.
+1. **Enable KSM** — `echo 1 > /sys/kernel/mm/ksm/run` or add
+   `boot.kernel.sysctl."vm.ksm_run" = 1` in NixOS config. KSM is
+   currently disabled (`run=0`) even though cloud-hypervisor passes
+   `mergeable=on`. All VMs run identical NixOS images — KSM should
+   deduplicate significant shared pages, potentially halving per-VM
+   memory from 400 MB to ~200 MB (doubling capacity to ~90 VMs).
 
-2. **Add swap** — Even 4-8 GB swap would provide a safety net for
+2. **Set memory limit per VM to 1024 MB** — Guests only use ~400 MB.
+   Reducing from 3072 to 1024 would cap worst-case memory and allow
+   the scheduler to pack more VMs.
+
+3. **Add swap** — Even 4-8 GB swap would provide a safety net for
    memory pressure spikes and allow more aggressive VM packing.
 
-3. **Monitor KSM effectiveness** — Check `/sys/kernel/mm/ksm/pages_shared`
-   to quantify actual memory savings from `mergeable=on`.
+4. **Monitor KSM after enabling** — Check `/sys/kernel/mm/ksm/pages_shared`
+   to quantify actual memory savings.
 
 4. **Investigate live VM death** — May need a watchdog or auto-restart
    mechanism for the shared live VM.
