@@ -215,6 +215,8 @@
         for bm in /opt/choiros/vms/state/*/boot-mode; do
           [ -f "$bm" ] && rm -f "$bm"
         done
+        # Clear stale dnsmasq hosts — hypervisor will re-populate on each ensure()
+        : > /var/lib/dnsmasq/choiros-hosts 2>/dev/null || true
         exit 0
       '';
       ExecStart = "${choirosPackages.hypervisor}/bin/hypervisor";
@@ -271,13 +273,15 @@
         # Truncate to 15 chars (IFNAMSIZ limit)
         TAP="''${TAP:0:15}"
         if ${pkgs.iproute2}/bin/ip link show "$TAP" &>/dev/null; then
-          echo "TAP $TAP already exists"
-          exit 0
+          echo "TAP $TAP already exists, ensuring bridge membership"
+        else
+          echo "Creating TAP $TAP"
+          ${pkgs.iproute2}/bin/ip tuntap add dev "$TAP" mode tap vnet_hdr multi_queue
         fi
-        echo "Creating TAP $TAP on br-choiros"
-        ${pkgs.iproute2}/bin/ip tuntap add dev "$TAP" mode tap vnet_hdr multi_queue
-        ${pkgs.iproute2}/bin/ip link set "$TAP" master br-choiros
+        # Always ensure TAP is on bridge and up (bridge may reset during rebuild)
+        ${pkgs.iproute2}/bin/ip link set "$TAP" master br-choiros 2>/dev/null || true
         ${pkgs.iproute2}/bin/ip link set "$TAP" up
+        echo "TAP $TAP on br-choiros, up"
       '' + " %i";
       ExecStop = pkgs.writeShellScript "tap-setup-stop" ''
         set -euo pipefail

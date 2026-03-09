@@ -252,36 +252,32 @@ impl SystemdLifecycle {
     // ── dnsmasq DHCP registration ──────────────────────────────────────────
 
     /// Register a MAC→IP mapping with dnsmasq for DHCP reservation.
-    /// Appends to the hosts file and sends SIGHUP to reload.
+    /// Replaces any existing entry for the same MAC, then SIGHUPs dnsmasq.
     async fn register_dhcp_host(&self, mac: &str, ip: &str) {
         let hosts_file = "/var/lib/dnsmasq/choiros-hosts";
-        let entry = format!("{mac},{ip}\n");
+        let new_entry = format!("{mac},{ip}");
 
-        // Check if already registered
-        if let Ok(content) = tokio::fs::read_to_string(hosts_file).await {
-            if content.contains(&entry.trim_end().to_string()) {
-                return;
-            }
+        // Read existing entries, replace if MAC exists, otherwise append
+        let existing = tokio::fs::read_to_string(hosts_file)
+            .await
+            .unwrap_or_default();
+
+        // Check if already registered with same IP
+        if existing.lines().any(|line| line.trim() == new_entry) {
+            return;
         }
 
-        // Append entry
-        use tokio::io::AsyncWriteExt;
-        match tokio::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(hosts_file)
-            .await
-        {
-            Ok(mut f) => {
-                if let Err(e) = f.write_all(entry.as_bytes()).await {
-                    warn!("failed to write dnsmasq host entry: {e}");
-                    return;
-                }
-            }
-            Err(e) => {
-                warn!("failed to open dnsmasq hosts file: {e}");
-                return;
-            }
+        // Filter out old entries for this MAC, add new one
+        let mut lines: Vec<&str> = existing
+            .lines()
+            .filter(|line| !line.starts_with(mac))
+            .collect();
+        lines.push(&new_entry);
+        let content = lines.join("\n") + "\n";
+
+        if let Err(e) = tokio::fs::write(hosts_file, content.as_bytes()).await {
+            warn!("failed to write dnsmasq hosts file: {e}");
+            return;
         }
 
         // SIGHUP dnsmasq to reload hosts
