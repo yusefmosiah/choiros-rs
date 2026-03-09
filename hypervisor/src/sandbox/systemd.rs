@@ -295,14 +295,20 @@ impl SystemdLifecycle {
     // ── systemd lifecycle ─────────────────────────────────────────────────
 
     /// Derive a VM IP on the br-choiros bridge from the host port.
-    /// Port 12000 → 10.0.0.100, port 12001 → 10.0.0.101, etc.
-    /// Fixed ports: 8080 → 10.0.0.10 (live), 8081 → 10.0.0.11 (dev).
+    /// All IPs are in the dnsmasq DHCP range (10.0.0.100-254).
+    /// Port 8080 → 10.0.0.100, port 8081 → 10.0.0.101.
+    /// Port 12000 → 10.0.0.102, port 12001 → 10.0.0.103, etc.
     fn vm_ip_for_port(port: u16) -> String {
-        match port {
-            8080 => "10.0.0.10".to_string(),
-            8081 => "10.0.0.11".to_string(),
-            p => format!("10.0.0.{}", (p as u32).saturating_sub(11900).min(254)),
-        }
+        let last_octet = match port {
+            8080 => 100,
+            8081 => 101,
+            p => {
+                // Map 12000-12999 → 102-254
+                let offset = (p as u32).saturating_sub(12000) + 102;
+                offset.min(254)
+            }
+        };
+        format!("10.0.0.{last_octet}")
     }
 
     /// Generate a deterministic MAC address from instance name.

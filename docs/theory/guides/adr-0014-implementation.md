@@ -52,13 +52,13 @@ All users → proxy → 127.0.0.1:8080 → socat → 10.0.0.10:8080 → single V
 ### Target Architecture (per-user VM)
 
 ```
-User A → proxy → 127.0.0.1:12000 → socat → 10.0.0.100:8080 → VM-A
-User B → proxy → 127.0.0.1:12001 → socat → 10.0.0.101:8080 → VM-B
+User A → proxy → 127.0.0.1:12000 → socat → 10.0.0.102:8080 → VM-A
+User B → proxy → 127.0.0.1:12001 → socat → 10.0.0.103:8080 → VM-B
 ```
 
 - `ensure_running()` allocates a dynamic port per user from the port range
 - Per-user systemd instance: `socat-sandbox@u-{short_id}`
-- Per-user VM IP: `10.0.0.{100+N}`, per-user data.img on btrfs subvol
+- Per-user VM IP: `10.0.0.{102+N}`, per-user data.img on btrfs subvol
 - Sandbox inside VM always listens on `:8080` (unchanged)
 
 ### Implementation Steps
@@ -103,9 +103,9 @@ Short IDs are safe because:
 Each VM needs a unique IP on `br-choiros` (10.0.0.0/24). Derive from port:
 
 ```rust
-// Port 12000 → IP 10.0.0.100, Port 12001 → IP 10.0.0.101, etc.
-// Formula: 10.0.0.{port - 11900}
-// Range: 10.0.0.100 - 10.0.0.254 (155 concurrent VMs per node)
+// Port 8080 → IP 10.0.0.100 (default live), 8081 → 10.0.0.101 (default dev)
+// Port 12000 → IP 10.0.0.102, Port 12001 → IP 10.0.0.103, etc.
+// All IPs in dnsmasq DHCP range (10.0.0.100-254), ~153 concurrent VMs per node
 ```
 
 Write the VM IP to a config file in the state dir so systemd units can read it.

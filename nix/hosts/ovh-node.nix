@@ -433,9 +433,9 @@
         else
           # Fallback for legacy instances
           case "$INSTANCE" in
-            live*) VM_IP="10.0.0.10" ;;
-            dev*)  VM_IP="10.0.0.11" ;;
-            *)     VM_IP="10.0.0.10" ;;
+            live*) VM_IP="10.0.0.100" ;;
+            dev*)  VM_IP="10.0.0.101" ;;
+            *)     VM_IP="10.0.0.100" ;;
           esac
         fi
 
@@ -464,9 +464,9 @@
         else
           # Fallback for legacy instances
           case "$INSTANCE" in
-            live*) VM_IP="10.0.0.10"; HOST_PORT="8080" ;;
-            dev*)  VM_IP="10.0.0.11"; HOST_PORT="8081" ;;
-            *)     VM_IP="10.0.0.10"; HOST_PORT="8080" ;;
+            live*) VM_IP="10.0.0.100"; HOST_PORT="8080" ;;
+            dev*)  VM_IP="10.0.0.101"; HOST_PORT="8081" ;;
+            *)     VM_IP="10.0.0.100"; HOST_PORT="8080" ;;
           esac
         fi
 
