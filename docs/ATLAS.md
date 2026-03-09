@@ -45,6 +45,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/decisions/adr-0003-hypervisor-sandbox-secrets-boundary.md`
 - **[P4]** ADR-0004: Hypervisor-Sandbox UI Runtime Boundary — Decision (Proposed) | Requires: [ADR-0007]  
   `docs/theory/decisions/adr-0004-hypervisor-sandbox-ui-runtime-boundary.md`
+- **[P4]** ADR-0017: Per-User Memory Curation and Retrieval — Decision (Draft) | Requires: [ADR-0001]  
+  `docs/theory/decisions/adr-0017-per-user-memory-curation-and-retrieval.md`
 - **[P5]** ADR-0002: Rust + Nix Build and Cache Strategy — Decision (Draft)  
   `docs/theory/decisions/adr-0002-rust-nix-build-and-cache-strategy.md`
 - **[P5]** ADR-0005: ALM Harness Integration Strategy (Draft) — Decision (Draft)  
@@ -129,12 +131,16 @@ decoupling for publishing (ADR-0011, P3).
   `docs/state/reports/2026-02-26-022532-provider-matrix-all-models.md`
 - Local Cutover Step 1 Report — Report (Active)  
   `docs/state/reports/2026-02-26-local-cutover-step1.md`
+- Heterogeneous Per-User VM Load Test Report — ? (?)  
+  `docs/state/reports/2026-03-09-heterogeneous-load-test.md`
 - Per-User VM Load Test Report — ? (?)  
   `docs/state/reports/2026-03-09-per-user-vm-load-test.md`
 - ChoirOS Logging Security & Compliance Report — Report (Active)  
   `docs/state/reports/choiros-logging-security-report.md`
 - Conductor E2E Test Intelligence Report — Report (Active)  
   `docs/state/reports/conductor-intelligence-2026-02-10.md`
+- Go Refactor Feasibility Study — Report (Active)  
+  `docs/state/reports/go-refactor-feasibility-2026-03-09.md`
 - Local NixOS Builder VM Setup Handoff - 2026-02-28 — Snapshot (Active)  
   `docs/state/snapshots/2026-02-28-local-nixos-builder-vm-setup.md`
 - Handoff: OVH Bootstrap and Local Startup Documentation Status — Snapshot (Active)  
@@ -143,6 +149,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/state/snapshots/2026-03-06-writer-tracing-bootstrap-checkpoint.md`
 - VM Lifecycle Testing & Fixes — Node B — ? (?)  
   `docs/state/snapshots/2026-03-08-vm-lifecycle-testing-and-fixes.md`
+- Memory Architecture Exploration — Snapshot (Active)  
+  `docs/state/snapshots/2026-03-09-memory-architecture-exploration.md`
 
 </details>
 
@@ -156,8 +164,9 @@ ADR-0008, ADR-0014 → ADR-0003: Hypervisor-Sandbox Secrets Boundary
 ADR-0007 → ADR-0004: Hypervisor-Sandbox UI Runtime Boundary
 ADR-0014 → ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes)
 ADR-0007, ADR-0012 → ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync
+ADR-0001 → ADR-0017: Per-User Memory Curation and Retrieval
 ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-09 — 23 practice, 18 theory, 11 state docs.*
+*Generated 2026-03-09 — 23 practice, 19 theory, 14 state docs.*
