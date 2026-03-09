@@ -48,6 +48,9 @@
   };
 
   # NAT for VM internet access (e.g., DNS resolution)
+  # KSM (Kernel Same-page Merging) — deduplicates identical memory pages across VMs
+  boot.kernel.sysctl."vm.ksm_run" = 1;
+
   boot.kernel.sysctl."net.ipv4.ip_forward" = 1;
   networking.nat = {
     enable = true;
