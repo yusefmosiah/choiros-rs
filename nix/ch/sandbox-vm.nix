@@ -49,18 +49,20 @@
     ];
   };
 
-  # Static networking on the br-choiros bridge.
-  # Use systemd-networkd with MAC-based matching since interface names
-  # are unpredictable inside cloud-hypervisor (enp0sX, not eth0).
+  # DHCP networking on the br-choiros bridge (ADR-0014: per-user VMs).
+  # Host runs dnsmasq DHCP on the bridge. Guest gets IP via DHCP.
+  # Match all virtio-net interfaces (VM only has one NIC).
   networking.useDHCP = false;
   systemd.network = {
     enable = true;
     networks."10-vm" = {
-      matchConfig.MACAddress = vmMac;
+      matchConfig.Driver = "virtio_net";
       networkConfig = {
-        Address = "${vmIp}/24";
-        Gateway = "10.0.0.1";
-        DNS = [ "1.1.1.1" "8.8.8.8" ];
+        DHCP = "ipv4";
+      };
+      dhcpV4Config = {
+        UseDNS = true;
+        UseRoutes = true;
       };
     };
   };

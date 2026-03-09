@@ -249,7 +249,77 @@ impl SystemdLifecycle {
         Ok(())
     }
 
+    // ── dnsmasq DHCP registration ──────────────────────────────────────────
+
+    /// Register a MAC→IP mapping with dnsmasq for DHCP reservation.
+    /// Appends to the hosts file and sends SIGHUP to reload.
+    async fn register_dhcp_host(&self, mac: &str, ip: &str) {
+        let hosts_file = "/var/lib/dnsmasq/choiros-hosts";
+        let entry = format!("{mac},{ip}\n");
+
+        // Check if already registered
+        if let Ok(content) = tokio::fs::read_to_string(hosts_file).await {
+            if content.contains(&entry.trim_end().to_string()) {
+                return;
+            }
+        }
+
+        // Append entry
+        use tokio::io::AsyncWriteExt;
+        match tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(hosts_file)
+            .await
+        {
+            Ok(mut f) => {
+                if let Err(e) = f.write_all(entry.as_bytes()).await {
+                    warn!("failed to write dnsmasq host entry: {e}");
+                    return;
+                }
+            }
+            Err(e) => {
+                warn!("failed to open dnsmasq hosts file: {e}");
+                return;
+            }
+        }
+
+        // SIGHUP dnsmasq to reload hosts
+        let _ = Command::new("pkill")
+            .args(["-HUP", "dnsmasq"])
+            .status()
+            .await;
+        info!(mac, ip, "registered DHCP host reservation");
+    }
+
     // ── systemd lifecycle ─────────────────────────────────────────────────
+
+    /// Derive a VM IP on the br-choiros bridge from the host port.
+    /// Port 12000 → 10.0.0.100, port 12001 → 10.0.0.101, etc.
+    /// Fixed ports: 8080 → 10.0.0.10 (live), 8081 → 10.0.0.11 (dev).
+    fn vm_ip_for_port(port: u16) -> String {
+        match port {
+            8080 => "10.0.0.10".to_string(),
+            8081 => "10.0.0.11".to_string(),
+            p => format!("10.0.0.{}", (p as u32).saturating_sub(11900).min(254)),
+        }
+    }
+
+    /// Generate a deterministic MAC address from instance name.
+    /// Format: 52:54:00:xx:xx:xx (QEMU OUI prefix).
+    fn mac_for_instance(instance: &str) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        instance.hash(&mut hasher);
+        let h = hasher.finish();
+        format!(
+            "52:54:00:{:02x}:{:02x}:{:02x}",
+            (h >> 16) as u8,
+            (h >> 8) as u8,
+            h as u8,
+        )
+    }
 
     /// Prepare state dir and start the full VM chain via systemd.
     ///
@@ -261,11 +331,21 @@ impl SystemdLifecycle {
         // btrfs setup (policy logic stays in Rust)
         self.link_user_data_img(user_id, instance).await?;
 
+        // ADR-0014: Write per-instance config files for systemd units to read
+        let vm_ip = Self::vm_ip_for_port(port);
+        let vm_mac = Self::mac_for_instance(instance);
+        tokio::fs::write(state_dir.join("vm-ip"), &vm_ip).await?;
+        tokio::fs::write(state_dir.join("host-port"), port.to_string()).await?;
+        tokio::fs::write(state_dir.join("vm-mac"), &vm_mac).await?;
+
+        // Register MAC→IP with dnsmasq for DHCP reservation
+        self.register_dhcp_host(&vm_mac, &vm_ip).await;
+
         // Determine boot mode
         let has_snapshot = self.vm_snapshot_dir(instance).join("state.json").exists();
         let boot_mode = if has_snapshot { "restore" } else { "cold" };
         tokio::fs::write(self.boot_mode_path(instance), boot_mode).await?;
-        info!(instance, boot_mode, "prepared VM state dir");
+        info!(instance, boot_mode, vm_ip, port, "prepared VM state dir");
 
         // If snapshot restore, clean stale virtiofsd sockets so fresh ones are created
         if has_snapshot {

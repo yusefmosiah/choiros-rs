@@ -148,7 +148,8 @@ impl SandboxRegistry {
         }
     }
 
-    fn port_for(&self, role: SandboxRole) -> u16 {
+    /// Return the fixed port for a role, used only for the "default" bootstrap user.
+    fn port_for_default(&self, role: SandboxRole) -> u16 {
         match role {
             SandboxRole::Live => self.live_port,
             SandboxRole::Dev => self.dev_port,
@@ -161,10 +162,8 @@ impl SandboxRegistry {
             .is_ok()
     }
 
-    async fn allocate_branch_port(
-        &self,
-        entries: &HashMap<String, UserSandboxes>,
-    ) -> anyhow::Result<u16> {
+    /// Allocate a dynamic port from the port range for per-user VMs.
+    async fn allocate_port(&self, entries: &HashMap<String, UserSandboxes>) -> anyhow::Result<u16> {
         let mut used = HashSet::new();
         for user_map in entries.values() {
             for entry in user_map.roles.values() {
@@ -190,7 +189,7 @@ impl SandboxRegistry {
         }
 
         Err(anyhow::anyhow!(
-            "no available branch ports in range {}-{}",
+            "no available ports in range {}-{}",
             self.branch_port_start,
             self.branch_port_end
         ))
@@ -250,18 +249,42 @@ impl SandboxRegistry {
         }
         // Lock released — spawn_instance can take a long time (runtime_ctl + readiness poll).
 
-        let port = self.port_for(role);
+        // ADR-0014: "default" user gets fixed ports (bootstrap/unauthenticated),
+        // all other users get dynamic ports for per-user VM isolation.
+        let port = if user_id == "default" || user_id == "public" {
+            let port = self.port_for_default(role);
+            if Self::is_port_ready(port).await {
+                warn!(
+                    user_id,
+                    %role,
+                    port,
+                    "role port already listening before ensure; delegating to runtime control for ownership validation"
+                );
+            }
+            port
+        } else {
+            // Check if user already had a port assigned (e.g. after hibernation)
+            let entries = self.entries.lock().await;
+            let existing_port = entries
+                .get(user_id)
+                .and_then(|u| u.roles.get(&role))
+                .map(|e| e.port);
+            drop(entries);
 
-        if Self::is_port_ready(port).await {
-            warn!(
-                user_id,
-                %role,
-                port,
-                "role port already listening before ensure; delegating to runtime control for ownership validation"
-            );
-        }
+            if let Some(port) = existing_port {
+                port
+            } else {
+                let entries = self.entries.lock().await;
+                self.allocate_port(&entries).await?
+            }
+        };
 
-        let runtime_name = role.to_string();
+        let runtime_name = if user_id == "default" || user_id == "public" {
+            role.to_string()
+        } else {
+            // Per-user instance name: "u-{first 8 chars of user_id}"
+            format!("u-{}", &user_id[..8.min(user_id.len())])
+        };
         let handle = match self
             .spawn_instance(user_id, &runtime_name, Some(role), None, port)
             .await
@@ -352,7 +375,7 @@ impl SandboxRegistry {
             }
         }
 
-        let port = self.allocate_branch_port(&entries).await?;
+        let port = self.allocate_port(&entries).await?;
         let user_map = entries.entry(user_id.to_string()).or_default();
 
         let runtime_name = format!("branch-{branch}");

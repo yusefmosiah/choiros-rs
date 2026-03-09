@@ -26,6 +26,26 @@
     prefixLength = 24;
   }];
 
+  # DHCP server for per-user sandbox VMs on br-choiros (ADR-0014)
+  # MAC→IP reservations written by hypervisor to /var/lib/dnsmasq/choiros-hosts
+  # and picked up via dhcp-hostsfile. SIGHUP reloads without restart.
+  services.dnsmasq = {
+    enable = true;
+    settings = {
+      interface = "br-choiros";
+      bind-interfaces = true;
+      dhcp-range = "10.0.0.100,10.0.0.254,255.255.255.0,12h";
+      dhcp-option = [ "option:router,10.0.0.1" "option:dns-server,1.1.1.1,8.8.8.8" ];
+      dhcp-hostsfile = "/var/lib/dnsmasq/choiros-hosts";
+      # Don't provide DNS — just DHCP
+      port = 0;
+    };
+  };
+  systemd.tmpfiles.settings."10-dnsmasq" = {
+    "/var/lib/dnsmasq".d = { mode = "0755"; user = "root"; group = "root"; };
+    "/var/lib/dnsmasq/choiros-hosts".f = { mode = "0644"; user = "root"; group = "root"; };
+  };
+
   # NAT for VM internet access (e.g., DNS resolution)
   boot.kernel.sysctl."net.ipv4.ip_forward" = 1;
   networking.nat = {
@@ -317,6 +337,14 @@
 
         cd "$STATE_DIR"
 
+        # Read per-instance config (ADR-0014: written by hypervisor Rust code)
+        VM_MAC="52:54:00:00:00:0a"  # default for legacy "live"
+        if [[ -f "''${STATE_DIR}/vm-mac" ]]; then
+          VM_MAC=$(cat "''${STATE_DIR}/vm-mac")
+        fi
+        TAP="tap-''${INSTANCE}"
+        TAP="''${TAP:0:15}"  # IFNAMSIZ limit
+
         # Wait for virtiofsd sockets (max 30s)
         ELAPSED=0
         while (( ELAPSED < 30 )); do
@@ -341,8 +369,16 @@
             --restore "source_url=file://''${SNAPSHOT_DIR}" \
             --api-socket "$API_SOCK"
         else
-          echo "Cold booting VM"
-          exec "''${RUNNER_DIR}/bin/microvm-run"
+          echo "Cold booting VM (MAC=''${VM_MAC} TAP=''${TAP})"
+          # ADR-0014: parameterize microvm-run with per-instance MAC, TAP, and API socket.
+          # virtiofs socket names stay as-is (relative paths in per-instance WorkingDirectory).
+          ${pkgs.gnused}/bin/sed \
+            -e "s/mac=52:54:00:00:00:0a/mac=''${VM_MAC}/" \
+            -e "s/tap=tap-live/tap=''${TAP}/" \
+            -e "s/sandbox-live\.sock/sandbox-''${INSTANCE}.sock/g" \
+            "''${RUNNER_DIR}/bin/microvm-run" > "''${STATE_DIR}/.microvm-run"
+          chmod +x "''${STATE_DIR}/.microvm-run"
+          exec "''${STATE_DIR}/.microvm-run"
         fi
       '' + " %i";
       # After VM starts from restore, resume vCPUs
@@ -375,7 +411,9 @@
     };
   };
 
-  # socat port forwarding (localhost:PORT -> VM_IP:PORT)
+  # socat port forwarding (localhost:HOST_PORT -> VM_IP:8080)
+  # ADR-0014: reads vm-ip and host-port from state dir config files
+  # written by SystemdLifecycle.ensure() in Rust.
   systemd.services."socat-sandbox@" = {
     description = "Socat port forward for sandbox %i";
     requires = [ "cloud-hypervisor@%i.service" ];
@@ -387,24 +425,25 @@
       ExecStartPre = pkgs.writeShellScript "socat-wait-health" ''
         set -euo pipefail
         INSTANCE="$1"
-        # Derive VM IP from instance name
-        case "$INSTANCE" in
-          live*) VM_IP="10.0.0.10" ;;
-          dev*)  VM_IP="10.0.0.11" ;;
-          *)     VM_IP="10.0.0.10" ;;
-        esac
-        # Derive port from env or default
-        PORT="''${CHOIR_SANDBOX_PORT:-8080}"
-        case "$INSTANCE" in
-          live*) PORT="8080" ;;
-          dev*)  PORT="8081" ;;
-        esac
+        STATE_DIR="/opt/choiros/vms/state/''${INSTANCE}"
 
-        echo "Waiting for sandbox health at ''${VM_IP}:''${PORT}"
+        # Read per-instance config (written by hypervisor Rust code)
+        if [[ -f "''${STATE_DIR}/vm-ip" ]]; then
+          VM_IP=$(cat "''${STATE_DIR}/vm-ip")
+        else
+          # Fallback for legacy instances
+          case "$INSTANCE" in
+            live*) VM_IP="10.0.0.10" ;;
+            dev*)  VM_IP="10.0.0.11" ;;
+            *)     VM_IP="10.0.0.10" ;;
+          esac
+        fi
+
+        echo "Waiting for sandbox health at ''${VM_IP}:8080"
         MAX_WAIT=90
         ELAPSED=0
         while (( ELAPSED < MAX_WAIT )); do
-          if ${pkgs.curl}/bin/curl -fsS --connect-timeout 2 "http://''${VM_IP}:''${PORT}/health" &>/dev/null; then
+          if ${pkgs.curl}/bin/curl -fsS --connect-timeout 2 "http://''${VM_IP}:8080/health" &>/dev/null; then
             echo "Sandbox healthy after ''${ELAPSED}s"
             exit 0
           fi
@@ -416,16 +455,25 @@
       ExecStart = pkgs.writeShellScript "socat-start" ''
         set -euo pipefail
         INSTANCE="$1"
-        case "$INSTANCE" in
-          live*) VM_IP="10.0.0.10"; PORT="8080" ;;
-          dev*)  VM_IP="10.0.0.11"; PORT="8081" ;;
-          *)     VM_IP="10.0.0.10"; PORT="8080" ;;
-        esac
+        STATE_DIR="/opt/choiros/vms/state/''${INSTANCE}"
 
-        echo "Starting socat 127.0.0.1:''${PORT} -> ''${VM_IP}:''${PORT}"
+        # Read per-instance config
+        if [[ -f "''${STATE_DIR}/vm-ip" ]] && [[ -f "''${STATE_DIR}/host-port" ]]; then
+          VM_IP=$(cat "''${STATE_DIR}/vm-ip")
+          HOST_PORT=$(cat "''${STATE_DIR}/host-port")
+        else
+          # Fallback for legacy instances
+          case "$INSTANCE" in
+            live*) VM_IP="10.0.0.10"; HOST_PORT="8080" ;;
+            dev*)  VM_IP="10.0.0.11"; HOST_PORT="8081" ;;
+            *)     VM_IP="10.0.0.10"; HOST_PORT="8080" ;;
+          esac
+        fi
+
+        echo "Starting socat 127.0.0.1:''${HOST_PORT} -> ''${VM_IP}:8080"
         exec ${pkgs.socat}/bin/socat \
-          TCP-LISTEN:''${PORT},bind=127.0.0.1,reuseaddr,fork \
-          TCP:''${VM_IP}:''${PORT}
+          TCP-LISTEN:''${HOST_PORT},bind=127.0.0.1,reuseaddr,fork \
+          TCP:''${VM_IP}:8080
       '' + " %i";
     };
   };
