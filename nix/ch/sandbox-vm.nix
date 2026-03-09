@@ -17,36 +17,29 @@
       mac = vmMac;
     }];
 
-    # Mutable sandbox runtime state on virtio-blk — needed for VM snapshot/restore.
-    # (cloud-hypervisor snapshots capture virtio-blk state atomically; virtiofs
-    # can't restore FUSE file handles after restore.)
+    # Mutable sandbox runtime state on virtio-blk (/dev/vda).
+    # (cloud-hypervisor snapshots capture virtio-blk state atomically.)
     volumes = [{
       image = "data.img";
       mountPoint = "/opt/choiros/data/sandbox";
       size = 2048;
     }];
 
-    shares = [
-      {
-        # Host nix store (read-only) — needed because the sandbox binary
-        # and its runtime closure live in /nix/store on the host.
-        proto = "virtiofs";
-        tag = "nix-store";
-        source = "/nix/store";
-        mountPoint = "/nix/store";
-      }
-      {
-        proto = "virtiofs";
-        tag = "choiros-creds";
-        source = "/run/choiros/credentials/sandbox";
-        mountPoint = "/run/choiros/credentials/sandbox";
-      }
-      # NOTE: per-user data is on virtio-blk (data.img), NOT virtiofs.
-      # virtiofs FUSE handles are not captured by cloud-hypervisor VM snapshots
-      # (issue #6931), so mutable data must use virtio-blk which IS snapshot-safe.
-      # The data.img file lives on a per-user btrfs subvolume on the host,
-      # symlinked into the VM state dir by runtime-ctl.
-    ];
+    # ADR-0018: All virtiofs shares removed. Nix store is now a shared
+    # read-only squashfs virtio-blk image (/dev/vdb), mounted below.
+    # Creds share dropped — gateway token injected via env var.
+    shares = [];
+  };
+
+  # ADR-0018: Mount the nix-store squashfs image (second virtio-blk device).
+  # The host passes this as --disk readonly=on,path=<squashfs>.
+  # neededForBoot ensures the initramfs mounts it before init runs.
+  boot.initrd.availableKernelModules = [ "squashfs" ];
+  fileSystems."/nix/store" = {
+    device = "/dev/vdb";
+    fsType = "squashfs";
+    options = [ "ro" "nodev" ];
+    neededForBoot = true;
   };
 
   # DHCP networking on the br-choiros bridge (ADR-0014: per-user VMs).
@@ -67,17 +60,48 @@
     };
   };
 
-  # Sandbox service — binary from nix store (via virtiofs /nix/store mount)
+  # ADR-0018: Extract gateway token from kernel cmdline and write env file.
+  # The host injects choir.gateway_token=<TOKEN> into --cmdline.
+  # This oneshot runs before the sandbox service and exports it.
+  systemd.services.choir-extract-cmdline-secrets = {
+    description = "Extract ChoirOS secrets from kernel cmdline";
+    wantedBy = [ "multi-user.target" ];
+    before = [ "choir-sandbox.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      set -euo pipefail
+      ENV_FILE="/run/choiros-sandbox.env"
+      : > "$ENV_FILE"
+
+      # Parse choir.gateway_token=VALUE from /proc/cmdline
+      for param in $(cat /proc/cmdline); do
+        case "$param" in
+          choir.gateway_token=*)
+            echo "CHOIR_PROVIDER_GATEWAY_TOKEN=''${param#choir.gateway_token=}" >> "$ENV_FILE"
+            ;;
+        esac
+      done
+
+      chmod 0600 "$ENV_FILE"
+    '';
+  };
+
+  # Sandbox service — binary from nix store (squashfs virtio-blk mount)
   systemd.services.choir-sandbox = {
     description = "ChoirOS Sandbox (${sandboxRole})";
     wantedBy = [ "multi-user.target" ];
-    after = [ "network-online.target" ];
+    after = [ "network-online.target" "choir-extract-cmdline-secrets.service" ];
     wants = [ "network-online.target" ];
+    requires = [ "choir-extract-cmdline-secrets.service" ];
     serviceConfig = {
       ExecStart = "${sandboxPackage}/bin/sandbox";
       Restart = "on-failure";
       RestartSec = 1;
-      EnvironmentFile = "/run/choiros/credentials/sandbox/sandbox.env";
+      # ADR-0018: Gateway token extracted from kernel cmdline by oneshot above
+      EnvironmentFile = [ "-/run/choiros-sandbox.env" ];
       Environment = [
         "PORT=${toString sandboxPort}"
         "DATABASE_URL=sqlite:/opt/choiros/data/sandbox/sandbox-${sandboxRole}.db"

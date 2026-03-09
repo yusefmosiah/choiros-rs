@@ -1,10 +1,9 @@
 # NixOS host configuration for OVH SYS-1 bare metal (x86_64-linux)
 # Intel Xeon-E 2136 / 32GB RAM / 2x NVMe RAID1 / UEFI
-{ config, lib, pkgs, choirosPackages, vmRunnerLive, ... }:
+{ config, lib, pkgs, choirosPackages, vmRunnerLive, nixStoreSquashfs, ... }:
 {
-  nixpkgs.overlays = [
-    (import ../overlays/virtiofsd-vhost-fix.nix)
-  ];
+  # ADR-0018: virtiofsd overlay removed — no more virtiofs shares.
+  nixpkgs.overlays = [];
   boot.loader.efi.canTouchEfiVariables = true;
   boot.loader.efi.efiSysMountPoint = "/boot/efi";
   boot.loader.grub = {
@@ -137,7 +136,7 @@
     sqlite
     tmux
     vim
-    virtiofsd
+    # virtiofsd removed — ADR-0018 replaced virtiofs with virtio-blk
   ];
 
   # Workspace directory (still needed for git pull during deploys)
@@ -304,36 +303,14 @@
     };
   };
 
-  # virtiofsd (runs the microvm.nix-generated virtiofsd-run script)
-  systemd.services."virtiofsd@" = {
-    description = "virtiofsd for sandbox %i";
-    requires = [ "tap-setup@%i.service" ];
-    after = [ "tap-setup@%i.service" ];
-    serviceConfig = {
-      Type = "simple";
-      KillMode = "control-group";
-      TimeoutStopSec = 10;
-      WorkingDirectory = "/opt/choiros/vms/state/%i";
-      ExecStart = pkgs.writeShellScript "virtiofsd-start" ''
-        set -euo pipefail
-        INSTANCE="$1"
-        STATE_DIR="/opt/choiros/vms/state/''${INSTANCE}"
-        RUNNER_DIR="${vmRunnerLive}"
-
-        # Clean stale sockets
-        rm -f "''${STATE_DIR}"/*-virtiofs-*.sock
-
-        cd "$STATE_DIR"
-        exec "''${RUNNER_DIR}/bin/virtiofsd-run"
-      '' + " %i";
-    };
-  };
+  # ADR-0018: virtiofsd@ service REMOVED — no more virtiofs shares.
+  # Nix store is now a shared read-only squashfs virtio-blk image.
 
   # cloud-hypervisor VM (cold boot or snapshot restore based on boot-mode file)
   systemd.services."cloud-hypervisor@" = {
     description = "Cloud Hypervisor VM for sandbox %i";
-    requires = [ "virtiofsd@%i.service" ];
-    after = [ "virtiofsd@%i.service" ];
+    requires = [ "tap-setup@%i.service" ];
+    after = [ "tap-setup@%i.service" ];
     serviceConfig = {
       Type = "simple";
       KillMode = "control-group";
@@ -347,6 +324,7 @@
         BOOT_MODE_FILE="''${STATE_DIR}/boot-mode"
         SNAPSHOT_DIR="''${STATE_DIR}/vm-snapshot"
         API_SOCK="''${STATE_DIR}/sandbox-''${INSTANCE}.sock"
+        NIX_STORE_IMG="${nixStoreSquashfs}/nix-store.squashfs"
 
         cd "$STATE_DIR"
 
@@ -357,18 +335,6 @@
         fi
         TAP="tap-''${INSTANCE}"
         TAP="''${TAP:0:15}"  # IFNAMSIZ limit
-
-        # Wait for virtiofsd sockets (max 30s)
-        ELAPSED=0
-        while (( ELAPSED < 30 )); do
-          SOCK_COUNT=$(find "$STATE_DIR" -maxdepth 1 \( -name "*-virtiofs-nix-store.sock" -o -name "*-virtiofs-choiros-creds.sock" \) 2>/dev/null | wc -l)
-          if (( SOCK_COUNT >= 2 )); then
-            echo "virtiofsd sockets ready (''${SOCK_COUNT} found in ''${ELAPSED}s)"
-            break
-          fi
-          sleep 1
-          ELAPSED=$((ELAPSED + 1))
-        done
 
         BOOT_MODE="cold"
         if [[ -f "$BOOT_MODE_FILE" ]]; then
@@ -383,13 +349,35 @@
             --api-socket "$API_SOCK"
         else
           echo "Cold booting VM (MAC=''${VM_MAC} TAP=''${TAP})"
-          # ADR-0014: parameterize microvm-run with per-instance MAC, TAP, and API socket.
-          # virtiofs socket names stay as-is (relative paths in per-instance WorkingDirectory).
+
+          # ADR-0018: Read gateway token for kernel cmdline injection
+          GATEWAY_TOKEN=""
+          if [[ -f "''${STATE_DIR}/gateway-token" ]]; then
+            GATEWAY_TOKEN=$(cat "''${STATE_DIR}/gateway-token")
+          fi
+
+          # ADR-0018: Build cloud-hypervisor command from microvm-run, replacing:
+          # - MAC/TAP/socket names (ADR-0014 per-user)
+          # - --memory shared=on → shared=off (enables KSM, no virtiofs needed)
+          # - --fs (remove virtiofs entirely)
+          # - Append nix-store squashfs as second --disk
+          # - Inject gateway token into kernel cmdline
           ${pkgs.gnused}/bin/sed \
             -e "s/mac=52:54:00:00:00:0a/mac=''${VM_MAC}/" \
             -e "s/tap=tap-live/tap=''${TAP}/" \
             -e "s/sandbox-live\.sock/sandbox-''${INSTANCE}.sock/g" \
+            -e "s/shared=on/shared=off/" \
+            -e "s| --fs [^-][^ ]*||g" \
+            -e "s|--disk |--disk 'path=$NIX_STORE_IMG,readonly=on' |" \
             "''${RUNNER_DIR}/bin/microvm-run" > "''${STATE_DIR}/.microvm-run"
+
+          # Inject gateway token into kernel --cmdline (append before closing quote)
+          if [[ -n "$GATEWAY_TOKEN" ]]; then
+            ${pkgs.gnused}/bin/sed -i \
+              "s|' --seccomp| choir.gateway_token=''${GATEWAY_TOKEN}' --seccomp|" \
+              "''${STATE_DIR}/.microvm-run"
+          fi
+
           chmod +x "''${STATE_DIR}/.microvm-run"
           exec "''${STATE_DIR}/.microvm-run"
         fi

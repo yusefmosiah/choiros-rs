@@ -285,26 +285,24 @@ exec cloud-hypervisor \
 - Remove the virtiofsd@ service definition entirely
 - Remove the virtiofs socket wait loop from ExecStart
 
-### Step 4f: Remove creds virtiofs share
+### Step 4f: Credential injection via kernel cmdline (IMPLEMENTED)
 
-**File:** `nix/ch/sandbox-vm.nix`
+Without virtiofs, the gateway token can no longer reach the guest via
+a mounted EnvironmentFile. Solution: inject via kernel cmdline.
 
-The sandbox already receives `CHOIR_PROVIDER_GATEWAY_TOKEN` via env var
-injection (hypervisor/src/sandbox/mod.rs:681). Remove the
-EnvironmentFile reference to the virtiofs-mounted creds:
+**Flow:** hypervisor writes token to state dir → cloud-hypervisor@ unit
+reads it and appends `choir.gateway_token=<TOKEN>` to `--cmdline` →
+guest oneshot extracts from `/proc/cmdline` → writes `/run/choiros-sandbox.env`
+→ sandbox service reads via `EnvironmentFile`.
 
-```nix
-# BEFORE:
-EnvironmentFile = "/run/choiros/credentials/sandbox/sandbox.env";
+**Files changed:**
+- `hypervisor/src/sandbox/systemd.rs`: `ensure()` writes `gateway-token` file
+- `hypervisor/src/sandbox/mod.rs`: passes `provider_gateway_token` to `ensure()`
+- `nix/hosts/ovh-node.nix`: cloud-hypervisor@ reads token file, seds into cmdline
+- `nix/ch/sandbox-vm.nix`: `choir-extract-cmdline-secrets` oneshot + EnvironmentFile
 
-# AFTER:
-# Gateway token injected via CHOIR_PROVIDER_GATEWAY_TOKEN env var
-# from hypervisor -> runtime-ctl -> systemd unit environment
-```
-
-Verify the env var path works by checking that the sandbox reads
-`CHOIR_PROVIDER_GATEWAY_TOKEN` from its process environment, not from
-a file. (It does — see sandbox/src/actors/model_config.rs:531.)
+The sandbox reads `CHOIR_PROVIDER_GATEWAY_TOKEN` from its process
+environment (see sandbox/src/actors/model_config.rs:531).
 
 ## Phase 5: Verify KSM
 

@@ -54,9 +54,9 @@ cloud-hypervisor memory config, which blocks KSM.
 
 1. Build the sandbox NixOS closure into a **shared read-only squashfs image**
    mounted as a second virtio-blk device in each VM.
-2. Drop the credentials virtiofs share entirely — the gateway token is
-   already injected via environment variable by runtime-ctl (line 681 of
-   sandbox/mod.rs). The virtiofs creds share is redundant.
+2. Drop the credentials virtiofs share — inject the gateway token via
+   kernel cmdline (`choir.gateway_token=<TOKEN>`). A guest systemd
+   oneshot extracts it from `/proc/cmdline` and writes an env file.
 3. Set cloud-hypervisor memory to `shared=off,mergeable=on` to enable KSM.
 
 ### Consequences

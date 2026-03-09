@@ -332,7 +332,13 @@ impl SystemdLifecycle {
     /// Prepare state dir and start the full VM chain via systemd.
     ///
     /// This is the replacement for `run_runtime_ctl("ensure", ...)`.
-    pub async fn ensure(&self, instance: &str, user_id: &str, port: u16) -> anyhow::Result<()> {
+    pub async fn ensure(
+        &self,
+        instance: &str,
+        user_id: &str,
+        port: u16,
+        gateway_token: Option<&str>,
+    ) -> anyhow::Result<()> {
         let state_dir = self.instance_state_dir(instance);
         tokio::fs::create_dir_all(&state_dir).await?;
 
@@ -345,6 +351,12 @@ impl SystemdLifecycle {
         tokio::fs::write(state_dir.join("vm-ip"), &vm_ip).await?;
         tokio::fs::write(state_dir.join("host-port"), port.to_string()).await?;
         tokio::fs::write(state_dir.join("vm-mac"), &vm_mac).await?;
+
+        // ADR-0018: Write gateway token for kernel cmdline injection into guest VM.
+        // The cloud-hypervisor@ unit reads this and appends to --cmdline.
+        if let Some(token) = gateway_token {
+            tokio::fs::write(state_dir.join("gateway-token"), token).await?;
+        }
 
         // Register MAC→IP with dnsmasq for DHCP reservation
         self.register_dhcp_host(&vm_mac, &vm_ip).await;
@@ -380,7 +392,7 @@ impl SystemdLifecycle {
         // BindsTo should cascade, but explicit stops are more reliable.
         systemctl_stop(&format!("socat-sandbox@{instance}")).await;
         systemctl_stop(&format!("cloud-hypervisor@{instance}")).await;
-        systemctl_stop(&format!("virtiofsd@{instance}")).await;
+        // ADR-0018: virtiofsd@ removed — no virtiofs shares
         systemctl_stop(&format!("tap-setup@{instance}")).await;
 
         // Clean up VM snapshot since this is a hard stop
@@ -429,7 +441,6 @@ impl SystemdLifecycle {
         // Don't stop tap-setup — keep TAP alive for fast restore
         systemctl_stop(&format!("socat-sandbox@{instance}")).await;
         systemctl_stop(&format!("cloud-hypervisor@{instance}")).await;
-        systemctl_stop(&format!("virtiofsd@{instance}")).await;
 
         info!(instance, "VM hibernated (TAP kept alive)");
         Ok(())

@@ -882,7 +882,14 @@ impl SandboxRegistry {
                 user_id,
                 runtime_name, port, "using systemd lifecycle (ADR-0017)"
             );
-            lifecycle.ensure(runtime_name, user_id, port).await?;
+            lifecycle
+                .ensure(
+                    runtime_name,
+                    user_id,
+                    port,
+                    self.provider_gateway_token.as_deref(),
+                )
+                .await?;
         } else {
             self.run_runtime_ctl("ensure", user_id, runtime_name, role, branch, port)
                 .await?;
