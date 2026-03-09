@@ -25,21 +25,12 @@
       size = 2048;
     }];
 
-    # ADR-0018: All virtiofs shares removed. Nix store is now a shared
-    # read-only squashfs virtio-blk image (/dev/vdb), mounted below.
-    # Creds share dropped — gateway token injected via env var.
+    # ADR-0018: All virtiofs shares removed. With shares=[], the microvm
+    # module automatically generates an erofs disk for the nix store closure.
+    # This is a single shared file in /nix/store, referenced by all VMs.
+    # Combined with shared=off (KSM), identical pages are deduplicated.
+    # Creds share dropped — gateway token injected via kernel cmdline.
     shares = [];
-  };
-
-  # ADR-0018: Mount the nix-store squashfs image (second virtio-blk device).
-  # The host passes this as --disk readonly=on,path=<squashfs>.
-  # neededForBoot ensures the initramfs mounts it before init runs.
-  boot.initrd.availableKernelModules = [ "squashfs" ];
-  fileSystems."/nix/store" = {
-    device = lib.mkForce "/dev/vdb";
-    fsType = lib.mkForce "squashfs";
-    options = lib.mkForce [ "ro" "nodev" ];
-    neededForBoot = lib.mkForce true;
   };
 
   # DHCP networking on the br-choiros bridge (ADR-0014: per-user VMs).

@@ -127,46 +127,9 @@ EOF
       vmRunnerLive = self.nixosConfigurations.choiros-ch-sandbox-live
         .config.microvm.runner.cloud-hypervisor;
 
-      # ADR-0018: squashfs image of the sandbox VM's nix store closure.
-      # Shared read-only across all VMs as a virtio-blk device, replacing virtiofs.
-      sandboxToplevel = self.nixosConfigurations.choiros-ch-sandbox-live
-        .config.system.build.toplevel;
-      nixStoreSquashfs = pkgs.stdenv.mkDerivation {
-        name = "nix-store-squashfs";
-        nativeBuildInputs = [ pkgs.squashfsTools ];
-        closureInfo = pkgs.closureInfo { rootPaths = [ sandboxToplevel ]; };
-        dontUnpack = true;
-        # mksquashfs preserves directory structure: /nix/store/abc → nix/store/abc
-        # in the squashfs. We mount the squashfs at / as a loopback so the guest
-        # sees /nix/store/abc. But since / is tmpfs, we use an overlay approach:
-        # actually, we restructure so the squashfs root contains just the store
-        # path basenames, then mount at /nix/store.
-        buildPhase = ''
-          # Create a directory that mirrors /nix/store layout
-          mkdir -p store-root
-          while IFS= read -r storePath; do
-            # Hardlink each store path's contents into store-root/
-            # Use cp -al for hardlinks (fast, no disk duplication within the build)
-            base=$(basename "$storePath")
-            cp -a "$storePath" "store-root/$base"
-          done < $closureInfo/store-paths
-
-          # Build squashfs: root of image = contents of store-root/
-          # Guest mounts this at /nix/store → sees /nix/store/<hash>-<name>/...
-          mksquashfs store-root/* nix-store.squashfs \
-            -comp lz4 -Xhc -no-xattrs -all-root \
-            -no-duplicates -no-fragments
-        '';
-        installPhase = ''
-          mkdir -p $out
-          mv nix-store.squashfs $out/
-        '';
-      };
     in
     {
       packages.${system} = {
-        nix-store-image = nixStoreSquashfs;
-
         sandbox = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
           pname = "sandbox";
@@ -365,7 +328,6 @@ EOF
         specialArgs = {
           choirosPackages = self.packages.${system};
           vmRunnerLive = vmRunnerLive;
-          inherit nixStoreSquashfs;
         };
         modules = [
           disko.nixosModules.disko
@@ -379,7 +341,6 @@ EOF
         specialArgs = {
           choirosPackages = self.packages.${system};
           vmRunnerLive = vmRunnerLive;
-          inherit nixStoreSquashfs;
         };
         modules = [
           ./nix/hosts/ovh-node-hardware.nix
@@ -393,7 +354,6 @@ EOF
         specialArgs = {
           choirosPackages = self.packages.${system};
           vmRunnerLive = vmRunnerLive;
-          inherit nixStoreSquashfs;
         };
         modules = [
           ./nix/hosts/ovh-node-hardware.nix

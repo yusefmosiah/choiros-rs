@@ -1,6 +1,6 @@
 # NixOS host configuration for OVH SYS-1 bare metal (x86_64-linux)
 # Intel Xeon-E 2136 / 32GB RAM / 2x NVMe RAID1 / UEFI
-{ config, lib, pkgs, choirosPackages, vmRunnerLive, nixStoreSquashfs, ... }:
+{ config, lib, pkgs, choirosPackages, vmRunnerLive, ... }:
 {
   # ADR-0018: virtiofsd overlay removed — no more virtiofs shares.
   nixpkgs.overlays = [];
@@ -324,7 +324,6 @@
         BOOT_MODE_FILE="''${STATE_DIR}/boot-mode"
         SNAPSHOT_DIR="''${STATE_DIR}/vm-snapshot"
         API_SOCK="''${STATE_DIR}/sandbox-''${INSTANCE}.sock"
-        NIX_STORE_IMG="${nixStoreSquashfs}/nix-store.squashfs"
 
         cd "$STATE_DIR"
 
@@ -359,16 +358,14 @@
           # ADR-0018: Build cloud-hypervisor command from microvm-run, replacing:
           # - MAC/TAP/socket names (ADR-0014 per-user)
           # - --memory shared=on → shared=off (enables KSM, no virtiofs needed)
-          # - --fs (remove virtiofs entirely)
-          # - Append nix-store squashfs as second --disk
           # - Inject gateway token into kernel cmdline
+          # Note: with shares=[], microvm module auto-generates an erofs disk
+          # for the nix store closure — no need for a custom squashfs disk.
           ${pkgs.gnused}/bin/sed \
             -e "s/mac=52:54:00:00:00:0a/mac=''${VM_MAC}/" \
             -e "s/tap=tap-live/tap=''${TAP}/" \
             -e "s/sandbox-live\.sock/sandbox-''${INSTANCE}.sock/g" \
             -e "s/shared=on/shared=off/" \
-            -e "s| --fs [^-][^ ]*||g" \
-            -e "s|--disk |--disk 'path=$NIX_STORE_IMG,readonly=on' |" \
             "''${RUNNER_DIR}/bin/microvm-run" > "''${STATE_DIR}/.microvm-run"
 
           # Inject gateway token into kernel --cmdline (append before closing quote)
