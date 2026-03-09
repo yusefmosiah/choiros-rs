@@ -193,7 +193,18 @@ impl SystemdLifecycle {
         if link.exists() && !link.is_symlink() {
             if !target.exists() {
                 info!(user_id, "migrating existing data.img to btrfs subvolume");
-                tokio::fs::rename(&link, &target).await?;
+                // Use cp + rm instead of rename — files may be on different filesystems
+                let status = Command::new("cp")
+                    .args(["--reflink=auto", "--sparse=always"])
+                    .arg(&link)
+                    .arg(&target)
+                    .status()
+                    .await?;
+                if status.success() {
+                    tokio::fs::remove_file(&link).await?;
+                } else {
+                    warn!(user_id, "cp data.img failed, will create fresh");
+                }
             } else {
                 warn!(
                     user_id,
