@@ -163,18 +163,15 @@ impl SandboxRegistry {
     }
 
     /// Allocate a dynamic port from the port range for per-user VMs.
+    /// Tracks ALL allocated ports (not just Running) to prevent collisions.
     async fn allocate_port(&self, entries: &HashMap<String, UserSandboxes>) -> anyhow::Result<u16> {
         let mut used = HashSet::new();
         for user_map in entries.values() {
             for entry in user_map.roles.values() {
-                if entry.status == SandboxStatus::Running {
-                    used.insert(entry.port);
-                }
+                used.insert(entry.port);
             }
             for entry in user_map.branches.values() {
-                if entry.status == SandboxStatus::Running {
-                    used.insert(entry.port);
-                }
+                used.insert(entry.port);
             }
         }
 
