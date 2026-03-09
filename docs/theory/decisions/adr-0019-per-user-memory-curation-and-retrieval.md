@@ -1,4 +1,4 @@
-# ADR-0017: Per-User Memory Curation and Retrieval
+# ADR-0019: Per-User Memory Curation and Retrieval
 
 Date: 2026-03-09
 Kind: Decision

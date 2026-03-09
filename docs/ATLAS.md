@@ -27,6 +27,8 @@ decoupling for publishing (ADR-0011, P3).
 <details open>
 <summary><h2>Theory (What We're Thinking)</h2></summary>
 
+- **[P1]** ADR-0018: Drop Virtiofs, Enable KSM, Adaptive VM Capacity Management — Decision (Draft) | Requires: [ADR-0014, ADR-0016]  
+  `docs/theory/decisions/adr-0018-drop-virtiofs-adaptive-capacity.md`
 - **[P1]** Rolling Deploys: Staging → E2E → Promote — Guide (Active)  
   `docs/theory/guides/rolling-deploys.md`
 - **[P2]** ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync — Decision (Draft) | Requires: [ADR-0007, ADR-0012]  
@@ -45,8 +47,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/decisions/adr-0003-hypervisor-sandbox-secrets-boundary.md`
 - **[P4]** ADR-0004: Hypervisor-Sandbox UI Runtime Boundary — Decision (Proposed) | Requires: [ADR-0007]  
   `docs/theory/decisions/adr-0004-hypervisor-sandbox-ui-runtime-boundary.md`
-- **[P4]** ADR-0017: Per-User Memory Curation and Retrieval — Decision (Draft) | Requires: [ADR-0001]  
-  `docs/theory/decisions/adr-0017-per-user-memory-curation-and-retrieval.md`
+- **[P4]** ADR-0019: Per-User Memory Curation and Retrieval — Decision (Draft) | Requires: [ADR-0001]  
+  `docs/theory/decisions/adr-0019-per-user-memory-curation-and-retrieval.md`
 - **[P5]** ADR-0002: Rust + Nix Build and Cache Strategy — Decision (Draft)  
   `docs/theory/decisions/adr-0002-rust-nix-build-and-cache-strategy.md`
 - **[P5]** ADR-0005: ALM Harness Integration Strategy (Draft) — Decision (Draft)  
@@ -164,9 +166,10 @@ ADR-0008, ADR-0014 → ADR-0003: Hypervisor-Sandbox Secrets Boundary
 ADR-0007 → ADR-0004: Hypervisor-Sandbox UI Runtime Boundary
 ADR-0014 → ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes)
 ADR-0007, ADR-0012 → ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync
-ADR-0001 → ADR-0017: Per-User Memory Curation and Retrieval
+ADR-0014, ADR-0016 → ADR-0018: Drop Virtiofs, Enable KSM, Adaptive VM Capacity Management
+ADR-0001 → ADR-0019: Per-User Memory Curation and Retrieval
 ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-09 — 23 practice, 19 theory, 14 state docs.*
+*Generated 2026-03-09 — 23 practice, 20 theory, 14 state docs.*
