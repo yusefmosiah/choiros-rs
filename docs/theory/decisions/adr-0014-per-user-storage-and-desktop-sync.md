@@ -102,6 +102,12 @@ virtiofs remains correct for:
 - `/nix/store` (read-only, no state to preserve)
 - `/run/choiros/credentials/sandbox` (read-only secrets, re-read on service start)
 
+**UPDATE (ADR-0018):** virtiofs for read-only shares is also being removed.
+`shared=on` (required by virtiofs) blocks KSM page deduplication, and
+virtiofsd costs 176 MB/VM. ADR-0018 replaces nix-store virtiofs with a
+shared read-only squashfs virtio-blk image and drops the creds share
+entirely (gateway token already injected via env var).
+
 virtiofs is WRONG for:
 - User workspace data (must survive hibernate/restore)
 - Runtime state like SQLite DBs (must survive hibernate/restore)
