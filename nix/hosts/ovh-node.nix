@@ -183,6 +183,19 @@
     # ADR-0017: hypervisor calls btrfs/mkfs.ext4/systemctl from Rust
     path = [ pkgs.btrfs-progs pkgs.e2fsprogs pkgs.util-linux pkgs.curl ];
     serviceConfig = {
+      # Invalidate VM snapshots on (re)start — snapshot memory state references
+      # virtiofsd socket paths that change on every rebuild. Cold boot is safe;
+      # user data on virtio-blk (data.img) survives regardless.
+      ExecStartPre = pkgs.writeShellScript "invalidate-vm-snapshots" ''
+        for snap in /opt/choiros/vms/state/*/vm-snapshot; do
+          [ -d "$snap" ] && rm -rf "$snap" && echo "invalidated: $snap"
+        done
+        # Also clear boot-mode files so ensure() picks cold boot
+        for bm in /opt/choiros/vms/state/*/boot-mode; do
+          [ -f "$bm" ] && rm -f "$bm"
+        done
+        exit 0
+      '';
       ExecStart = "${choirosPackages.hypervisor}/bin/hypervisor";
       Restart = "on-failure";
       RestartSec = 3;
