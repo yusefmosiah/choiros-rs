@@ -36,10 +36,10 @@
   # neededForBoot ensures the initramfs mounts it before init runs.
   boot.initrd.availableKernelModules = [ "squashfs" ];
   fileSystems."/nix/store" = {
-    device = "/dev/vdb";
-    fsType = "squashfs";
-    options = [ "ro" "nodev" ];
-    neededForBoot = true;
+    device = lib.mkForce "/dev/vdb";
+    fsType = lib.mkForce "squashfs";
+    options = lib.mkForce [ "ro" "nodev" ];
+    neededForBoot = lib.mkForce true;
   };
 
   # DHCP networking on the br-choiros bridge (ADR-0014: per-user VMs).
