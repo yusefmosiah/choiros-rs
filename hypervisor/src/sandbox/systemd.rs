@@ -181,7 +181,11 @@ impl SystemdLifecycle {
         // Check if already correctly linked
         if let Ok(existing) = tokio::fs::read_link(&link).await {
             if existing == target {
-                return Ok(());
+                // Ensure the target file actually exists
+                if target.exists() {
+                    return Ok(());
+                }
+                // Dangling symlink — fall through to create data.img
             }
         }
 
@@ -197,6 +201,28 @@ impl SystemdLifecycle {
                 );
                 tokio::fs::remove_file(&link).await?;
             }
+        }
+
+        // Create data.img if it doesn't exist (first boot for this user)
+        if !target.exists() {
+            info!(user_id, path = %target.display(), "creating data.img (2GB)");
+            let status = Command::new("truncate")
+                .args(["-s", "2G"])
+                .arg(&target)
+                .status()
+                .await?;
+            if !status.success() {
+                anyhow::bail!("truncate data.img failed: {:?}", status.code());
+            }
+            let status = Command::new("mkfs.ext4")
+                .args(["-q", "-F"])
+                .arg(&target)
+                .status()
+                .await?;
+            if !status.success() {
+                anyhow::bail!("mkfs.ext4 data.img failed: {:?}", status.code());
+            }
+            info!(user_id, "data.img created and formatted");
         }
 
         // Remove stale symlink if pointing elsewhere
