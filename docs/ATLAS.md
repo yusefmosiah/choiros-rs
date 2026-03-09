@@ -139,6 +139,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/state/reports/2026-03-09-heterogeneous-load-test.md`
 - Per-User VM Load Test Report — ? (?)  
   `docs/state/reports/2026-03-09-per-user-vm-load-test.md`
+- ADR-0018 Load Test Report — 2026-03-10 — ? (?)  
+  `docs/state/reports/2026-03-10-adr-0018-load-test.md`
 - ChoirOS Logging Security & Compliance Report — Report (Active)  
   `docs/state/reports/choiros-logging-security-report.md`
 - Conductor E2E Test Intelligence Report — Report (Active)  
@@ -175,4 +177,4 @@ ADR-0018 → Implementing ADR-0018: Drop Virtiofs, Adaptive Capacity
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-09 — 23 practice, 21 theory, 14 state docs.*
+*Generated 2026-03-09 — 23 practice, 21 theory, 15 state docs.*
