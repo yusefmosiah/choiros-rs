@@ -34,10 +34,13 @@
   };
 
   # ADR-0018 Phase 7: virtio-pmem support.
-  # Add pmem/dax kernel modules to initrd so guest can detect /dev/pmem0.
-  # The host cloud-hypervisor@ unit converts the erofs --disk to --pmem.
+  # Force-load pmem/dax kernel modules in initrd so /dev/pmem0 appears.
+  # availableKernelModules makes them available; kernelModules forces loading.
+  boot.initrd.kernelModules = [
+    "virtio_pmem" "nd_pmem"
+  ];
   boot.initrd.availableKernelModules = [
-    "virtio_pmem" "nd_pmem" "dax" "dax_pmem"
+    "dax" "dax_pmem"
   ];
 
   # Override nix-store mount: use /dev/pmem0 instead of /dev/disk/by-label/nix-store.

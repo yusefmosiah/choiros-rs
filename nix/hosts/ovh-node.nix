@@ -382,11 +382,13 @@
               "s|--disk 'num_queues=[0-9]*,path=/nix/store/[^']*\.erofs,readonly=on' |--disk |" \
               "''${STATE_DIR}/.microvm-run"
 
-            # Pad erofs to 2MiB alignment (required by cloud-hypervisor --pmem)
+            # Pad erofs to 2MiB alignment (required by cloud-hypervisor --pmem).
+            # Use ONE shared copy at /opt/choiros/vms/store-disk-padded.erofs
+            # (not per-VM — all VMs use the same read-only image).
+            PADDED_EROFS="/opt/choiros/vms/store-disk-padded.erofs"
             EROFS_SIZE=$(stat -c%s "$EROFS_PATH")
             ALIGN=$((2 * 1024 * 1024))
             ALIGNED_SIZE=$(( ((EROFS_SIZE + ALIGN - 1) / ALIGN) * ALIGN ))
-            PADDED_EROFS="''${STATE_DIR}/store-disk-padded.erofs"
             if [[ ! -f "$PADDED_EROFS" ]] || [[ $(stat -c%s "$PADDED_EROFS") -ne $ALIGNED_SIZE ]]; then
               cp "$EROFS_PATH" "$PADDED_EROFS"
               truncate -s "$ALIGNED_SIZE" "$PADDED_EROFS"
