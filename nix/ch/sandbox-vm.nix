@@ -54,10 +54,9 @@
       # Neither is needed in a microVM (physical NVDIMM hardware only).
       ACPI_NFIT = no;
       X86_PMEM_LEGACY = no;
-      # Core virtio transport
+      # Core virtio transport (VIRTIO_RING is auto-selected by VIRTIO)
       VIRTIO = yes;
       VIRTIO_PCI = yes;
-      VIRTIO_RING = yes;
       # Block device (data.img /dev/vda)
       VIRTIO_BLK = yes;
       # Network (TAP interface on br-choiros)
@@ -65,7 +64,6 @@
       # Persistent memory (nix store via --pmem, ADR-0018 Phase 7)
       VIRTIO_PMEM = yes;
       LIBNVDIMM = yes;
-      ND_VIRTIO = yes;
       # Filesystems
       EROFS_FS = yes;
       EXT4_FS = yes;
