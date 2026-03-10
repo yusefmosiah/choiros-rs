@@ -8,348 +8,239 @@ Requires: [ADR-0018]
 
 ## Narrative Summary (1-minute read)
 
-Replace virtiofs with a shared read-only squashfs nix-store image
-(virtio-blk), enable KSM for memory deduplication, add adaptive idle
-watchdog with memory-pressure awareness, add a capacity gate, and
-configure 16 GB swap. Target: 3x VM capacity (58 → 170+ concurrent).
+Virtiofs eliminated, erofs store disk active, KSM deduplicating, adaptive
+watchdog and capacity gate deployed. Both nodes promoted. Per-VM cost
+dropped from ~514 MB to ~443 MB. Next step: virtio-pmem to eliminate the
+~100 MB guest page cache overhead (double caching) for a projected ~330 MB
+per-VM.
 
 ## Phase Status
 
 ```
-Phase 1 (swap + capacity gate)      TODO — safety net first
-Phase 2 (adaptive idle watchdog)    TODO — memory-pressure-aware hibernation
-Phase 3 (nix-store squashfs image)  TODO — build image in flake, add to VM config
-Phase 4 (drop virtiofs)             TODO — remove shares, shared=off, mergeable=on
-Phase 5 (verify KSM)               TODO — measure pages_shared, per-VM RSS
-Phase 6 (load test)                 TODO — heterogeneous test at new capacity
+Phase 1 (swap + capacity gate)      DONE — deployed Node B 2026-03-09
+Phase 2 (adaptive idle watchdog)    DONE — deployed Node B 2026-03-09
+Phase 3 (erofs store disk)          DONE — microvm.nix auto-generates with shares=[]
+Phase 4 (drop virtiofs + KSM)       DONE — shared=off, mergeable=on, THP=never
+Phase 5 (verify KSM)               DONE — 1.7 GB saved at 58 VMs, 6.6x dedup ratio
+Phase 6 (load test)                 DONE — 16 users, 100% pass, report written
+Phase 7 (virtio-pmem + FSDAX)      PLANNED — eliminate double caching
 ```
 
-## Phase 1: Swap + Capacity Gate
+## Phases 1-6: Completed
 
-### Step 1a: Add 16 GB swapfile
+See load test report: `docs/state/reports/2026-03-10-adr-0018-load-test.md`
 
-**File:** `nix/hosts/ovh-node-b-disks.nix`
+### Key Implementation Details (for reference)
+
+**Erofs store disk (Phase 3):** No custom image needed. Setting `shares=[]`
+in `nix/ch/sandbox-vm.nix` triggers microvm.nix to auto-generate an erofs
+disk from the VM's nix store closure. This is a single file in
+`/nix/store/` on the host, added as a `--disk readonly=on` virtio-blk
+device. The guest initrd mounts it at `/nix/store`.
+
+**Credential injection (Phase 4):** Gateway token flows:
+```
+hypervisor writes state_dir/gateway-token
+  → cloud-hypervisor@ reads file, seds into --cmdline
+  → guest /proc/cmdline contains choir.gateway_token=<TOKEN>
+  → choir-extract-cmdline-secrets oneshot extracts it
+  → /run/choiros-sandbox.env written
+  → choir-sandbox.service reads via EnvironmentFile
+```
+
+**KSM requires THP=never (Phase 5):** cloud-hypervisor calls
+MADV_HUGEPAGE on VM memory. With THP=madvise, this creates 2 MB hugepages
+that KSM cannot merge. Must set THP=never system-wide. VMs started before
+the change must be restarted.
+
+**Files modified:**
+- `nix/ch/sandbox-vm.nix` — `shares=[]`, cmdline secret extraction oneshot
+- `nix/hosts/ovh-node.nix` — virtiofsd removed, KSM+THP tmpfiles, cmdline injection
+- `hypervisor/src/sandbox/systemd.rs` — writes gateway-token file
+- `hypervisor/src/sandbox/mod.rs` — passes token to ensure(), capacity gate, adaptive watchdog
+- `flake.nix` — removed squashfs derivation and virtiofsd overlay
+
+### Issues Encountered and Resolved
+
+1. **fileSystems conflict:** microvm.nix auto-generates erofs mount for
+   `/nix/store`. Our custom squashfs mount conflicted. Fix: removed custom
+   squashfs entirely (ef9d599).
+
+2. **Failed to start Find NixOS closure:** Custom squashfs disk prepended
+   before erofs disk, changing `/dev/vd*` ordering. microvm initrd couldn't
+   find its closure. Fix: let microvm handle everything (ef9d599).
+
+3. **KSM pages_shared = 0 after 52 scans:** THP=madvise + cloud-hypervisor
+   MADV_HUGEPAGE = 2 MB pages KSM can't merge. Fix: THP=never (655dae2).
+
+---
+
+## Phase 7: Virtio-PMEM + FSDAX (Planned)
+
+### Problem: Double Caching
+
+With virtio-blk + erofs, the nix store data exists in two caches:
+
+| Cache | Location | Reclaimable? | Size |
+|-------|----------|-------------|------|
+| Host page cache | Host RAM, managed by host kernel | Yes | ~100-500 MB shared |
+| Guest page cache | Inside VM's 1024 MB allocation | Only by guest kernel | ~100 MB per VM |
+
+This is why per-VM RSS is ~443 MB instead of the projected ~170 MB.
+The guest page cache eats ~100 MB of each VM's RAM allocation for
+nix store data that's already cached on the host.
+
+### Solution: Virtio-PMEM with FSDAX
+
+Virtio-pmem maps a host file directly into the guest's physical address
+space as a PCI BAR (persistent memory device). With erofs FSDAX, the
+guest reads files by accessing host pages directly through EPT — no
+guest page cache allocation, no data copies.
+
+```
+Current (virtio-blk + erofs):
+  Guest read → block I/O → virtqueue → host reads file → copies to guest RAM
+  Data copies: 2 (host cache + guest cache)
+
+Phase 7 (virtio-pmem + erofs FSDAX):
+  Guest read → memory load → EPT translation → host mmap'd page
+  Data copies: 1 (host page cache only, shared across all VMs)
+```
+
+### Step 7a: Check microvm.nix virtio-pmem support
+
+The microvm.nix module may already support virtio-pmem for the store disk.
+Check the module's options for a `storeOnPmem` or similar flag.
+
+```bash
+# On Node B, check what the generated microvm-run script does
+cat /nix/store/...-microvm-run/bin/microvm-run | grep -E '(pmem|disk|store)'
+```
+
+If microvm.nix doesn't support pmem natively, we need to modify the
+cloud-hypervisor@ ExecStart in `ovh-node.nix` to:
+1. Remove the erofs `--disk` entry from the generated microvm-run script
+2. Add `--pmem file=<erofs-image>,discard_writes=on` instead
+
+### Step 7b: Build uncompressed erofs image
+
+FSDAX requires uncompressed erofs. The microvm.nix module may build
+compressed erofs by default. Check and override if needed:
 
 ```nix
-swapDevices = [{
-  device = "/swapfile";
-  size = 16384;  # 16 GB in MB
-}];
-```
-
-This creates `/swapfile` on first `nixos-rebuild switch`. NixOS handles
-`mkswap` and `swapon` automatically.
-
-### Step 1b: Capacity gate in ensure_running
-
-**File:** `hypervisor/src/sandbox/mod.rs`
-
-Before spawning a new VM in `ensure_running()`, check:
-
-```rust
-/// Check system capacity before spawning a new VM.
-fn check_capacity(entries: &HashMap<String, UserSandboxes>) -> Result<(), String> {
-    // Count running VMs
-    let running: usize = entries.values()
-        .map(|u| {
-            u.roles.values().filter(|e| e.status == SandboxStatus::Running).count()
-            + u.branches.values().filter(|e| e.status == SandboxStatus::Running).count()
-        })
-        .sum();
-
-    const MAX_VMS: usize = 50;
-    if running >= MAX_VMS {
-        return Err(format!(
-            "Server at capacity ({running}/{MAX_VMS} VMs). Please try again in 30 seconds."
-        ));
-    }
-
-    // Check available memory from /proc/meminfo
-    if let Ok(avail_mb) = read_available_memory_mb() {
-        const MIN_AVAILABLE_MB: u64 = 1024;  // 1 GB minimum
-        if avail_mb < MIN_AVAILABLE_MB {
-            return Err(format!(
-                "Insufficient memory ({avail_mb} MB available). Please try again in 30 seconds."
-            ));
-        }
-    }
-
-    Ok(())
-}
-```
-
-Add to middleware: return 503 with `Retry-After: 30` header when
-capacity check fails.
-
-## Phase 2: Adaptive Idle Watchdog
-
-**File:** `hypervisor/src/sandbox/mod.rs`
-
-Replace the fixed-timeout watchdog loop with pressure-aware logic:
-
-```rust
-fn effective_idle_timeout(&self) -> Duration {
-    let avail_pct = match read_memory_percent_available() {
-        Ok(pct) => pct,
-        Err(_) => return self.idle_timeout,  // fallback to configured
-    };
-
-    if avail_pct > 60 {
-        self.idle_timeout                    // normal: 30 min
-    } else if avail_pct > 30 {
-        Duration::from_secs(300)             // warning: 5 min
-    } else if avail_pct > 15 {
-        Duration::from_secs(30)              // high: 30 sec
-    } else {
-        Duration::from_secs(0)               // critical: immediate
-    }
-}
-```
-
-At critical pressure (<15% available), also force-hibernate the N
-least-recently-active VMs needed to reclaim memory, regardless of
-idle duration.
-
-Helper to read `/proc/meminfo`:
-
-```rust
-fn read_available_memory_mb() -> anyhow::Result<u64> {
-    let contents = std::fs::read_to_string("/proc/meminfo")?;
-    for line in contents.lines() {
-        if line.starts_with("MemAvailable:") {
-            let kb: u64 = line.split_whitespace().nth(1)
-                .and_then(|s| s.parse().ok())
-                .ok_or_else(|| anyhow::anyhow!("parse error"))?;
-            return Ok(kb / 1024);
-        }
-    }
-    Err(anyhow::anyhow!("MemAvailable not found"))
-}
-
-fn read_memory_percent_available() -> anyhow::Result<u64> {
-    let contents = std::fs::read_to_string("/proc/meminfo")?;
-    let mut total_kb = 0u64;
-    let mut avail_kb = 0u64;
-    for line in contents.lines() {
-        if line.starts_with("MemTotal:") {
-            total_kb = line.split_whitespace().nth(1)
-                .and_then(|s| s.parse().ok()).unwrap_or(0);
-        } else if line.starts_with("MemAvailable:") {
-            avail_kb = line.split_whitespace().nth(1)
-                .and_then(|s| s.parse().ok()).unwrap_or(0);
-        }
-    }
-    if total_kb == 0 { return Err(anyhow::anyhow!("no MemTotal")); }
-    Ok(avail_kb * 100 / total_kb)
-}
-```
-
-## Phase 3: Nix-Store Squashfs Image
-
-### Step 3a: Build squashfs in flake.nix
-
-**File:** `flake.nix`
-
-Add a new package that builds a squashfs image from the sandbox VM's
-nix store closure:
-
-```nix
-packages.${system}.nix-store-image = let
-  # Get the closure of the sandbox NixOS system
-  sandboxSystem = self.nixosConfigurations.choiros-ch-sandbox-live
-    .config.system.build.toplevel;
-in pkgs.stdenv.mkDerivation {
-  name = "nix-store-squashfs";
-  nativeBuildInputs = [ pkgs.squashfsTools ];
-  dontUnpack = true;
-  buildPhase = ''
-    # Export the closure paths
-    nix-store --query --requisites ${sandboxSystem} > closure-paths.txt
-
-    # Build squashfs from those paths
-    mksquashfs $(cat closure-paths.txt) nix-store.squashfs \
-      -comp lz4 -Xhc -no-xattrs -all-root \
-      -root-becomes nix/store
-  '';
-  installPhase = ''
-    mkdir -p $out
-    mv nix-store.squashfs $out/
-  '';
+# In sandbox-vm.nix or flake.nix, if microvm supports it:
+microvm.storeOnDisk = {
+  format = "erofs";
+  compression = "none";  # Required for FSDAX
 };
 ```
 
-**Alternative (simpler):** Use `pkgs.makeSquashfs` or the
-`closureInfo` pattern from nixpkgs. The key is that the squashfs
-contains all nix store paths needed by the sandbox VM, mounted so
-the guest sees them at `/nix/store/`.
+If microvm.nix doesn't expose this, we may need to build the erofs image
+ourselves with `mkfs.erofs` (no compression flag).
 
-### Step 3b: Deploy squashfs to host
+### Step 7c: Modify cloud-hypervisor@ to use --pmem
 
-The squashfs image needs to be on the host at a known path. Options:
+**File:** `nix/hosts/ovh-node.nix`
 
-**Option A (nix store):** Reference it in the NixOS config as a store
-path. `nixos-rebuild switch` pulls it into `/nix/store/` automatically.
-The cloud-hypervisor unit reads the path from config.
+In the sed transforms for the cloud-hypervisor@ ExecStart, replace the
+erofs `--disk` with `--pmem`:
 
-**Option B (fixed path):** Copy to `/opt/choiros/nix-store.squashfs`
-during deploy. Simpler for the systemd unit to reference.
+```bash
+# After copying and modifying microvm-run:
+# Remove the erofs --disk line and add --pmem instead
+EROFS_IMAGE=$(grep -oP '(?<=path=)\S+\.erofs' "${STATE_DIR}/.microvm-run")
+sed -i '/\.erofs/d' "${STATE_DIR}/.microvm-run"
 
-Recommended: **Option A** — stays in nix store, no manual copy step.
-The path is injected into the cloud-hypervisor unit via the NixOS
-config (same as vmRunnerLive today).
-
-## Phase 4: Drop Virtiofs, Enable KSM
-
-### Step 4a: Remove virtiofs shares from guest config
-
-**File:** `nix/ch/sandbox-vm.nix`
-
-```nix
-# BEFORE:
-shares = [
-  { proto = "virtiofs"; tag = "nix-store"; ... }
-  { proto = "virtiofs"; tag = "choiros-creds"; ... }
-];
-
-# AFTER:
-shares = [];  # All virtiofs shares removed (ADR-0018)
+# Add --pmem before --api-socket
+sed -i "s|--api-socket|--pmem file=${EROFS_IMAGE},discard_writes=on --api-socket|" \
+  "${STATE_DIR}/.microvm-run"
 ```
 
-### Step 4b: Add nix-store squashfs as second virtio-blk
+### Step 7d: Guest mount with FSDAX
 
-**File:** `nix/ch/sandbox-vm.nix`
+The guest kernel should detect the virtio-pmem device as `/dev/pmem0`.
+The erofs filesystem needs to be mounted with DAX enabled.
 
-```nix
-volumes = [
-  {
-    image = "data.img";
-    mountPoint = "/opt/choiros/data/sandbox";
-    size = 2048;
-  }
-  # Nix-store squashfs image — shared read-only across all VMs
-  # Cloud-hypervisor --disk readonly=on,path=/nix/store/.../nix-store.squashfs
-  # Guest mounts as squashfs at /nix/store
-];
-```
-
-The microvm.nix module may not natively support a shared read-only
-squashfs. If not, add the `--disk` flag directly in the
-cloud-hypervisor ExecStart script (Phase 4d).
-
-### Step 4c: Mount squashfs as /nix/store in guest
-
-**File:** `nix/ch/sandbox-vm.nix`
-
-Add a guest fstab entry or systemd mount for the squashfs block device:
+Check if the microvm.nix initrd handles pmem devices automatically.
+If not, the guest needs a filesystem entry:
 
 ```nix
+# In sandbox-vm.nix
 fileSystems."/nix/store" = {
-  device = "/dev/vdb";  # second virtio-blk device
-  fsType = "squashfs";
-  options = [ "ro" ];
+  device = "/dev/pmem0";
+  fsType = "erofs";
+  options = [ "ro" "dax" ];
 };
 ```
 
-The first virtio-blk is `/dev/vda` (data.img), second is `/dev/vdb`
-(nix-store.squashfs).
+This may conflict with the microvm module's auto-generated mount. Use
+`lib.mkForce` if needed.
 
-### Step 4d: Modify cloud-hypervisor ExecStart
-
-**File:** `nix/hosts/ovh-node.nix`
-
-In the cloud-hypervisor@ service ExecStart, replace the sed-based
-microvm-run approach with a direct cloud-hypervisor invocation that:
-
-1. Removes `--fs` (no more virtiofs sockets)
-2. Changes `--memory` to `shared=off,mergeable=on,size=1024M`
-3. Adds second `--disk` for the squashfs image: `readonly=on,path=<squashfs-path>`
+### Step 7e: Verify and measure
 
 ```bash
-exec cloud-hypervisor \
-  --cpus boot=2 \
-  --memory shared=off,mergeable=on,size=1024M \
-  --kernel $KERNEL --initramfs $INITRD --cmdline "$CMDLINE" \
-  --disk path=data.img,readonly=off \
-        path=$NIX_STORE_IMAGE,readonly=on \
-  --net mac=$VM_MAC,tap=$TAP \
-  --api-socket $API_SOCK \
-  --serial tty --console null --watchdog --seccomp true
+# On Node B, after deploying Phase 7:
+
+# 1. Verify pmem device exists in guest
+ssh guest 'ls -la /dev/pmem*'
+
+# 2. Verify FSDAX mount
+ssh guest 'mount | grep nix/store'
+# Should show: /dev/pmem0 on /nix/store type erofs (ro,dax)
+
+# 3. Verify no guest page cache for nix store
+ssh guest 'cat /proc/meminfo | grep -E "(Cached|Active.file)"'
+# Cached should be much lower than before (~100 MB less)
+
+# 4. Measure per-VM RSS from host
+ps -eo rss,comm | grep cloud-hyperviso | \
+  awk '{sum+=$1; n++} END {printf "avg: %d MB (n=%d)\n", sum/n/1024, n}'
+# Should be ~330 MB instead of ~443 MB
+
+# 5. Test snapshot/restore with pmem
+ovh-runtime-ctl hibernate <instance>
+ovh-runtime-ctl ensure <instance>
+curl http://10.0.0.x:8080/health
 ```
 
-### Step 4e: Remove virtiofsd@ service dependency
+### Step 7f: KSM behavior with pmem
 
-**File:** `nix/hosts/ovh-node.nix`
+With virtio-pmem, the nix store pages are in the host page cache (shared
+across VMs), not in guest RAM. This means:
 
-- Remove `requires = [ "virtiofsd@%i.service" ]` from cloud-hypervisor@
-- Remove `after = [ "virtiofsd@%i.service" ]` from cloud-hypervisor@
-- Remove the virtiofsd@ service definition entirely
-- Remove the virtiofs socket wait loop from ExecStart
+- KSM doesn't need to dedup nix store pages (they're already shared)
+- KSM still deduplicates guest kernel + application pages
+- Total KSM savings may be lower in absolute terms but per-VM RSS is lower
+- The net effect is better density
 
-### Step 4f: Credential injection via kernel cmdline (IMPLEMENTED)
+### Risks and Rollback
 
-Without virtiofs, the gateway token can no longer reach the guest via
-a mounted EnvironmentFile. Solution: inject via kernel cmdline.
+- If FSDAX doesn't work with the microvm.nix-generated erofs image
+  (e.g., compressed), we stay on virtio-blk (current, working)
+- If snapshot/restore breaks with pmem, we stay on virtio-blk
+- Rollback: revert the sed changes in ovh-node.nix (erofs --disk still works)
 
-**Flow:** hypervisor writes token to state dir → cloud-hypervisor@ unit
-reads it and appends `choir.gateway_token=<TOKEN>` to `--cmdline` →
-guest oneshot extracts from `/proc/cmdline` → writes `/run/choiros-sandbox.env`
-→ sandbox service reads via `EnvironmentFile`.
+### Experiment Plan (Node B)
 
-**Files changed:**
-- `hypervisor/src/sandbox/systemd.rs`: `ensure()` writes `gateway-token` file
-- `hypervisor/src/sandbox/mod.rs`: passes `provider_gateway_token` to `ensure()`
-- `nix/hosts/ovh-node.nix`: cloud-hypervisor@ reads token file, seds into cmdline
-- `nix/ch/sandbox-vm.nix`: `choir-extract-cmdline-secrets` oneshot + EnvironmentFile
+1. SSH into Node B, manually test `--pmem` with one VM
+2. If it works, update nix config and rebuild
+3. Run heterogeneous load test to validate
+4. Measure per-VM RSS and compare to current ~443 MB
+5. If validated (< 350 MB per-VM), promote to Node A
 
-The sandbox reads `CHOIR_PROVIDER_GATEWAY_TOKEN` from its process
-environment (see sandbox/src/actors/model_config.rs:531).
+---
 
-## Phase 5: Verify KSM
+## Files to Modify (Phase 7)
 
-After deploying Phases 3-4, verify KSM is working:
-
-```bash
-# On Node B, after VMs boot with shared=off,mergeable=on:
-cat /sys/kernel/mm/ksm/run          # should be 1
-cat /sys/kernel/mm/ksm/pages_scanned # should be > 0 (within minutes)
-cat /sys/kernel/mm/ksm/pages_shared  # should be > 0 (identical pages found)
-cat /sys/kernel/mm/ksm/pages_sharing # should be > pages_shared (many-to-one)
-
-# Per-VM RSS should drop from ~338 MB to ~170 MB after KSM converges
-ps -eo rss,comm | grep cloud-hyperviso | awk '{sum+=$1; n++} END {printf "avg: %d MB\n", sum/n/1024}'
-```
-
-## Phase 6: Load Test
-
-Re-run the heterogeneous load test with the new configuration:
-
-```bash
-PLAYWRIGHT_HYPERVISOR_BASE_URL=https://draft.choir-ip.com \
-  npx playwright test heterogeneous-load-test.spec.ts --project=hypervisor
-```
-
-Compare against the Phase 4 (pre-ADR-0018) baseline:
-- Per-VM RSS (expect ~170 MB vs 338 MB)
-- virtiofsd count (expect 0 vs 172)
-- Max concurrent VMs before pressure
-- VM boot time (expect ~8-10s vs ~12s)
-- KSM pages_shared / pages_sharing
-
-## Files to Modify (Summary)
-
-| File | Phase | Change |
-|------|-------|--------|
-| `nix/hosts/ovh-node-b-disks.nix` | 1 | Add 16 GB swapfile |
-| `nix/hosts/ovh-node-a-disks.nix` | 1 | Add 16 GB swapfile |
-| `hypervisor/src/sandbox/mod.rs` | 1,2 | Capacity gate + adaptive watchdog |
-| `flake.nix` | 3 | Nix-store squashfs image package |
-| `nix/ch/sandbox-vm.nix` | 4 | Remove shares, add squashfs volume, update mounts |
-| `nix/hosts/ovh-node.nix` | 4 | Remove virtiofsd@, update cloud-hypervisor@ |
+| File | Change |
+|------|--------|
+| `nix/hosts/ovh-node.nix` | cloud-hypervisor@ sed: replace erofs --disk with --pmem |
+| `nix/ch/sandbox-vm.nix` | Possibly add /nix/store FSDAX mount (if initrd doesn't handle) |
+| `flake.nix` | Possibly override erofs compression to none |
 
 ## What NOT to Do
 
-- Don't build per-user squashfs images — one shared image for all VMs
-- Don't add the squashfs to the data.img — it's a separate read-only disk
-- Don't keep virtiofsd "just in case" — it's the entire memory bottleneck
-- Don't skip swap — it's the cheapest safety net
-- Don't set swap too small — 16 GB on 444 GB free disk is negligible
+- Don't build a separate erofs image — microvm.nix already handles it
+- Don't remove KSM — it still helps with non-nix-store pages
+- Don't skip THP=never — still needed for KSM on guest RAM pages
+- Don't test on Node A first — use Node B for experiments

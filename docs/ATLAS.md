@@ -27,7 +27,7 @@ decoupling for publishing (ADR-0011, P3).
 <details open>
 <summary><h2>Theory (What We're Thinking)</h2></summary>
 
-- **[P1]** ADR-0018: Drop Virtiofs, Enable KSM, Adaptive VM Capacity Management — Decision (Draft) | Requires: [ADR-0014, ADR-0016]  
+- **[P1]** ADR-0018: Drop Virtiofs, Enable KSM, Adaptive VM Capacity Management — Decision (Accepted (Phases 1-6 deployed), Phase 7 planned) | Requires: [ADR-0014, ADR-0016]  
   `docs/theory/decisions/adr-0018-drop-virtiofs-adaptive-capacity.md`
 - **[P1]** Implementing ADR-0018: Drop Virtiofs, Adaptive Capacity — Guide (Active) | Requires: [ADR-0018]  
   `docs/theory/guides/adr-0018-implementation.md`
@@ -69,6 +69,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/notes/nix-bench.md`
 - **[P5]** ChoirOS Roadmap Dependency Tree (Active) — Note (Active)  
   `docs/theory/notes/roadmap-dependency-tree.md`
+- **[P5]** The Virtio Ecosystem: From Hardware Emulation to MicroVM Density — ? (?)  
+  `docs/theory/virtio-ecosystem.md`
 
 </details>
 
@@ -177,4 +179,4 @@ ADR-0018 → Implementing ADR-0018: Drop Virtiofs, Adaptive Capacity
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-09 — 23 practice, 21 theory, 15 state docs.*
+*Generated 2026-03-09 — 23 practice, 22 theory, 15 state docs.*
