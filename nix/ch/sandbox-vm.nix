@@ -33,20 +33,29 @@
     shares = [];
   };
 
-  # ADR-0018 Phase 7: virtio-pmem support.
-  # Force-load virtio_pmem via boot.initrd.kernelModules so it appears in
-  # /etc/modules-load.d/nixos.conf — the same path that loads virtio_pci.
-  # availableKernelModules only copies .ko files into the initrd without
-  # loading them. systemd.contents conf files didn't work (modules-load
-  # reported success but virtio_pmem never loaded — likely broken symlink
-  # or modprobe failure masked by the service).
-  boot.initrd.kernelModules = [
-    "virtio_pmem"
-  ];
-  boot.initrd.availableKernelModules = [
-    "nd_pmem" "nd_virtio" "libnvdimm"
-    "dax" "dax_pmem"
-  ];
+  # ADR-0018 Phase 7 + ADR-0020: virtio-pmem with kernel built-in driver.
+  # Build virtio_pmem and libnvdimm directly into the kernel (=y) instead
+  # of loading them as modules. Module loading in the microvm systemd initrd
+  # has unresolved timing/probe issues — the module loads but never binds to
+  # the PCI device. Built-in eliminates this entirely: the driver is present
+  # during PCI enumeration and probes immediately.
+  # Security: built-in is the industry standard for microVM guest kernels
+  # (Kata, Firecracker). Eliminates the module loader attack surface.
+  boot.kernelPatches = [{
+    name = "virtio-pmem-builtin";
+    patch = null;
+    extraStructuredConfig = with lib.kernel; {
+      VIRTIO_PMEM = yes;
+      LIBNVDIMM = yes;
+      ND_VIRTIO = yes;
+    };
+  }];
+
+  # Uncompressed erofs for DAX support. Compressed erofs (lz4) cannot use
+  # DAX because decompression requires a page cache buffer. Uncompressed
+  # erofs is ~25-35% larger on disk but enables zero-copy DAX reads:
+  # guest accesses host page cache directly via EPT, no guest page cache.
+  microvm.storeDiskErofsFlags = [];
 
   # Override nix-store mount: use /dev/pmem0 instead of /dev/disk/by-label/nix-store.
   # The microvm module generates a by-label mount, but pmem devices don't
@@ -54,7 +63,7 @@
   fileSystems."/nix/store" = lib.mkForce {
     device = "/dev/pmem0";
     fsType = "erofs";
-    options = [ "x-initrd.mount" "x-systemd.after=systemd-modules-load.service" "ro" ];
+    options = [ "x-initrd.mount" "dax" "ro" ];
   };
 
   # With pmem, erofs is no longer a --disk device. data.img moves from
