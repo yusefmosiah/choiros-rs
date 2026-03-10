@@ -40,11 +40,12 @@
     "dax" "dax_pmem"
   ];
 
-  # Tell systemd-modules-load in the initrd to load virtio_pmem.
-  # boot.initrd.kernelModules doesn't populate modules-load.d/nixos.conf
-  # in the microvm systemd initrd. Injecting the file directly via
-  # boot.initrd.systemd.contents bypasses that NixOS/microvm issue.
-  boot.initrd.systemd.contents."/etc/modules-load.d/virtio-pmem.conf".text = ''
+  # Load virtio_pmem BEFORE virtio_pci so the driver is registered when
+  # virtio-pci probes the bus. modules-load.d files are processed in
+  # alphabetical order — "00-" prefix ensures this loads before nixos.conf
+  # (which contains virtio_pci). Without this ordering, virtio-pci enables
+  # the pmem PCI device but finds no matching virtio driver.
+  boot.initrd.systemd.contents."/etc/modules-load.d/00-virtio-pmem.conf".text = ''
     virtio_pmem
   '';
 
