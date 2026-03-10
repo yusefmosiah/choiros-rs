@@ -91,11 +91,8 @@
       NFC = no;
       CAN = no;
       PCMCIA = no;
-      # HWMON, THERMAL, I2C, SPI: can't disable — selected by ACPI/HWMON
-      # dependency chain. Harmless no-ops in a microVM.
-      W1 = no;
-      POWER_SUPPLY = no;
-      LEDS = no;
+      # HWMON, THERMAL, I2C, SPI, W1, POWER_SUPPLY, LEDS: can't disable —
+      # selected by ACPI/HWMON/I2C dependency chain. Harmless in a microVM.
       ACCESSIBILITY = lib.mkForce no;
       GREYBUS = no;
       # --- Storage not needed (only virtio-blk + virtio-pmem) ---
