@@ -33,6 +33,13 @@
     shares = [];
   };
 
+  # Disabling parent subsystems (DRM, BT, SCSI, etc.) makes their
+  # sub-options from NixOS common-config.nix "unused". Without this,
+  # generate-config.pl treats unused options as errors (154 of them).
+  boot.kernelPackages = pkgs.linuxPackagesFor (pkgs.linuxPackages_latest.kernel.override {
+    ignoreConfigErrors = true;
+  });
+
   # ADR-0020: Build all VM-essential drivers as kernel built-ins.
   # Industry standard for microVM guests (Kata, Firecracker): eliminates
   # the module loader attack surface and all module loading timing issues.
