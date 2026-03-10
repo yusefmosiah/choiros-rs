@@ -67,6 +67,8 @@
       # Neither is needed in a microVM (physical NVDIMM hardware only).
       ACPI_NFIT = no;
       X86_PMEM_LEGACY = no;
+      # PVH boot entry point (required by cloud-hypervisor, depends on XEN)
+      PVH = yes;
       # Core virtio transport (VIRTIO_RING is auto-selected by VIRTIO)
       VIRTIO = yes;
       VIRTIO_PCI = yes;
@@ -143,7 +145,8 @@
       # --- Virtualization not needed inside guest ---
       KVM = no;
       VHOST = no;
-      XEN = lib.mkForce no;
+      # XEN must stay enabled — CONFIG_PVH depends on CONFIG_XEN,
+      # and cloud-hypervisor requires the PVH boot entry point.
       # --- Misc not needed in microVM ---
       PCSPKR_PLATFORM = no;
       HIBERNATION = no;
