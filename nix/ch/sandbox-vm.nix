@@ -34,20 +34,19 @@
   };
 
   # ADR-0018 Phase 7: virtio-pmem support.
-  # Include pmem/dax kernel modules in the initrd filesystem.
+  # Force-load virtio_pmem via boot.initrd.kernelModules so it appears in
+  # /etc/modules-load.d/nixos.conf — the same path that loads virtio_pci.
+  # availableKernelModules only copies .ko files into the initrd without
+  # loading them. systemd.contents conf files didn't work (modules-load
+  # reported success but virtio_pmem never loaded — likely broken symlink
+  # or modprobe failure masked by the service).
+  boot.initrd.kernelModules = [
+    "virtio_pmem"
+  ];
   boot.initrd.availableKernelModules = [
-    "virtio_pmem" "nd_pmem" "nd_virtio" "libnvdimm"
+    "nd_pmem" "nd_virtio" "libnvdimm"
     "dax" "dax_pmem"
   ];
-
-  # Load virtio_pmem BEFORE virtio_pci so the driver is registered when
-  # virtio-pci probes the bus. modules-load.d files are processed in
-  # alphabetical order — "00-" prefix ensures this loads before nixos.conf
-  # (which contains virtio_pci). Without this ordering, virtio-pci enables
-  # the pmem PCI device but finds no matching virtio driver.
-  boot.initrd.systemd.contents."/etc/modules-load.d/00-virtio-pmem.conf".text = ''
-    virtio_pmem
-  '';
 
   # Override nix-store mount: use /dev/pmem0 instead of /dev/disk/by-label/nix-store.
   # The microvm module generates a by-label mount, but pmem devices don't
