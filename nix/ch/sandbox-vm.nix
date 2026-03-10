@@ -49,12 +49,22 @@
     description = "Load virtio_pmem kernel module";
     wantedBy = [ "sysinit.target" ];
     before = [ "sysroot-nix-store.mount" ];
+    after = [ "systemd-udevd.service" ];
     unitConfig.DefaultDependencies = false;
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      ExecStart = "/bin/modprobe virtio_pmem";
     };
+    script = ''
+      modprobe virtio_pmem || true
+      # Wait briefly for udev to create /dev/pmem0
+      for i in $(seq 1 10); do
+        [ -e /dev/pmem0 ] && exit 0
+        sleep 0.5
+      done
+      echo "Warning: /dev/pmem0 did not appear after modprobe"
+      ls -la /dev/pmem* /dev/nd* 2>/dev/null || true
+    '';
   };
 
   # Override nix-store mount: use /dev/pmem0 instead of /dev/disk/by-label/nix-store.
