@@ -36,11 +36,22 @@
   # ADR-0020: Build all VM-essential drivers as kernel built-ins.
   # Industry standard for microVM guests (Kata, Firecracker): eliminates
   # the module loader attack surface and all module loading timing issues.
-  # The microvm module sets these as =m by default; we override to =y.
+  #
+  # Kconfig ordering note: NixOS generate-config.pl runs `make config` which
+  # processes Kconfig files in source order. ACPI_NFIT (drivers/acpi/) is
+  # processed early and `select LIBNVDIMM`, causing autoModules to set
+  # LIBNVDIMM=m before VIRTIO_PMEM (drivers/virtio/) is asked. We disable
+  # ACPI_NFIT (not needed in a microVM — it's for physical NVDIMM hardware)
+  # so LIBNVDIMM starts as =n, allowing the two-pass config resolution to
+  # set LIBNVDIMM=y before VIRTIO_PMEM is asked in the second pass.
   boot.kernelPatches = [{
     name = "microvm-builtins";
     patch = null;
     structuredExtraConfig = with lib.kernel; {
+      # Disable ACPI NFIT (physical NVDIMM tables, not needed in VM).
+      # Prevents `select LIBNVDIMM` from forcing LIBNVDIMM=m before
+      # VIRTIO_PMEM is processed in Kconfig order.
+      ACPI_NFIT = no;
       # Core virtio transport
       VIRTIO = yes;
       VIRTIO_PCI = yes;
