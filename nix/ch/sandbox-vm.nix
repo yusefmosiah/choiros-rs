@@ -45,6 +45,10 @@
     name = "virtio-pmem-builtin";
     patch = null;
     structuredExtraConfig = with lib.kernel; {
+      # VIRTIO_PMEM depends on VIRTIO + LIBNVDIMM. A =y config cannot
+      # depend on =m configs, so the entire dependency chain must be =y.
+      VIRTIO = yes;
+      VIRTIO_PCI = yes;
       VIRTIO_PMEM = yes;
       LIBNVDIMM = yes;
       ND_VIRTIO = yes;
