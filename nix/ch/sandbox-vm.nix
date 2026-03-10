@@ -40,32 +40,13 @@
     "dax" "dax_pmem"
   ];
 
-  # Custom initrd oneshot to load virtio_pmem before the /nix/store mount.
+  # Tell systemd-modules-load in the initrd to load virtio_pmem.
   # boot.initrd.kernelModules doesn't populate modules-load.d/nixos.conf
-  # in the microvm systemd initrd, and rd.modules_load= via cmdline causes
-  # systemd-modules-load.service to fail (encrypted_key cipher dependency).
-  # This targeted modprobe bypasses both issues.
-  boot.initrd.systemd.services.load-virtio-pmem = {
-    description = "Load virtio_pmem kernel module";
-    wantedBy = [ "sysinit.target" ];
-    before = [ "sysroot-nix-store.mount" ];
-    after = [ "systemd-udevd.service" ];
-    unitConfig.DefaultDependencies = false;
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-    };
-    script = ''
-      modprobe virtio_pmem || true
-      # Wait briefly for udev to create /dev/pmem0
-      for i in $(seq 1 10); do
-        [ -e /dev/pmem0 ] && exit 0
-        sleep 0.5
-      done
-      echo "Warning: /dev/pmem0 did not appear after modprobe"
-      ls -la /dev/pmem* /dev/nd* 2>/dev/null || true
-    '';
-  };
+  # in the microvm systemd initrd. Injecting the file directly via
+  # boot.initrd.systemd.contents bypasses that NixOS/microvm issue.
+  boot.initrd.systemd.contents."/etc/modules-load.d/virtio-pmem.conf".text = ''
+    virtio_pmem
+  '';
 
   # Override nix-store mount: use /dev/pmem0 instead of /dev/disk/by-label/nix-store.
   # The microvm module generates a by-label mount, but pmem devices don't
@@ -73,7 +54,7 @@
   fileSystems."/nix/store" = lib.mkForce {
     device = "/dev/pmem0";
     fsType = "erofs";
-    options = [ "x-initrd.mount" "x-systemd.after=load-virtio-pmem.service" "ro" ];
+    options = [ "x-initrd.mount" "x-systemd.after=systemd-modules-load.service" "ro" ];
   };
 
   # With pmem, erofs is no longer a --disk device. data.img moves from

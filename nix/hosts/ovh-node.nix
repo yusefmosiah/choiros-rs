@@ -398,15 +398,6 @@
             # size= is required: cloud-hypervisor needs to allocate guest address space
             # for both RAM (1024 MB) and pmem. Without it → PmemRangeAllocation error.
             ${pkgs.gnused}/bin/sed -i "s|--api-socket|--pmem file=''${PADDED_EROFS},discard_writes=on,size=''${ALIGNED_SIZE} --api-socket|" "''${STATE_DIR}/.microvm-run"
-
-            # Inject rd.modules_load into kernel cmdline so initrd loads virtio_pmem.
-            # boot.initrd.kernelModules in sandbox-vm.nix doesn't populate
-            # modules-load.d/nixos.conf (microvm module may override).
-            # rd.modules_load= is the systemd initrd variant — underscore not hyphen,
-            # comma-separated list (per systemd-modules-load.service(8) man page).
-            ${pkgs.gnused}/bin/sed -i \
-              "s|' --seccomp| rd.modules_load=virtio_pmem,nd_virtio,nd_pmem,libnvdimm' --seccomp|" \
-              "''${STATE_DIR}/.microvm-run"
           fi
 
           # Inject gateway token into kernel --cmdline (append before closing quote)
