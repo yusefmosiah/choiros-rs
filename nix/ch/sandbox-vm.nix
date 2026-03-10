@@ -44,7 +44,7 @@
   boot.kernelPatches = [{
     name = "virtio-pmem-builtin";
     patch = null;
-    extraStructuredConfig = with lib.kernel; {
+    structuredExtraConfig = with lib.kernel; {
       VIRTIO_PMEM = yes;
       LIBNVDIMM = yes;
       ND_VIRTIO = yes;
