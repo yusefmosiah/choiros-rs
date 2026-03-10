@@ -47,6 +47,7 @@
   boot.kernelPatches = [{
     name = "microvm-builtins";
     patch = null;
+    # Options that conflict with NixOS common-config.nix need lib.mkForce.
     structuredExtraConfig = with lib.kernel; {
       # Disable options that `select LIBNVDIMM` and are processed before
       # VIRTIO_PMEM in Kconfig order. Without these, autoModules sets them
@@ -69,15 +70,16 @@
       EXT4_FS = yes;
 
       # --- Disable hardware not present in microVMs ---
+      # Options marked mkForce override NixOS common-config.nix defaults.
       USB_SUPPORT = no;
       SOUND = no;
-      DRM = no;
+      DRM = lib.mkForce no;
       WIRELESS = no;
       WLAN = no;
       BT = no;
       INPUT_KEYBOARD = no;
       INPUT_MOUSE = no;
-      INPUT_JOYSTICK = no;
+      INPUT_JOYSTICK = lib.mkForce no;
       INPUT_TABLET = no;
       INPUT_TOUCHSCREEN = no;
       GAMEPORT = no;
@@ -85,24 +87,24 @@
       ISDN = no;
       MTD = no;
       MEDIA_SUPPORT = no;
-      INFINIBAND = no;
+      INFINIBAND = lib.mkForce no;
       NFC = no;
       CAN = no;
       PCMCIA = no;
-      HWMON = no;
+      HWMON = lib.mkForce no;
       THERMAL = no;
-      I2C = no;
-      SPI = no;
+      I2C = lib.mkForce no;
+      SPI = lib.mkForce no;
       W1 = no;
       POWER_SUPPLY = no;
       LEDS = no;
-      ACCESSIBILITY = no;
+      ACCESSIBILITY = lib.mkForce no;
       GREYBUS = no;
       # --- Storage not needed (only virtio-blk + virtio-pmem) ---
       ATA = no;
       SCSI = no;
-      MD = no;
-      FUSION = no;
+      MD = lib.mkForce no;
+      FUSION = lib.mkForce no;
       TARGET_CORE = no;
       # --- Filesystems not needed (only erofs + ext4 + tmpfs + proc + sysfs) ---
       BTRFS_FS = no;
@@ -111,12 +113,12 @@
       JFS_FS = no;
       GFS2_FS = no;
       OCFS2_FS = no;
-      F2FS_FS = no;
+      F2FS_FS = lib.mkForce no;
       NTFS_FS = no;
       NTFS3_FS = no;
       VFAT_FS = no;
       EXFAT_FS = no;
-      NFS_FS = no;
+      NFS_FS = lib.mkForce no;
       NFSD = no;
       CIFS = no;
       FUSE_FS = no;
@@ -128,20 +130,20 @@
       TIPC = no;
       # --- Security features redundant inside VM ---
       SECURITY_SELINUX = no;
-      SECURITY_APPARMOR = no;
+      SECURITY_APPARMOR = lib.mkForce no;
       SECURITY_SMACK = no;
       SECURITY_TOMOYO = no;
       # --- Virtualization not needed inside guest ---
       KVM = no;
       VHOST = no;
-      XEN = no;
+      XEN = lib.mkForce no;
       # --- Misc not needed in microVM ---
       PCSPKR_PLATFORM = no;
       HIBERNATION = no;
       ACPI_AC = no;
       ACPI_BATTERY = no;
       ACPI_FAN = no;
-      MICROCODE = no;
+      MICROCODE = lib.mkForce no;
     };
   }];
 
