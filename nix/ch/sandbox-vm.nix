@@ -33,35 +33,28 @@
     shares = [];
   };
 
-  # ADR-0018 Phase 7: Build virtio-pmem and its dependencies as kernel
-  # built-ins for reliable /dev/pmem0 availability at boot.
+  # ADR-0018 Phase 7: virtio-pmem kernel config.
   #
-  # lib.mkForce is required because NixOS autoModules (generate-config.pl)
-  # auto-detects ACPI_NFIT=m which `select LIBNVDIMM=m`, preventing
-  # VIRTIO_PMEM=y. Without mkForce, our structuredExtraConfig values are
-  # silently overridden by autoModules. mkForce ensures our =y/=n takes
-  # precedence over auto-detection.
+  # Note: autoModules overrides these settings (ACPI_NFIT=m selects
+  # LIBNVDIMM=m, forcing VIRTIO_PMEM=m). These end up as modules, not
+  # built-ins. The initrd.availableKernelModules below loads them in
+  # the initrd so /dev/pmem0 appears before the nix-store mount.
+  # Future: use lib.mkForce to make them true built-ins (requires
+  # kernel rebuild).
   boot.kernelPatches = [{
     name = "microvm-builtins";
     patch = null;
     structuredExtraConfig = with lib.kernel; {
-      # Disable options that `select LIBNVDIMM` and are processed before
-      # VIRTIO_PMEM in Kconfig order. Must use mkForce to override autoModules.
-      ACPI_NFIT = lib.mkForce no;
-      X86_PMEM_LEGACY = lib.mkForce no;
-      # Core virtio transport (VIRTIO_RING is auto-selected by VIRTIO)
-      VIRTIO = lib.mkForce yes;
-      VIRTIO_PCI = lib.mkForce yes;
-      # Block device (data.img /dev/vda)
-      VIRTIO_BLK = lib.mkForce yes;
-      # Network (TAP interface on br-choiros)
-      VIRTIO_NET = lib.mkForce yes;
-      # Persistent memory (nix store via --pmem, ADR-0018 Phase 7)
-      VIRTIO_PMEM = lib.mkForce yes;
-      LIBNVDIMM = lib.mkForce yes;
-      # Filesystems
-      EROFS_FS = lib.mkForce yes;
-      EXT4_FS = lib.mkForce yes;
+      ACPI_NFIT = no;
+      X86_PMEM_LEGACY = no;
+      VIRTIO = yes;
+      VIRTIO_PCI = yes;
+      VIRTIO_BLK = yes;
+      VIRTIO_NET = yes;
+      VIRTIO_PMEM = yes;
+      LIBNVDIMM = yes;
+      EROFS_FS = yes;
+      EXT4_FS = yes;
     };
   }];
 
