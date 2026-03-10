@@ -91,8 +91,8 @@
       NFC = no;
       CAN = no;
       PCMCIA = no;
-      HWMON = lib.mkForce no;
-      THERMAL = no;
+      # HWMON and THERMAL: can't disable — ACPI_THERMAL selects THERMAL,
+      # which selects HWMON. Both are harmless no-ops in a microVM.
       I2C = lib.mkForce no;
       SPI = lib.mkForce no;
       W1 = no;
