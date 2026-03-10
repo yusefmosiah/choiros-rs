@@ -371,16 +371,16 @@
             "''${RUNNER_DIR}/bin/microvm-run" > "''${STATE_DIR}/.microvm-run"
 
           # Phase 7: Convert erofs store disk from --disk to --pmem.
-          # Extract the erofs image path, remove it from --disk, add as --pmem.
           # virtio-pmem maps the file directly into guest physical memory (DAX),
           # eliminating the ~100MB guest page cache overhead per VM.
-          EROFS_PATH=$(${pkgs.gnugrep}/bin/grep -oP 'path=/nix/store/[^,]+\.erofs' "''${STATE_DIR}/.microvm-run" | head -1 | cut -d= -f2)
+          # The microvm-run has: --disk 'erofs-entry' 'data-entry'
+          # We need: --disk 'data-entry' --pmem file=<padded-erofs>,discard_writes=on
+          EROFS_PATH=$(${pkgs.gnugrep}/bin/grep -oP "path=/nix/store/[^,]+\.erofs" "''${STATE_DIR}/.microvm-run" | head -1 | cut -d= -f2)
           if [[ -n "$EROFS_PATH" ]]; then
-            # Remove the erofs --disk entry
-            ${pkgs.gnused}/bin/sed -i "s| --disk '[^']*erofs[^']*'||" "''${STATE_DIR}/.microvm-run"
-            ${pkgs.gnused}/bin/sed -i "s| *'[^']*erofs[^']*'||" "''${STATE_DIR}/.microvm-run"
-            # Also handle unquoted --disk entries: 'num_queues=2,path=...erofs,readonly=on'
-            ${pkgs.gnused}/bin/sed -i "s|'num_queues=[0-9]*,path=/nix/store/[^']*\.erofs,readonly=on' *||" "''${STATE_DIR}/.microvm-run"
+            # Replace the entire --disk section: remove erofs entry, keep data entry
+            ${pkgs.gnused}/bin/sed -i \
+              "s|--disk 'num_queues=[0-9]*,path=/nix/store/[^']*\.erofs,readonly=on' |--disk |" \
+              "''${STATE_DIR}/.microvm-run"
 
             # Pad erofs to 2MiB alignment (required by cloud-hypervisor --pmem)
             EROFS_SIZE=$(stat -c%s "$EROFS_PATH")
