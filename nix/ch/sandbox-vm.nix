@@ -33,21 +33,8 @@
     shares = [];
   };
 
-  # microVM initrd only needs virtio drivers (all built-in anyway).
-  # Override NixOS defaults which include ahci, sd_mod, etc. that we disabled.
-  boot.initrd.availableKernelModules = lib.mkForce [];
-  boot.initrd.kernelModules = lib.mkForce [];
-
-  # Disabling parent subsystems (DRM, BT, SCSI, etc.) makes their
-  # sub-options from NixOS common-config.nix "unused". Without this,
-  # generate-config.pl treats unused options as errors (154 of them).
-  boot.kernelPackages = pkgs.linuxPackagesFor (pkgs.linuxPackages_latest.kernel.override {
-    ignoreConfigErrors = true;
-  });
-
-  # ADR-0020: Build all VM-essential drivers as kernel built-ins.
-  # Industry standard for microVM guests (Kata, Firecracker): eliminates
-  # the module loader attack surface and all module loading timing issues.
+  # ADR-0018 Phase 7: Build virtio-pmem and its dependencies as kernel
+  # built-ins for reliable /dev/pmem0 availability at boot.
   #
   # Kconfig ordering note: NixOS generate-config.pl runs `make config` which
   # processes Kconfig files in source order. ACPI_NFIT (drivers/acpi/) is
@@ -59,7 +46,6 @@
   boot.kernelPatches = [{
     name = "microvm-builtins";
     patch = null;
-    # Options that conflict with NixOS common-config.nix need lib.mkForce.
     structuredExtraConfig = with lib.kernel; {
       # Disable options that `select LIBNVDIMM` and are processed before
       # VIRTIO_PMEM in Kconfig order. Without these, autoModules sets them
@@ -67,8 +53,6 @@
       # Neither is needed in a microVM (physical NVDIMM hardware only).
       ACPI_NFIT = no;
       X86_PMEM_LEGACY = no;
-      # PVH boot entry point (required by cloud-hypervisor, depends on XEN)
-      PVH = yes;
       # Core virtio transport (VIRTIO_RING is auto-selected by VIRTIO)
       VIRTIO = yes;
       VIRTIO_PCI = yes;
@@ -82,76 +66,6 @@
       # Filesystems
       EROFS_FS = yes;
       EXT4_FS = yes;
-
-      # --- Disable hardware not present in microVMs ---
-      # Options marked mkForce override NixOS common-config.nix defaults.
-      USB_SUPPORT = no;
-      SOUND = no;
-      DRM = lib.mkForce no;
-      WIRELESS = no;
-      WLAN = no;
-      BT = no;
-      INPUT_KEYBOARD = no;
-      INPUT_MOUSE = no;
-      INPUT_JOYSTICK = lib.mkForce no;
-      INPUT_TABLET = no;
-      INPUT_TOUCHSCREEN = no;
-      GAMEPORT = no;
-      PARPORT = no;
-      ISDN = no;
-      MTD = no;
-      MEDIA_SUPPORT = no;
-      INFINIBAND = lib.mkForce no;
-      NFC = no;
-      CAN = no;
-      PCMCIA = no;
-      # HWMON, THERMAL, I2C, SPI, W1, POWER_SUPPLY, LEDS: can't disable —
-      # selected by ACPI/HWMON/I2C dependency chain. Harmless in a microVM.
-      ACCESSIBILITY = lib.mkForce no;
-      GREYBUS = no;
-      # --- Storage not needed (only virtio-blk + virtio-pmem) ---
-      ATA = no;
-      SCSI = no;
-      MD = lib.mkForce no;
-      FUSION = lib.mkForce no;
-      TARGET_CORE = no;
-      # --- Filesystems not needed (only erofs + ext4 + tmpfs + proc + sysfs) ---
-      BTRFS_FS = no;
-      XFS_FS = no;
-      REISERFS_FS = no;
-      JFS_FS = no;
-      GFS2_FS = no;
-      OCFS2_FS = no;
-      F2FS_FS = lib.mkForce no;
-      NTFS_FS = no;
-      NTFS3_FS = no;
-      VFAT_FS = no;
-      EXFAT_FS = no;
-      NFS_FS = lib.mkForce no;
-      NFSD = no;
-      CIFS = no;
-      FUSE_FS = no;
-      SQUASHFS = no;
-      # --- Network protocols not needed ---
-      ATALK = no;
-      DECNET = no;
-      IPX = no;
-      TIPC = no;
-      # --- Security features redundant inside VM ---
-      SECURITY_SELINUX = no;
-      SECURITY_APPARMOR = lib.mkForce no;
-      SECURITY_SMACK = no;
-      SECURITY_TOMOYO = no;
-      # --- Virtualization not needed inside guest ---
-      KVM = no;
-      VHOST = no;
-      # XEN must stay enabled — CONFIG_PVH depends on CONFIG_XEN,
-      # and cloud-hypervisor requires the PVH boot entry point.
-      # --- Misc not needed in microVM ---
-      PCSPKR_PLATFORM = no;
-      HIBERNATION = no;
-      # ACPI_AC, ACPI_BATTERY, ACPI_FAN: can't disable — selected by ACPI.
-      MICROCODE = lib.mkForce no;
     };
   }];
 
