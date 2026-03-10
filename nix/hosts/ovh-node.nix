@@ -394,8 +394,18 @@
               truncate -s "$ALIGNED_SIZE" "$PADDED_EROFS"
             fi
 
-            # Add --pmem before --api-socket
-            ${pkgs.gnused}/bin/sed -i "s|--api-socket|--pmem file=''${PADDED_EROFS},discard_writes=on --api-socket|" "''${STATE_DIR}/.microvm-run"
+            # Add --pmem with explicit size before --api-socket.
+            # size= is required: cloud-hypervisor needs to allocate guest address space
+            # for both RAM (1024 MB) and pmem. Without it → PmemRangeAllocation error.
+            ${pkgs.gnused}/bin/sed -i "s|--api-socket|--pmem file=''${PADDED_EROFS},discard_writes=on,size=''${ALIGNED_SIZE} --api-socket|" "''${STATE_DIR}/.microvm-run"
+
+            # Inject modules_load into kernel cmdline so initrd loads virtio_pmem.
+            # boot.initrd.kernelModules in sandbox-vm.nix doesn't populate
+            # modules-load.d/nixos.conf (microvm module may override). Kernel cmdline
+            # modules_load= is the reliable alternative for initrd module loading.
+            ${pkgs.gnused}/bin/sed -i \
+              "s|' --seccomp| modules_load=virtio_pmem,nd_virtio,nd_pmem,libnvdimm' --seccomp|" \
+              "''${STATE_DIR}/.microvm-run"
           fi
 
           # Inject gateway token into kernel --cmdline (append before closing quote)
