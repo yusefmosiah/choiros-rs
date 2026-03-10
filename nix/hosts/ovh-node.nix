@@ -383,13 +383,17 @@
               "''${STATE_DIR}/.microvm-run"
 
             # Pad erofs to 2MiB alignment (required by cloud-hypervisor --pmem).
-            # Use ONE shared copy at /opt/choiros/vms/store-disk-padded.erofs
-            # (not per-VM — all VMs use the same read-only image).
-            PADDED_EROFS="/opt/choiros/vms/store-disk-padded.erofs"
+            # Filename includes nix store hash so each closure gets its own file,
+            # eliminating race conditions when multiple VMs boot concurrently
+            # during nixos-rebuild switch (previously caused MappingPastEof).
+            EROFS_HASH=$(basename "$EROFS_PATH" | cut -c1-32)
+            PADDED_EROFS="/opt/choiros/vms/store-disk-padded-''${EROFS_HASH}.erofs"
             EROFS_SIZE=$(stat -c%s "$EROFS_PATH")
             ALIGN=$((2 * 1024 * 1024))
             ALIGNED_SIZE=$(( ((EROFS_SIZE + ALIGN - 1) / ALIGN) * ALIGN ))
-            if [[ ! -f "$PADDED_EROFS" ]] || [[ $(stat -c%s "$PADDED_EROFS") -ne $ALIGNED_SIZE ]]; then
+            if [[ ! -f "$PADDED_EROFS" ]]; then
+              # Clean up old padded files from previous closures
+              rm -f /opt/choiros/vms/store-disk-padded-*.erofs
               cp "$EROFS_PATH" "$PADDED_EROFS"
               truncate -s "$ALIGNED_SIZE" "$PADDED_EROFS"
             fi
