@@ -140,9 +140,7 @@
       # --- Misc not needed in microVM ---
       PCSPKR_PLATFORM = no;
       HIBERNATION = no;
-      ACPI_AC = no;
-      ACPI_BATTERY = no;
-      ACPI_FAN = no;
+      # ACPI_AC, ACPI_BATTERY, ACPI_FAN: can't disable — selected by ACPI.
       MICROCODE = lib.mkForce no;
     };
   }];
