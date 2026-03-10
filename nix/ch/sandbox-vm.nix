@@ -33,6 +33,11 @@
     shares = [];
   };
 
+  # microVM initrd only needs virtio drivers (all built-in anyway).
+  # Override NixOS defaults which include ahci, sd_mod, etc. that we disabled.
+  boot.initrd.availableKernelModules = lib.mkForce [];
+  boot.initrd.kernelModules = lib.mkForce [];
+
   # Disabling parent subsystems (DRM, BT, SCSI, etc.) makes their
   # sub-options from NixOS common-config.nix "unused". Without this,
   # generate-config.pl treats unused options as errors (154 of them).
