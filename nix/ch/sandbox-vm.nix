@@ -48,10 +48,12 @@
     name = "microvm-builtins";
     patch = null;
     structuredExtraConfig = with lib.kernel; {
-      # Disable ACPI NFIT (physical NVDIMM tables, not needed in VM).
-      # Prevents `select LIBNVDIMM` from forcing LIBNVDIMM=m before
-      # VIRTIO_PMEM is processed in Kconfig order.
+      # Disable options that `select LIBNVDIMM` and are processed before
+      # VIRTIO_PMEM in Kconfig order. Without these, autoModules sets them
+      # to =m, which selects LIBNVDIMM=m, preventing VIRTIO_PMEM=y.
+      # Neither is needed in a microVM (physical NVDIMM hardware only).
       ACPI_NFIT = no;
+      X86_PMEM_LEGACY = no;
       # Core virtio transport
       VIRTIO = yes;
       VIRTIO_PCI = yes;
