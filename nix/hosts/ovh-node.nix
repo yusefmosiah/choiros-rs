@@ -383,19 +383,26 @@
               "''${STATE_DIR}/.microvm-run"
 
             # Pad erofs to 2MiB alignment (required by cloud-hypervisor --pmem).
-            # Filename includes nix store hash so each closure gets its own file,
-            # eliminating race conditions when multiple VMs boot concurrently
-            # during nixos-rebuild switch (previously caused MappingPastEof).
+            # Atomic creation: cp to temp file, truncate, then rename. This
+            # prevents concurrent VM boots from seeing a partially-written file
+            # (which causes MappingPastEof). flock serializes creation across VMs.
             EROFS_HASH=$(basename "$EROFS_PATH" | cut -c1-32)
             PADDED_EROFS="/opt/choiros/vms/store-disk-padded-''${EROFS_HASH}.erofs"
             EROFS_SIZE=$(stat -c%s "$EROFS_PATH")
             ALIGN=$((2 * 1024 * 1024))
             ALIGNED_SIZE=$(( ((EROFS_SIZE + ALIGN - 1) / ALIGN) * ALIGN ))
             if [[ ! -f "$PADDED_EROFS" ]]; then
-              # Clean up old padded files from previous closures
-              rm -f /opt/choiros/vms/store-disk-padded-*.erofs
-              cp "$EROFS_PATH" "$PADDED_EROFS"
-              truncate -s "$ALIGNED_SIZE" "$PADDED_EROFS"
+              (
+                ${pkgs.util-linux}/bin/flock -x 9
+                # Re-check after acquiring lock (another VM may have created it)
+                if [[ ! -f "$PADDED_EROFS" ]]; then
+                  rm -f /opt/choiros/vms/store-disk-padded-*.erofs
+                  TMP_EROFS="''${PADDED_EROFS}.tmp.$$"
+                  cp "$EROFS_PATH" "$TMP_EROFS"
+                  truncate -s "$ALIGNED_SIZE" "$TMP_EROFS"
+                  mv "$TMP_EROFS" "$PADDED_EROFS"
+                fi
+              ) 9>/opt/choiros/vms/.padded-erofs.lock
             fi
 
             # Add --pmem with explicit size before --api-socket.
