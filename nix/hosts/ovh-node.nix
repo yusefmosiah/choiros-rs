@@ -307,7 +307,7 @@
   };
 
   # ADR-0018: virtiofsd@ service REMOVED — no more virtiofs shares.
-  # Nix store is now a shared read-only squashfs virtio-blk image.
+  # Nix store is served via virtio-pmem (erofs, DAX-capable).
 
   # cloud-hypervisor VM (cold boot or snapshot restore based on boot-mode file)
   systemd.services."cloud-hypervisor@" = {
@@ -362,14 +362,39 @@
           # - MAC/TAP/socket names (ADR-0014 per-user)
           # - --memory shared=on → shared=off (enables KSM, no virtiofs needed)
           # - Inject gateway token into kernel cmdline
-          # Note: with shares=[], microvm module auto-generates an erofs disk
-          # for the nix store closure — no need for a custom squashfs disk.
+          # - Phase 7: Convert erofs --disk to --pmem (eliminates guest page cache)
           ${pkgs.gnused}/bin/sed \
             -e "s/mac=52:54:00:00:00:0a/mac=''${VM_MAC}/" \
             -e "s/tap=tap-live/tap=''${TAP}/" \
             -e "s/sandbox-live\.sock/sandbox-''${INSTANCE}.sock/g" \
             -e "s/shared=on/shared=off/" \
             "''${RUNNER_DIR}/bin/microvm-run" > "''${STATE_DIR}/.microvm-run"
+
+          # Phase 7: Convert erofs store disk from --disk to --pmem.
+          # Extract the erofs image path, remove it from --disk, add as --pmem.
+          # virtio-pmem maps the file directly into guest physical memory (DAX),
+          # eliminating the ~100MB guest page cache overhead per VM.
+          EROFS_PATH=$(${pkgs.gnugrep}/bin/grep -oP 'path=/nix/store/[^,]+\.erofs' "''${STATE_DIR}/.microvm-run" | head -1 | cut -d= -f2)
+          if [[ -n "$EROFS_PATH" ]]; then
+            # Remove the erofs --disk entry
+            ${pkgs.gnused}/bin/sed -i "s| --disk '[^']*erofs[^']*'||" "''${STATE_DIR}/.microvm-run"
+            ${pkgs.gnused}/bin/sed -i "s| *'[^']*erofs[^']*'||" "''${STATE_DIR}/.microvm-run"
+            # Also handle unquoted --disk entries: 'num_queues=2,path=...erofs,readonly=on'
+            ${pkgs.gnused}/bin/sed -i "s|'num_queues=[0-9]*,path=/nix/store/[^']*\.erofs,readonly=on' *||" "''${STATE_DIR}/.microvm-run"
+
+            # Pad erofs to 2MiB alignment (required by cloud-hypervisor --pmem)
+            EROFS_SIZE=$(stat -c%s "$EROFS_PATH")
+            ALIGN=$((2 * 1024 * 1024))
+            ALIGNED_SIZE=$(( ((EROFS_SIZE + ALIGN - 1) / ALIGN) * ALIGN ))
+            PADDED_EROFS="''${STATE_DIR}/store-disk-padded.erofs"
+            if [[ ! -f "$PADDED_EROFS" ]] || [[ $(stat -c%s "$PADDED_EROFS") -ne $ALIGNED_SIZE ]]; then
+              cp "$EROFS_PATH" "$PADDED_EROFS"
+              truncate -s "$ALIGNED_SIZE" "$PADDED_EROFS"
+            fi
+
+            # Add --pmem before --api-socket
+            ${pkgs.gnused}/bin/sed -i "s|--api-socket|--pmem file=''${PADDED_EROFS},discard_writes=on --api-socket|" "''${STATE_DIR}/.microvm-run"
+          fi
 
           # Inject gateway token into kernel --cmdline (append before closing quote)
           if [[ -n "$GATEWAY_TOKEN" ]]; then

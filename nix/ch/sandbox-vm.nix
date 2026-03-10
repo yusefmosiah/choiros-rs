@@ -33,6 +33,30 @@
     shares = [];
   };
 
+  # ADR-0018 Phase 7: virtio-pmem support.
+  # Add pmem/dax kernel modules to initrd so guest can detect /dev/pmem0.
+  # The host cloud-hypervisor@ unit converts the erofs --disk to --pmem.
+  boot.initrd.availableKernelModules = [
+    "virtio_pmem" "nd_pmem" "dax" "dax_pmem"
+  ];
+
+  # Override nix-store mount: use /dev/pmem0 instead of /dev/disk/by-label/nix-store.
+  # The microvm module generates a by-label mount, but pmem devices don't
+  # create by-label symlinks without proper udev rules in initrd.
+  fileSystems."/nix/store" = lib.mkForce {
+    device = "/dev/pmem0";
+    fsType = "erofs";
+    options = [ "x-initrd.mount" "x-systemd.after=systemd-modules-load.service" "ro" ];
+  };
+
+  # With pmem, erofs is no longer a --disk device. data.img moves from
+  # /dev/vdb to /dev/vda (it's now the only --disk entry).
+  fileSystems."/opt/choiros/data/sandbox" = lib.mkForce {
+    device = "/dev/vda";
+    fsType = "ext4";
+    options = [ "defaults" ];
+  };
+
   # DHCP networking on the br-choiros bridge (ADR-0014: per-user VMs).
   # Host runs dnsmasq DHCP on the bridge. Guest gets IP via DHCP.
   # Match all virtio-net interfaces (VM only has one NIC).
@@ -80,7 +104,7 @@
     '';
   };
 
-  # Sandbox service — binary from nix store (squashfs virtio-blk mount)
+  # Sandbox service — binary from nix store (erofs via virtio-pmem)
   systemd.services.choir-sandbox = {
     description = "ChoirOS Sandbox (${sandboxRole})";
     wantedBy = [ "multi-user.target" ];
