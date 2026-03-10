@@ -36,38 +36,41 @@
   # ADR-0018 Phase 7: Build virtio-pmem and its dependencies as kernel
   # built-ins for reliable /dev/pmem0 availability at boot.
   #
-  # Kconfig ordering note: NixOS generate-config.pl runs `make config` which
-  # processes Kconfig files in source order. ACPI_NFIT (drivers/acpi/) is
-  # processed early and `select LIBNVDIMM`, causing autoModules to set
-  # LIBNVDIMM=m before VIRTIO_PMEM (drivers/virtio/) is asked. We disable
-  # ACPI_NFIT (not needed in a microVM — it's for physical NVDIMM hardware)
-  # so LIBNVDIMM starts as =n, allowing the two-pass config resolution to
-  # set LIBNVDIMM=y before VIRTIO_PMEM is asked in the second pass.
+  # lib.mkForce is required because NixOS autoModules (generate-config.pl)
+  # auto-detects ACPI_NFIT=m which `select LIBNVDIMM=m`, preventing
+  # VIRTIO_PMEM=y. Without mkForce, our structuredExtraConfig values are
+  # silently overridden by autoModules. mkForce ensures our =y/=n takes
+  # precedence over auto-detection.
   boot.kernelPatches = [{
     name = "microvm-builtins";
     patch = null;
     structuredExtraConfig = with lib.kernel; {
       # Disable options that `select LIBNVDIMM` and are processed before
-      # VIRTIO_PMEM in Kconfig order. Without these, autoModules sets them
-      # to =m, which selects LIBNVDIMM=m, preventing VIRTIO_PMEM=y.
-      # Neither is needed in a microVM (physical NVDIMM hardware only).
-      ACPI_NFIT = no;
-      X86_PMEM_LEGACY = no;
+      # VIRTIO_PMEM in Kconfig order. Must use mkForce to override autoModules.
+      ACPI_NFIT = lib.mkForce no;
+      X86_PMEM_LEGACY = lib.mkForce no;
       # Core virtio transport (VIRTIO_RING is auto-selected by VIRTIO)
-      VIRTIO = yes;
-      VIRTIO_PCI = yes;
+      VIRTIO = lib.mkForce yes;
+      VIRTIO_PCI = lib.mkForce yes;
       # Block device (data.img /dev/vda)
-      VIRTIO_BLK = yes;
+      VIRTIO_BLK = lib.mkForce yes;
       # Network (TAP interface on br-choiros)
-      VIRTIO_NET = yes;
+      VIRTIO_NET = lib.mkForce yes;
       # Persistent memory (nix store via --pmem, ADR-0018 Phase 7)
-      VIRTIO_PMEM = yes;
-      LIBNVDIMM = yes;
+      VIRTIO_PMEM = lib.mkForce yes;
+      LIBNVDIMM = lib.mkForce yes;
       # Filesystems
-      EROFS_FS = yes;
-      EXT4_FS = yes;
+      EROFS_FS = lib.mkForce yes;
+      EXT4_FS = lib.mkForce yes;
     };
   }];
+
+  # Belt-and-suspenders: if VIRTIO_PMEM ends up as a module despite mkForce,
+  # ensure the initrd loads it so /dev/pmem0 appears before nix-store mount.
+  boot.initrd.availableKernelModules = [
+    "virtio_pmem" "libnvdimm" "nd_pmem" "nd_btt"
+    "virtio_pci" "virtio_blk" "virtio_net"
+  ];
 
   # Uncompressed erofs for DAX support. Compressed erofs (lz4) cannot use
   # DAX because decompression requires a page cache buffer. Uncompressed
