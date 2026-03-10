@@ -33,25 +33,29 @@
     shares = [];
   };
 
-  # ADR-0018 Phase 7 + ADR-0020: virtio-pmem with kernel built-in driver.
-  # Build virtio_pmem and libnvdimm directly into the kernel (=y) instead
-  # of loading them as modules. Module loading in the microvm systemd initrd
-  # has unresolved timing/probe issues — the module loads but never binds to
-  # the PCI device. Built-in eliminates this entirely: the driver is present
-  # during PCI enumeration and probes immediately.
-  # Security: built-in is the industry standard for microVM guest kernels
-  # (Kata, Firecracker). Eliminates the module loader attack surface.
+  # ADR-0020: Build all VM-essential drivers as kernel built-ins.
+  # Industry standard for microVM guests (Kata, Firecracker): eliminates
+  # the module loader attack surface and all module loading timing issues.
+  # The microvm module sets these as =m by default; we override to =y.
   boot.kernelPatches = [{
-    name = "virtio-pmem-builtin";
+    name = "microvm-builtins";
     patch = null;
     structuredExtraConfig = with lib.kernel; {
-      # VIRTIO_PMEM depends on VIRTIO + LIBNVDIMM. A =y config cannot
-      # depend on =m configs, so the entire dependency chain must be =y.
+      # Core virtio transport
       VIRTIO = yes;
       VIRTIO_PCI = yes;
+      VIRTIO_RING = yes;
+      # Block device (data.img /dev/vda)
+      VIRTIO_BLK = yes;
+      # Network (TAP interface on br-choiros)
+      VIRTIO_NET = yes;
+      # Persistent memory (nix store via --pmem, ADR-0018 Phase 7)
       VIRTIO_PMEM = yes;
       LIBNVDIMM = yes;
       ND_VIRTIO = yes;
+      # Filesystems
+      EROFS_FS = yes;
+      EXT4_FS = yes;
     };
   }];
 
