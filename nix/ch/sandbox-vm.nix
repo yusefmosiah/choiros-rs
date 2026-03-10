@@ -67,6 +67,81 @@
       # Filesystems
       EROFS_FS = yes;
       EXT4_FS = yes;
+
+      # --- Disable hardware not present in microVMs ---
+      USB_SUPPORT = no;
+      SOUND = no;
+      DRM = no;
+      WIRELESS = no;
+      WLAN = no;
+      BT = no;
+      INPUT_KEYBOARD = no;
+      INPUT_MOUSE = no;
+      INPUT_JOYSTICK = no;
+      INPUT_TABLET = no;
+      INPUT_TOUCHSCREEN = no;
+      GAMEPORT = no;
+      PARPORT = no;
+      ISDN = no;
+      MTD = no;
+      MEDIA_SUPPORT = no;
+      INFINIBAND = no;
+      NFC = no;
+      CAN = no;
+      PCMCIA = no;
+      HWMON = no;
+      THERMAL = no;
+      I2C = no;
+      SPI = no;
+      W1 = no;
+      POWER_SUPPLY = no;
+      LEDS = no;
+      ACCESSIBILITY = no;
+      GREYBUS = no;
+      # --- Storage not needed (only virtio-blk + virtio-pmem) ---
+      ATA = no;
+      SCSI = no;
+      MD = no;
+      FUSION = no;
+      TARGET_CORE = no;
+      # --- Filesystems not needed (only erofs + ext4 + tmpfs + proc + sysfs) ---
+      BTRFS_FS = no;
+      XFS_FS = no;
+      REISERFS_FS = no;
+      JFS_FS = no;
+      GFS2_FS = no;
+      OCFS2_FS = no;
+      F2FS_FS = no;
+      NTFS_FS = no;
+      NTFS3_FS = no;
+      VFAT_FS = no;
+      EXFAT_FS = no;
+      NFS_FS = no;
+      NFSD = no;
+      CIFS = no;
+      FUSE_FS = no;
+      SQUASHFS = no;
+      # --- Network protocols not needed ---
+      ATALK = no;
+      DECNET = no;
+      IPX = no;
+      TIPC = no;
+      # --- Security features redundant inside VM ---
+      SECURITY_SELINUX = no;
+      SECURITY_APPARMOR = no;
+      SECURITY_SMACK = no;
+      SECURITY_TOMOYO = no;
+      # --- Virtualization not needed inside guest ---
+      KVM = no;
+      VHOST = no;
+      XEN = no;
+      # --- Misc not needed in microVM ---
+      PCSPKR_PLATFORM = no;
+      HIBERNATION = no;
+      ACPI_AC = no;
+      ACPI_BATTERY = no;
+      ACPI_FAN = no;
+      MICROCODE = no;
     };
   }];
 
