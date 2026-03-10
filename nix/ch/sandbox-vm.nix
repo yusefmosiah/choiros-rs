@@ -91,10 +91,8 @@
       NFC = no;
       CAN = no;
       PCMCIA = no;
-      # HWMON and THERMAL: can't disable — ACPI_THERMAL selects THERMAL,
-      # which selects HWMON. Both are harmless no-ops in a microVM.
-      I2C = lib.mkForce no;
-      SPI = lib.mkForce no;
+      # HWMON, THERMAL, I2C, SPI: can't disable — selected by ACPI/HWMON
+      # dependency chain. Harmless no-ops in a microVM.
       W1 = no;
       POWER_SUPPLY = no;
       LEDS = no;
