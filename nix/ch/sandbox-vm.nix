@@ -78,10 +78,15 @@
   # Override nix-store mount: use /dev/pmem0 instead of /dev/disk/by-label/nix-store.
   # The microvm module generates a by-label mount, but pmem devices don't
   # create by-label symlinks without proper udev rules in initrd.
+  # neededForBoot tells NixOS to mount in initrd (where /dev/pmem0 is
+  # available immediately since VIRTIO_PMEM is built-in). The noauto
+  # option prevents systemd in the real root from creating a duplicate
+  # mount unit that waits for /dev/pmem0 (which caused emergency mode).
   fileSystems."/nix/store" = lib.mkForce {
     device = "/dev/pmem0";
     fsType = "erofs";
-    options = [ "x-initrd.mount" "dax" "ro" ];
+    options = [ "x-initrd.mount" "ro" "dax" "noauto" ];
+    neededForBoot = true;
   };
 
   # With pmem, erofs is no longer a --disk device. data.img moves from
