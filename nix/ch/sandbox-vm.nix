@@ -35,26 +35,34 @@
 
   # ADR-0018 Phase 7: virtio-pmem kernel config.
   #
-  # Note: autoModules overrides these settings (ACPI_NFIT=m selects
-  # LIBNVDIMM=m, forcing VIRTIO_PMEM=m). These end up as modules, not
-  # built-ins. The initrd.availableKernelModules below loads them in
-  # the initrd so /dev/pmem0 appears before the nix-store mount.
-  # Future: use lib.mkForce to make them true built-ins (requires
-  # kernel rebuild).
+  # lib.mkForce overrides NixOS autoModules which otherwise sets
+  # ACPI_NFIT=m → LIBNVDIMM=m → VIRTIO_PMEM=m. With mkForce, these
+  # become true built-ins: driver present during PCI enumeration,
+  # no module loading delay, ~2-3s faster boot.
+  #
+  # FS_DAX enables filesystem-level DAX: erofs reads nix store via
+  # direct EPT mapping (zero guest page cache, ~100MB/VM savings).
   boot.kernelPatches = [{
     name = "microvm-builtins";
     patch = null;
     structuredExtraConfig = with lib.kernel; {
-      ACPI_NFIT = no;
-      X86_PMEM_LEGACY = no;
-      VIRTIO = yes;
-      VIRTIO_PCI = yes;
-      VIRTIO_BLK = yes;
-      VIRTIO_NET = yes;
-      VIRTIO_PMEM = yes;
-      LIBNVDIMM = yes;
-      EROFS_FS = yes;
-      EXT4_FS = yes;
+      # Disable options that `select LIBNVDIMM` before VIRTIO_PMEM
+      ACPI_NFIT = lib.mkForce no;
+      X86_PMEM_LEGACY = lib.mkForce no;
+      # Core virtio transport
+      VIRTIO = lib.mkForce yes;
+      VIRTIO_PCI = lib.mkForce yes;
+      VIRTIO_BLK = lib.mkForce yes;
+      VIRTIO_NET = lib.mkForce yes;
+      # Persistent memory
+      VIRTIO_PMEM = lib.mkForce yes;
+      LIBNVDIMM = lib.mkForce yes;
+      # DAX (filesystem-level direct access)
+      DAX = lib.mkForce yes;
+      FS_DAX = lib.mkForce yes;
+      # Filesystems
+      EROFS_FS = lib.mkForce yes;
+      EXT4_FS = lib.mkForce yes;
     };
   }];
 
@@ -72,18 +80,13 @@
   microvm.storeDiskErofsFlags = [];
 
   # Override nix-store mount: use /dev/pmem0 instead of /dev/disk/by-label/nix-store.
-  # The microvm module generates a by-label mount, but pmem devices don't
-  # create by-label symlinks without proper udev rules in initrd.
-  # neededForBoot ensures initrd handles the mount.
-  # Note: "dax" mount option removed — requires CONFIG_FS_DAX=y which is
-  # not set in the default NixOS kernel. Without dax, erofs uses its normal
-  # read path (with guest page cache) but the underlying virtio-pmem device
-  # still avoids host-side page cache duplication. True zero-copy DAX
-  # requires a kernel rebuild with FS_DAX=y (future improvement).
+  # neededForBoot ensures initrd handles the mount. dax=always enables
+  # filesystem-level DAX: erofs maps nix store directly via EPT, bypassing
+  # the guest page cache entirely (~100MB/VM savings).
   fileSystems."/nix/store" = lib.mkForce {
     device = "/dev/pmem0";
     fsType = "erofs";
-    options = [ "x-initrd.mount" "ro" ];
+    options = [ "x-initrd.mount" "ro" "dax=always" ];
     neededForBoot = true;
   };
 
