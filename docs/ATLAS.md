@@ -31,10 +31,14 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/decisions/adr-0018-drop-virtiofs-adaptive-capacity.md`
 - **[P1]** ADR-0020: Security Hardening — Multi-Tenant Isolation — Decision (Accepted) | Requires: [ADR-0014, ADR-0018]  
   `docs/theory/decisions/adr-0020-security-hardening.md`
+- **[P1]** ADR-0022: Hypervisor Concurrency and Dynamic Capacity — Decision (Accepted) | Requires: [ADR-0014, ADR-0018]  
+  `docs/theory/decisions/adr-0022-hypervisor-concurrency-and-capacity.md`
 - **[P1]** Implementing ADR-0018: Drop Virtiofs, Adaptive Capacity — Guide (Active) | Requires: [ADR-0018]  
   `docs/theory/guides/adr-0018-implementation.md`
 - **[P1]** Implementing ADR-0020: Security Hardening — Guide (Active) | Requires: [ADR-0020]  
   `docs/theory/guides/adr-0020-implementation.md`
+- **[P1]** Implementing ADR-0022: Hypervisor Concurrency and Dynamic Capacity — Guide (Active) | Requires: [ADR-0022]  
+  `docs/theory/guides/adr-0022-implementation.md`
 - **[P1]** Rolling Deploys: Staging → E2E → Promote — Guide (Active)  
   `docs/theory/guides/rolling-deploys.md`
 - **[P2]** ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync — Decision (Draft) | Requires: [ADR-0007, ADR-0012]  
@@ -190,10 +194,12 @@ ADR-0014, ADR-0016 → ADR-0018: Drop Virtiofs, Enable KSM, Adaptive VM Capacity
 ADR-0001 → ADR-0019: Per-User Memory Curation and Retrieval
 ADR-0014, ADR-0018 → ADR-0020: Security Hardening — Multi-Tenant Isolation
 ADR-0001, ADR-0007 → ADR-0021: Writer App Agent and Collaborative Living Documents
+ADR-0014, ADR-0018 → ADR-0022: Hypervisor Concurrency and Dynamic Capacity
 ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
 ADR-0018 → Implementing ADR-0018: Drop Virtiofs, Adaptive Capacity
 ADR-0020 → Implementing ADR-0020: Security Hardening
+ADR-0022 → Implementing ADR-0022: Hypervisor Concurrency and Dynamic Capacity
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-11 — 24 practice, 25 theory, 17 state docs.*
+*Generated 2026-03-11 — 24 practice, 27 theory, 17 state docs.*
