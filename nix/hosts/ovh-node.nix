@@ -355,6 +355,25 @@
         else
           echo "Cold booting VM (MAC=''${VM_MAC} TAP=''${TAP})"
 
+          # Fix: Wait for data.img lock to be released from previous instance.
+          # cloud-hypervisor holds an exclusive write lock on data.img; if systemd
+          # restarts us before the old process fully dies, we'd fail with
+          # "AlreadyLocked". Wait up to 10s for the lock to clear.
+          DATA_IMG="''${STATE_DIR}/data.img"
+          if [[ -f "$DATA_IMG" ]]; then
+            for attempt in $(seq 1 20); do
+              if ${pkgs.util-linux}/bin/flock -n -x "$DATA_IMG" true 2>/dev/null; then
+                break
+              fi
+              echo "Waiting for data.img lock to release (attempt $attempt/20)..."
+              sleep 0.5
+            done
+          fi
+
+          # Clean stale .microvm-run from previous class (prevents exec format errors
+          # when switching between cloud-hypervisor and firecracker classes)
+          rm -f "''${STATE_DIR}/.microvm-run"
+
           # ADR-0018: Read gateway token for kernel cmdline injection
           GATEWAY_TOKEN=""
           if [[ -f "''${STATE_DIR}/gateway-token" ]]; then
@@ -646,14 +665,43 @@
           GATEWAY_TOKEN=$(cat "''${STATE_DIR}/gateway-token")
         fi
 
+        # Fix: Wait for data.img lock to be released from previous instance
+        DATA_IMG="''${STATE_DIR}/data.img"
+        if [[ -f "$DATA_IMG" ]]; then
+          for attempt in $(seq 1 20); do
+            if ${pkgs.util-linux}/bin/flock -n -x "$DATA_IMG" true 2>/dev/null; then
+              break
+            fi
+            echo "Waiting for data.img lock to release (attempt $attempt/20)..."
+            sleep 0.5
+          done
+        fi
+
+        # Clean stale .microvm-run from previous class (prevents exec format errors
+        # when switching between cloud-hypervisor and firecracker classes)
+        rm -f "''${STATE_DIR}/.microvm-run"
+
         # Copy and patch the firecracker runner script
         cp "''${RUNNER_DIR}/bin/microvm-run" "''${STATE_DIR}/.microvm-run"
 
-        # Patch MAC and TAP names for per-user isolation
+        # Validate this is a Firecracker runner (JSON), not a cloud-hypervisor shell script
+        if head -1 "''${STATE_DIR}/.microvm-run" | ${pkgs.gnugrep}/bin/grep -q "^#!"; then
+          echo "ERROR: Runner at ''${RUNNER_DIR} is a shell script, not a Firecracker JSON config"
+          echo "This may indicate a machine-class/runner mismatch"
+          exit 1
+        fi
+
+        # Patch MAC and TAP names for per-user isolation (global replace)
         ${pkgs.gnused}/bin/sed -i \
-          -e "s/52:54:00:00:00:0a/''${VM_MAC}/" \
-          -e "s/tap-live/''${TAP}/" \
+          -e "s/52:54:00:00:00:0a/''${VM_MAC}/g" \
+          -e "s/tap-live/''${TAP}/g" \
           "''${STATE_DIR}/.microvm-run"
+
+        # Verify TAP name was actually substituted
+        if ${pkgs.gnugrep}/bin/grep -q "tap-live" "''${STATE_DIR}/.microvm-run"; then
+          echo "ERROR: Failed to substitute tap-live with ''${TAP} in .microvm-run"
+          exit 1
+        fi
 
         # Inject gateway token into kernel boot_args if present
         if [[ -n "$GATEWAY_TOKEN" ]]; then

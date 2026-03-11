@@ -75,6 +75,7 @@ export default defineConfig({
         "capacity-stress-test.spec.ts",
         "machine-class-stress.spec.ts",
         "machine-class-matrix.spec.ts",
+        "heterogeneous-capacity.spec.ts",
       ],
       use: {
         baseURL: hypervisorBaseUrl,
