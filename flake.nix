@@ -14,7 +14,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     microvm = {
-      url = "github:microvm-nix/microvm.nix";
+      url = "github:yusefmosiah/microvm.nix/main";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -123,7 +123,36 @@ EOF
         '';
       });
 
-      # VM runner store paths (for runtime-ctl injection)
+      mkSandboxVm = {
+        sandboxRole,
+        sandboxPort,
+        vmIp,
+        vmMac,
+        vmTap,
+        sandboxHypervisor ? "cloud-hypervisor",
+        sandboxStoreDiskInterface ? "blk",
+      }:
+        nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          specialArgs = {
+            inherit
+              sandboxRole
+              sandboxPort
+              vmIp
+              vmMac
+              vmTap
+              sandboxHypervisor
+              sandboxStoreDiskInterface
+              ;
+            sandboxPackage = self.packages.${system}.sandbox;
+          };
+          modules = [
+            microvm.nixosModules.microvm
+            ./nix/ch/sandbox-vm.nix
+          ];
+        };
+
+      # VM runner store paths (for host injection)
       vmRunnerLive = self.nixosConfigurations.choiros-ch-sandbox-live
         .config.microvm.runner.cloud-hypervisor;
 
@@ -328,6 +357,7 @@ EOF
         specialArgs = {
           choirosPackages = self.packages.${system};
           vmRunnerLive = vmRunnerLive;
+          vmStoreDiskInterface = "pmem";
         };
         modules = [
           disko.nixosModules.disko
@@ -341,6 +371,7 @@ EOF
         specialArgs = {
           choirosPackages = self.packages.${system};
           vmRunnerLive = vmRunnerLive;
+          vmStoreDiskInterface = "pmem";
         };
         modules = [
           ./nix/hosts/ovh-node-hardware.nix
@@ -354,6 +385,7 @@ EOF
         specialArgs = {
           choirosPackages = self.packages.${system};
           vmRunnerLive = vmRunnerLive;
+          vmStoreDiskInterface = "pmem";
         };
         modules = [
           ./nix/hosts/ovh-node-hardware.nix
@@ -363,36 +395,84 @@ EOF
       };
 
       # Cloud-hypervisor sandbox microVMs (x86_64-linux, run on OVH hosts)
-      nixosConfigurations.choiros-ch-sandbox-live = nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        specialArgs = {
-          sandboxRole = "live";
-          sandboxPort = 8080;
-          vmIp = "10.0.0.10";
-          vmMac = "52:54:00:00:00:0a";
-          vmTap = "tap-live";
-          sandboxPackage = self.packages.${system}.sandbox;
-        };
-        modules = [
-          microvm.nixosModules.microvm
-          ./nix/ch/sandbox-vm.nix
-        ];
+      nixosConfigurations.choiros-ch-sandbox-live = mkSandboxVm {
+        sandboxRole = "live";
+        sandboxPort = 8080;
+        vmIp = "10.0.0.10";
+        vmMac = "52:54:00:00:00:0a";
+        vmTap = "tap-live";
+        sandboxHypervisor = "cloud-hypervisor";
+        sandboxStoreDiskInterface = "pmem";
       };
 
-      nixosConfigurations.choiros-ch-sandbox-dev = nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        specialArgs = {
-          sandboxRole = "dev";
-          sandboxPort = 8081;
-          vmIp = "10.0.0.11";
-          vmMac = "52:54:00:00:00:0b";
-          vmTap = "tap-dev";
-          sandboxPackage = self.packages.${system}.sandbox;
-        };
-        modules = [
-          microvm.nixosModules.microvm
-          ./nix/ch/sandbox-vm.nix
-        ];
+      nixosConfigurations.choiros-ch-sandbox-live-blk = mkSandboxVm {
+        sandboxRole = "live";
+        sandboxPort = 8080;
+        vmIp = "10.0.0.10";
+        vmMac = "52:54:00:00:00:0a";
+        vmTap = "tap-live";
+        sandboxHypervisor = "cloud-hypervisor";
+        sandboxStoreDiskInterface = "blk";
+      };
+
+      nixosConfigurations.choiros-ch-sandbox-dev = mkSandboxVm {
+        sandboxRole = "dev";
+        sandboxPort = 8081;
+        vmIp = "10.0.0.11";
+        vmMac = "52:54:00:00:00:0b";
+        vmTap = "tap-dev";
+        sandboxHypervisor = "cloud-hypervisor";
+        sandboxStoreDiskInterface = "pmem";
+      };
+
+      nixosConfigurations.choiros-ch-sandbox-dev-blk = mkSandboxVm {
+        sandboxRole = "dev";
+        sandboxPort = 8081;
+        vmIp = "10.0.0.11";
+        vmMac = "52:54:00:00:00:0b";
+        vmTap = "tap-dev";
+        sandboxHypervisor = "cloud-hypervisor";
+        sandboxStoreDiskInterface = "blk";
+      };
+
+      nixosConfigurations.choiros-fc-sandbox-live = mkSandboxVm {
+        sandboxRole = "live";
+        sandboxPort = 8080;
+        vmIp = "10.0.0.10";
+        vmMac = "52:54:00:00:00:0a";
+        vmTap = "tap-live";
+        sandboxHypervisor = "firecracker";
+        sandboxStoreDiskInterface = "pmem";
+      };
+
+      nixosConfigurations.choiros-fc-sandbox-live-blk = mkSandboxVm {
+        sandboxRole = "live";
+        sandboxPort = 8080;
+        vmIp = "10.0.0.10";
+        vmMac = "52:54:00:00:00:0a";
+        vmTap = "tap-live";
+        sandboxHypervisor = "firecracker";
+        sandboxStoreDiskInterface = "blk";
+      };
+
+      nixosConfigurations.choiros-fc-sandbox-dev = mkSandboxVm {
+        sandboxRole = "dev";
+        sandboxPort = 8081;
+        vmIp = "10.0.0.11";
+        vmMac = "52:54:00:00:00:0b";
+        vmTap = "tap-dev";
+        sandboxHypervisor = "firecracker";
+        sandboxStoreDiskInterface = "pmem";
+      };
+
+      nixosConfigurations.choiros-fc-sandbox-dev-blk = mkSandboxVm {
+        sandboxRole = "dev";
+        sandboxPort = 8081;
+        vmIp = "10.0.0.11";
+        vmMac = "52:54:00:00:00:0b";
+        vmTap = "tap-dev";
+        sandboxHypervisor = "firecracker";
+        sandboxStoreDiskInterface = "blk";
       };
     };
 }

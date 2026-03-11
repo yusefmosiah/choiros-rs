@@ -1,6 +1,6 @@
 # NixOS host configuration for OVH SYS-1 bare metal (x86_64-linux)
 # Intel Xeon-E 2136 / 32GB RAM / 2x NVMe RAID1 / UEFI
-{ config, lib, pkgs, choirosPackages, vmRunnerLive, ... }:
+{ config, lib, pkgs, choirosPackages, vmRunnerLive, vmStoreDiskInterface ? "blk", ... }:
 {
   # ADR-0018: virtiofsd overlay removed — no more virtiofs shares.
   nixpkgs.overlays = [];
@@ -324,6 +324,7 @@
         INSTANCE="$1"
         STATE_DIR="/opt/choiros/vms/state/''${INSTANCE}"
         RUNNER_DIR="${vmRunnerLive}"
+        STORE_DISK_INTERFACE="${vmStoreDiskInterface}"
         BOOT_MODE_FILE="''${STATE_DIR}/boot-mode"
         SNAPSHOT_DIR="''${STATE_DIR}/vm-snapshot"
         API_SOCK="''${STATE_DIR}/sandbox-''${INSTANCE}.sock"
@@ -362,7 +363,8 @@
           # - MAC/TAP/socket names (ADR-0014 per-user)
           # - --memory shared=on → shared=off (enables KSM, no virtiofs needed)
           # - Inject gateway token into kernel cmdline
-          # - Phase 7: Convert erofs --disk to --pmem (eliminates guest page cache)
+          # - Prefer native microvm.nix pmem output when present
+          # - Fall back to local --disk -> --pmem rewrite only for older runners
           ${pkgs.gnused}/bin/sed \
             -e "s/mac=52:54:00:00:00:0a/mac=''${VM_MAC}/" \
             -e "s/tap=tap-live/tap=''${TAP}/" \
@@ -370,45 +372,67 @@
             -e "s/shared=on/shared=off/" \
             "''${RUNNER_DIR}/bin/microvm-run" > "''${STATE_DIR}/.microvm-run"
 
-          # Phase 7: Convert erofs store disk from --disk to --pmem.
-          # virtio-pmem maps the file directly into guest physical memory (DAX),
-          # eliminating the ~100MB guest page cache overhead per VM.
-          # The microvm-run has: --disk 'erofs-entry' 'data-entry'
-          # We need: --disk 'data-entry' --pmem file=<padded-erofs>,discard_writes=on
-          EROFS_PATH=$(${pkgs.gnugrep}/bin/grep -oP "path=/nix/store/[^,]+\.erofs" "''${STATE_DIR}/.microvm-run" | head -1 | cut -d= -f2)
-          if [[ -n "$EROFS_PATH" ]]; then
-            # Replace the entire --disk section: remove erofs entry, keep data entry
-            ${pkgs.gnused}/bin/sed -i \
-              "s|--disk 'num_queues=[0-9]*,path=/nix/store/[^']*\.erofs,readonly=on' |--disk |" \
-              "''${STATE_DIR}/.microvm-run"
-
-            # Pad erofs to 2MiB alignment (required by cloud-hypervisor --pmem).
-            # Atomic creation: cp to temp file, truncate, then rename. This
-            # prevents concurrent VM boots from seeing a partially-written file
-            # (which causes MappingPastEof). flock serializes creation across VMs.
-            EROFS_HASH=$(basename "$EROFS_PATH" | cut -c1-32)
-            PADDED_EROFS="/opt/choiros/vms/store-disk-padded-''${EROFS_HASH}.erofs"
-            EROFS_SIZE=$(stat -c%s "$EROFS_PATH")
-            ALIGN=$((2 * 1024 * 1024))
-            ALIGNED_SIZE=$(( ((EROFS_SIZE + ALIGN - 1) / ALIGN) * ALIGN ))
-            if [[ ! -f "$PADDED_EROFS" ]]; then
-              (
-                ${pkgs.util-linux}/bin/flock -x 9
-                # Re-check after acquiring lock (another VM may have created it)
-                if [[ ! -f "$PADDED_EROFS" ]]; then
-                  rm -f /opt/choiros/vms/store-disk-padded-*.erofs
-                  TMP_EROFS="''${PADDED_EROFS}.tmp.$$"
-                  cp "$EROFS_PATH" "$TMP_EROFS"
-                  truncate -s "$ALIGNED_SIZE" "$TMP_EROFS"
-                  mv "$TMP_EROFS" "$PADDED_EROFS"
-                fi
-              ) 9>/opt/choiros/vms/.padded-erofs.lock
+          if [[ "$STORE_DISK_INTERFACE" == "pmem" ]] && ${pkgs.gnugrep}/bin/grep -q -- '--pmem' "''${STATE_DIR}/.microvm-run"; then
+            PMEM_SPEC=$(${pkgs.gawk}/bin/awk '
+              {
+                for (i = 1; i <= NF; i++) {
+                  if ($i == "--pmem" && (i + 1) <= NF) {
+                    print $(i + 1)
+                    exit
+                  }
+                }
+              }
+            ' "''${STATE_DIR}/.microvm-run" | tr -d "'")
+            PMEM_PATH=$(printf '%s\n' "$PMEM_SPEC" | ${pkgs.gnused}/bin/sed -n 's/^file=\\([^,]*\\).*$/\\1/p')
+            if [[ -n "$PMEM_PATH" ]] && [[ "$PMEM_SPEC" != *"size="* ]]; then
+              PMEM_SIZE=$(stat -c%s "$PMEM_PATH")
+              # Keep the native pmem runner path, but add explicit size because
+              # cloud-hypervisor needs the guest address space reservation.
+              ${pkgs.gnused}/bin/sed -i \
+                "s|file=''${PMEM_PATH},discard_writes=on|file=''${PMEM_PATH},discard_writes=on,size=''${PMEM_SIZE}|" \
+                "''${STATE_DIR}/.microvm-run"
             fi
+          elif [[ "$STORE_DISK_INTERFACE" == "pmem" ]]; then
+            # Phase 7 fallback: convert erofs store disk from --disk to --pmem.
+            # virtio-pmem maps the file directly into guest physical memory (DAX),
+            # eliminating the ~100MB guest page cache overhead per VM.
+            # The microvm-run has: --disk 'erofs-entry' 'data-entry'
+            # We need: --disk 'data-entry' --pmem file=<padded-erofs>,discard_writes=on
+            EROFS_PATH=$(${pkgs.gnugrep}/bin/grep -oP "path=/nix/store/[^,]+\.erofs" "''${STATE_DIR}/.microvm-run" | head -1 | cut -d= -f2)
+            if [[ -n "$EROFS_PATH" ]]; then
+              # Replace the entire --disk section: remove erofs entry, keep data entry
+              ${pkgs.gnused}/bin/sed -i \
+                "s|--disk 'num_queues=[0-9]*,path=/nix/store/[^']*\.erofs,readonly=on' |--disk |" \
+                "''${STATE_DIR}/.microvm-run"
 
-            # Add --pmem with explicit size before --api-socket.
-            # size= is required: cloud-hypervisor needs to allocate guest address space
-            # for both RAM (1024 MB) and pmem. Without it → PmemRangeAllocation error.
-            ${pkgs.gnused}/bin/sed -i "s|--api-socket|--pmem file=''${PADDED_EROFS},discard_writes=on,size=''${ALIGNED_SIZE} --api-socket|" "''${STATE_DIR}/.microvm-run"
+              # Pad erofs to 2MiB alignment (required by cloud-hypervisor --pmem).
+              # Atomic creation: cp to temp file, truncate, then rename. This
+              # prevents concurrent VM boots from seeing a partially-written file
+              # (which causes MappingPastEof). flock serializes creation across VMs.
+              EROFS_HASH=$(basename "$EROFS_PATH" | cut -c1-32)
+              PADDED_EROFS="/opt/choiros/vms/store-disk-padded-''${EROFS_HASH}.erofs"
+              EROFS_SIZE=$(stat -c%s "$EROFS_PATH")
+              ALIGN=$((2 * 1024 * 1024))
+              ALIGNED_SIZE=$(( ((EROFS_SIZE + ALIGN - 1) / ALIGN) * ALIGN ))
+              if [[ ! -f "$PADDED_EROFS" ]]; then
+                (
+                  ${pkgs.util-linux}/bin/flock -x 9
+                  # Re-check after acquiring lock (another VM may have created it)
+                  if [[ ! -f "$PADDED_EROFS" ]]; then
+                    rm -f /opt/choiros/vms/store-disk-padded-*.erofs
+                    TMP_EROFS="''${PADDED_EROFS}.tmp.$$"
+                    cp "$EROFS_PATH" "$TMP_EROFS"
+                    truncate -s "$ALIGNED_SIZE" "$TMP_EROFS"
+                    mv "$TMP_EROFS" "$PADDED_EROFS"
+                  fi
+                ) 9>/opt/choiros/vms/.padded-erofs.lock
+              fi
+
+              # Add --pmem with explicit size before --api-socket.
+              # size= is required: cloud-hypervisor needs to allocate guest address space
+              # for both RAM (1024 MB) and pmem. Without it -> PmemRangeAllocation error.
+              ${pkgs.gnused}/bin/sed -i "s|--api-socket|--pmem file=''${PADDED_EROFS},discard_writes=on,size=''${ALIGNED_SIZE} --api-socket|" "''${STATE_DIR}/.microvm-run"
+            fi
           fi
 
           # Inject gateway token into kernel --cmdline (append before closing quote)

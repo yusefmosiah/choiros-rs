@@ -1,13 +1,14 @@
-# Cloud-hypervisor guest NixOS config for sandbox microVMs (x86_64-linux).
+# Sandbox guest NixOS config for microVMs (x86_64-linux).
 # Used on OVH bare metal hosts. Per-instance values (role, port, IP, MAC)
-# are passed via specialArgs from flake.nix.
+# and transport choices are passed via specialArgs from flake.nix.
 { config, lib, pkgs, sandboxRole, sandboxPort, vmIp, vmMac, vmTap,
-  sandboxPackage, ... }:
+  sandboxPackage, sandboxHypervisor ? "cloud-hypervisor",
+  sandboxStoreDiskInterface ? "blk", ... }:
 {
   networking.hostName = "sandbox-${sandboxRole}";
 
   microvm = {
-    hypervisor = "cloud-hypervisor";
+    hypervisor = sandboxHypervisor;
     vcpu = 2;
     mem = 1024;
 
@@ -24,6 +25,10 @@
       mountPoint = "/opt/choiros/data/sandbox";
       size = 2048;
     }];
+
+    # Keep the transport explicit so we can build blk and pmem runners from
+    # the same guest config and compare them intentionally.
+    storeDiskInterface = sandboxStoreDiskInterface;
 
     # ADR-0018: All virtiofs shares removed. With shares=[], the microvm
     # module automatically generates an erofs disk for the nix store closure.
@@ -42,7 +47,7 @@
   #
   # FS_DAX enables filesystem-level DAX: erofs reads nix store via
   # direct EPT mapping (zero guest page cache, ~100MB/VM savings).
-  boot.kernelPatches = [{
+  boot.kernelPatches = lib.mkIf (sandboxStoreDiskInterface == "pmem") [{
     name = "microvm-builtins";
     patch = null;
     structuredExtraConfig = with lib.kernel; {
@@ -68,7 +73,7 @@
 
   # Belt-and-suspenders: if VIRTIO_PMEM ends up as a module despite mkForce,
   # ensure the initrd loads it so /dev/pmem0 appears before nix-store mount.
-  boot.initrd.availableKernelModules = [
+  boot.initrd.availableKernelModules = lib.mkIf (sandboxStoreDiskInterface == "pmem") [
     "virtio_pmem" "libnvdimm" "nd_pmem" "nd_btt"
     "virtio_pci" "virtio_blk" "virtio_net"
   ];
@@ -77,26 +82,11 @@
   # DAX because decompression requires a page cache buffer. Uncompressed
   # erofs is ~25-35% larger on disk but enables zero-copy DAX reads:
   # guest accesses host page cache directly via EPT, no guest page cache.
-  microvm.storeDiskErofsFlags = [];
+  microvm.storeDiskErofsFlags = lib.mkIf (sandboxStoreDiskInterface == "pmem") [];
 
-  # Override nix-store mount: use /dev/pmem0 instead of /dev/disk/by-label/nix-store.
-  # neededForBoot ensures initrd handles the mount. dax=always enables
-  # filesystem-level DAX: erofs maps nix store directly via EPT, bypassing
-  # the guest page cache entirely (~100MB/VM savings).
-  fileSystems."/nix/store" = lib.mkForce {
-    device = "/dev/pmem0";
-    fsType = "erofs";
-    options = [ "x-initrd.mount" "ro" "dax=always" ];
-    neededForBoot = true;
-  };
-
-  # With pmem, erofs is no longer a --disk device. data.img moves from
-  # /dev/vdb to /dev/vda (it's now the only --disk entry).
-  fileSystems."/opt/choiros/data/sandbox" = lib.mkForce {
-    device = "/dev/vda";
-    fsType = "ext4";
-    options = [ "defaults" ];
-  };
+  # The forked microvm.nix guest module now handles blk vs pmem device selection
+  # for /nix/store and the volume drive-letter mapping for data.img. Keep Choir's
+  # guest config transport-agnostic here so both interfaces remain buildable.
 
   # DHCP networking on the br-choiros bridge (ADR-0014: per-user VMs).
   # Host runs dnsmasq DHCP on the bridge. Guest gets IP via DHCP.

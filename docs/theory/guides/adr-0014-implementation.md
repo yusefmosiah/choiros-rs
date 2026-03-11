@@ -5,188 +5,207 @@ Kind: Guide
 Status: Active
 Priority: 2
 Requires: [ADR-0014]
-Updated: 2026-03-09
+Updated: 2026-03-11
 
 ## Narrative Summary (1-minute read)
 
-Per-user VM isolation requires each authenticated user to get their own
-cloud-hypervisor microVM with its own virtio-blk data volume on a per-user
-btrfs subvolume. The hypervisor dynamically allocates ports and VM IPs,
-routes proxy traffic to the right VM based on session auth, and manages
-idle hibernation per-user.
+Per-user VM isolation is deployed (Phases 1-5). Each user gets a
+cloud-hypervisor microVM with dynamic port, DHCP IP, per-user btrfs
+subvolume, and idle hibernation.
 
-Phases 1-3 and 5 are done. Phase 4 (per-user routing + dynamic VM
-allocation) is the remaining critical work. Phase 6 (migration) is deferred.
+Next: extend to dev/prod VM pairs with promotion gates, and add a heavy job
+queue for workloads that don't fit in lightweight user VMs.
 
 ## What Changed
 
-- 2026-03-09: Phase 4 complete on Node B. Per-user VMs verified with 4 concurrent
-  users on unique ports (12000-12004), IPs (10.0.0.102-106), MACs, and TAP devices.
-  Key bugs fixed: allocate_port race condition, dnsmasq DHCP host reload (pkill→systemctl),
-  duplicate IP filtering in hosts file.
-- 2026-03-09: Phases 1-3, 5 complete. Guide rewritten for Phase 4 focus.
-- ADR-0017 (systemd lifecycle) deployed — `SystemdLifecycle` in Rust handles
-  btrfs subvolumes, data.img creation, and systemd unit management.
-- Hardcoded `live`/`dev` instance names and fixed ports are the remaining
-  blocker. Phase 4 replaces them with per-user dynamic allocation.
+- 2026-03-11: Restructured around dev/prod model and job queue. Added resource
+  profiles and promotion implementation steps. Prior phase detail preserved
+  where still relevant.
+- 2026-03-09: Phase 4 complete on Node B. Per-user VMs verified with 4
+  concurrent users on unique ports, IPs, MACs, and TAP devices.
 
 ## Phase Status
 
 ```
-Phase 1 (host btrfs)              ✓ DONE — both nodes, @data subvolume
-Phase 2 (per-user virtio-blk)     ✓ DONE — SystemdLifecycle creates subvol + data.img + symlink
-Phase 3 (persistence)             ✓ DONE — data.img survives stop/start (virtio-blk)
-Phase 4 (per-user routing)        ✓ DONE — dynamic ports, DHCP reservations, per-user VMs on Node B
-Phase 5 (idle watchdog)           ✓ DONE — hibernate + heartbeat
-Phase 6 (cross-node migration)    deferred — operator tooling
+Phase 1 (host btrfs)              DONE — both nodes, @data subvolume
+Phase 2 (per-user virtio-blk)     DONE — SystemdLifecycle creates subvol + data.img
+Phase 3 (persistence)             DONE — data.img survives stop/start (virtio-blk)
+Phase 4 (per-user routing)        DONE — dynamic ports, DHCP, per-user VMs on Node B
+Phase 5 (idle watchdog)           DONE — hibernate + heartbeat
+Phase 6 (build pool)              NOT STARTED
+Phase 7 (promotion API)           NOT STARTED
+Phase 8 (inter-agent comms)       NOT STARTED
+Phase 9 (cross-node migration)    DEFERRED
 ```
 
-## Phase 4: Per-User VM Routing
+## Phase 6: Build Pool
 
-### Current Architecture (shared VM)
+### What changes
+
+Add a shared pool of worker VMs that execute build, test, and coding agent
+jobs on behalf of users. Users do not compile in their own sandbox VM.
+
+### Architecture
 
 ```
-All users → proxy → 127.0.0.1:8080 → socat → 10.0.0.10:8080 → single VM
+User sandbox → POST /jobs/v1/run → hypervisor
+Hypervisor → snapshot user workspace → create pool job VM → execute
+Pool VM → stream events → user's EventStore
+Pool VM → complete → artifacts ready for promotion
 ```
 
-- `ensure_running()` returns fixed `live_port` (8080) for all users
-- One systemd instance: `socat-sandbox@live`, `cloud-hypervisor@live`
-- One VM IP: `10.0.0.10`, one data.img
+### Files to modify
 
-### Target Architecture (per-user VM)
+| File | Change |
+|------|--------|
+| `hypervisor/src/jobs/mod.rs` | New module: job queue, submission, scheduling |
+| `hypervisor/src/jobs/pool.rs` | Pool worker management: create, recycle, destroy |
+| `hypervisor/src/jobs/executor.rs` | Job execution: snapshot, mount, run, stream, cleanup |
+| `hypervisor/src/api/jobs.rs` | HTTP endpoints: submit, status, cancel |
+| `hypervisor/src/sandbox/systemd.rs` | Pool VM lifecycle (ephemeral instances) |
+
+### Implementation steps
+
+1. Add job queue data model (SQLite: jobs table with status, owner, profile,
+   command, created_at, started_at, completed_at)
+2. Add `POST /jobs/v1/run` endpoint — accepts job type, command, resource
+   profile. Returns job_id and queue position.
+3. Pool manager: maintain N warm worker VMs (configurable, default 2).
+   Workers are generic — they receive a workspace snapshot and a command.
+4. Job executor:
+   a. btrfs snapshot user's data.img (read-only)
+   b. Mount snapshot into pool worker VM as /workspace (read-only)
+   c. Mount scratch volume for output (writable)
+   d. Execute command inside pool VM
+   e. Stream stdout/stderr as events to user's EventStore
+   f. Collect artifacts from scratch volume
+   g. Update job status
+   h. Release worker back to pool
+5. Add `GET /jobs/v1/{id}` for status and `DELETE /jobs/v1/{id}` for cancel
+6. Capacity management: if all workers busy, queue jobs FIFO
+
+### Resource profiles
+
+| Profile | RAM | vCPU | Max duration | Use case |
+|---------|-----|------|-------------|----------|
+| `light` | 1 GB | 1 | 30 min | Light tests, linting |
+| `standard` | 2 GB | 2 | 30 min | Cargo build, Playwright |
+| `heavy` | 4 GB | 4 | 60 min | Large builds, parallel tests |
+
+### Security
+
+- Pool VMs get read-only workspace snapshot, not write access to user data
+- Pool VMs isolated from each other and from user VMs
+- Time limits enforced by hypervisor (kill after max duration)
+- Artifacts returned via EventStore, not direct filesystem access
+
+## Phase 7: Promotion API
+
+### Endpoint
+
+```
+POST /v1/vms/{vm_id}/promote
+  Body: {
+    "job_id": "...",           // completed build pool job
+    "verification": {
+      "tests_passed": bool,
+      "docs_updated": bool
+    }
+  }
+  Response: { "promotion_id": "...", "status": "promoting" }
+```
+
+### Implementation steps
+
+1. Add `POST /v1/vms/{vm_id}/promote` endpoint
+2. Verify the referenced job completed successfully
+3. Check verification gate:
+   - If verification metadata missing or incomplete, reject with 422
+   - In bootstrap phase, allow manual override with explicit flag
+4. Snapshot user's current data.img (btrfs, <1s) as rollback point
+5. Apply job artifacts to user's workspace
+6. Stop or hibernate user's sandbox VM
+7. Swap data.img with promoted version (reflink copy)
+8. Start sandbox VM
+9. Health check (curl /health within 30s)
+10. On success: emit promotion event, return 200
+11. On failure: restore from rollback snapshot, restart, return 500
+
+### Rollback
+
+Pre-promotion snapshot always retained. `POST /v1/vms/{vm_id}/rollback`
+swaps back and restarts.
+
+### Verification gate phases
+
+Phase 1 (bootstrap): manual. User clicks "promote" and confirms.
+Phase 2 (harness integration): automatic. Promotion API checks that the
+build pool job completed with code+tests+docs passing.
+Phase 3 (full enforcement): promotion blocked unless harness reports success.
+
+## Phase 8: Inter-Agent Communication via Hypervisor
+
+### Design
+
+All cross-sandbox communication goes through the hypervisor. No VM-to-VM
+networking.
+
+### Endpoints
+
+```
+POST /v1/publish                    publish a document/artifact
+GET  /v1/published?query=...        discover published content
+GET  /v1/published/{doc_id}         retrieve published document
+```
+
+### Implementation steps
+
+1. Add published documents table (SQLite: doc_id, owner_id, title, content,
+   metadata, published_at, updated_at)
+2. Add publish endpoint — sandbox writer calls this to publish living docs
+3. Add discovery endpoint — other sandboxes can search published content
+4. Add retrieval endpoint — fetch full document by ID
+5. Add citation tracking — when User B cites User A's doc, record the link
+6. Access control: public by default, private/unlisted options later
+
+This is the foundation for writer-to-writer communication across users.
+Writers publish through the hypervisor and retrieve through the hypervisor.
+No direct connections between sandboxes.
+
+## Current Architecture Reference (Phases 1-5, deployed)
+
+### Per-user routing (Phase 4, DONE)
 
 ```
 User A → proxy → 127.0.0.1:12000 → socat → 10.0.0.102:8080 → VM-A
 User B → proxy → 127.0.0.1:12001 → socat → 10.0.0.103:8080 → VM-B
 ```
 
-- `ensure_running()` allocates a dynamic port per user from the port range
-- Per-user systemd instance: `socat-sandbox@u-{short_id}`
-- Per-user VM IP: `10.0.0.{102+N}`, per-user data.img on btrfs subvol
-- Sandbox inside VM always listens on `:8080` (unchanged)
+- Dynamic port allocation from range (12000+)
+- Per-user systemd instances: `cloud-hypervisor@u-{short_id}`, `socat-sandbox@u-{short_id}`
+- Per-user TAP devices, DHCP IPs, MAC addresses
+- Sandbox inside VM always listens on :8080 (unchanged)
 
-### Implementation Steps
+### Key files
 
-#### Step 1: Dynamic port allocation for roles
+| File | Role |
+|------|------|
+| `hypervisor/src/sandbox/mod.rs` | ensure_running(), port allocation, registry |
+| `hypervisor/src/sandbox/systemd.rs` | SystemdLifecycle: btrfs, data.img, systemd units |
+| `nix/hosts/ovh-node.nix` | Systemd unit templates, networking, DHCP |
+| `nix/ch/sandbox-vm.nix` | Guest NixOS config |
 
-**File:** `hypervisor/src/sandbox/mod.rs`
+### Verified on Node B
 
-Change `ensure_running()` to allocate ports dynamically instead of using
-fixed `live_port`/`dev_port`. Reuse the existing `allocate_branch_port()`
-logic (which already works for branch sandboxes).
+- 4 concurrent users on unique ports (12000-12004), IPs (10.0.0.102-106)
+- Per-user btrfs subvolumes, data.img, systemd units
+- Idle hibernation per-user with heartbeat watchdog
+- Data persistence across stop/start and hibernate/restore
 
-```rust
-// Before: let port = self.port_for(role);  // always 8080
-// After:  let port = self.allocate_port(&entries)?;  // dynamic from range
-```
+## What NOT to Do
 
-Keep `live_port` as a special case only for the "default" bootstrap user
-(unauthenticated requests before login). Authenticated users get dynamic ports.
-
-#### Step 2: Per-user systemd instance naming
-
-**File:** `hypervisor/src/sandbox/systemd.rs`
-
-The `ensure()` method takes `instance: &str`. Currently always called with
-`"live"`. Change to generate per-user instance names:
-
-```rust
-// Instance name: "u-{first 8 chars of user_id}"
-// e.g., user_id "ab121631-c30f-4ff2-860f-7c3d230f3a30" → instance "u-ab121631"
-```
-
-Short IDs are safe because:
-- systemd unit names have length limits
-- Collision probability is negligible at our scale (<1000 users)
-- The registry maps user_id → instance, so collisions are detectable
-
-#### Step 3: Per-user VM IP allocation
-
-**File:** `hypervisor/src/sandbox/systemd.rs`
-
-Each VM needs a unique IP on `br-choiros` (10.0.0.0/24). Derive from port:
-
-```rust
-// Port 8080 → IP 10.0.0.100 (default live), 8081 → 10.0.0.101 (default dev)
-// Port 12000 → IP 10.0.0.102, Port 12001 → IP 10.0.0.103, etc.
-// All IPs in dnsmasq DHCP range (10.0.0.100-254), ~153 concurrent VMs per node
-```
-
-Write the VM IP to a config file in the state dir so systemd units can read it.
-
-#### Step 4: Parameterize systemd units
-
-**File:** `nix/hosts/ovh-node.nix`
-
-The socat and cloud-hypervisor units currently hardcode port/IP per instance
-name (`live*` → 8080, `dev*` → 8081). Change to read from config files:
-
-```bash
-# In socat-start script:
-STATE_DIR="/opt/choiros/vms/state/${INSTANCE}"
-VM_IP=$(cat "${STATE_DIR}/vm-ip")
-PORT=$(cat "${STATE_DIR}/host-port")
-```
-
-The Rust `SystemdLifecycle.ensure()` writes these files before starting units.
-
-#### Step 5: Dynamic guest NixOS config
-
-**File:** `flake.nix`, `nix/ch/sandbox-vm.nix`
-
-Currently one guest config (`sandbox-live`) with hardcoded MAC/IP. For
-per-user VMs, the guest networking must match the allocated IP. Options:
-
-**Option A (simple):** DHCP inside the VM. The host bridge runs a DHCP
-server (systemd-networkd can do this) that assigns IPs based on MAC.
-The Rust code generates a unique MAC per instance.
-
-**Option B (current pattern):** Static IP in guest config. This requires
-building a new NixOS guest config per unique IP, which is expensive.
-
-**Recommended: Option A.** The sandbox binary doesn't care what IP it has.
-The socat forwarding happens on the host side. Guest DHCP is simpler than
-per-user NixOS rebuilds.
-
-#### Step 6: TAP device per user
-
-**File:** `nix/hosts/ovh-node.nix` (tap-setup@ unit)
-
-The `tap-setup@` unit already creates `tap-{instance}`. With per-user
-instance names (`u-ab121631`), it creates `tap-u-ab121631`. This works
-as-is — just verify TAP name length limits (max 15 chars for Linux
-interface names, `tap-u-ab121631` = 14 chars, fits).
-
-#### Step 7: microvm-run per user
-
-The `cloud-hypervisor@` unit uses `${vmRunnerLive}/bin/microvm-run` which
-embeds the guest NixOS config (including MAC and static IP). For per-user
-VMs with DHCP, we need a single guest config that uses DHCP instead of
-static IP. Build one guest config, share it across all instances.
-
-### Files to Modify (Summary)
-
-| File | Change |
-|------|--------|
-| `hypervisor/src/sandbox/mod.rs` | Dynamic port allocation for roles |
-| `hypervisor/src/sandbox/systemd.rs` | Per-user instance names, VM IP allocation, write config files |
-| `nix/hosts/ovh-node.nix` | Parameterize socat/CH units to read port/IP from config files |
-| `nix/ch/sandbox-vm.nix` | Switch from static IP to DHCP |
-| `flake.nix` | Single DHCP guest config instead of per-role configs |
-
-### Verification
-
-1. Register two test users on draft.choir-ip.com
-2. Log in as user A → gets VM on port 12000, IP 10.0.0.100
-3. Log in as user B → gets VM on port 12001, IP 10.0.0.101
-4. Verify isolation: user A cannot see user B's data
-5. Idle timeout: user A's VM hibernates independently of user B
-6. Stop user A → user B unaffected
-
-### What NOT to Do
-
-- Don't build desktop sync yet
+- Don't build desktop sync yet (Phase 9+, deferred)
 - Don't build multi-node placement or autoscaling
 - Don't add quota enforcement until multitenancy requires it
-- Don't build a full VM fleet API — keep using ensure_running() pattern
-- Don't per-user NixOS guest builds — use DHCP
+- Don't build per-user NixOS guest configs — use DHCP
+- Don't give job VMs write access to user data
