@@ -526,7 +526,8 @@
 
     [host]
     default_class = "ch-pmem-2c-1g"
-    nix_generation = "${config.system.build.toplevel}"
+    # nix_generation is read at runtime from /nix/var/nix/profiles/system
+    # (cannot reference config.system.build.toplevel here — circular dependency)
   '';
 
   # Firecracker VM template (ADR-0014 Phase 6: parallel to cloud-hypervisor@)
