@@ -10,14 +10,20 @@ Updated: 2026-03-11
 
 ## Narrative Summary (1-minute read)
 
-Each ChoirOS user gets two lightweight VMs: dev and prod. Dev is the
-interactive workspace where coding agents run. Prod serves the user's deployed
-app and only accepts promoted builds that pass verification (tests, docs,
-review). Heavy jobs like Playwright E2E tests with Chrome and video recording
-run on a shared job queue, not inside user VMs.
+Each ChoirOS user gets one lightweight VM (their sandbox). All development
+work — compilation, testing, coding agents — runs on a shared build pool.
+Heavy jobs run on the same pool with larger resource profiles. The user's
+sandbox only changes through verified promotion from the build pool.
 
-This ADR covers the full per-user VM lifecycle, the dev/prod promotion model,
-workload-based resource allocation, storage provisioning, and desktop sync.
+VM types are abstracted as **machine classes**: a named configuration of
+hypervisor (CH/FC), store transport (blk/pmem), vCPU count, and memory size.
+Machine classes are runtime configuration, not compiled into code. Account
+tiers map to default machine classes, but the mapping is configurable and
+the class set is designed for experimentation — we don't yet know the right
+sizes and combinations.
+
+The job queue is also tier-aware: free users get lower priority and smaller
+budgets, paid users get higher priority and larger resource profiles.
 
 The storage decision is virtio-blk + btrfs host. Per-user data.img files live
 on per-user btrfs subvolumes. Instant CoW snapshots, forks, and incremental
@@ -25,63 +31,152 @@ migration via btrfs send/receive. This is deployed and proven.
 
 ## What Changed
 
-- 2026-03-11: Added dev/prod dual-VM model, heavy job queue, workload resource
-  profiles, and promotion-as-invariant. Restructured ADR around workload
-  classes instead of single-VM lifecycle.
+- 2026-03-11: Added machine classes as runtime configuration. VM type
+  (hypervisor, transport, sizing) is a named config, not compiled into code.
+  Account tiers map to default classes. Job queue priority is tier-aware.
+- 2026-03-11: Simplified from dev/prod dual-VM to single prod VM + shared
+  build pool. Added heavy job queue, workload resource profiles, and
+  promotion-as-invariant.
 - 2026-03-08: CRITICAL CORRECTION — virtiofs cannot survive VM snapshot/restore.
   Changed to virtio-blk + btrfs host for all mutable data.
 - Merged ADR-0010 (fleet lifecycle API + capacity) into this ADR.
 
 ## What To Do Next
 
-1. Implement dev/prod VM pair creation on user registration.
-2. Implement promotion API (dev -> prod) with verification gate.
-3. Implement job queue for heavy workloads (Playwright, full builds).
-4. Define resource profiles per workload class.
-5. Wire btrfs snapshot into promotion (snapshot dev, apply to prod).
-6. (Later) Evaluate Mutagen for desktop sync prototype.
+1. Implement machine classes (runtime config, not hardcoded).
+2. Build and test all 4 VM types (CH/FC × blk/pmem) via E2E evals.
+3. Implement build pool with tier-aware job queue.
+4. Implement promotion API with verification gate.
+5. Experiment with VM sizing per class to find real constraints.
+6. Wire btrfs snapshot into promotion (snapshot, apply, health check).
+7. (Later) Evaluate Mutagen for desktop sync prototype.
 
 ---
 
-## 1) Workload Classes and Resource Profiles
+## 1) Machine Classes
+
+### 1.1 What a machine class is
+
+A machine class is a named configuration that defines how a VM runs:
+
+```toml
+[classes.ch-pmem-2c-1g]
+hypervisor = "cloud-hypervisor"
+transport = "pmem"
+vcpu = 2
+memory_mb = 1024
+runner = "/nix/store/...-choiros-ch-sandbox-live/bin/microvm-run"
+```
+
+Machine classes are **runtime configuration**, not compiled into code. Adding
+a new class = adding a config entry. No code changes, no recompilation. The
+host nix config generates the config file (so runner paths resolve correctly),
+but the class definitions themselves are just data.
+
+### 1.2 VM type axes
+
+The current axes are:
+
+- **Hypervisor**: cloud-hypervisor, firecracker (possibly others later)
+- **Store transport**: blk (virtio-blk), pmem (virtio-pmem, requires erofs alignment)
+- **vCPU count**: 1, 2, 4
+- **Memory**: 256 MB, 512 MB, 1 GB, 2 GB, 4 GB
+
+Not all combinations make sense. The class set is designed for experimentation:
+we don't know the right sizes yet. The system should make it easy to define,
+deploy, and measure new classes without code changes.
+
+### 1.3 Account tiers and class mapping
+
+Account tiers map to default machine classes. The mapping is runtime
+configuration:
+
+```toml
+[tier-defaults]
+# These are EXAMPLES, not decisions. Real mappings will emerge
+# from experimentation with actual workloads.
+free = "..."
+pro = "..."
+```
+
+Users get the class for their tier by default. Per-user overrides are possible
+(admin API). Tiers also affect job queue priority and resource budgets.
+
+The tier names, class assignments, and even which axes matter most are all
+unknown. Hypotheses to test:
+
+- Free tier might get pmem (cheaper per-VM, shared, fast) while paid gets
+  blk (stronger isolation). Or the opposite. Or it might not matter.
+- Firecracker might have lower overhead than cloud-hypervisor. Or not.
+- 256 MB might be enough for a prod sandbox. Or 512 MB might be the floor.
+- The dominant constraint might be something we haven't identified yet.
+
+The machine class system exists to make these experiments cheap and
+CI-controlled, not to encode premature decisions.
+
+### 1.4 How machine classes flow through the system
+
+1. Host nix config builds all runners and writes machine class config file
+2. Hypervisor reads config on startup
+3. `ensure()` takes a class name, looks up config, picks runner + systemd template
+4. Per-VM state dir gets a `machine-class` file so the system remembers
+5. E2E tests can create users with specific classes via API
+6. Stress tests can mix classes to measure real contention
+
+### 1.5 Snapshot portability within a class
+
+VM snapshots are valid only within the same machine class AND same nix
+generation. A snapshot taken on `ch-pmem-2c-1g` cannot restore on
+`fc-blk-1c-512m`. A snapshot from a previous `nixos-rebuild` cannot restore
+because nix store paths (kernel, initrd, erofs) changed.
+
+Within the same class and generation, snapshots survive hypervisor restarts.
+The current snapshot invalidation (ovh-node.nix) is over-aggressive — it
+wipes on every restart instead of only on generation change.
+
+---
+
+## 2) Workload Classes and Resource Profiles
 
 Not all work is equal. Resource allocation must match the workload.
 
-### 1.1 User sandbox (prod VM)
+### 2.1 User sandbox (prod VM)
 
 The user's persistent environment. Serves their app, runs their agents,
 holds their workspace. This is the only long-lived VM per user.
 
 - Long-lived, always available (or wakes on request from hibernation)
-- ~256-430 MB RAM, 1 vCPU
+- Machine class determined by account tier
 - Idle hibernation with heartbeat watchdog
-- Instant restore from snapshot on return
+- Instant restore from snapshot on return (same nix generation)
 - Updated only via verified promotion from the build pool
 
-### 1.2 Build/dev jobs (shared pool)
+### 2.2 Build/dev jobs (shared pool)
 
 All development work — compilation, testing, coding agents, verification —
 runs on a shared pool of beefy VMs. Users do not compile in their own VM.
 
 - Short-to-medium lived, on-demand
-- 1-4 GB RAM, 2-4 vCPU depending on job type
+- Machine class optimized for build workloads (more CPU/RAM)
 - Shared across all users via job queue
 - Results stream back to user's EventStore
 - Job VMs are ephemeral or pooled — do work, return results, recycle
+- **Job priority is tier-aware**: paid users' jobs run before free users' jobs
 
-### 1.3 Heavy jobs (also on shared pool)
+### 2.3 Heavy jobs (also on shared pool)
 
 Playwright E2E with Chrome + video recording, large test suites, batch AI
 processing. Same pool as build/dev, just bigger resource profiles.
 
-- 2-4 GB RAM, 2-4 vCPU
+- Larger machine class (more RAM for Chrome, video encoding)
 - Strict time limits enforced by hypervisor
 - Read-only workspace snapshot, no write access to user data
+- **Time and concurrency budgets per tier**
 
-### 1.4 Why a shared pool instead of per-user dev VMs
+### 2.4 Why a shared pool instead of per-user dev VMs
 
 Compilation is a heavy workload. Rust cargo build needs gigs of RAM and
-minutes of CPU. Even Go needs hundreds of MB. A 430 MB user VM cannot build
+minutes of CPU. Even Go needs hundreds of MB. A 512 MB user VM cannot build
 itself.
 
 Per-user dev VMs sized for compilation (2-4 GB) waste memory. Most users
@@ -89,12 +184,12 @@ aren't building at the same time. A shared pool of 4-8 beefy VMs serving
 100 users is radically more efficient. The pool stays busy through queuing,
 not per-user allocation.
 
-A 32 GB node: ~70 user sandboxes at 430 MB each, plus 4 pool workers at
-2-4 GB each. Versus ~16 users if every user had a 2 GB dev VM.
+A 32 GB node: ~60 user sandboxes at varying class sizes, plus 4 pool workers
+at 2-4 GB each. Versus ~16 users if every user had a 2 GB dev VM.
 
 ---
 
-## 2) Prod VM + Build Pool Model
+## 3) Prod VM + Build Pool Model
 
 ### 2.1 Architecture
 
@@ -186,12 +281,12 @@ users.
 
 ---
 
-## 3) Heavy Job Queue
+## 4) Job Queue (Tier-Aware)
 
-### 3.1 Design
+### 4.1 Design
 
-Heavy jobs are dispatched from the user's dev VM (or from the conductor) and
-run on shared infrastructure. The job queue manages:
+Jobs are dispatched from the user's sandbox (via terminal agent) or from the
+conductor and run on shared infrastructure. The job queue manages:
 
 - Job submission (user or agent requests a heavy job)
 - Capacity allocation (find or create a job VM with the right profile)
@@ -199,7 +294,7 @@ run on shared infrastructure. The job queue manages:
 - Result streaming (JSONL events back to the user's EventStore)
 - Cleanup (destroy job VM after completion)
 
-### 3.2 Job types
+### 4.2 Job types
 
 | Job type | Profile | Typical duration |
 |----------|---------|-----------------|
@@ -208,15 +303,24 @@ run on shared infrastructure. The job queue manages:
 | Large test suite | 1-2 GB RAM, 2 vCPU | 1-15 min |
 | AI batch processing | 1-2 GB RAM, 1 vCPU | variable |
 
-### 3.3 Scheduling
+### 4.3 Scheduling and tier budgets
 
-Simple FIFO with priority for now. No preemption. Capacity limit per node.
-If all job slots are full, jobs queue. Users see queue position and ETA via
-events.
+Priority queue by account tier. Within a tier, FIFO. No preemption.
+Tier names and specific budgets are runtime configuration — the system
+enforces whatever the config says, it doesn't encode specific tiers.
 
-Future: priority queuing, job affinity, cross-node dispatch.
+Per-tier budgets (all configurable):
+- Max concurrent jobs per user
+- Max job duration
+- Max jobs per day/week
+- Which machine classes are available for jobs
+- Queue priority weight
 
-### 3.4 Security
+If all job slots are full, jobs queue. Users see queue position via events.
+
+Future: job affinity, cross-node dispatch.
+
+### 4.4 Security
 
 Job VMs are ephemeral and isolated. They receive a read-only snapshot of the
 user's workspace (or specific files) and return results. They do not have
@@ -224,7 +328,7 @@ write access to the user's dev or prod data.img.
 
 ---
 
-## 4) Storage Decision
+## 5) Storage Decision
 
 ### 4.1 Virtio-blk + Btrfs Host
 
@@ -288,7 +392,7 @@ Pool job VM (ephemeral):
 
 ---
 
-## 5) VM Lifecycle API
+## 6) VM Lifecycle API
 
 ### 5.1 Endpoints
 
@@ -338,7 +442,7 @@ Most users are hibernated at any time — active count is concurrent, not total.
 
 ---
 
-## 6) Desktop Sync (Future)
+## 7) Desktop Sync (Future)
 
 ### 6.1 Phased approach
 
@@ -361,7 +465,7 @@ integration (VS Code, Cursor, etc.) for users who want it.
 
 ---
 
-## 7) Validation
+## 8) Validation
 
 ### Implemented gates (DONE)
 
@@ -374,12 +478,15 @@ integration (VS Code, Cursor, etc.) for users who want it.
 
 ### Remaining gates
 
-- Dev/prod VM pair creation on user registration
+- Machine class config: define, deploy, and select VM types at runtime
+- All 4 VM types boot and pass health checks (CH/FC × blk/pmem)
+- Machine class selection via API (E2E testable, not manual nix changes)
+- VM sizing experimentation: find minimum viable sizes per workload
 - Promotion API with verification gate
 - Promotion snapshot → apply → health check cycle
-- Job queue submission and execution
+- Tier-aware job queue: submission, priority, budgets
 - Job VM ephemeral lifecycle (create → run → stream results → destroy)
-- Resource profile enforcement per workload class
+- Snapshot invalidation: generation-aware, not restart-aware
 - Cross-node migration via btrfs send/receive (deferred)
 
 ---

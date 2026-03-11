@@ -152,9 +152,18 @@ EOF
           ];
         };
 
-      # VM runner store paths (for host injection)
-      vmRunnerLive = self.nixosConfigurations.choiros-ch-sandbox-live
+      # VM runner store paths (for host injection into machine-classes.toml)
+      vmRunnerChPmem = self.nixosConfigurations.choiros-ch-sandbox-live
         .config.microvm.runner.cloud-hypervisor;
+      vmRunnerChBlk = self.nixosConfigurations.choiros-ch-sandbox-live-blk
+        .config.microvm.runner.cloud-hypervisor;
+      vmRunnerFcPmem = self.nixosConfigurations.choiros-fc-sandbox-live
+        .config.microvm.runner.firecracker;
+      vmRunnerFcBlk = self.nixosConfigurations.choiros-fc-sandbox-live-blk
+        .config.microvm.runner.firecracker;
+
+      # Legacy alias (still used by ovh-node.nix cloud-hypervisor@ template)
+      vmRunnerLive = vmRunnerChPmem;
 
     in
     {
@@ -358,6 +367,7 @@ EOF
           choirosPackages = self.packages.${system};
           vmRunnerLive = vmRunnerLive;
           vmStoreDiskInterface = "pmem";
+          inherit vmRunnerChPmem vmRunnerChBlk vmRunnerFcPmem vmRunnerFcBlk;
         };
         modules = [
           disko.nixosModules.disko
@@ -372,6 +382,7 @@ EOF
           choirosPackages = self.packages.${system};
           vmRunnerLive = vmRunnerLive;
           vmStoreDiskInterface = "pmem";
+          inherit vmRunnerChPmem vmRunnerChBlk vmRunnerFcPmem vmRunnerFcBlk;
         };
         modules = [
           ./nix/hosts/ovh-node-hardware.nix
@@ -386,6 +397,7 @@ EOF
           choirosPackages = self.packages.${system};
           vmRunnerLive = vmRunnerLive;
           vmStoreDiskInterface = "pmem";
+          inherit vmRunnerChPmem vmRunnerChBlk vmRunnerFcPmem vmRunnerFcBlk;
         };
         modules = [
           ./nix/hosts/ovh-node-hardware.nix

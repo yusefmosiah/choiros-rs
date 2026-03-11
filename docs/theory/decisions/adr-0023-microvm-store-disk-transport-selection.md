@@ -228,9 +228,10 @@ toggle.
 
 - the performance/security tradeoff is documented at the abstraction boundary
   where operators make the choice
-- downstream systems such as Choir can cleanly map:
-  - free/public tier -> shared `pmem`
-  - paid/private tier -> `blk`
+- downstream systems such as Choir can map transport to account tier via
+  machine class configuration (ADR-0014). The specific mapping (which tier
+  gets pmem vs blk) is TBD — requires experimentation with real workloads
+  to find the right tradeoff between performance, isolation, and cost
 
 ---
 

@@ -30,10 +30,15 @@ This gives lower baseline cost, better isolation, and faster path to real user v
 
 ## What Changed
 
-1. Declared "bootstrap into publishing" as the next product/infra milestone after OVH bootstrap.
-2. Defined state/compute decoupling model for runtime architecture.
-3. Defined publish runtime modes and inbound intent reconciliation flow.
-4. Defined an 80/20 API and control-plane rails for safe multitenant operation.
+- 2026-03-11: Compute tier terminology (`lite`, `standard`, `heavy`) superseded
+  by ADR-0014 machine classes. Machine classes are runtime configuration with
+  account tier mapping. Publishing concepts remain valid and are the next
+  major milestone after bootstrap.
+- 2026-03-02: Initial ADR.
+  1. Declared "bootstrap into publishing" as the next product/infra milestone after OVH bootstrap.
+  2. Defined state/compute decoupling model for runtime architecture.
+  3. Defined publish runtime modes and inbound intent reconciliation flow.
+  4. Defined an 80/20 API and control-plane rails for safe multitenant operation.
 
 ## What To Do Next
 
