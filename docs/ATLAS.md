@@ -69,6 +69,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/decisions/adr-0004-hypervisor-sandbox-ui-runtime-boundary.md`
 - **[P4]** ADR-0019: Per-User Memory Curation and Retrieval — Decision (Draft) | Requires: [ADR-0001]  
   `docs/theory/decisions/adr-0019-per-user-memory-curation-and-retrieval.md`
+- **[P4]** Agent Architecture Session Notes — Note (Active) | Requires: [ADR-0021, ADR-0022]  
+  `docs/theory/notes/2026-03-11-agent-architecture-session-notes.md`
 - **[P5]** ADR-0002: Rust + Nix Build and Cache Strategy — Decision (Draft)  
   `docs/theory/decisions/adr-0002-rust-nix-build-and-cache-strategy.md`
 - **[P5]** ADR-0005: ALM Harness Integration Strategy (Draft) — Decision (Draft)  
@@ -85,8 +87,6 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/guides/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
 - **[P5]** nix-bench — ? (?)  
   `docs/theory/notes/nix-bench.md`
-- **[P5]** ChoirOS Roadmap Dependency Tree (Active) — Note (Active)  
-  `docs/theory/notes/roadmap-dependency-tree.md`
 - **[P5]** The Virtio Ecosystem: From Hardware Emulation to MicroVM Density — ? (?)  
   `docs/theory/virtio-ecosystem.md`
 
@@ -213,6 +213,7 @@ ADR-0020 → Implementing ADR-0020: Security Hardening
 ADR-0022 → Implementing ADR-0022: Hypervisor Concurrency and Dynamic Capacity
 ADR-0023 → Implementing ADR-0023: microvm.nix Store Disk Transport Selection
 ADR-0024 → Implementing ADR-0024: Hypervisor Go Rewrite
+ADR-0021, ADR-0022 → Agent Architecture Session Notes
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
