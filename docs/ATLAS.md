@@ -95,6 +95,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/guides/deployment-checkpoint-and-next-steps.md`
 - **[P5]** OVH US-East Bootstrap Runbook: Secrets + Compute Lifecycle — Guide (Active)  
   `docs/theory/guides/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
+- **[P5]** KSM (Kernel Same-page Merging) Research for MicroVM Workloads — Research Note (Complete)  
+  `docs/theory/notes/2026-03-11-ksm-research.md`
 - **[P5]** nix-bench — ? (?)  
   `docs/theory/notes/nix-bench.md`
 - **[P5]** The Virtio Ecosystem: From Hardware Emulation to MicroVM Density — ? (?)  
@@ -234,4 +236,4 @@ ADR-0014, ADR-0018 → Snapshot Portability Across VM Sizings
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-11 — 24 practice, 36 theory, 19 state docs.*
+*Generated 2026-03-11 — 24 practice, 37 theory, 19 state docs.*

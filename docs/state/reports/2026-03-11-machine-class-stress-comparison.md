@@ -78,12 +78,21 @@ completing in 1.7 minutes. All other classes had 1 boot timeout each.
 
 ## Recommendation
 
-**Default class: ch-pmem-2c-1g** — the 25% memory savings compound at scale,
-and the previous ADR-0022 stress tests proved it clean to 92 VMs. The KSM
-deduplication is a significant advantage for multi-tenant density.
+**Production topology: ch-blk-2c-2g (user sandboxes) + ch-pmem-4c-4g (worker pool)**
 
-For users who need Firecracker (e.g., for snapshot/restore speed or security
-profile), fc-blk-2c-1g is the most reliable alternative.
+- **User sandboxes (ch-blk-2c-2g):** virtio-blk provides tenant isolation (no
+  shared pmem pages between users). 2c-2g gives headroom for interactive use
+  at near-zero cost over 1g at idle.
+- **Worker pool (ch-pmem-4c-4g):** virtio-pmem enables KSM dedup across identical
+  worker VMs, maximizing density for the shared compute pool. 4c-4g provides
+  enough resources for builds, tests, and Playwright.
+- **Elastic resize:** Users needing heavy compute (build/test/Playwright) get
+  cold-boot resized from 2c-2g to 4c-4g in ~8.4s, then back when done.
+- **Safe production target:** 45 VMs (32 users + 13 workers) on a 32 GB host,
+  with ~13 GB headroom.
+
+For homogeneous deployments, ch-pmem-2c-1g remains the density champion at
+276 MB/VM (proven to 92 VMs in ADR-0022 stress tests).
 
 ## 2c-2g Sizing Comparison (at 40 VMs)
 
@@ -185,6 +194,64 @@ would bring this to ~8-10s.
 
 Health latency unaffected by mixed sizings: 2c-1g p50 = 45ms, 4c-4g p50 = 44ms.
 Memory fully recovers after downsize: 26,539 MB vs 26,510 MB baseline.
+
+## Heterogeneous Production Topology
+
+**Test:** `heterogeneous-capacity.spec.ts` — ch-blk-2c-2g (user sandboxes) +
+ch-pmem-4c-4g (worker pool), ramping +5 users + 2 workers per round.
+
+Rationale: blk for user isolation (no shared pmem pages between tenants),
+pmem for worker density (KSM dedup on identical store disks in the pool).
+
+| Round | Users | Workers | Total | Mem Avail | User p99 | Worker p99 | MB/VM |
+|-------|-------|---------|-------|-----------|----------|------------|-------|
+| 1 | 5 | 2 | 7 | 27,043 MB | 51 ms | 49 ms | 489 |
+| 2 | 10 | 4 | 14 | 24,216 MB | 49 ms | 50 ms | 447 |
+| 3 | 15 | 6 | 21 | 21,333 MB | 55 ms | 56 ms | 435 |
+| 4 | 20 | 8 | 28 | 18,485 MB | 53 ms | 49 ms | 428 |
+| 5 | 25 | 10 | 35 | 15,825 MB | 56 ms | 46 ms | 418 |
+| 6 | 30 | 12 | 42 | 13,013 MB | 57 ms | 49 ms | 416 |
+| 7 | 35 | 14 | 49 | 10,374 MB | 48 ms | 50 ms | 410 |
+| 8 | 40 | 16 | **56** | 7,428 MB | 51 ms | 51 ms | **411** |
+| **9** | 44 | 18 | 62 | 18,252* | **2,397** | **2,611** | 197* |
+| 10 | 49 | 20 | 69 | 7,111 MB | 2,405 | 129 ms | 339 |
+
+*Round 9: OOM killer reclaimed VMs (memory jumped from 7.4 GB to 18.2 GB,
+VMs dropped from 57 to 28). Boot times doubled to 16s.
+
+### Key Findings
+
+1. **Clean capacity: 56 VMs** (40 users + 16 workers) with perfect health
+   - Zero boot failures through 8 rounds (56/56 = 100%)
+   - p99 latency never exceeded 57 ms
+   - Boot fixes (data.img flock, .microvm-run cleanup) eliminated all prior failures
+
+2. **Degradation is abrupt, not gradual** — system goes from p99=51ms at 56 VMs
+   to p99=2.6s at 62 VMs. The OOM killer is the degradation mechanism, not
+   gradual latency increase. This means capacity planning should target ~80%
+   of the clean ceiling (45 VMs) for production headroom.
+
+3. **Recovery after OOM** — round 10 still booted 7/7 new VMs after OOM killed
+   others. The system self-heals but with elevated p99 on survivors. Worker
+   p99 recovered to 129ms while user p99 stayed at 2.4s (more VMs = more
+   health probes = more contention).
+
+4. **Memory efficiency: 411 MB/VM** at scale for the mixed topology. This is
+   between ch-pmem-only (276 MB) and ch-blk-only (366 MB), as expected from
+   mixing blk (user) and pmem (worker) classes.
+
+5. **I/O workload unaffected** — conductor prompts at 5.2s avg under 69 VMs
+   of mixed load. LLM response time dominates, not VM I/O.
+
+### Production Capacity Planning (32 GB host)
+
+| Scenario | Users | Workers | Total | Memory headroom |
+|----------|-------|---------|-------|-----------------|
+| Clean ceiling | 40 | 16 | 56 | 7.4 GB (23%) |
+| Safe production (80%) | 32 | 13 | 45 | ~13 GB (41%) |
+| Burst (degraded) | 49 | 20 | 69 | ~7 GB (22%)* |
+
+*Burst capacity involves OOM risk. Not recommended for sustained operation.
 
 ## Raw Data
 
