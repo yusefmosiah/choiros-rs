@@ -201,6 +201,8 @@ pub async fn register_finish(
         error!("session set_user after register: {e}");
         // Non-fatal — passkey is saved; user can log in manually.
     }
+    // ADR-0014 Phase 6: load per-user machine class (likely NULL for new users).
+    load_user_machine_class(&state, &user_id).await;
     Json(RegisterFinishResponse {
         recovery_codes,
         is_first_passkey: is_first,
@@ -306,6 +308,9 @@ pub async fn login_finish(
         error!("session set_user: {e}");
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
+
+    // ADR-0014 Phase 6: load per-user machine class into registry.
+    load_user_machine_class(&state, &user_id).await;
 
     info!(username, "login successful");
     audit(&state.db, Some(&user_id), "login", None, None).await;
@@ -901,6 +906,110 @@ async fn audit(
     )
     .execute(pool)
     .await;
+}
+
+// ── Machine class profile ────────────────────────────────────────────────────
+
+/// Load the user's machine_class preference from DB into the sandbox registry.
+/// Called at login/register so the next VM boot uses the right class.
+async fn load_user_machine_class(state: &Arc<AppState>, user_id: &str) {
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        machine_class: Option<String>,
+    }
+    let row = sqlx::query_as::<_, Row>("SELECT machine_class FROM users WHERE id = ?")
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await;
+
+    if let Ok(Some(Row {
+        machine_class: Some(class_name),
+    })) = row
+    {
+        if let Err(e) = state
+            .sandbox_registry
+            .set_user_machine_class(user_id, &class_name)
+        {
+            warn!(user_id, error = %e, "ignoring invalid stored machine_class");
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct SetMachineClassBody {
+    pub class_name: String,
+}
+
+/// PUT /profile/machine-class — set your VM machine class preference.
+/// Takes effect on next VM boot. Authenticated users only.
+pub async fn set_profile_machine_class(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Json(body): Json<SetMachineClassBody>,
+) -> Response {
+    let Some(user_id) = sess::get_user_id(&session).await else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+
+    // Validate the class name against available classes
+    if let Err(e) = state
+        .sandbox_registry
+        .set_user_machine_class(&user_id, &body.class_name)
+    {
+        return (StatusCode::BAD_REQUEST, e).into_response();
+    }
+
+    // Persist to DB
+    if let Err(e) = sqlx::query("UPDATE users SET machine_class = ? WHERE id = ?")
+        .bind(&body.class_name)
+        .bind(&user_id)
+        .execute(&state.db)
+        .await
+    {
+        error!(user_id, error = %e, "failed to persist machine_class");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    info!(
+        user_id,
+        class_name = body.class_name,
+        "machine class preference updated"
+    );
+    Json(serde_json::json!({
+        "status": "ok",
+        "machine_class": body.class_name,
+    }))
+    .into_response()
+}
+
+/// GET /profile/machine-class — get your current machine class preference.
+pub async fn get_profile_machine_class(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+) -> Response {
+    let Some(user_id) = sess::get_user_id(&session).await else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        machine_class: Option<String>,
+    }
+    let current = sqlx::query_as::<_, Row>("SELECT machine_class FROM users WHERE id = ?")
+        .bind(&user_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|r| r.machine_class);
+
+    let available = state.sandbox_registry.list_machine_classes();
+
+    Json(serde_json::json!({
+        "machine_class": current,
+        "available": available,
+    }))
+    .into_response()
 }
 
 fn base64_url_encode(bytes: &[u8]) -> String {

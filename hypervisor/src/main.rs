@@ -125,6 +125,15 @@ async fn main() -> anyhow::Result<()> {
             "/provider/v1/{provider}/{*rest}",
             any(provider_gateway::forward_provider_request),
         )
+        // Profile — user-facing machine class preference (ADR-0014 Phase 6)
+        .route(
+            "/profile/machine-class",
+            get(auth::handlers::get_profile_machine_class),
+        )
+        .route(
+            "/profile/machine-class",
+            put(auth::handlers::set_profile_machine_class),
+        )
         // Heartbeat — keeps sandbox alive without proxying
         .route("/heartbeat", post(api::heartbeat))
         // Admin sandbox management
