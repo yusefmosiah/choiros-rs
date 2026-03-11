@@ -617,6 +617,9 @@
     requires = [ "cloud-hypervisor@%i.service" ];
     after = [ "cloud-hypervisor@%i.service" ];
     bindsTo = [ "cloud-hypervisor@%i.service" ];
+    # PartOf ensures socat restarts when cloud-hypervisor restarts
+    # (bindsTo only stops socat when CH stops, PartOf propagates restart)
+    partOf = [ "cloud-hypervisor@%i.service" ];
     serviceConfig = {
       Type = "simple";
       KillMode = "control-group";

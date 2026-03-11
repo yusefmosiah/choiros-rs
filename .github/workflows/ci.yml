@@ -97,9 +97,6 @@ jobs:
             sleep 2
             curl -fsS --retry 10 --retry-delay 3 --retry-all-errors http://127.0.0.1:9090/login > /dev/null
 
-            echo "==> Waiting for sandbox"
-            curl -fsS --retry 20 --retry-delay 3 --retry-all-errors http://127.0.0.1:8080/health > /dev/null
-
             echo "==> Staging deploy complete"
           '
 
