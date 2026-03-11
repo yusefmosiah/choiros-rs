@@ -177,6 +177,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/state/reports/2026-03-11-capacity-stress-test.md`
 - Load Test Report: DAX vs No-DAX virtio-pmem — ? (?)  
   `docs/state/reports/2026-03-11-dax-vs-nodax-load-test.md`
+- Machine Class Stress Test Comparison (ADR-0014 Phase 6) — ? (?)  
+  `docs/state/reports/2026-03-11-machine-class-stress-comparison.md`
 - ChoirOS Logging Security & Compliance Report — Report (Active)  
   `docs/state/reports/choiros-logging-security-report.md`
 - Conductor E2E Test Intelligence Report — Report (Active)  
@@ -229,4 +231,4 @@ ADR-0014 → Deferred Machine Class Items
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-11 — 24 practice, 35 theory, 18 state docs.*
+*Generated 2026-03-11 — 24 practice, 35 theory, 19 state docs.*
