@@ -68,6 +68,19 @@ export default defineConfig({
       },
     },
     {
+      name: "stress",
+      testMatch: [
+        "capacity-stress-test.spec.ts",
+      ],
+      use: {
+        baseURL: hypervisorBaseUrl,
+        trace: "off",
+        video: "off",
+        screenshot: "off",
+        viewport: { width: 1280, height: 800 },
+      },
+    },
+    {
       name: "trace-eval",
       testMatch: ["trace-viewer-eval.spec.ts"],
       use: {

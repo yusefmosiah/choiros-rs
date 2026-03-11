@@ -151,6 +151,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/state/reports/2026-03-09-per-user-vm-load-test.md`
 - ADR-0018 Load Test Report — 2026-03-10 — ? (?)  
   `docs/state/reports/2026-03-10-adr-0018-load-test.md`
+- Capacity Stress Test Report — ? (?)  
+  `docs/state/reports/2026-03-11-capacity-stress-test.md`
 - Load Test Report: DAX vs No-DAX virtio-pmem — ? (?)  
   `docs/state/reports/2026-03-11-dax-vs-nodax-load-test.md`
 - ChoirOS Logging Security & Compliance Report — Report (Active)  
@@ -194,4 +196,4 @@ ADR-0020 → Implementing ADR-0020: Security Hardening
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-11 — 24 practice, 25 theory, 16 state docs.*
+*Generated 2026-03-11 — 24 practice, 25 theory, 17 state docs.*
