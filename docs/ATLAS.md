@@ -67,6 +67,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/decisions/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
 - **[P3]** ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion — Decision (Draft)  
   `docs/theory/decisions/adr-0013-fleet-ctl-change-lifecycle-and-promotion.md`
+- **[P3]** Snapshot Portability Across VM Sizings — Research Note (Active) | Requires: [ADR-0014, ADR-0018]  
+  `docs/theory/notes/2026-03-11-snapshot-portability-research.md`
 - **[P3]** Inbox — Note (Active)  
   `docs/theory/notes/inbox.md`
 - **[P3]** Per-User VMs as the Deployment Unit — Note (Draft) | Requires: [ADR-0014, ADR-0016]  
@@ -228,7 +230,8 @@ ADR-0025 → Implementing ADR-0025: Go Admin Dashboard
 ADR-0021, ADR-0022 → Agent Architecture Session Notes
 ADR-0016, ADR-0023, ADR-0024 → CI Boundaries and the Bootstrap Thesis
 ADR-0014 → Deferred Machine Class Items
+ADR-0014, ADR-0018 → Snapshot Portability Across VM Sizings
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-11 — 24 practice, 35 theory, 19 state docs.*
+*Generated 2026-03-11 — 24 practice, 36 theory, 19 state docs.*

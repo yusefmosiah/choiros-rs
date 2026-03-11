@@ -115,17 +115,15 @@ async function stopSandbox(page: Page, userId: string): Promise<boolean> {
   }
 }
 
-async function getMachineClassInfo(page: Page): Promise<{
-  current_class: string;
-  available_classes: string[];
-}> {
+async function getAvailableClasses(page: Page): Promise<string[]> {
   const res = await page.request.get("/profile/machine-class", {
     timeout: 10_000,
   });
-  return (await res.json()) as {
-    current_class: string;
-    available_classes: string[];
-  };
+  const body = await res.json();
+  // Shape: {available: {classes: [{name, ...}], default: "..."}, machine_class: null}
+  const classes = body.available?.classes;
+  if (!classes || !Array.isArray(classes)) return [];
+  return classes.map((c: { name: string }) => c.name);
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -148,12 +146,12 @@ test.describe("VM Resize via Cold Boot", () => {
     const { userId } = await registerUser(page, "resize");
 
     // Verify available classes include our targets
-    const classInfo = await getMachineClassInfo(page);
-    console.log(`  Available classes: ${classInfo.available_classes.join(", ")}`);
+    const availableClasses = await getAvailableClasses(page);
+    console.log(`  Available classes: ${availableClasses.join(", ")}`);
 
     // Check that medium and large classes are available
-    const hasMedium = classInfo.available_classes.includes(MEDIUM_CLASS);
-    const hasLarge = classInfo.available_classes.includes(LARGE_CLASS);
+    const hasMedium = availableClasses.includes(MEDIUM_CLASS);
+    const hasLarge = availableClasses.includes(LARGE_CLASS);
     if (!hasMedium && !hasLarge) {
       console.log("  SKIP: Neither medium nor large class available on this host");
       await ctx.close();
