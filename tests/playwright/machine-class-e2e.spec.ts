@@ -38,7 +38,7 @@ async function addVirtualAuthenticator(page: Page): Promise<string> {
 }
 
 function uniqueUsername(label: string): string {
-  return `mc_${label}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  return `mc_${label}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}@test.choiros.dev`;
 }
 
 interface MeResponse {
@@ -133,8 +133,12 @@ function record(
 test.describe("Machine Class E2E (ADR-0014 Phase 6)", () => {
   test.setTimeout(600_000); // 10 minutes — multiple cold VM boots
 
-  test("list available machine classes", async ({ page }) => {
-    // This endpoint is public (admin), doesn't need auth
+  test("list available machine classes", async ({ browser }) => {
+    // Admin endpoints require auth — register first
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await registerUser(page, "list");
+
     const res = await page.request.get("/admin/machine-classes", {
       timeout: 10_000,
     });
@@ -155,6 +159,8 @@ test.describe("Machine Class E2E (ADR-0014 Phase 6)", () => {
     expect(body.classes.length).toBeGreaterThanOrEqual(1);
     record("global", "total-classes", body.classes.length);
     record("global", "default-class", body.default ?? "none");
+
+    await ctx.close();
   });
 
   test("default class user boots successfully", async ({ browser }) => {
@@ -181,9 +187,10 @@ test.describe("Machine Class E2E (ADR-0014 Phase 6)", () => {
   });
 
   test("each available class boots a healthy VM", async ({ browser }) => {
-    // First, discover available classes
+    // First, discover available classes (needs auth)
     const tmpCtx = await browser.newContext();
     const tmpPage = await tmpCtx.newPage();
+    await registerUser(tmpPage, "discover");
     const classesRes = await tmpPage.request.get("/admin/machine-classes", {
       timeout: 10_000,
     });
