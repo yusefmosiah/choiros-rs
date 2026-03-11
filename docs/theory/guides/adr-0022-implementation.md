@@ -10,27 +10,243 @@ Requires: [ADR-0022]
 
 Three concurrency bottlenecks in the hypervisor cap practical VM capacity
 at ~60-70 active users despite having 300+ VM memory headroom with DAX.
-This guide covers implementing DashMap for the registry and rate limiter,
-connection pooling for the HTTP proxy, dynamic capacity gating, and system
-metrics collection. Implementation order is designed so each step can be
-tested independently.
+This guide covers boot coalescing, port allocation fixes, removing the
+double TCP connect on the hot path, DashMap for the registry and rate
+limiter, connection pooling for the HTTP proxy, dynamic capacity gating,
+and system metrics collection.
+
+External code review (Codex) identified four P1 issues that must be
+addressed before or during the DashMap migration: admin auth prerequisite,
+concurrent boot coalescing, port allocation TOCTOU, and double TCP connect
+on the hot path.
 
 ## What Changed
 
 - 2026-03-11: Initial implementation guide.
+- 2026-03-11: Incorporated Codex review findings. Added Phase 0 (admin
+  auth), reordered phases to address P1s first. Added boot coalescing,
+  port allocator, and hot-path probe removal.
 
 ## What To Do Next
 
-Start with Phase 1 (rate limiter DashMap — smallest, safest), then Phase 2
-(registry DashMap — biggest impact), then Phase 3 (connection pooling),
-Phase 4 (dynamic cap), Phase 5 (metrics endpoint + stress test).
+Phase 0 (admin auth) is a prerequisite for Phase 7 (metrics endpoint)
+but not for the other phases. Start with Phase 1 (boot coalescing +
+port allocator — fixes correctness bugs), then proceed through the
+remaining phases in order.
 
 ---
 
-## Phase 1: Rate Limiter DashMap (30 min)
+## Phase 0: Admin Authorization (prerequisite for Phase 7)
 
-Smallest change, lowest risk. Validates the DashMap dependency before
-tackling the registry.
+See ADR-0020 C1 and `docs/theory/guides/adr-0020-implementation.md`
+Phase 1a. The `/admin/*` endpoints currently allow any authenticated
+user to enumerate and control all VMs. This must be fixed before the
+`/admin/metrics` endpoint (Phase 7) goes to production.
+
+This is independent of the concurrency work — implement whenever
+convenient, but before deploying Phase 7.
+
+---
+
+## Phase 1: Boot Coalescing + Port Allocator (1-2 hours)
+
+Fixes two correctness bugs before the DashMap migration.
+
+### 1a. Add Starting status with watch channel
+
+**File:** `hypervisor/src/sandbox/mod.rs`
+
+Add a `Starting` variant to `SandboxStatus`:
+
+```rust
+use tokio::sync::watch;
+
+#[derive(Debug)]
+pub enum SandboxStatus {
+    Running,
+    Hibernated,
+    Starting(watch::Receiver<Result<u16, String>>),
+    Stopped,
+    Failed,
+}
+```
+
+In `ensure_running()`, when a spawn is needed:
+
+```rust
+// Before spawning, insert a Starting placeholder with a watch channel
+let (tx, rx) = watch::channel(Err("booting".to_string()));
+entry.status = SandboxStatus::Starting(rx.clone());
+// ... drop lock, spawn ...
+
+// When spawn completes:
+let _ = tx.send(Ok(port)); // or Err on failure
+entry.status = SandboxStatus::Running;
+```
+
+When a second request arrives and sees `Starting`:
+
+```rust
+SandboxStatus::Starting(rx) => {
+    let mut rx = rx.clone();
+    drop(entries); // release lock before waiting
+    // Wait for the boot to complete
+    rx.changed().await.ok();
+    match rx.borrow().as_ref() {
+        Ok(port) => return Ok(*port),
+        Err(e) => return Err(anyhow::anyhow!("boot failed: {e}")),
+    }
+}
+```
+
+This ensures exactly one `spawn_instance` call per (user, role),
+regardless of how many concurrent requests arrive during boot.
+
+### 1b. Add PortAllocator with atomic reservation
+
+**File:** `hypervisor/src/sandbox/mod.rs` (or new file `port_alloc.rs`)
+
+```rust
+use dashmap::DashSet;
+
+pub struct PortAllocator {
+    reserved: DashSet<u16>,
+    range_start: u16,
+    range_end: u16,
+}
+
+impl PortAllocator {
+    pub fn new(range_start: u16, range_end: u16) -> Self {
+        Self {
+            reserved: DashSet::new(),
+            range_start,
+            range_end,
+        }
+    }
+
+    /// Atomically reserve the next available port.
+    /// Returns None if all ports are reserved.
+    pub fn reserve(&self) -> Option<u16> {
+        for port in self.range_start..=self.range_end {
+            // DashSet::insert returns true if newly inserted (atomic)
+            if self.reserved.insert(port) {
+                return Some(port);
+            }
+        }
+        None
+    }
+
+    /// Pre-reserve a known port (e.g. fixed ports for default user).
+    pub fn reserve_specific(&self, port: u16) -> bool {
+        self.reserved.insert(port)
+    }
+
+    /// Release a port when a VM stops or fails.
+    pub fn release(&self, port: u16) {
+        self.reserved.remove(&port);
+    }
+}
+```
+
+Add `PortAllocator` to `SandboxRegistry`:
+
+```rust
+pub struct SandboxRegistry {
+    // ... existing fields ...
+    port_allocator: PortAllocator,
+}
+```
+
+Replace the current `allocate_port()` (which scans all entries + TCP
+probes) with `self.port_allocator.reserve()`.
+
+Add `self.port_allocator.release(port)` calls to:
+- `stop()` / `stop_handle()`
+- `stop_branch()`
+- Failed spawn cleanup
+
+**Dependency:** This requires `dashmap` in `Cargo.toml`. Add it now
+(used by Phase 1b here and Phase 2/3 later).
+
+### Verify
+
+```bash
+cargo test -p hypervisor
+# Manual test: register two users simultaneously, verify only one
+# spawn_instance per user
+```
+
+---
+
+## Phase 2: Remove Readiness Probe from Hot Path (30 min)
+
+### 2a. Remove is_port_ready from Running branch
+
+**File:** `hypervisor/src/sandbox/mod.rs` (line 261-274)
+
+```rust
+// Before
+SandboxStatus::Running => {
+    if Self::is_port_ready(entry.port).await {
+        entry.last_activity = Instant::now();
+        return Ok(entry.port);
+    }
+    warn!(...);
+    self.stop_handle(...).await;
+    entry.status = SandboxStatus::Failed;
+}
+
+// After
+SandboxStatus::Running => {
+    entry.last_activity = Instant::now();
+    return Ok(entry.port);
+}
+```
+
+### 2b. Handle proxy 502 as respawn trigger
+
+**File:** `hypervisor/src/middleware.rs` or `proxy/mod.rs`
+
+When the proxy gets a connection refused / 502, mark the sandbox as
+Failed so the next request triggers a respawn:
+
+```rust
+// In proxy error path:
+if let Err(e) = proxy_result {
+    // Mark sandbox as failed so next request respawns
+    state.sandbox_registry.mark_failed(user_id, role).await;
+    return (StatusCode::BAD_GATEWAY, "sandbox unreachable").into_response();
+}
+```
+
+Add `mark_failed()` to `SandboxRegistry`:
+
+```rust
+pub async fn mark_failed(&self, user_id: &str, role: SandboxRole) {
+    let mut entries = self.entries.lock().await;
+    if let Some(user_map) = entries.get_mut(user_id) {
+        if let Some(entry) = user_map.roles.get_mut(&role) {
+            if entry.status == SandboxStatus::Running {
+                entry.status = SandboxStatus::Failed;
+            }
+        }
+    }
+}
+```
+
+### Verify
+
+```bash
+cargo test -p hypervisor
+# Verify: health check → proxy connect is one TCP connect, not two
+```
+
+---
+
+## Phase 3: Rate Limiter DashMap (30 min)
+
+Smallest DashMap change, validates the dependency before tackling the
+registry.
 
 ### 1a. Add DashMap dependency
 
@@ -109,13 +325,13 @@ cargo clippy -p hypervisor
 
 ---
 
-## Phase 2: Sandbox Registry DashMap (2-3 hours)
+## Phase 4: Sandbox Registry DashMap (2-3 hours)
 
 Biggest change, highest impact. The global `Mutex<HashMap>` becomes a
 `DashMap` with per-shard locking. Every method on `SandboxRegistry` that
 calls `self.entries.lock().await` must be converted.
 
-### 2a. Change struct definition
+### 4a. Change struct definition
 
 **File:** `hypervisor/src/sandbox/mod.rs` (line 149)
 
@@ -129,7 +345,7 @@ entries: DashMap<String, UserSandboxes>,
 
 Update `new()` accordingly.
 
-### 2b. Convert simple accessors
+### 4b. Convert simple accessors
 
 These methods do a single lock → lookup → return. Convert to
 `self.entries.get(&user_id)` or `self.entries.get_mut(&user_id)`:
@@ -160,7 +376,7 @@ if let Some(mut user_map) = self.entries.get_mut(user_id) {
 }
 ```
 
-### 2c. Convert ensure_running (critical path)
+### 4c. Convert ensure_running (critical path)
 
 **File:** `hypervisor/src/sandbox/mod.rs` (lines 249-419)
 
@@ -182,13 +398,13 @@ Key rule: **never hold a DashMap guard across an `.await` point.**
 DashMap guards are `!Send` in the default configuration, so the compiler
 will enforce this — holding a guard across `.await` is a compile error.
 
-### 2d. Convert ensure_branch_running
+### 4d. Convert ensure_branch_running
 
 Same pattern as `ensure_running`. Currently holds the mutex across
 `spawn_instance` (the worst offender — 45+ seconds). Must restructure
 to drop the guard before spawning.
 
-### 2e. Restructure idle watchdog (critical fix)
+### 4e. Restructure idle watchdog (critical fix)
 
 **File:** `hypervisor/src/sandbox/mod.rs` (lines 660-769)
 
@@ -227,7 +443,7 @@ for (user_id, role, ...) in to_hibernate {
 }
 ```
 
-### 2f. Convert count_running_vms and allocate_port
+### 4f. Convert count_running_vms and allocate_port
 
 Both need to scan all entries. Use `self.entries.iter()`:
 
@@ -263,9 +479,9 @@ cargo clippy -p hypervisor
 
 ---
 
-## Phase 3: HTTP Proxy Connection Pooling (1-2 hours)
+## Phase 5: HTTP Proxy Connection Pooling (1-2 hours)
 
-### 3a. Create pooled client
+### 5a. Create pooled client
 
 **File:** `hypervisor/src/state.rs`
 
@@ -293,7 +509,7 @@ Note: Check the exact body type compatibility between axum and hyper-util.
 The proxy currently uses `axum::body::Body` which implements `hyper::body::
 Body`. May need a body adapter depending on versions.
 
-### 3b. Refactor proxy_http
+### 5b. Refactor proxy_http
 
 **File:** `hypervisor/src/proxy/mod.rs`
 
@@ -312,14 +528,14 @@ Keep the retry logic for initial connection failures. The pooled client
 handles reconnection for evicted connections automatically, but a fresh
 sandbox may not be listening yet.
 
-### 3c. Thread through middleware
+### 5c. Thread through middleware
 
 **File:** `hypervisor/src/middleware.rs`
 
 Pass `state.proxy_client` to `proxy_http`. The middleware already has
 access to `State(state)`.
 
-### 3d. Leave WebSocket proxy unchanged
+### 5d. Leave WebSocket proxy unchanged
 
 `proxy_ws` and `proxy_ws_raw` use `tokio_tungstenite` for long-lived
 connections. No connection pooling benefit.
@@ -333,9 +549,9 @@ cargo test -p hypervisor
 
 ---
 
-## Phase 4: Dynamic VM Cap (30 min)
+## Phase 6: Dynamic VM Cap (30 min)
 
-### 4a. Add config
+### 6a. Add config
 
 **File:** `hypervisor/src/config.rs`
 
@@ -343,7 +559,7 @@ cargo test -p hypervisor
 pub max_concurrent_vms: usize,  // from CHOIR_MAX_VMS, default 200
 ```
 
-### 4b. Add to SandboxRegistry
+### 6b. Add to SandboxRegistry
 
 **File:** `hypervisor/src/sandbox/mod.rs`
 
@@ -367,7 +583,7 @@ impl SandboxRegistry {
 }
 ```
 
-### 4c. Add memory percent reader
+### 6c. Add memory percent reader
 
 **File:** `hypervisor/src/sandbox/mod.rs` (near existing `read_available_memory_mb`)
 
@@ -387,7 +603,7 @@ fn read_memory_percent_available() -> Option<u64> {
 }
 ```
 
-### 4d. Replace constant in capacity gate
+### 6d. Replace constant in capacity gate
 
 ```rust
 // Before (line 311)
@@ -403,7 +619,7 @@ if running >= effective_max {
 }
 ```
 
-### 4e. Nix config
+### 6e. Nix config
 
 **File:** `nix/hosts/ovh-node.nix`
 
@@ -421,9 +637,12 @@ cargo test -p hypervisor
 
 ---
 
-## Phase 5: Metrics Endpoint + Stress Test (1-2 hours)
+## Phase 7: Metrics Endpoint + Stress Test (1-2 hours)
 
-### 5a. Add /admin/metrics endpoint
+**Prerequisite:** Phase 0 (admin auth) must be complete before deploying
+this to production.
+
+### 7a. Add /admin/metrics endpoint
 
 **File:** `hypervisor/src/api/mod.rs`
 
@@ -466,7 +685,7 @@ pub async fn system_metrics(
 
 Route: `.route("/admin/metrics", get(api::system_metrics))`
 
-### 5b. Add KSM reader
+### 7b. Add KSM reader
 
 **File:** `hypervisor/src/sandbox/mod.rs` (or a new `metrics.rs`)
 
@@ -482,7 +701,7 @@ fn read_ksm_stats() -> Option<KsmStats> {
 }
 ```
 
-### 5c. Update stress test
+### 7c. Update stress test
 
 **File:** `tests/playwright/capacity-stress-test.spec.ts`
 
@@ -527,21 +746,26 @@ cargo test -p hypervisor
 
 | Phase | File | Change |
 |-------|------|--------|
+| 0 | hypervisor/src/api/mod.rs | Admin auth check (ADR-0020 C1) |
+| 0 | hypervisor/src/main.rs | Parse CHOIR_ADMIN_USER_IDS |
 | 1 | hypervisor/Cargo.toml | Add `dashmap = "6"` |
-| 1 | hypervisor/src/state.rs | Rate limit type → DashMap |
-| 1 | hypervisor/src/main.rs | DashMap init |
-| 1 | hypervisor/src/provider_gateway.rs | DashMap entry API |
-| 2 | hypervisor/src/sandbox/mod.rs | Registry Mutex → DashMap, idle watchdog restructure |
-| 3 | hypervisor/src/state.rs | Add proxy_client to AppState |
-| 3 | hypervisor/src/main.rs | Create pooled client |
-| 3 | hypervisor/src/proxy/mod.rs | Use pooled client |
-| 3 | hypervisor/src/middleware.rs | Thread client through |
-| 4 | hypervisor/src/config.rs | CHOIR_MAX_VMS config |
-| 4 | hypervisor/src/sandbox/mod.rs | Dynamic cap logic |
-| 4 | nix/hosts/ovh-node.nix | CHOIR_MAX_VMS env var |
-| 5 | hypervisor/src/api/mod.rs | /admin/metrics endpoint |
-| 5 | hypervisor/src/sandbox/mod.rs | KSM + memory readers |
-| 5 | tests/playwright/capacity-stress-test.spec.ts | Metrics collection |
+| 1 | hypervisor/src/sandbox/mod.rs | `Starting` status + watch channel, `PortAllocator` |
+| 2 | hypervisor/src/sandbox/mod.rs | Remove `is_port_ready` from Running path |
+| 2 | hypervisor/src/proxy/mod.rs | 502 → mark_failed for reactive respawn |
+| 3 | hypervisor/src/state.rs | Rate limit type → DashMap |
+| 3 | hypervisor/src/main.rs | DashMap init |
+| 3 | hypervisor/src/provider_gateway.rs | DashMap entry API |
+| 4 | hypervisor/src/sandbox/mod.rs | Registry Mutex → DashMap, idle watchdog restructure |
+| 5 | hypervisor/src/state.rs | Add proxy_client to AppState |
+| 5 | hypervisor/src/main.rs | Create pooled client |
+| 5 | hypervisor/src/proxy/mod.rs | Use pooled client, generation-bound pool keys |
+| 5 | hypervisor/src/middleware.rs | Thread client through |
+| 6 | hypervisor/src/config.rs | CHOIR_MAX_VMS config |
+| 6 | hypervisor/src/sandbox/mod.rs | Dynamic cap logic |
+| 6 | nix/hosts/ovh-node.nix | CHOIR_MAX_VMS env var |
+| 7 | hypervisor/src/api/mod.rs | /admin/metrics endpoint |
+| 7 | hypervisor/src/sandbox/mod.rs | KSM + memory readers |
+| 7 | tests/playwright/capacity-stress-test.spec.ts | Metrics collection |
 
 ---
 
@@ -551,8 +775,13 @@ After all phases:
 
 - [ ] `cargo test -p hypervisor` passes
 - [ ] `cargo clippy -p hypervisor` clean
+- [ ] Admin endpoints return 403 for non-admin users
+- [ ] Concurrent registration of same user produces exactly one spawn
+- [ ] Port allocation never produces duplicates under concurrent load
+- [ ] Hot path (Running sandbox) does one TCP connect, not two
 - [ ] Heterogeneous load test (16 users) passes on staging
 - [ ] Capacity stress test v2 runs without registry contention spikes
 - [ ] `/admin/metrics` returns valid JSON with resource data
 - [ ] Stress test report includes per-wave resource columns
 - [ ] Dynamic cap scales down when memory drops below thresholds
+- [ ] Connection pool entries invalidated on sandbox restart (no stale-port routing)
