@@ -313,11 +313,7 @@ impl SandboxRegistry {
                     SandboxStatus::Starting(rx) => {
                         let mut rx = rx.clone();
                         drop(user_map); // release DashMap guard before awaiting
-                        let _ = rx.changed().await;
-                        return match rx.borrow().clone() {
-                            Ok(port) => Ok(port),
-                            Err(e) => Err(anyhow::anyhow!("boot failed: {e}")),
-                        };
+                        return Self::wait_for_boot_result(&mut rx).await;
                     }
                     SandboxStatus::Hibernated => {
                         info!(user_id, %role, "sandbox hibernated; will restore from snapshot");
@@ -422,7 +418,7 @@ impl SandboxRegistry {
                         role: Some(role),
                         branch: None,
                         port,
-                        status: SandboxStatus::Starting(rx),
+                        status: SandboxStatus::Starting(rx.clone()),
                         last_activity: Instant::now(),
                         handle: None,
                     },
@@ -436,48 +432,9 @@ impl SandboxRegistry {
         } else {
             format!("u-{}", &user_id[..8.min(user_id.len())])
         };
-        let handle = match self
-            .spawn_instance(user_id, &runtime_name, Some(role), None, port)
-            .await
-        {
-            Ok(h) => {
-                // Notify all waiters: boot succeeded
-                let _ = tx.send(Ok(port));
-                h
-            }
-            Err(e) => {
-                // Notify all waiters: boot failed
-                let _ = tx.send(Err(e.to_string()));
-                let mut user_map = self.entries.entry(user_id.to_string()).or_default();
-                if let Some(entry) = user_map.roles.get_mut(&role) {
-                    entry.status = SandboxStatus::Failed;
-                }
-                // Release port on failure (unless it's a fixed port)
-                if user_id != "default" && user_id != "public" {
-                    self.port_allocator.release(port);
-                }
-                return Err(e);
-            }
-        };
-
-        // Store the running entry.
-        {
-            let mut user_map = self.entries.entry(user_id.to_string()).or_default();
-            user_map.roles.insert(
-                role,
-                SandboxEntry {
-                    role: Some(role),
-                    branch: None,
-                    port,
-                    status: SandboxStatus::Running,
-                    last_activity: Instant::now(),
-                    handle: Some(handle),
-                },
-            );
-        }
-
-        info!(user_id, %role, port, "sandbox started");
-        Ok(port)
+        self.spawn_role_boot_task(user_id.to_string(), role, runtime_name, port, tx);
+        let mut rx = rx;
+        Self::wait_for_boot_result(&mut rx).await
     }
 
     /// Start (or adopt) a branch runtime for a user.
@@ -500,11 +457,7 @@ impl SandboxRegistry {
                     SandboxStatus::Starting(rx) => {
                         let mut rx = rx.clone();
                         drop(user_map);
-                        let _ = rx.changed().await;
-                        return match rx.borrow().clone() {
-                            Ok(port) => Ok(port),
-                            Err(e) => Err(anyhow::anyhow!("boot failed: {e}")),
-                        };
+                        return Self::wait_for_boot_result(&mut rx).await;
                     }
                     SandboxStatus::Hibernated => {
                         info!(
@@ -554,7 +507,7 @@ impl SandboxRegistry {
                     role: None,
                     branch: Some(branch.to_string()),
                     port,
-                    status: SandboxStatus::Starting(rx),
+                    status: SandboxStatus::Starting(rx.clone()),
                     last_activity: Instant::now(),
                     handle: None,
                 },
@@ -562,43 +515,15 @@ impl SandboxRegistry {
         }
 
         let runtime_name = format!("branch-{branch}");
-        let handle = match self
-            .spawn_instance(user_id, &runtime_name, None, Some(branch), port)
-            .await
-        {
-            Ok(h) => {
-                let _ = tx.send(Ok(port));
-                h
-            }
-            Err(e) => {
-                let _ = tx.send(Err(e.to_string()));
-                if let Some(mut user_map) = self.entries.get_mut(user_id) {
-                    if let Some(entry) = user_map.branches.get_mut(branch) {
-                        entry.status = SandboxStatus::Failed;
-                    }
-                }
-                self.port_allocator.release(port);
-                return Err(e);
-            }
-        };
-
-        {
-            let mut user_map = self.entries.entry(user_id.to_string()).or_default();
-            user_map.branches.insert(
-                branch.to_string(),
-                SandboxEntry {
-                    role: None,
-                    branch: Some(branch.to_string()),
-                    port,
-                    status: SandboxStatus::Running,
-                    last_activity: Instant::now(),
-                    handle: Some(handle),
-                },
-            );
-        }
-
-        info!(user_id, branch, port, "branch sandbox started");
-        Ok(port)
+        self.spawn_branch_boot_task(
+            user_id.to_string(),
+            branch.to_string(),
+            runtime_name,
+            port,
+            tx,
+        );
+        let mut rx = rx;
+        Self::wait_for_boot_result(&mut rx).await
     }
 
     /// Stop a sandbox for the given user + role.
@@ -891,6 +816,114 @@ impl SandboxRegistry {
     ) -> anyhow::Result<SandboxHandle> {
         self.spawn_runtime(user_id, runtime_name, role, branch, port)
             .await
+    }
+
+    async fn wait_for_boot_result(
+        rx: &mut watch::Receiver<Result<u16, String>>,
+    ) -> anyhow::Result<u16> {
+        let _ = rx.changed().await;
+        match rx.borrow().clone() {
+            Ok(port) => Ok(port),
+            Err(e) => Err(anyhow::anyhow!("boot failed: {e}")),
+        }
+    }
+
+    fn spawn_role_boot_task(
+        self: &Arc<Self>,
+        user_id: String,
+        role: SandboxRole,
+        runtime_name: String,
+        port: u16,
+        tx: watch::Sender<Result<u16, String>>,
+    ) {
+        let registry = Arc::clone(self);
+        tokio::spawn(async move {
+            match registry
+                .spawn_instance(&user_id, &runtime_name, Some(role), None, port)
+                .await
+            {
+                Ok(handle) => {
+                    {
+                        let mut user_map = registry.entries.entry(user_id.clone()).or_default();
+                        user_map.roles.insert(
+                            role,
+                            SandboxEntry {
+                                role: Some(role),
+                                branch: None,
+                                port,
+                                status: SandboxStatus::Running,
+                                last_activity: Instant::now(),
+                                handle: Some(handle),
+                            },
+                        );
+                    }
+                    let _ = tx.send(Ok(port));
+                    info!(user_id, %role, port, "sandbox started");
+                }
+                Err(e) => {
+                    let message = e.to_string();
+                    {
+                        let mut user_map = registry.entries.entry(user_id.clone()).or_default();
+                        if let Some(entry) = user_map.roles.get_mut(&role) {
+                            entry.status = SandboxStatus::Failed;
+                        }
+                    }
+                    if user_id != "default" && user_id != "public" {
+                        registry.port_allocator.release(port);
+                    }
+                    let _ = tx.send(Err(message.clone()));
+                    error!(user_id, %role, port, error = %message, "sandbox start failed");
+                }
+            }
+        });
+    }
+
+    fn spawn_branch_boot_task(
+        self: &Arc<Self>,
+        user_id: String,
+        branch: String,
+        runtime_name: String,
+        port: u16,
+        tx: watch::Sender<Result<u16, String>>,
+    ) {
+        let registry = Arc::clone(self);
+        tokio::spawn(async move {
+            match registry
+                .spawn_instance(&user_id, &runtime_name, None, Some(&branch), port)
+                .await
+            {
+                Ok(handle) => {
+                    {
+                        let mut user_map = registry.entries.entry(user_id.clone()).or_default();
+                        user_map.branches.insert(
+                            branch.clone(),
+                            SandboxEntry {
+                                role: None,
+                                branch: Some(branch.clone()),
+                                port,
+                                status: SandboxStatus::Running,
+                                last_activity: Instant::now(),
+                                handle: Some(handle),
+                            },
+                        );
+                    }
+                    let _ = tx.send(Ok(port));
+                    info!(user_id, branch, port, "branch sandbox started");
+                }
+                Err(e) => {
+                    let message = e.to_string();
+                    {
+                        let mut user_map = registry.entries.entry(user_id.clone()).or_default();
+                        if let Some(entry) = user_map.branches.get_mut(branch.as_str()) {
+                            entry.status = SandboxStatus::Failed;
+                        }
+                    }
+                    registry.port_allocator.release(port);
+                    let _ = tx.send(Err(message.clone()));
+                    error!(user_id, branch, port, error = %message, "branch sandbox start failed");
+                }
+            }
+        });
     }
 
     fn runtime_ctl_args(
