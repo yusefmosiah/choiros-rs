@@ -2,11 +2,11 @@
 
 ## Narrative Summary
 
-ADR-0022 Phases 1-4, 6 (DashMap registry, boot coalescing, PortAllocator,
-hot-path probe removal, DashMap rate limiter, dynamic VM cap) are deployed
-on Node B. All Playwright E2E stress tests pass at 100%. Connection pooling
-(Phase 5) is not yet implemented — this report serves as the "before" baseline
-for comparing Phase 5 improvements.
+ADR-0022 Phases 1-6 are deployed and validated on Node B. Connection pooling
+(Phase 5) reduced existing VM health latency by 75% at 50 VMs and 49% at
+80 VMs. Peak capacity increased from 120 to 130 VMs (+8%). The clean
+operation ceiling is 92 VMs (memory-bound, not proxy-bound). All Playwright
+E2E concurrency and heterogeneous load tests pass at 100%.
 
 ## What Changed
 
@@ -223,7 +223,75 @@ contention and memory pressure:
 
 ## Phase 5: Connection Pooling Comparison
 
-*To be filled after deploying connection pooling and re-running capacity stress test.*
+Connection pooling replaces per-request TCP connect + HTTP/1.1 handshake with
+`hyper_util::client::legacy::Client` (pool_idle_timeout=90s, max_idle_per_host=32).
+Deployed to Node B at commit b88c6f9.
+
+### Wave-by-Wave Results (With Connection Pooling)
+
+| Wave | +New | Total | Cold | Restore | Boot p50 | Boot p95 | Rst p50 | Health | Exist Avg | BG OK | Status |
+|------|------|-------|------|---------|----------|----------|---------|--------|-----------|-------|--------|
+| 1 | 10 | 10 | 10/10 | 0 | 8,606ms | 9,480ms | — | 100% | — | — | OK |
+| 2 | 10 | 20 | 10/10 | 0 | 9,733ms | 10,392ms | — | 100% | 146ms | 100% | OK |
+| 3 | 10 | 30 | 10/10 | 1 | 9,654ms | 10,447ms | 1,439ms | 100% | 138ms | 100% | OK |
+| 4 | 10 | 40 | 10/10 | 1 | 9,490ms | 10,445ms | 2,495ms | 100% | 202ms | 100% | OK |
+| 5 | 10 | 50 | 10/10 | 2 | 9,260ms | 10,441ms | 2,516ms | 100% | 427ms | 100% | OK |
+| 6 | 10 | 60 | 10/10 | 2 | 8,666ms | 10,513ms | 2,524ms | 100% | 1,641ms | 100% | OK |
+| 7 | 10 | 70 | 10/10 | 3 | 9,814ms | 10,512ms | 2,528ms | 100% | 3,722ms | 97% | OK |
+| 8 | 10 | 80 | 10/10 | 3 | 9,454ms | 10,328ms | 2,717ms | 100% | 1,406ms | 99% | OK |
+| 9 | 12 | 92 | 12/12 | 3 | 9,931ms | 12,865ms | 2,639ms | 100% | 2,497ms | 99% | OK |
+| 10 | 13 | 104 | 13/13 | 2 | 13,575ms | 15,592ms | 3,990ms | 100% | 2,544ms | 98% | FAILING |
+| 11 | 15 | 118 | 15/15 | 3 | 14,633ms | 15,578ms | 15,796ms | 100% | 2,253ms | 98% | FAILING |
+| 12 | 17 | 130 | 12/17 | 0 | 181,273ms | 181,306ms | — | 71% | 2,200ms | 28% | CRASHED |
+
+**Stop reason:** Wave 12: 45% boot failures (10/22). Peak: 130 VMs.
+
+### A/B Comparison
+
+| Metric | Before (no pooling) | After (pooling) | Change |
+|--------|-------------------|-----------------|--------|
+| Peak VMs | 120 | 130 | **+8%** |
+| Clean ceiling (all OK) | 92 VMs | 92 VMs | same |
+| Boot p50 at 80 VMs | 10,781ms | 9,454ms | **-12%** |
+| Boot p95 at 80 VMs | 13,553ms | 10,328ms | **-24%** |
+| Existing health avg at 20 VMs | 184ms | 146ms | -21% |
+| Existing health avg at 50 VMs | 1,737ms | 427ms | **-75%** |
+| Existing health avg at 80 VMs | 2,768ms | 1,406ms | **-49%** |
+| BG OK at 80 VMs | 94% | 99% | +5% |
+| BG OK at 92 VMs | 94% | 99% | +5% |
+| Restore p50 at 30 VMs | 2,493ms | 1,439ms | **-42%** |
+
+### Analysis
+
+**Connection pooling wins:**
+- **75% reduction in existing VM health latency at 50 VMs** (1,737ms → 427ms).
+  This is the clearest signal: pooled connections eliminate TCP handshake overhead
+  that compounds when the hypervisor proxies health checks to many concurrent VMs.
+- **49% reduction at 80 VMs** (2,768ms → 1,406ms).
+- **24% reduction in boot p95 at 80 VMs** (13.5s → 10.3s) — fewer TCP connects
+  means less socket resource contention during concurrent boot.
+- **Background activity stays healthier longer** — 99% OK at 92 VMs vs 94%.
+- **Snapshot restore 42% faster at low load** (2,493ms → 1,439ms).
+
+**Capacity:**
+- Peak increased from 120 → 130 VMs (+8%). Both runs hit the same ~32GB memory
+  wall, but pooling's lower per-request overhead pushes the ceiling slightly higher.
+- Clean ceiling (all-OK) remained at 92 VMs — this is memory-bound, not proxy-bound.
+- The degradation pattern is smoother with pooling (FAILING at 104-118, crashed at
+  130) vs without (jumped straight to DEGRADED at 120, crashed at 138 target).
+
+**What connection pooling doesn't fix:**
+- Existing health avg at 60-70 VMs still hits 1.6-3.7s — this is memory pressure
+  and swap thrashing, not connection overhead.
+- Boot times above 92 VMs are dominated by VM startup and memory allocation, not
+  proxy TCP connects.
+
+### Future Test Improvements
+
+Per user feedback: future tests should focus on the marginal zone (80-120 VMs)
+with smaller wave increments (e.g., +5 instead of +10-15) to get finer-grained
+degradation curves. Consider adding a `STRESS_START_AT` env var to skip the
+early waves and jump directly to the interesting region.
 
 ## Artifacts
 
