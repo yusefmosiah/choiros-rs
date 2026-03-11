@@ -11,8 +11,17 @@ promote to own doc, do it, or delete it.
 
 ## Items
 
-- [ ] Fix 30+ clippy warnings incrementally (currently non-blocking in CI)
+- [ ] Review [CI Boundaries and the Bootstrap Thesis](/Users/wiz/choiros-rs/docs/theory/notes/2026-03-11-ci-boundaries-and-bootstrap-thesis.md) and decide which parts should graduate into ADR-0014 / ADR-0024 language
 - [ ] CLAUDE.md is gitignored — consider whether it should be committed
 - [ ] Spot-check practice guide candidates (actor-network-orientation, API contracts)
-- [ ] Orchestration layer between conductor and app agents (writer, terminal) — long-lived session coordinator for multi-step campaigns (research thousands of papers, write+test multiple features). Review ADR-0005 ALM harness as starting point. Need to find the right abstraction patterns before building.
-- [ ] Review simplified-agent-harness.md — is the DECIDE→EXECUTE pattern still current?
+
+## Resolved
+
+- [x] Fix 30+ clippy warnings — done 2026-03-11, all warnings cleared
+- [x] Orchestration layer between conductor and app agents — captured in
+  `docs/theory/notes/2026-03-11-agent-architecture-session-notes.md`. Decision:
+  defer until after BAML removal and writer contract fix. ALM harness, cagent,
+  and harness-level orchestration are all candidates. See session notes.
+- [x] Review simplified-agent-harness.md DECIDE→EXECUTE pattern — it's a BAML
+  artifact. Standard tool-use protocol loop replaces it when BAML is removed.
+  See session notes section 1.

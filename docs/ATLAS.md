@@ -49,12 +49,14 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/decisions/adr-0014-per-user-storage-and-desktop-sync.md`
 - **[P2]** ADR-0021: Writer App Agent and Collaborative Living Documents — Decision (Draft) | Requires: [ADR-0001, ADR-0007]  
   `docs/theory/decisions/adr-0021-writer-app-agent-and-collaborative-living-documents.md`
-- **[P2]** ADR-0024: Hypervisor Go Rewrite — Decision (Proposed) | Requires: [ADR-0007, ADR-0014]  
+- **[P2]** ADR-0024: ChoirOS Go Rewrite — Hypervisor Decomposition and Sandbox Migration — Decision (Proposed) | Requires: [ADR-0007, ADR-0014, ADR-0021]  
   `docs/theory/decisions/adr-0024-hypervisor-go-rewrite.md`
 - **[P2]** Implementing ADR-0014: Per-User VM Lifecycle and Storage — Guide (Active) | Requires: [ADR-0014]  
   `docs/theory/guides/adr-0014-implementation.md`
 - **[P2]** Implementing ADR-0024: Hypervisor Go Rewrite — Guide (Active) | Requires: [ADR-0024]  
   `docs/theory/guides/adr-0024-implementation.md`
+- **[P2]** CI Boundaries and the Bootstrap Thesis — Note (Draft) | Requires: [ADR-0016, ADR-0023, ADR-0024]  
+  `docs/theory/notes/2026-03-11-ci-boundaries-and-bootstrap-thesis.md`
 - **[P3]** ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes) — Decision (Proposed) | Requires: [ADR-0014]  
   `docs/theory/decisions/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
 - **[P3]** ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion — Decision (Draft)  
@@ -206,7 +208,7 @@ ADR-0014, ADR-0018 → ADR-0020: Security Hardening — Multi-Tenant Isolation
 ADR-0001, ADR-0007 → ADR-0021: Writer App Agent and Collaborative Living Documents
 ADR-0014, ADR-0018 → ADR-0022: Hypervisor Concurrency and Dynamic Capacity
 ADR-0018, ADR-0020 → ADR-0023: microvm.nix Store Disk Transport Selection (`blk` vs `pmem`)
-ADR-0007, ADR-0014 → ADR-0024: Hypervisor Go Rewrite
+ADR-0007, ADR-0014, ADR-0021 → ADR-0024: ChoirOS Go Rewrite — Hypervisor Decomposition and Sandbox Migration
 ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
 ADR-0018 → Implementing ADR-0018: Drop Virtiofs, Adaptive Capacity
 ADR-0020 → Implementing ADR-0020: Security Hardening
@@ -214,7 +216,8 @@ ADR-0022 → Implementing ADR-0022: Hypervisor Concurrency and Dynamic Capacity
 ADR-0023 → Implementing ADR-0023: microvm.nix Store Disk Transport Selection
 ADR-0024 → Implementing ADR-0024: Hypervisor Go Rewrite
 ADR-0021, ADR-0022 → Agent Architecture Session Notes
+ADR-0016, ADR-0023, ADR-0024 → CI Boundaries and the Bootstrap Thesis
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-11 — 24 practice, 31 theory, 18 state docs.*
+*Generated 2026-03-11 — 24 practice, 32 theory, 18 state docs.*
