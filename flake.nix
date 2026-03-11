@@ -394,7 +394,7 @@ EOF
         ];
       };
 
-      # Cloud-hypervisor sandbox microVMs (x86_64-linux, run on OVH hosts)
+      # Sandbox matrix for transport and backend comparisons on OVH hosts.
       nixosConfigurations.choiros-ch-sandbox-live = mkSandboxVm {
         sandboxRole = "live";
         sandboxPort = 8080;
