@@ -171,6 +171,8 @@
       coreutils
       curl
       procps
+      htop
+      btop
     ]
     # Worker profile: full dev toolchain for build/test/E2E workflows
     else if guestProfile == "worker" then [
@@ -187,6 +189,7 @@
       file
       less
       htop
+      btop
 
       # Version control
       git
