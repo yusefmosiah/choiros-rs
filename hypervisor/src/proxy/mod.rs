@@ -5,12 +5,25 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use http_body_util::BodyExt;
-use hyper_util::rt::TokioIo;
-use tokio::net::TcpStream;
+use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 use tracing::{debug, error};
 
+/// Shared HTTP client with connection pooling for sandbox proxy requests.
+/// Reuses TCP connections + HTTP/1.1 keep-alive across requests to the same port.
+pub type PooledClient = Client<hyper_util::client::legacy::connect::HttpConnector, Body>;
+
+/// Create a new pooled HTTP client for proxy use.
+pub fn new_pooled_client() -> PooledClient {
+    Client::builder(TokioExecutor::new())
+        .pool_idle_timeout(std::time::Duration::from_secs(90))
+        .pool_max_idle_per_host(32)
+        .retry_canceled_requests(true)
+        .build_http()
+}
+
 /// Forward an HTTP request to `target_port`, rewriting the URI.
-pub async fn proxy_http(req: Request, target_port: u16) -> Response {
+/// Uses a connection-pooled client to reuse TCP connections across requests.
+pub async fn proxy_http(client: &PooledClient, req: Request, target_port: u16) -> Response {
     let path_and_query = req
         .uri()
         .path_and_query()
@@ -32,42 +45,6 @@ pub async fn proxy_http(req: Request, target_port: u16) -> Response {
 
     debug!(%target_uri, "proxying HTTP request");
 
-    // Retry TCP connect once after a short delay to handle the race between
-    // ensure_running completing and the sandbox port being ready.
-    let stream = match TcpStream::connect(format!("127.0.0.1:{target_port}")).await {
-        Ok(s) => s,
-        Err(first_err) => {
-            debug!(
-                target_port,
-                "sandbox connect failed, retrying after 500ms: {first_err}"
-            );
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            match TcpStream::connect(format!("127.0.0.1:{target_port}")).await {
-                Ok(s) => s,
-                Err(e) => {
-                    error!(target_port, "sandbox unreachable after retry: {e}");
-                    return (StatusCode::BAD_GATEWAY, format!("sandbox unreachable: {e}"))
-                        .into_response();
-                }
-            }
-        }
-    };
-
-    let io = TokioIo::new(stream);
-    let (mut sender, conn) = match hyper::client::conn::http1::handshake(io).await {
-        Ok(c) => c,
-        Err(e) => {
-            error!("HTTP/1.1 handshake failed: {e}");
-            return StatusCode::BAD_GATEWAY.into_response();
-        }
-    };
-
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            error!("proxy connection error: {e}");
-        }
-    });
-
     let (parts, body) = req.into_parts();
     let mut proxy_req = hyper::Request::from_parts(parts, body);
     *proxy_req.uri_mut() = target_uri;
@@ -88,7 +65,7 @@ pub async fn proxy_http(req: Request, target_port: u16) -> Response {
             .unwrap_or_else(|_| HeaderValue::from_static("localhost")),
     );
 
-    match sender.send_request(proxy_req).await {
+    match client.request(proxy_req).await {
         Ok(resp) => {
             let (parts, body) = resp.into_parts();
             let body = Body::new(
@@ -98,8 +75,8 @@ pub async fn proxy_http(req: Request, target_port: u16) -> Response {
             Response::from_parts(parts, body)
         }
         Err(e) => {
-            error!("proxy request failed: {e}");
-            StatusCode::BAD_GATEWAY.into_response()
+            error!(target_port, "proxy request failed: {e}");
+            (StatusCode::BAD_GATEWAY, format!("sandbox unreachable: {e}")).into_response()
         }
     }
 }

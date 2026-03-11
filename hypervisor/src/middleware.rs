@@ -310,10 +310,10 @@ pub async fn proxy_to_sandbox(
         }
 
         let req = Request::from_parts(parts, body);
-        return crate::proxy::proxy_http(req, port).await;
+        return crate::proxy::proxy_http(&state.proxy_client, req, port).await;
     }
 
-    crate::proxy::proxy_http(req, port).await
+    crate::proxy::proxy_http(&state.proxy_client, req, port).await
 }
 
 fn sanitize_and_tag_proxy_request(

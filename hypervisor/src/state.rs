@@ -23,4 +23,6 @@ pub struct AppState {
     pub webauthn: Arc<Webauthn>,
     pub sandbox_registry: Arc<SandboxRegistry>,
     pub provider_gateway: ProviderGatewayState,
+    /// ADR-0022 Phase 5: connection-pooled HTTP client for sandbox proxy.
+    pub proxy_client: crate::proxy::PooledClient,
 }

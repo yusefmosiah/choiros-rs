@@ -163,6 +163,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/state/reports/2026-03-09-per-user-vm-load-test.md`
 - ADR-0018 Load Test Report — 2026-03-10 — ? (?)  
   `docs/state/reports/2026-03-10-adr-0018-load-test.md`
+- ADR-0022 Concurrency Stress Test Report — 2026-03-11 — ? (?)  
+  `docs/state/reports/2026-03-11-adr-0022-concurrency-stress-test.md`
 - Capacity Stress Test Report — ? (?)  
   `docs/state/reports/2026-03-11-capacity-stress-test.md`
 - Load Test Report: DAX vs No-DAX virtio-pmem — ? (?)  
@@ -214,4 +216,4 @@ ADR-0024 → Implementing ADR-0024: Hypervisor Go Rewrite
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-11 — 24 practice, 31 theory, 17 state docs.*
+*Generated 2026-03-11 — 24 practice, 31 theory, 18 state docs.*

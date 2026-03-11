@@ -99,6 +99,7 @@ async fn main() -> anyhow::Result<()> {
             rate_limit_per_minute: config.provider_gateway_rate_limit_per_minute,
             rate_limit_state: Arc::new(dashmap::DashMap::new()),
         },
+        proxy_client: proxy::new_pooled_client(),
     });
 
     let app = Router::new()
