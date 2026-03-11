@@ -135,6 +135,57 @@ boot → data still persists.
 Boot time is identical regardless of VM sizing. data.img portability
 across sizing changes is confirmed — no snapshot involved, just cold boot.
 
+## 4c-4g Matrix (all 4 types, 20 VMs each, batch=10)
+
+| Metric | ch-pmem-4c-4g | ch-blk-4c-4g | fc-pmem-4c-4g | fc-blk-4c-4g |
+|---|---|---|---|---|
+| VMs booted | **20/20** | **20/20** | **20/20** | 19/20 |
+| Boot median | 10,378 ms | 10,330 ms | 10,295 ms | 10,367 ms |
+| Memory per VM @ 20 | 471 MB | 246 MB | 144 MB | 113 MB |
+| Health p50 | 46 ms | 50 ms | 46 ms | 47 ms |
+| Wall time (class) | 27s | 26s | 43s | 44s |
+
+Boot time at 4c is ~10.3s (vs 6.3s for 2c) — the extra vCPUs add ~4s to
+NixOS init (more CPUs to bring online, NUMA balancing, etc.).
+
+Memory per VM numbers are lower than steady-state because we stop each
+class's VMs before testing the next, giving KSM time to reclaim. The
+ch-pmem-4c-4g figure of 471 MB at 20 VMs is the most representative.
+
+## 8c-8g Matrix (all 4 types, 10 VMs each)
+
+| Metric | ch-pmem-8c-8g | ch-blk-8c-8g | fc-pmem-8c-8g | fc-blk-8c-8g |
+|---|---|---|---|---|
+| VMs booted | 9/10 | **10/10** | **10/10** | **3/10** |
+| Boot median | 10,359 ms | 10,296 ms | 9,335 ms | 30,156 ms |
+| Memory per VM | 472 MB | 312 MB | 194 MB | 181 MB |
+| Health p50 | 43 ms | 51 ms | 43 ms | 50 ms |
+| Ceiling hit | no | no | no | **yes** |
+
+**fc-blk-8c-8g is unreliable at 8 vCPUs** — only 3/10 booted, with 30s
+boot times. This may be a Firecracker limitation with higher vCPU counts.
+The other three 8c-8g classes work fine.
+
+Boot time at 8c is still ~10.3s (same as 4c). The NixOS init time plateaus
+after 4 vCPUs — going to 8 doesn't add additional boot latency.
+
+## Elastic Resize Under Load
+
+10 users on ch-pmem-2c-1g → stop 5 → resize to ch-pmem-4c-4g → boot → verify
+→ stop → resize back → boot → verify. All while 5 other VMs stay running.
+
+| Phase | Wall time | Boot median | Memory avail |
+|---|---|---|---|
+| Boot 10 on 2c-1g | 13.3s | — | 26,510 MB |
+| Resize 5 up to 4c-4g | 44.7s* | 8,408 ms | 25,574 MB |
+| Resize 5 back to 2c-1g | 44.7s* | 8,395 ms | 26,539 MB |
+
+*Sequential resize (stop → set class → wait for boot) per user. Parallelizing
+would bring this to ~8-10s.
+
+Health latency unaffected by mixed sizings: 2c-1g p50 = 45ms, 4c-4g p50 = 44ms.
+Memory fully recovers after downsize: 26,539 MB vs 26,510 MB baseline.
+
 ## Raw Data
 
 Full stress test output is available in Playwright test results.
