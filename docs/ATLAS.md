@@ -39,6 +39,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/guides/rolling-deploys.md`
 - **[P2]** ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync — Decision (Draft) | Requires: [ADR-0007, ADR-0012]  
   `docs/theory/decisions/adr-0014-per-user-storage-and-desktop-sync.md`
+- **[P2]** ADR-0021: Writer App Agent and Collaborative Living Documents — Decision (Draft) | Requires: [ADR-0001, ADR-0007]  
+  `docs/theory/decisions/adr-0021-writer-app-agent-and-collaborative-living-documents.md`
 - **[P2]** Implementing ADR-0014: Per-User VM Lifecycle and Storage — Guide (Active) | Requires: [ADR-0014]  
   `docs/theory/guides/adr-0014-implementation.md`
 - **[P3]** ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes) — Decision (Proposed) | Requires: [ADR-0014]  
@@ -89,6 +91,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/practice/decisions/adr-0016-nixos-declarative-deployment.md`
 - Implementing ADR-0016: NixOS Declarative Deployment — Guide (Accepted) | Requires: [ADR-0016]  
   `docs/practice/guides/adr-0016-implementation.md`
+- Docs System Philosophy and Practice — Guide (Active) | Requires: [ADR-0015]  
+  `docs/practice/guides/docs-system-philosophy-and-practice.md`
 - ADR-0001: EventStore/EventBus Reconciliation — Decision (Accepted)  
   `docs/practice/decisions/adr-0001-eventstore-eventbus-reconciliation.md`
 - ADR-0008: OVH Self-Hosted Secrets Architecture (No Repo Secrets, No Sandbox Secrets) — Decision (Accepted)  
@@ -147,6 +151,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/state/reports/2026-03-09-per-user-vm-load-test.md`
 - ADR-0018 Load Test Report — 2026-03-10 — ? (?)  
   `docs/state/reports/2026-03-10-adr-0018-load-test.md`
+- Load Test Report: DAX vs No-DAX virtio-pmem — ? (?)  
+  `docs/state/reports/2026-03-11-dax-vs-nodax-load-test.md`
 - ChoirOS Logging Security & Compliance Report — Report (Active)  
   `docs/state/reports/choiros-logging-security-report.md`
 - Conductor E2E Test Intelligence Report — Report (Active)  
@@ -172,6 +178,7 @@ decoupling for publishing (ADR-0011, P3).
 ADR-0002, ADR-0014 → ADR-0016: NixOS Declarative Deployment
 ADR-0014, ADR-0016 → ADR-0017: systemd-Native VM Lifecycle Management
 ADR-0016 → Implementing ADR-0016: NixOS Declarative Deployment
+ADR-0015 → Docs System Philosophy and Practice
 ADR-0001 → Writer Contract and Implementation Guide
 ADR-0008, ADR-0014 → ADR-0003: Hypervisor-Sandbox Secrets Boundary
 ADR-0007 → ADR-0004: Hypervisor-Sandbox UI Runtime Boundary
@@ -180,10 +187,11 @@ ADR-0007, ADR-0012 → ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Syn
 ADR-0014, ADR-0016 → ADR-0018: Drop Virtiofs, Enable KSM, Adaptive VM Capacity Management
 ADR-0001 → ADR-0019: Per-User Memory Curation and Retrieval
 ADR-0014, ADR-0018 → ADR-0020: Security Hardening — Multi-Tenant Isolation
+ADR-0001, ADR-0007 → ADR-0021: Writer App Agent and Collaborative Living Documents
 ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
 ADR-0018 → Implementing ADR-0018: Drop Virtiofs, Adaptive Capacity
 ADR-0020 → Implementing ADR-0020: Security Hardening
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-10 — 23 practice, 24 theory, 15 state docs.*
+*Generated 2026-03-11 — 24 practice, 25 theory, 16 state docs.*
