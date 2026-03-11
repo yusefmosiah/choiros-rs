@@ -36,6 +36,8 @@ export default defineConfig({
         "heterogeneous-load-test.spec.ts",
         "machine-class-e2e.spec.ts",
         "vm-resize-cold-boot.spec.ts",
+        "worker-workload.spec.ts",
+        "worker-interactive.spec.ts",
       ],
       use: {
         baseURL: hypervisorBaseUrl,
@@ -76,6 +78,7 @@ export default defineConfig({
         "machine-class-stress.spec.ts",
         "machine-class-matrix.spec.ts",
         "heterogeneous-capacity.spec.ts",
+        "heterogeneous-workload-stress.spec.ts",
       ],
       use: {
         baseURL: hypervisorBaseUrl,
