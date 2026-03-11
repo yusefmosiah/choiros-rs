@@ -14,6 +14,9 @@ promote to own doc, do it, or delete it.
 - [ ] Review [CI Boundaries and the Bootstrap Thesis](/Users/wiz/choiros-rs/docs/theory/notes/2026-03-11-ci-boundaries-and-bootstrap-thesis.md) and decide which parts should graduate into ADR-0014 / ADR-0024 language
 - [ ] CLAUDE.md is gitignored — consider whether it should be committed
 - [ ] Spot-check practice guide candidates (actor-network-orientation, API contracts)
+- [ ] Automatic machine class migration on mismatch — see [deferred items](2026-03-11-deferred-machine-class-items.md)
+- [ ] Generation-aware snapshot invalidation — see [deferred items](2026-03-11-deferred-machine-class-items.md)
+- [ ] data.img isolation security review — see [deferred items](2026-03-11-deferred-machine-class-items.md)
 
 ## Resolved
 

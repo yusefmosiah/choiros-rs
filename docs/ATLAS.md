@@ -61,6 +61,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/guides/adr-0024-implementation.md`
 - **[P2]** CI Boundaries and the Bootstrap Thesis — Note (Draft) | Requires: [ADR-0016, ADR-0023, ADR-0024]  
   `docs/theory/notes/2026-03-11-ci-boundaries-and-bootstrap-thesis.md`
+- **[P2]** Deferred Machine Class Items — Note (Active) | Requires: [ADR-0014]  
+  `docs/theory/notes/2026-03-11-deferred-machine-class-items.md`
 - **[P3]** ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes) — Decision (Proposed) | Requires: [ADR-0014]  
   `docs/theory/decisions/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
 - **[P3]** ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion — Decision (Draft)  
@@ -223,7 +225,8 @@ ADR-0024 → Implementing ADR-0024: Hypervisor Go Rewrite
 ADR-0025 → Implementing ADR-0025: Go Admin Dashboard
 ADR-0021, ADR-0022 → Agent Architecture Session Notes
 ADR-0016, ADR-0023, ADR-0024 → CI Boundaries and the Bootstrap Thesis
+ADR-0014 → Deferred Machine Class Items
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-11 — 24 practice, 34 theory, 18 state docs.*
+*Generated 2026-03-11 — 24 practice, 35 theory, 18 state docs.*

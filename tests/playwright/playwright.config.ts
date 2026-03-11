@@ -34,6 +34,7 @@ export default defineConfig({
         "vm-snapshot-restore.spec.ts",
         "concurrency-load-test.spec.ts",
         "heterogeneous-load-test.spec.ts",
+        "machine-class-e2e.spec.ts",
       ],
       use: {
         baseURL: hypervisorBaseUrl,
