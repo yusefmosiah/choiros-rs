@@ -137,6 +137,7 @@ async fn main() -> anyhow::Result<()> {
         // Heartbeat — keeps sandbox alive without proxying
         .route("/heartbeat", post(api::heartbeat))
         // Admin sandbox management
+        .route("/admin/stats", get(api::host_stats))
         .route("/admin/sandboxes", get(api::list_sandboxes))
         .route(
             "/admin/sandboxes/{user_id}/{role}/start",

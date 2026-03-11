@@ -72,6 +72,7 @@ export default defineConfig({
       name: "stress",
       testMatch: [
         "capacity-stress-test.spec.ts",
+        "machine-class-stress.spec.ts",
       ],
       use: {
         baseURL: hypervisorBaseUrl,

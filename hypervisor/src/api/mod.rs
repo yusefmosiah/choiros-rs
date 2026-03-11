@@ -36,6 +36,23 @@ pub async fn list_sandboxes(State(state): State<Arc<AppState>>) -> impl IntoResp
     Json(snapshots)
 }
 
+/// GET /admin/stats — host-level resource stats for stress testing
+pub async fn host_stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let snapshots = state.sandbox_registry.snapshot().await;
+    let running = snapshots
+        .iter()
+        .filter(|s| s.status == crate::sandbox::SandboxStatus::Running)
+        .count();
+    let total = snapshots.len();
+
+    Json(serde_json::json!({
+        "memory_total_mb": crate::sandbox::read_total_memory_mb(),
+        "memory_available_mb": crate::sandbox::read_available_memory_mb(),
+        "vms_running": running,
+        "vms_total": total,
+    }))
+}
+
 #[derive(serde::Deserialize)]
 pub struct SandboxActionPath {
     pub user_id: String,

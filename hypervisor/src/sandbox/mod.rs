@@ -17,10 +17,22 @@ use self::systemd::SystemdLifecycle;
 // ── Memory pressure helpers (ADR-0018) ──────────────────────────────────────
 
 /// Read MemAvailable from /proc/meminfo (in MB).
-fn read_available_memory_mb() -> Option<u64> {
+pub fn read_available_memory_mb() -> Option<u64> {
     let contents = std::fs::read_to_string("/proc/meminfo").ok()?;
     for line in contents.lines() {
         if let Some(rest) = line.strip_prefix("MemAvailable:") {
+            let kb: u64 = rest.split_whitespace().next()?.parse().ok()?;
+            return Some(kb / 1024);
+        }
+    }
+    None
+}
+
+/// Read MemTotal from /proc/meminfo (in MB).
+pub fn read_total_memory_mb() -> Option<u64> {
+    let contents = std::fs::read_to_string("/proc/meminfo").ok()?;
+    for line in contents.lines() {
+        if let Some(rest) = line.strip_prefix("MemTotal:") {
             let kb: u64 = rest.split_whitespace().next()?.parse().ok()?;
             return Some(kb / 1024);
         }
