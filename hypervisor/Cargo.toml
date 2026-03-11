@@ -46,6 +46,9 @@ base64 = "0.22"
 url = "2"
 time = "0.3"
 
+# Concurrent data structures
+dashmap = "6"
+
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }

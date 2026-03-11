@@ -1,8 +1,7 @@
 use std::sync::Arc;
-use std::{collections::HashMap, time::Instant};
+use std::time::Instant;
 
-use tokio::sync::Mutex;
-
+use dashmap::DashMap;
 use sqlx::SqlitePool;
 use webauthn_rs::prelude::Webauthn;
 
@@ -15,7 +14,8 @@ pub struct ProviderGatewayState {
     pub allowed_upstreams: Vec<String>,
     pub client: reqwest::Client,
     pub rate_limit_per_minute: usize,
-    pub rate_limit_state: Arc<Mutex<HashMap<String, Vec<Instant>>>>,
+    /// ADR-0022: DashMap for per-sandbox rate limit concurrency.
+    pub rate_limit_state: Arc<DashMap<String, Vec<Instant>>>,
 }
 
 pub struct AppState {

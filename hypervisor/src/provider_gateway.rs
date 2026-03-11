@@ -385,8 +385,11 @@ async fn enforce_per_sandbox_rate_limit(
 
     let window = Duration::from_secs(60);
     let now = Instant::now();
-    let mut guard = state.rate_limit_state.lock().await;
-    let bucket = guard.entry(sandbox_id.to_string()).or_default();
+    // ADR-0022: DashMap entry() for per-sandbox concurrency.
+    let mut bucket = state
+        .rate_limit_state
+        .entry(sandbox_id.to_string())
+        .or_default();
 
     bucket.retain(|stamp| now.duration_since(*stamp) < window);
     if bucket.len() >= limit {
@@ -617,10 +620,10 @@ fn gateway_debug_dump_401_enabled() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{collections::HashMap, sync::Arc};
+    use std::sync::Arc;
 
     use axum::http::{HeaderName, HeaderValue};
-    use tokio::sync::Mutex;
+    use dashmap::DashMap;
 
     #[test]
     fn caller_context_rejects_missing_sandbox_id() {
@@ -648,7 +651,7 @@ mod tests {
             allowed_upstreams: Vec::new(),
             client: reqwest::Client::new(),
             rate_limit_per_minute: 2,
-            rate_limit_state: Arc::new(Mutex::new(HashMap::new())),
+            rate_limit_state: Arc::new(DashMap::new()),
         };
 
         assert!(enforce_per_sandbox_rate_limit(&state, "u1:live")

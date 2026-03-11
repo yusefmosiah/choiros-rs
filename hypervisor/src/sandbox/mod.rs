@@ -1,12 +1,13 @@
 pub mod systemd;
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
 };
 
-use tokio::{net::TcpStream, process::Command, sync::Mutex, time::sleep};
+use dashmap::{DashMap, DashSet};
+use tokio::{net::TcpStream, process::Command, sync::watch, time::sleep};
 use tracing::{error, info, warn};
 
 use self::systemd::SystemdLifecycle;
@@ -44,23 +45,22 @@ fn read_memory_percent_available() -> Option<u64> {
 }
 
 /// Count running VMs across all users.
-fn count_running_vms(entries: &HashMap<String, UserSandboxes>) -> usize {
+fn count_running_vms(entries: &DashMap<String, UserSandboxes>) -> usize {
     entries
-        .values()
-        .map(|u| {
+        .iter()
+        .map(|entry| {
+            let u = entry.value();
             u.roles
                 .values()
-                .filter(|e| e.status == SandboxStatus::Running)
+                .filter(|e| matches!(e.status, SandboxStatus::Running))
                 .count()
                 + u.branches
                     .values()
-                    .filter(|e| e.status == SandboxStatus::Running)
+                    .filter(|e| matches!(e.status, SandboxStatus::Running))
                     .count()
         })
         .sum()
 }
-
-const MAX_CONCURRENT_VMS: usize = 50;
 const MIN_AVAILABLE_MB: u64 = 1024; // 1 GB minimum before spawning new VM
 
 fn validate_branch_name(branch: &str) -> anyhow::Result<()> {
@@ -104,15 +104,32 @@ impl std::fmt::Display for SandboxRole {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum SandboxStatus {
     Running,
     Stopped,
     /// VM snapshot saved to disk — fast restore available via `runtime_ctl ensure`.
     Hibernated,
+    /// Boot in progress — concurrent requests join the watch channel (ADR-0022).
+    Starting(watch::Receiver<Result<u16, String>>),
     /// Process exited unexpectedly.
     Failed,
 }
+
+impl PartialEq for SandboxStatus {
+    fn eq(&self, other: &Self) -> bool {
+        matches!(
+            (self, other),
+            (Self::Running, Self::Running)
+                | (Self::Stopped, Self::Stopped)
+                | (Self::Hibernated, Self::Hibernated)
+                | (Self::Starting(_), Self::Starting(_))
+                | (Self::Failed, Self::Failed)
+        )
+    }
+}
+
+impl Eq for SandboxStatus {}
 
 pub struct SandboxEntry {
     pub role: Option<SandboxRole>,
@@ -141,18 +158,53 @@ struct UserSandboxes {
     branches: HashMap<String, SandboxEntry>,
 }
 
-/// Per-user sandbox registry.
+/// Atomic port allocator using DashSet (ADR-0022).
+/// `DashSet::insert` returns false if already present — atomic test-and-set.
+pub struct PortAllocator {
+    reserved: DashSet<u16>,
+    range_start: u16,
+    range_end: u16,
+}
+
+impl PortAllocator {
+    pub fn new(range_start: u16, range_end: u16) -> Self {
+        Self {
+            reserved: DashSet::new(),
+            range_start,
+            range_end,
+        }
+    }
+
+    /// Atomically reserve the next available port.
+    pub fn reserve(&self) -> Option<u16> {
+        (self.range_start..=self.range_end).find(|&port| self.reserved.insert(port))
+    }
+
+    /// Pre-reserve a known port (e.g. fixed ports for default user).
+    pub fn reserve_specific(&self, port: u16) -> bool {
+        self.reserved.insert(port)
+    }
+
+    /// Release a port when a VM stops or fails.
+    pub fn release(&self, port: u16) {
+        self.reserved.remove(&port);
+    }
+}
+
+/// Per-user sandbox registry (ADR-0022: DashMap for per-user concurrency).
 pub struct SandboxRegistry {
     runtime_ctl: String,
     idle_timeout: Duration,
-    /// user_id -> role/branch runtime entries
-    entries: Mutex<HashMap<String, UserSandboxes>>,
+    /// user_id -> role/branch runtime entries. DashMap for per-shard locking.
+    entries: DashMap<String, UserSandboxes>,
     live_port: u16,
     dev_port: u16,
-    branch_port_start: u16,
-    branch_port_end: u16,
+    /// Atomic port allocator — eliminates TOCTOU in port assignment.
+    port_allocator: PortAllocator,
     provider_gateway_base_url: Option<String>,
     provider_gateway_token: Option<String>,
+    /// Configurable hard ceiling for concurrent VMs (ADR-0022).
+    max_concurrent_vms: usize,
     /// When set, use systemd unit templates instead of bash runtime-ctl (ADR-0017).
     systemd_lifecycle: Option<SystemdLifecycle>,
 }
@@ -173,16 +225,27 @@ impl SandboxRegistry {
         if systemd_lifecycle.is_some() {
             info!("ADR-0017: systemd lifecycle manager available");
         }
+
+        let max_concurrent_vms = std::env::var("CHOIR_MAX_VMS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(200);
+
+        let port_allocator = PortAllocator::new(branch_port_start, branch_port_end);
+        // Pre-reserve fixed ports so they're never handed out dynamically.
+        port_allocator.reserve_specific(live_port);
+        port_allocator.reserve_specific(dev_port);
+
         Arc::new(Self {
             runtime_ctl,
             idle_timeout,
-            entries: Mutex::new(HashMap::new()),
+            entries: DashMap::new(),
             live_port,
             dev_port,
-            branch_port_start,
-            branch_port_end,
+            port_allocator,
             provider_gateway_base_url,
             provider_gateway_token,
+            max_concurrent_vms,
             systemd_lifecycle,
         })
     }
@@ -214,205 +277,204 @@ impl SandboxRegistry {
             .is_ok()
     }
 
-    /// Allocate a dynamic port from the port range for per-user VMs.
-    /// Tracks ALL allocated ports (not just Running) to prevent collisions.
-    async fn allocate_port(&self, entries: &HashMap<String, UserSandboxes>) -> anyhow::Result<u16> {
-        let mut used = HashSet::new();
-        for user_map in entries.values() {
-            for entry in user_map.roles.values() {
-                used.insert(entry.port);
-            }
-            for entry in user_map.branches.values() {
-                used.insert(entry.port);
-            }
+    /// ADR-0022: Dynamic VM cap based on resource usage.
+    /// Per-VM memory is not predictable (varies with workload, KSM sharing,
+    /// app mix), so we don't try to estimate it. The hard cap is the primary
+    /// limit; memory check is a safety net against OOM.
+    fn effective_max_vms(&self) -> usize {
+        let hard_cap = self.max_concurrent_vms;
+        match read_available_memory_mb() {
+            Some(avail) if avail < MIN_AVAILABLE_MB => 0,
+            _ => hard_cap,
         }
-
-        for port in self.branch_port_start..=self.branch_port_end {
-            if used.contains(&port) {
-                continue;
-            }
-            if Self::is_port_ready(port).await {
-                continue;
-            }
-            return Ok(port);
-        }
-
-        Err(anyhow::anyhow!(
-            "no available ports in range {}-{}",
-            self.branch_port_start,
-            self.branch_port_end
-        ))
     }
 
     /// Start a sandbox for the given user + role.
     /// No-op if one is already running.
+    /// ADR-0022: DashMap for per-user concurrency, boot coalescing via Starting status,
+    /// PortAllocator for atomic port reservation, no hot-path readiness probe.
     pub async fn ensure_running(
         self: &Arc<Self>,
         user_id: &str,
         role: SandboxRole,
     ) -> anyhow::Result<u16> {
-        // Check if already running (short lock).
+        // Phase A: Check existing entry (brief DashMap guard, never held across .await).
         {
-            let mut entries = self.entries.lock().await;
-            let user_map = entries.entry(user_id.to_string()).or_default();
-
+            let mut user_map = self.entries.entry(user_id.to_string()).or_default();
             if let Some(entry) = user_map.roles.get_mut(&role) {
-                match entry.status {
+                match &entry.status {
+                    // ADR-0022 Phase 2: trust Running status, no readiness probe.
+                    // If the sandbox crashed, proxy returns 502 and marks it Failed.
                     SandboxStatus::Running => {
-                        if Self::is_port_ready(entry.port).await {
-                            entry.last_activity = Instant::now();
-                            return Ok(entry.port);
-                        }
-                        warn!(
-                            user_id,
-                            %role,
-                            port = entry.port,
-                            "sandbox marked running but port is down; recycling runtime"
-                        );
-                        self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
-                            .await;
-                        entry.status = SandboxStatus::Failed;
+                        entry.last_activity = Instant::now();
+                        return Ok(entry.port);
+                    }
+                    // ADR-0022 Phase 1: join existing boot instead of spawning again.
+                    SandboxStatus::Starting(rx) => {
+                        let mut rx = rx.clone();
+                        drop(user_map); // release DashMap guard before awaiting
+                        let _ = rx.changed().await;
+                        return match rx.borrow().clone() {
+                            Ok(port) => Ok(port),
+                            Err(e) => Err(anyhow::anyhow!("boot failed: {e}")),
+                        };
                     }
                     SandboxStatus::Hibernated => {
-                        // VM snapshot exists on disk — runtime_ctl ensure will
-                        // restore from it (fast resume) instead of cold booting.
-                        info!(
-                            user_id,
-                            %role,
-                            "sandbox hibernated; will restore from snapshot"
-                        );
+                        info!(user_id, %role, "sandbox hibernated; will restore from snapshot");
                     }
                     SandboxStatus::Stopped | SandboxStatus::Failed => {
-                        // Clean up any residual handle before re-spawning.
-                        self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
-                            .await;
-                        info!(
-                            user_id,
-                            %role,
-                            status = ?entry.status,
-                            "sandbox not running; will re-spawn"
-                        );
+                        info!(user_id, %role, status = ?entry.status, "sandbox not running; will re-spawn");
                     }
                 }
             }
         }
-        // Lock released — spawn_instance can take a long time (runtime_ctl + readiness poll).
+        // DashMap guard dropped — spawn_instance can take a long time.
 
-        // ADR-0018: capacity gate — refuse new VMs when system is at limit.
-        // Only checked for new spawns (existing Running/Hibernated VMs skip this).
-        {
-            let entries = self.entries.lock().await;
-            let is_existing = entries
-                .get(user_id)
-                .and_then(|u| u.roles.get(&role))
-                .is_some();
-            if !is_existing {
-                let running = count_running_vms(&entries);
-                if running >= MAX_CONCURRENT_VMS {
+        // ADR-0022: capacity gate with dynamic cap.
+        let is_existing = self
+            .entries
+            .get(user_id)
+            .and_then(|u| u.roles.get(&role).map(|_| ()))
+            .is_some();
+        if !is_existing {
+            let running = count_running_vms(&self.entries);
+            let effective_max = self.effective_max_vms();
+            if running >= effective_max {
+                return Err(anyhow::anyhow!(
+                    "Server at capacity ({running}/{effective_max} VMs). \
+                     Please try again shortly."
+                ));
+            }
+            if let Some(avail_mb) = read_available_memory_mb() {
+                if avail_mb < MIN_AVAILABLE_MB {
                     return Err(anyhow::anyhow!(
-                        "Server at capacity ({running}/{MAX_CONCURRENT_VMS} VMs). \
-                         Please try again in 30 seconds."
+                        "Insufficient memory ({avail_mb} MB available). \
+                         Please try again shortly."
                     ));
                 }
-                if let Some(avail_mb) = read_available_memory_mb() {
-                    if avail_mb < MIN_AVAILABLE_MB {
-                        return Err(anyhow::anyhow!(
-                            "Insufficient memory ({avail_mb} MB available). \
-                             Please try again in 30 seconds."
-                        ));
-                    }
-                }
             }
         }
 
-        // ADR-0014: "default" user gets fixed ports (bootstrap/unauthenticated),
-        // all other users get dynamic ports for per-user VM isolation.
+        // ADR-0014: "default" user gets fixed ports, others get dynamic ports.
         let port = if user_id == "default" || user_id == "public" {
-            let port = self.port_for_default(role);
-            if Self::is_port_ready(port).await {
-                warn!(
-                    user_id,
-                    %role,
-                    port,
-                    "role port already listening before ensure; delegating to runtime control for ownership validation"
-                );
-            }
-            port
+            self.port_for_default(role)
         } else {
             // Check if user already had a port assigned (e.g. after hibernation)
-            let mut entries = self.entries.lock().await;
-            let existing_port = entries
+            let existing_port = self
+                .entries
                 .get(user_id)
-                .and_then(|u| u.roles.get(&role))
-                .map(|e| e.port);
+                .and_then(|u| u.roles.get(&role).map(|e| e.port));
 
             if let Some(port) = existing_port {
-                drop(entries);
                 port
             } else {
-                let port = self.allocate_port(&entries).await?;
-                // Insert placeholder immediately to prevent concurrent allocations
-                // from claiming the same port during the slow spawn_instance() call.
-                let user_map = entries.entry(user_id.to_string()).or_default();
+                // ADR-0022: atomic port reservation via PortAllocator
+                let port = self.port_allocator.reserve().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "no available ports in range {}-{}",
+                        self.port_allocator.range_start,
+                        self.port_allocator.range_end,
+                    )
+                })?;
+                port
+            }
+        };
+
+        // ADR-0022: Insert Starting placeholder with watch channel for boot coalescing.
+        let (tx, rx) = watch::channel(Err("booting".to_string()));
+        {
+            let mut user_map = self.entries.entry(user_id.to_string()).or_default();
+            // Clean up residual handle before re-spawning
+            if let Some(entry) = user_map.roles.get_mut(&role) {
+                let mut handle = entry.handle.take();
+                if handle.is_some() {
+                    drop(user_map); // release guard before async stop
+                    self.stop_handle(user_id, None, &mut handle).await;
+                    let mut user_map = self.entries.entry(user_id.to_string()).or_default();
+                    user_map.roles.insert(
+                        role,
+                        SandboxEntry {
+                            role: Some(role),
+                            branch: None,
+                            port,
+                            status: SandboxStatus::Starting(rx.clone()),
+                            last_activity: Instant::now(),
+                            handle: None,
+                        },
+                    );
+                } else {
+                    user_map.roles.insert(
+                        role,
+                        SandboxEntry {
+                            role: Some(role),
+                            branch: None,
+                            port,
+                            status: SandboxStatus::Starting(rx.clone()),
+                            last_activity: Instant::now(),
+                            handle: None,
+                        },
+                    );
+                }
+            } else {
                 user_map.roles.insert(
                     role,
                     SandboxEntry {
                         role: Some(role),
                         branch: None,
                         port,
-                        status: SandboxStatus::Stopped,
+                        status: SandboxStatus::Starting(rx),
                         last_activity: Instant::now(),
                         handle: None,
                     },
                 );
-                drop(entries);
-                port
             }
-        };
+        }
+        // DashMap guard dropped — now spawn (can take seconds).
 
         let runtime_name = if user_id == "default" || user_id == "public" {
             role.to_string()
         } else {
-            // Per-user instance name: "u-{first 8 chars of user_id}"
             format!("u-{}", &user_id[..8.min(user_id.len())])
         };
         let handle = match self
             .spawn_instance(user_id, &runtime_name, Some(role), None, port)
             .await
         {
-            Ok(h) => h,
+            Ok(h) => {
+                // Notify all waiters: boot succeeded
+                let _ = tx.send(Ok(port));
+                h
+            }
             Err(e) => {
-                let mut entries = self.entries.lock().await;
-                let user_map = entries.entry(user_id.to_string()).or_default();
-                user_map.roles.insert(
-                    role,
-                    SandboxEntry {
-                        role: Some(role),
-                        branch: None,
-                        port,
-                        status: SandboxStatus::Failed,
-                        last_activity: Instant::now(),
-                        handle: None,
-                    },
-                );
+                // Notify all waiters: boot failed
+                let _ = tx.send(Err(e.to_string()));
+                let mut user_map = self.entries.entry(user_id.to_string()).or_default();
+                if let Some(entry) = user_map.roles.get_mut(&role) {
+                    entry.status = SandboxStatus::Failed;
+                }
+                // Release port on failure (unless it's a fixed port)
+                if user_id != "default" && user_id != "public" {
+                    self.port_allocator.release(port);
+                }
                 return Err(e);
             }
         };
 
-        // Re-acquire lock to store the running entry.
-        let mut entries = self.entries.lock().await;
-        let user_map = entries.entry(user_id.to_string()).or_default();
-        user_map.roles.insert(
-            role,
-            SandboxEntry {
-                role: Some(role),
-                branch: None,
-                port,
-                status: SandboxStatus::Running,
-                last_activity: Instant::now(),
-                handle: Some(handle),
-            },
-        );
+        // Store the running entry.
+        {
+            let mut user_map = self.entries.entry(user_id.to_string()).or_default();
+            user_map.roles.insert(
+                role,
+                SandboxEntry {
+                    role: Some(role),
+                    branch: None,
+                    port,
+                    status: SandboxStatus::Running,
+                    last_activity: Instant::now(),
+                    handle: Some(handle),
+                },
+            );
+        }
 
         info!(user_id, %role, port, "sandbox started");
         Ok(port)
@@ -426,25 +488,23 @@ impl SandboxRegistry {
     ) -> anyhow::Result<u16> {
         validate_branch_name(branch)?;
 
-        let mut entries = self.entries.lock().await;
+        // Check existing entry (brief DashMap guard).
         {
-            let user_map = entries.entry(user_id.to_string()).or_default();
+            let mut user_map = self.entries.entry(user_id.to_string()).or_default();
             if let Some(entry) = user_map.branches.get_mut(branch) {
-                match entry.status {
+                match &entry.status {
                     SandboxStatus::Running => {
-                        if Self::is_port_ready(entry.port).await {
-                            entry.last_activity = Instant::now();
-                            return Ok(entry.port);
-                        }
-                        warn!(
-                            user_id,
-                            branch,
-                            port = entry.port,
-                            "branch sandbox marked running but port is down; recycling"
-                        );
-                        self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
-                            .await;
-                        entry.status = SandboxStatus::Failed;
+                        entry.last_activity = Instant::now();
+                        return Ok(entry.port);
+                    }
+                    SandboxStatus::Starting(rx) => {
+                        let mut rx = rx.clone();
+                        drop(user_map);
+                        let _ = rx.changed().await;
+                        return match rx.borrow().clone() {
+                            Ok(port) => Ok(port),
+                            Err(e) => Err(anyhow::anyhow!("boot failed: {e}")),
+                        };
                     }
                     SandboxStatus::Hibernated => {
                         info!(
@@ -453,55 +513,89 @@ impl SandboxRegistry {
                         );
                     }
                     SandboxStatus::Stopped | SandboxStatus::Failed => {
-                        self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
-                            .await;
-                        info!(
-                            user_id,
-                            branch,
-                            status = ?entry.status,
-                            "branch sandbox not running; will re-spawn"
-                        );
+                        info!(user_id, branch, status = ?entry.status, "branch sandbox not running; will re-spawn");
                     }
                 }
             }
         }
+        // DashMap guard dropped.
 
-        let port = self.allocate_port(&entries).await?;
-        let user_map = entries.entry(user_id.to_string()).or_default();
+        // Check for existing port or allocate new one.
+        let port = {
+            let existing_port = self
+                .entries
+                .get(user_id)
+                .and_then(|u| u.branches.get(branch).map(|e| e.port));
+
+            if let Some(port) = existing_port {
+                port
+            } else {
+                self.port_allocator.reserve().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "no available ports in range {}-{}",
+                        self.port_allocator.range_start,
+                        self.port_allocator.range_end,
+                    )
+                })?
+            }
+        };
+
+        // Insert Starting placeholder for boot coalescing.
+        let (tx, rx) = watch::channel(Err("booting".to_string()));
+        {
+            let mut user_map = self.entries.entry(user_id.to_string()).or_default();
+            // Clean up residual handle
+            if let Some(entry) = user_map.branches.get_mut(branch) {
+                entry.handle.take();
+            }
+            user_map.branches.insert(
+                branch.to_string(),
+                SandboxEntry {
+                    role: None,
+                    branch: Some(branch.to_string()),
+                    port,
+                    status: SandboxStatus::Starting(rx),
+                    last_activity: Instant::now(),
+                    handle: None,
+                },
+            );
+        }
 
         let runtime_name = format!("branch-{branch}");
         let handle = match self
             .spawn_instance(user_id, &runtime_name, None, Some(branch), port)
             .await
         {
-            Ok(h) => h,
+            Ok(h) => {
+                let _ = tx.send(Ok(port));
+                h
+            }
             Err(e) => {
-                user_map.branches.insert(
-                    branch.to_string(),
-                    SandboxEntry {
-                        role: None,
-                        branch: Some(branch.to_string()),
-                        port,
-                        status: SandboxStatus::Failed,
-                        last_activity: Instant::now(),
-                        handle: None,
-                    },
-                );
+                let _ = tx.send(Err(e.to_string()));
+                if let Some(mut user_map) = self.entries.get_mut(user_id) {
+                    if let Some(entry) = user_map.branches.get_mut(branch) {
+                        entry.status = SandboxStatus::Failed;
+                    }
+                }
+                self.port_allocator.release(port);
                 return Err(e);
             }
         };
 
-        user_map.branches.insert(
-            branch.to_string(),
-            SandboxEntry {
-                role: None,
-                branch: Some(branch.to_string()),
-                port,
-                status: SandboxStatus::Running,
-                last_activity: Instant::now(),
-                handle: Some(handle),
-            },
-        );
+        {
+            let mut user_map = self.entries.entry(user_id.to_string()).or_default();
+            user_map.branches.insert(
+                branch.to_string(),
+                SandboxEntry {
+                    role: None,
+                    branch: Some(branch.to_string()),
+                    port,
+                    status: SandboxStatus::Running,
+                    last_activity: Instant::now(),
+                    handle: Some(handle),
+                },
+            );
+        }
 
         info!(user_id, branch, port, "branch sandbox started");
         Ok(port)
@@ -509,14 +603,22 @@ impl SandboxRegistry {
 
     /// Stop a sandbox for the given user + role.
     pub async fn stop(self: &Arc<Self>, user_id: &str, role: SandboxRole) -> anyhow::Result<()> {
-        let mut entries = self.entries.lock().await;
-        if let Some(user_map) = entries.get_mut(user_id) {
+        // Extract handle under brief guard, then stop without holding it.
+        let mut handle = None;
+        let mut port = None;
+        if let Some(mut user_map) = self.entries.get_mut(user_id) {
             if let Some(entry) = user_map.roles.get_mut(&role) {
-                self.stop_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
-                    .await;
+                handle = entry.handle.take();
+                port = Some(entry.port);
                 entry.status = SandboxStatus::Stopped;
-                info!(user_id, %role, "sandbox stopped");
             }
+        }
+        if handle.is_some() {
+            self.stop_handle(user_id, None, &mut handle).await;
+            if let Some(p) = port {
+                self.port_allocator.release(p);
+            }
+            info!(user_id, %role, "sandbox stopped");
         }
         Ok(())
     }
@@ -527,40 +629,54 @@ impl SandboxRegistry {
         user_id: &str,
         role: SandboxRole,
     ) -> anyhow::Result<()> {
-        let mut entries = self.entries.lock().await;
-        if let Some(user_map) = entries.get_mut(user_id) {
-            if let Some(entry) = user_map.roles.get_mut(&role) {
-                if entry.status != SandboxStatus::Running {
-                    return Err(anyhow::anyhow!("sandbox is not running"));
-                }
-                self.hibernate_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
-                    .await;
-                entry.status = SandboxStatus::Hibernated;
-                info!(user_id, %role, "sandbox hibernated");
+        let handle = {
+            let mut user_map = self
+                .entries
+                .get_mut(user_id)
+                .ok_or_else(|| anyhow::anyhow!("user not found"))?;
+            let entry = user_map
+                .roles
+                .get_mut(&role)
+                .ok_or_else(|| anyhow::anyhow!("role not found"))?;
+            if !matches!(entry.status, SandboxStatus::Running) {
+                return Err(anyhow::anyhow!("sandbox is not running"));
             }
+            entry.status = SandboxStatus::Hibernated;
+            entry.handle.take()
+        };
+        // DashMap guard dropped — do async hibernate work.
+        if let Some(handle) = handle {
+            let mut handle = Some(handle);
+            self.hibernate_handle(user_id, None, &mut handle).await;
+            info!(user_id, %role, "sandbox hibernated");
         }
         Ok(())
     }
 
     /// Stop a branch runtime for the given user.
     pub async fn stop_branch(self: &Arc<Self>, user_id: &str, branch: &str) -> anyhow::Result<()> {
-        let mut entries = self.entries.lock().await;
-        if let Some(user_map) = entries.get_mut(user_id) {
+        let mut handle = None;
+        let mut port = None;
+        if let Some(mut user_map) = self.entries.get_mut(user_id) {
             if let Some(entry) = user_map.branches.get_mut(branch) {
-                self.stop_handle(user_id, Some(branch), &mut entry.handle)
-                    .await;
+                handle = entry.handle.take();
+                port = Some(entry.port);
                 entry.status = SandboxStatus::Stopped;
-                info!(user_id, branch, "branch sandbox stopped");
             }
+        }
+        if handle.is_some() {
+            self.stop_handle(user_id, Some(branch), &mut handle).await;
+            if let Some(p) = port {
+                self.port_allocator.release(p);
+            }
+            info!(user_id, branch, "branch sandbox stopped");
         }
         Ok(())
     }
 
     /// Swap the Live and Dev roles for a user (promotion).
-    /// The processes keep running; only the role mapping in the registry changes.
     pub async fn swap_roles(self: &Arc<Self>, user_id: &str) -> anyhow::Result<()> {
-        let mut entries = self.entries.lock().await;
-        let user_map = entries.entry(user_id.to_string()).or_default();
+        let mut user_map = self.entries.entry(user_id.to_string()).or_default();
 
         let live = user_map.roles.remove(&SandboxRole::Live);
         let dev = user_map.roles.remove(&SandboxRole::Dev);
@@ -579,12 +695,10 @@ impl SandboxRegistry {
     }
 
     /// Touch the activity timestamp for a running sandbox.
-    /// Called by the proxy on every request to prevent idle watchdog kills.
     pub async fn touch_activity(&self, user_id: &str, role: SandboxRole) {
-        let mut entries = self.entries.lock().await;
-        if let Some(user_map) = entries.get_mut(user_id) {
+        if let Some(mut user_map) = self.entries.get_mut(user_id) {
             if let Some(entry) = user_map.roles.get_mut(&role) {
-                if entry.status == SandboxStatus::Running {
+                if matches!(entry.status, SandboxStatus::Running) {
                     entry.last_activity = Instant::now();
                 }
             }
@@ -593,9 +707,9 @@ impl SandboxRegistry {
 
     /// Return the port for a running sandbox role, if any.
     pub async fn port_of(&self, user_id: &str, role: SandboxRole) -> Option<u16> {
-        let mut entries = self.entries.lock().await;
-        let entry = entries.get_mut(user_id)?.roles.get_mut(&role)?;
-        if entry.status == SandboxStatus::Running {
+        let mut user_map = self.entries.get_mut(user_id)?;
+        let entry = user_map.roles.get_mut(&role)?;
+        if matches!(entry.status, SandboxStatus::Running) {
             entry.last_activity = Instant::now();
             Some(entry.port)
         } else {
@@ -605,9 +719,9 @@ impl SandboxRegistry {
 
     /// Return the port for a running branch sandbox, if any.
     pub async fn branch_port_of(&self, user_id: &str, branch: &str) -> Option<u16> {
-        let mut entries = self.entries.lock().await;
-        let entry = entries.get_mut(user_id)?.branches.get_mut(branch)?;
-        if entry.status == SandboxStatus::Running {
+        let mut user_map = self.entries.get_mut(user_id)?;
+        let entry = user_map.branches.get_mut(branch)?;
+        if matches!(entry.status, SandboxStatus::Running) {
             entry.last_activity = Instant::now();
             Some(entry.port)
         } else {
@@ -615,29 +729,42 @@ impl SandboxRegistry {
         }
     }
 
+    /// ADR-0022 Phase 2: Mark a sandbox as failed (called by proxy on 502).
+    pub async fn mark_failed(&self, user_id: &str, role: SandboxRole) {
+        if let Some(mut user_map) = self.entries.get_mut(user_id) {
+            if let Some(entry) = user_map.roles.get_mut(&role) {
+                if matches!(entry.status, SandboxStatus::Running) {
+                    warn!(user_id, %role, "marking sandbox as failed (proxy 502)");
+                    entry.status = SandboxStatus::Failed;
+                }
+            }
+        }
+    }
+
     /// Snapshot of all sandbox statuses for the status endpoint.
     pub async fn snapshot(&self) -> Vec<SandboxSnapshot> {
-        let entries = self.entries.lock().await;
         let mut out = Vec::new();
-        for (user_id, user_map) in entries.iter() {
-            for entry in user_map.roles.values() {
+        for entry in self.entries.iter() {
+            let user_id = entry.key();
+            let user_map = entry.value();
+            for e in user_map.roles.values() {
                 out.push(SandboxSnapshot {
                     user_id: user_id.clone(),
-                    role: entry.role,
-                    branch: entry.branch.clone(),
-                    port: entry.port,
-                    status: entry.status.clone(),
-                    idle_secs: entry.last_activity.elapsed().as_secs(),
+                    role: e.role,
+                    branch: e.branch.clone(),
+                    port: e.port,
+                    status: e.status.clone(),
+                    idle_secs: e.last_activity.elapsed().as_secs(),
                 });
             }
-            for entry in user_map.branches.values() {
+            for e in user_map.branches.values() {
                 out.push(SandboxSnapshot {
                     user_id: user_id.clone(),
-                    role: entry.role,
-                    branch: entry.branch.clone(),
-                    port: entry.port,
-                    status: entry.status.clone(),
-                    idle_secs: entry.last_activity.elapsed().as_secs(),
+                    role: e.role,
+                    branch: e.branch.clone(),
+                    port: e.port,
+                    status: e.status.clone(),
+                    idle_secs: e.last_activity.elapsed().as_secs(),
                 });
             }
         }
@@ -656,7 +783,8 @@ impl SandboxRegistry {
         }
     }
 
-    /// Background task: hibernate idle sandboxes (ADR-0018: memory-pressure-aware).
+    /// Background task: hibernate idle sandboxes (ADR-0018 + ADR-0022).
+    /// ADR-0022: collect-then-execute pattern — never hold DashMap guard across async hibernate.
     pub async fn run_idle_watchdog(self: Arc<Self>) {
         loop {
             sleep(Duration::from_secs(30)).await;
@@ -671,98 +799,83 @@ impl SandboxRegistry {
                 );
             }
 
-            let mut entries = self.entries.lock().await;
+            // Phase 1: Collect candidates under brief per-shard read locks.
+            // (user_id, is_branch, branch_name_or_empty, idle_duration)
+            let mut candidates: Vec<(String, bool, String, Duration)> = Vec::new();
 
-            // At critical pressure (<15%), force-hibernate the least-recently-active
-            // VMs regardless of idle time, until we're above 15%.
-            if mem_pct < 15 {
-                let mut running: Vec<(&str, &str, Duration)> = Vec::new();
-                for (user_id, user_map) in entries.iter() {
-                    for entry in user_map.roles.values() {
-                        if entry.status == SandboxStatus::Running {
-                            running.push((user_id.as_str(), "role", entry.last_activity.elapsed()));
-                        }
-                    }
-                    for entry in user_map.branches.values() {
-                        if entry.status == SandboxStatus::Running {
-                            running.push((
-                                user_id.as_str(),
-                                "branch",
-                                entry.last_activity.elapsed(),
-                            ));
+            for entry in self.entries.iter() {
+                let user_id = entry.key().clone();
+                let user_map = entry.value();
+                for (role, sandbox) in &user_map.roles {
+                    if matches!(sandbox.status, SandboxStatus::Running) {
+                        let idle = sandbox.last_activity.elapsed();
+                        if mem_pct < 15 || idle >= timeout {
+                            candidates.push((user_id.clone(), false, role.to_string(), idle));
                         }
                     }
                 }
-                // Sort by idle duration descending (most idle first)
-                running.sort_by(|a, b| b.2.cmp(&a.2));
-
-                // Hibernate up to 5 VMs per cycle to reclaim memory
-                let to_hibernate = running.len().min(5);
-                if to_hibernate > 0 {
-                    warn!(
-                        mem_pct,
-                        to_hibernate,
-                        "CRITICAL memory pressure — force-hibernating least-active VMs"
-                    );
-                }
-                // Collect user_ids to hibernate (avoid borrow issues)
-                let targets: Vec<String> = running
-                    .iter()
-                    .take(to_hibernate)
-                    .map(|(uid, _, _)| uid.to_string())
-                    .collect();
-                for uid in &targets {
-                    if let Some(user_map) = entries.get_mut(uid.as_str()) {
-                        for entry in user_map.roles.values_mut() {
-                            if entry.status == SandboxStatus::Running {
-                                self.hibernate_handle(
-                                    uid,
-                                    entry.branch.as_deref(),
-                                    &mut entry.handle,
-                                )
-                                .await;
-                                entry.status = SandboxStatus::Hibernated;
-                                break; // one per user per cycle
-                            }
+                for (branch, sandbox) in &user_map.branches {
+                    if matches!(sandbox.status, SandboxStatus::Running) {
+                        let idle = sandbox.last_activity.elapsed();
+                        if mem_pct < 15 || idle >= timeout {
+                            candidates.push((user_id.clone(), true, branch.clone(), idle));
                         }
                     }
                 }
             }
+            // All DashMap guards dropped here.
 
-            // Normal idle timeout sweep (with pressure-adjusted threshold)
-            for (user_id, user_map) in entries.iter_mut() {
-                for entry in user_map.roles.values_mut() {
-                    if entry.status == SandboxStatus::Running
-                        && entry.last_activity.elapsed() >= timeout
-                    {
-                        warn!(
-                            user_id,
-                            role = ?entry.role,
-                            idle_secs = entry.last_activity.elapsed().as_secs(),
-                            mem_pct,
-                            "sandbox idle timeout — hibernating"
-                        );
-                        self.hibernate_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
-                            .await;
-                        entry.status = SandboxStatus::Hibernated;
+            if candidates.is_empty() {
+                continue;
+            }
+
+            // At critical pressure, sort by idle duration and limit to 5.
+            if mem_pct < 15 {
+                candidates.sort_by(|a, b| b.3.cmp(&a.3));
+                candidates.truncate(5);
+                warn!(
+                    mem_pct,
+                    count = candidates.len(),
+                    "CRITICAL memory pressure — force-hibernating least-active VMs"
+                );
+            }
+
+            // Phase 2: Execute hibernations without holding DashMap guards.
+            for (user_id, is_branch, key, idle) in &candidates {
+                // Brief re-acquire to extract handle and update status.
+                let mut handle = None;
+                if let Some(mut user_map) = self.entries.get_mut(user_id) {
+                    if *is_branch {
+                        if let Some(entry) = user_map.branches.get_mut(key.as_str()) {
+                            if matches!(entry.status, SandboxStatus::Running) {
+                                handle = entry.handle.take();
+                                entry.status = SandboxStatus::Hibernated;
+                            }
+                        }
+                    } else {
+                        let role = if key == "live" {
+                            SandboxRole::Live
+                        } else {
+                            SandboxRole::Dev
+                        };
+                        if let Some(entry) = user_map.roles.get_mut(&role) {
+                            if matches!(entry.status, SandboxStatus::Running) {
+                                handle = entry.handle.take();
+                                entry.status = SandboxStatus::Hibernated;
+                            }
+                        }
                     }
                 }
-
-                for entry in user_map.branches.values_mut() {
-                    if entry.status == SandboxStatus::Running
-                        && entry.last_activity.elapsed() >= timeout
-                    {
-                        warn!(
-                            user_id,
-                            branch = ?entry.branch,
-                            idle_secs = entry.last_activity.elapsed().as_secs(),
-                            mem_pct,
-                            "branch sandbox idle timeout — hibernating"
-                        );
-                        self.hibernate_handle(user_id, entry.branch.as_deref(), &mut entry.handle)
-                            .await;
-                        entry.status = SandboxStatus::Hibernated;
-                    }
+                // Guard dropped — now do async hibernate work.
+                if handle.is_some() {
+                    warn!(
+                        user_id,
+                        key,
+                        idle_secs = idle.as_secs(),
+                        mem_pct,
+                        "sandbox idle timeout — hibernating"
+                    );
+                    self.hibernate_handle(user_id, None, &mut handle).await;
                 }
             }
         }
@@ -1100,6 +1213,7 @@ impl serde::Serialize for SandboxStatus {
             SandboxStatus::Running => "running",
             SandboxStatus::Stopped => "stopped",
             SandboxStatus::Hibernated => "hibernated",
+            SandboxStatus::Starting(_) => "starting",
             SandboxStatus::Failed => "failed",
         };
         s.serialize_str(v)

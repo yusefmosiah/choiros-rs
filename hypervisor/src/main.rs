@@ -97,7 +97,7 @@ async fn main() -> anyhow::Result<()> {
                 .timeout(std::time::Duration::from_secs(120))
                 .build()?,
             rate_limit_per_minute: config.provider_gateway_rate_limit_per_minute,
-            rate_limit_state: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            rate_limit_state: Arc::new(dashmap::DashMap::new()),
         },
     });
 
