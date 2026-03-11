@@ -536,12 +536,42 @@
       vcpu = 2; memory_mb = 2048;
       runner = vmRunnerChPmem; systemd_template = "cloud-hypervisor";
     }}
+    ${mkClass "ch-blk-2c-2g" {
+      hypervisor = "cloud-hypervisor"; transport = "blk";
+      vcpu = 2; memory_mb = 2048;
+      runner = vmRunnerChBlk; systemd_template = "cloud-hypervisor";
+    }}
+    ${mkClass "fc-pmem-2c-2g" {
+      hypervisor = "firecracker"; transport = "pmem";
+      vcpu = 2; memory_mb = 2048;
+      runner = vmRunnerFcPmem; systemd_template = "firecracker";
+    }}
+    ${mkClass "fc-blk-2c-2g" {
+      hypervisor = "firecracker"; transport = "blk";
+      vcpu = 2; memory_mb = 2048;
+      runner = vmRunnerFcBlk; systemd_template = "firecracker";
+    }}
 
     # ── 4 vCPU / 4 GB (heavy workloads: build, test, Playwright) ──
     ${mkClass "ch-pmem-4c-4g" {
       hypervisor = "cloud-hypervisor"; transport = "pmem";
       vcpu = 4; memory_mb = 4096;
       runner = vmRunnerChPmem; systemd_template = "cloud-hypervisor";
+    }}
+    ${mkClass "ch-blk-4c-4g" {
+      hypervisor = "cloud-hypervisor"; transport = "blk";
+      vcpu = 4; memory_mb = 4096;
+      runner = vmRunnerChBlk; systemd_template = "cloud-hypervisor";
+    }}
+    ${mkClass "fc-pmem-4c-4g" {
+      hypervisor = "firecracker"; transport = "pmem";
+      vcpu = 4; memory_mb = 4096;
+      runner = vmRunnerFcPmem; systemd_template = "firecracker";
+    }}
+    ${mkClass "fc-blk-4c-4g" {
+      hypervisor = "firecracker"; transport = "blk";
+      vcpu = 4; memory_mb = 4096;
+      runner = vmRunnerFcBlk; systemd_template = "firecracker";
     }}
 
     [host]
