@@ -2,6 +2,7 @@
 # Intel Xeon-E 2136 / 32GB RAM / 2x NVMe RAID1 / UEFI
 { config, lib, pkgs, choirosPackages, vmRunnerLive, vmStoreDiskInterface ? "blk",
   vmRunnerChPmem ? null, vmRunnerChBlk ? null, vmRunnerFcPmem ? null, vmRunnerFcBlk ? null,
+  vmRunnerWorkerChPmem ? null, vmRunnerWorkerChBlk ? null,
   ... }:
 {
   # ADR-0018: virtiofsd overlay removed — no more virtiofs shares.
@@ -613,6 +614,30 @@
       hypervisor = "firecracker"; transport = "blk";
       vcpu = 8; memory_mb = 8192;
       runner = vmRunnerFcBlk; systemd_template = "firecracker";
+    }}
+
+    # ── Worker image: 4 vCPU / 4 GB (thick guest: Playwright, Node, Rust, gcc) ──
+    ${mkClass "w-ch-pmem-4c-4g" {
+      hypervisor = "cloud-hypervisor"; transport = "pmem";
+      vcpu = 4; memory_mb = 4096;
+      runner = vmRunnerWorkerChPmem; systemd_template = "cloud-hypervisor";
+    }}
+    ${mkClass "w-ch-blk-4c-4g" {
+      hypervisor = "cloud-hypervisor"; transport = "blk";
+      vcpu = 4; memory_mb = 4096;
+      runner = vmRunnerWorkerChBlk; systemd_template = "cloud-hypervisor";
+    }}
+
+    # ── Worker image: 8 vCPU / 8 GB (burst: full build+test+E2E) ──
+    ${mkClass "w-ch-pmem-8c-8g" {
+      hypervisor = "cloud-hypervisor"; transport = "pmem";
+      vcpu = 8; memory_mb = 8192;
+      runner = vmRunnerWorkerChPmem; systemd_template = "cloud-hypervisor";
+    }}
+    ${mkClass "w-ch-blk-8c-8g" {
+      hypervisor = "cloud-hypervisor"; transport = "blk";
+      vcpu = 8; memory_mb = 8192;
+      runner = vmRunnerWorkerChBlk; systemd_template = "cloud-hypervisor";
     }}
 
     [host]

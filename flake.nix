@@ -9,17 +9,13 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    disko = {
-      url = "github:nix-community/disko";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     microvm = {
       url = "github:yusefmosiah/microvm.nix/main";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, crane, rust-overlay, disko, microvm, ... }:
+  outputs = { self, nixpkgs, flake-utils, crane, rust-overlay, microvm, ... }:
     let
       # Packages are x86_64-linux only (deployment target)
       system = "x86_64-linux";
@@ -131,6 +127,7 @@ EOF
         vmTap,
         sandboxHypervisor ? "cloud-hypervisor",
         sandboxStoreDiskInterface ? "blk",
+        guestProfile ? "minimal",
       }:
         nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
@@ -143,6 +140,7 @@ EOF
               vmTap
               sandboxHypervisor
               sandboxStoreDiskInterface
+              guestProfile
               ;
             sandboxPackage = self.packages.${system}.sandbox;
           };
@@ -161,6 +159,12 @@ EOF
         .config.microvm.runner.firecracker;
       vmRunnerFcBlk = self.nixosConfigurations.choiros-fc-sandbox-live-blk
         .config.microvm.runner.firecracker;
+
+      # Worker image runners (thick guest with dev toolchain)
+      vmRunnerWorkerChPmem = self.nixosConfigurations.choiros-worker-ch-pmem
+        .config.microvm.runner.cloud-hypervisor;
+      vmRunnerWorkerChBlk = self.nixosConfigurations.choiros-worker-ch-blk
+        .config.microvm.runner.cloud-hypervisor;
 
       # Legacy alias (still used by ovh-node.nix cloud-hypervisor@ template)
       vmRunnerLive = vmRunnerChPmem;
@@ -361,28 +365,14 @@ EOF
         ];
       };
 
-      nixosConfigurations.choiros-ovh-node = nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        specialArgs = {
-          choirosPackages = self.packages.${system};
-          vmRunnerLive = vmRunnerLive;
-          vmStoreDiskInterface = "pmem";
-          inherit vmRunnerChPmem vmRunnerChBlk vmRunnerFcPmem vmRunnerFcBlk;
-        };
-        modules = [
-          disko.nixosModules.disko
-          ./nix/hosts/ovh-node-disk-config.nix
-          ./nix/hosts/ovh-node.nix
-        ];
-      };
-
       nixosConfigurations.choiros-a = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
         specialArgs = {
           choirosPackages = self.packages.${system};
           vmRunnerLive = vmRunnerLive;
           vmStoreDiskInterface = "pmem";
-          inherit vmRunnerChPmem vmRunnerChBlk vmRunnerFcPmem vmRunnerFcBlk;
+          inherit vmRunnerChPmem vmRunnerChBlk vmRunnerFcPmem vmRunnerFcBlk
+                 vmRunnerWorkerChPmem vmRunnerWorkerChBlk;
         };
         modules = [
           ./nix/hosts/ovh-node-hardware.nix
@@ -397,7 +387,8 @@ EOF
           choirosPackages = self.packages.${system};
           vmRunnerLive = vmRunnerLive;
           vmStoreDiskInterface = "pmem";
-          inherit vmRunnerChPmem vmRunnerChBlk vmRunnerFcPmem vmRunnerFcBlk;
+          inherit vmRunnerChPmem vmRunnerChBlk vmRunnerFcPmem vmRunnerFcBlk
+                 vmRunnerWorkerChPmem vmRunnerWorkerChBlk;
         };
         modules = [
           ./nix/hosts/ovh-node-hardware.nix
@@ -485,6 +476,30 @@ EOF
         vmTap = "tap-dev";
         sandboxHypervisor = "firecracker";
         sandboxStoreDiskInterface = "blk";
+      };
+
+      # Worker image VMs (thick guest with dev toolchain + Playwright)
+      # Only ch-pmem and ch-blk — workers use cloud-hypervisor for KSM density.
+      nixosConfigurations.choiros-worker-ch-pmem = mkSandboxVm {
+        sandboxRole = "live";
+        sandboxPort = 8080;
+        vmIp = "10.0.0.10";
+        vmMac = "52:54:00:00:00:0a";
+        vmTap = "tap-live";
+        sandboxHypervisor = "cloud-hypervisor";
+        sandboxStoreDiskInterface = "pmem";
+        guestProfile = "worker";
+      };
+
+      nixosConfigurations.choiros-worker-ch-blk = mkSandboxVm {
+        sandboxRole = "live";
+        sandboxPort = 8080;
+        vmIp = "10.0.0.10";
+        vmMac = "52:54:00:00:00:0a";
+        vmTap = "tap-live";
+        sandboxHypervisor = "cloud-hypervisor";
+        sandboxStoreDiskInterface = "blk";
+        guestProfile = "worker";
       };
     };
 }

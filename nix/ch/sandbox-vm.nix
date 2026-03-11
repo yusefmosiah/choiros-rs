@@ -3,7 +3,7 @@
 # and transport choices are passed via specialArgs from flake.nix.
 { config, lib, pkgs, sandboxRole, sandboxPort, vmIp, vmMac, vmTap,
   sandboxPackage, sandboxHypervisor ? "cloud-hypervisor",
-  sandboxStoreDiskInterface ? "blk", ... }:
+  sandboxStoreDiskInterface ? "blk", guestProfile ? "minimal", ... }:
 {
   networking.hostName = "sandbox-${sandboxRole}";
 
@@ -165,11 +165,77 @@
   # Allow sandbox port through firewall
   networking.firewall.allowedTCPPorts = [ sandboxPort ];
 
-  environment.systemPackages = with pkgs; [
-    coreutils
-    curl
-    procps
-  ];
+  environment.systemPackages = with pkgs;
+    # Minimal profile: just enough to run the sandbox service
+    (if guestProfile == "minimal" then [
+      coreutils
+      curl
+      procps
+    ]
+    # Worker profile: full dev toolchain for build/test/E2E workflows
+    else if guestProfile == "worker" then [
+      # Core utilities
+      coreutils
+      curl
+      procps
+      bash
+      gnused
+      gnugrep
+      gawk
+      findutils
+      which
+      file
+      less
+      htop
+
+      # Version control
+      git
+      openssh
+
+      # Build toolchain
+      gcc
+      gnumake
+      pkg-config
+      openssl
+
+      # Node.js + Playwright (E2E testing)
+      nodejs_22
+      # Playwright's bundled chromium needs these system libs
+      nss
+      nspr
+      atk
+      at-spi2-atk
+      cups
+      libdrm
+      expat
+      libxkbcommon
+      pango
+      cairo
+      alsa-lib
+      mesa
+      xorg.libX11
+      xorg.libXcomposite
+      xorg.libXdamage
+      xorg.libXext
+      xorg.libXfixes
+      xorg.libXrandr
+      xorg.libxcb
+      glib
+      dbus
+      gtk3
+
+      # Rust toolchain (for building sandbox/worker code)
+      rustc
+      cargo
+
+      # Go toolchain (ADR-0024: hypervisor rewrite, general dev)
+      go
+
+      # Useful for debugging
+      strace
+      gdb
+    ]
+    else throw "Unknown guestProfile: ${guestProfile}");
 
   system.stateVersion = "25.11";
 }
