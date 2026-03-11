@@ -85,14 +85,14 @@ The user's experience inside their VM should feel like a Linux desktop:
 │   └── conductor/
 │       └── runs/
 │           └── {run_id}/
-│               └── draft.md
+│               ├── draft.md
+│               └── draft.writer-state.json
 ├── .config/                ← user settings
 │   └── choiros/
 │       └── model-config.toml
 └── .local/
     └── share/
-        └── choiros/
-            └── .writer_revisions/  ← internal, hidden from user
+        └── choiros/         ← optional internal runtime data
 ```
 
 This is standard XDG. The sandbox root (`/opt/choiros/data/sandbox`)
@@ -103,7 +103,10 @@ What this means for the current code:
 - `CHOIR_SANDBOX_ROOT` = the user's home (on virtio-blk)
 - Terminal CWD should default to `~/` (the sandbox root)
 - Files app "Home" should show `~/` contents
-- `.writer_revisions/` should be in `.local/share/choiros/`, not at root
+- run-scoped Writer history should be represented by `draft.md` plus
+  `draft.writer-state.json`, not `.writer_revisions/`
+- if internal compatibility state still exists during migration, it belongs
+  under `.local/share/choiros/`, not at the root of the user's visible tree
 - `config/model-catalog.toml` should be platform-provided (in nix store
   or a read-only config share), with user overrides in `~/.config/choiros/`
 - Desktop state (currently event-sourced in memory) could optionally

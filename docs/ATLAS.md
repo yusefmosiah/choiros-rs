@@ -33,20 +33,28 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/decisions/adr-0020-security-hardening.md`
 - **[P1]** ADR-0022: Hypervisor Concurrency and Dynamic Capacity — Decision (Accepted) | Requires: [ADR-0014, ADR-0018]  
   `docs/theory/decisions/adr-0022-hypervisor-concurrency-and-capacity.md`
+- **[P1]** ADR-0023: microvm.nix Store Disk Transport Selection (`blk` vs `pmem`) — Decision (Proposed) | Requires: [ADR-0018, ADR-0020]  
+  `docs/theory/decisions/adr-0023-microvm-store-disk-transport-selection.md`
 - **[P1]** Implementing ADR-0018: Drop Virtiofs, Adaptive Capacity — Guide (Active) | Requires: [ADR-0018]  
   `docs/theory/guides/adr-0018-implementation.md`
 - **[P1]** Implementing ADR-0020: Security Hardening — Guide (Active) | Requires: [ADR-0020]  
   `docs/theory/guides/adr-0020-implementation.md`
 - **[P1]** Implementing ADR-0022: Hypervisor Concurrency and Dynamic Capacity — Guide (Active) | Requires: [ADR-0022]  
   `docs/theory/guides/adr-0022-implementation.md`
+- **[P1]** Implementing ADR-0023: microvm.nix Store Disk Transport Selection — Guide (Active) | Requires: [ADR-0023]  
+  `docs/theory/guides/adr-0023-implementation.md`
 - **[P1]** Rolling Deploys: Staging → E2E → Promote — Guide (Active)  
   `docs/theory/guides/rolling-deploys.md`
 - **[P2]** ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync — Decision (Draft) | Requires: [ADR-0007, ADR-0012]  
   `docs/theory/decisions/adr-0014-per-user-storage-and-desktop-sync.md`
 - **[P2]** ADR-0021: Writer App Agent and Collaborative Living Documents — Decision (Draft) | Requires: [ADR-0001, ADR-0007]  
   `docs/theory/decisions/adr-0021-writer-app-agent-and-collaborative-living-documents.md`
+- **[P2]** ADR-0024: Hypervisor Go Rewrite — Decision (Proposed) | Requires: [ADR-0007, ADR-0014]  
+  `docs/theory/decisions/adr-0024-hypervisor-go-rewrite.md`
 - **[P2]** Implementing ADR-0014: Per-User VM Lifecycle and Storage — Guide (Active) | Requires: [ADR-0014]  
   `docs/theory/guides/adr-0014-implementation.md`
+- **[P2]** Implementing ADR-0024: Hypervisor Go Rewrite — Guide (Active) | Requires: [ADR-0024]  
+  `docs/theory/guides/adr-0024-implementation.md`
 - **[P3]** ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes) — Decision (Proposed) | Requires: [ADR-0014]  
   `docs/theory/decisions/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
 - **[P3]** ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion — Decision (Draft)  
@@ -195,11 +203,15 @@ ADR-0001 → ADR-0019: Per-User Memory Curation and Retrieval
 ADR-0014, ADR-0018 → ADR-0020: Security Hardening — Multi-Tenant Isolation
 ADR-0001, ADR-0007 → ADR-0021: Writer App Agent and Collaborative Living Documents
 ADR-0014, ADR-0018 → ADR-0022: Hypervisor Concurrency and Dynamic Capacity
+ADR-0018, ADR-0020 → ADR-0023: microvm.nix Store Disk Transport Selection (`blk` vs `pmem`)
+ADR-0007, ADR-0014 → ADR-0024: Hypervisor Go Rewrite
 ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
 ADR-0018 → Implementing ADR-0018: Drop Virtiofs, Adaptive Capacity
 ADR-0020 → Implementing ADR-0020: Security Hardening
 ADR-0022 → Implementing ADR-0022: Hypervisor Concurrency and Dynamic Capacity
+ADR-0023 → Implementing ADR-0023: microvm.nix Store Disk Transport Selection
+ADR-0024 → Implementing ADR-0024: Hypervisor Go Rewrite
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-11 — 24 practice, 27 theory, 17 state docs.*
+*Generated 2026-03-11 — 24 practice, 31 theory, 17 state docs.*

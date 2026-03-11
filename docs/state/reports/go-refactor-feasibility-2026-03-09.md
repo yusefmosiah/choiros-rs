@@ -22,9 +22,12 @@ and Researcher serving that flow rather than a generic chat-style actor mesh.
 The strategic conclusion is:
 
 1. Do not rewrite solely to reduce Rust build frustration.
-2. A `hypervisor`-only rewrite is feasible but does not solve the core runtime
-   design question.
-3. A larger rewrite is only justified if ChoirOS wants the semantic
+2. A `hypervisor`-only rewrite is the right bounded experiment because it can be
+   tested and swapped independently.
+3. `sandbox` should not be approached first as a hard replacement. It is better
+   treated as a protocol boundary with room for parallel implementations and
+   compare-contrast evaluation.
+4. A larger `sandbox` rewrite is only justified if ChoirOS wants the semantic
    simplification available in a Go-native hierarchical model:
    Conductor for global orchestration, Writer for run and document
    orchestration, Terminal for bounded execution orchestration, and Researcher
@@ -47,9 +50,12 @@ The strategic conclusion is:
    semantic simplification, or both.
 2. If the goal is only build speed, prioritize Rust-side build and cache work
    before any runtime rewrite.
-3. If the goal is semantic simplification, validate the Writer and Terminal
-   ownership model with a narrow design spike before discussing a full rewrite.
-4. Keep the memory subsystem optional until it proves useful in real Writer and
+3. If the goal is to learn from Go with low blast radius, rewrite `hypervisor`,
+   prove parity, and test a real swap.
+4. If the goal is semantic simplification in `sandbox`, treat the runtime as a
+   protocol and compare Rust and Go implementations side by side before any
+   cutover.
+5. Keep the memory subsystem optional until it proves useful in real Writer and
    Terminal flows.
 
 ## 1) Current System Snapshot
@@ -383,7 +389,7 @@ it silently become the owner of durable research truth.
 - keeps current semantic complexity,
 - does not automatically simplify Writer and Terminal boundaries.
 
-### Option B: Rewrite `hypervisor` only
+### Option B: Rewrite `hypervisor` only, then test a real swap
 
 **What changes**
 
@@ -394,35 +400,39 @@ it silently become the owner of durable research truth.
 
 - technically feasible,
 - limited blast radius,
-- likely easy to package and operate.
+- likely easy to package and operate,
+- gives a real test of build, packaging, and ops ergonomics without touching the
+  core runtime.
 
 **Costs**
 
 - does not solve the real runtime semantics question,
 - leaves the most architecturally complex layer untouched.
 
-### Option C: Rewrite `hypervisor` plus `sandbox` with compatibility semantics
+### Option C: Treat `sandbox` as a protocol and run Rust and Go implementations
+in parallel
 
 **What changes**
 
-- same external behavior,
-- Go reimplementation of most runtime surfaces,
-- internal actor mechanics replaced by channels, managers, services, and
-  explicit restart logic.
+- define the relevant `sandbox` surfaces as protocol contracts,
+- keep the Rust implementation as the incumbent,
+- build a Go implementation behind the same protocol where feasible,
+- compare behavior, semantics, operability, and product fit directly.
 
 **Benefits**
 
-- potential build and distribution ergonomics,
-- preserves current behavior.
+- avoids forcing an early all-or-nothing cutover,
+- creates a cleaner architecture target because protocol surfaces have to be
+  named explicitly,
+- allows empirical compare-contrast instead of speculative replacement.
 
 **Costs**
 
-- high migration cost,
-- risk of reproducing current complexity in a new language,
-- likely to carry actor-shaped semantics forward even where the product is
-  already moving away from them.
+- requires discipline around boundary definition,
+- can create temporary duplication,
+- still does not remove the need to decide which semantics actually matter.
 
-### Option D: Rewrite with a Go-native redesign
+### Option D: Full `sandbox` replacement with a Go-native redesign
 
 **What changes**
 
@@ -449,16 +459,21 @@ it silently become the owner of durable research truth.
 The default recommendation is:
 
 1. **Do not rewrite solely for build times.**
-2. **Do not justify a full rewrite unless ChoirOS explicitly wants the semantic
-   simplification around Writer, Terminal, and Researcher enough to pay the
-   migration cost.**
-3. **If a rewrite is pursued, prefer a Go-native redesign over a compatibility
-   rewrite.** The compatibility path carries the most cost while preserving too
-   much of the accidental complexity.
+2. **Use `hypervisor` as the first bounded Go experiment.** Rewrite it, verify
+   parity, and prove that it can actually be swapped in.
+3. **Treat `sandbox` as a protocol before treating it as a replacement target.**
+   The near-term goal should be parallel implementations and explicit
+   compare-contrast, not immediate cutover.
+4. **Only justify a full `sandbox` rewrite if ChoirOS explicitly wants the
+   semantic simplification around Writer, Terminal, and Researcher enough to pay
+   the migration cost.**
 
-The strongest near-term move is not "rewrite now." It is "use this model to
-clarify current Rust ownership boundaries first." If those simplifications prove
-valuable and stable, a rewrite becomes easier to justify later.
+The strongest near-term move is not "rewrite the whole runtime now." It is:
+
+- clarify current Rust ownership boundaries,
+- define `sandbox` protocol surfaces explicitly,
+- run a bounded `hypervisor` rewrite,
+- and use side-by-side `sandbox` work to learn which semantics should survive.
 
 ## 9) Acceptance Scenarios
 

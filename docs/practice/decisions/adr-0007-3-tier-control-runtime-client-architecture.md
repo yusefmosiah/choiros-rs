@@ -41,6 +41,9 @@ This replaces the previous role-based model (live/dev) with a branch-aware runti
 2. **VM-first runtime**: vfkit is the only supported local backend (process backend removed)
 3. **Guest binary reuse**: `if-missing` mode avoids rebuilding on every ensure
 4. **Ownership enforcement**: Never adopt pre-existing listeners on shared ports
+5. **Writer is a living-document runtime**: run documents are represented by
+   `draft.md` plus `draft.writer-state.json`; `.writer_revisions` is
+   transitional compatibility state, not the target model
 
 ---
 
@@ -113,6 +116,24 @@ This replaces the previous role-based model (live/dev) with a branch-aware runti
 ---
 
 ## Core Concepts
+
+### Writer Runtime Note
+
+Within the runtime plane, Writer should be understood as a living-document
+system rather than a generic file editor.
+
+Current direction:
+
+- the first user prompt is a real version,
+- versions tell the story of the run,
+- users, Writer, and future collaborators may author revisions,
+- one commit path records accepted versions in order,
+- worker updates usually enter as evidence, progress, artifacts, or proposals,
+  not direct canonical diffs,
+- run-scoped Writer persistence is `draft.md` plus `draft.writer-state.json`.
+
+The active contract for this is maintained in
+`docs/practice/guides/writer-api-contract.md`.
 
 ### Route Pointers
 

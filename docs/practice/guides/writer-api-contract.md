@@ -1,691 +1,438 @@
-# Writer App API Contract
+# Writer Contract and Implementation Guide
 
-Date: 2026-02-01
+Date: 2026-03-09
 Kind: Guide
-Status: Accepted
-Requires: []
+Status: Active
+Requires: [ADR-0001]
 
-## Overview
+## Narrative Summary (1-minute read)
 
-The Writer App API provides secure document editing capabilities with optimistic concurrency control via revision tracking. It is designed for collaborative editing scenarios where multiple clients may attempt to modify the same document simultaneously.
+The old Writer API contract is no longer the right model for ChoirOS. Writer is
+not primarily a stateless file editor with optimistic save conflicts. It is the
+runtime for a living document whose versions tell the story of a run.
 
-**Key Features:**
-- **Revision-based concurrency**: Each save increments a monotonic revision counter
-- **Optimistic locking**: Clients must provide `base_rev` when saving; conflicts return current server state
-- **Markdown preview**: Server-side rendering with GitHub-flavored markdown
-- **Sandbox security**: All paths are constrained to the ChoirOS sandbox directory
+The important contract is:
 
-**Base URL**: `/writer`
+- the first user prompt is a real version,
+- versions are immutable snapshots in the run history,
+- users, Writer, and future collaborators may author revisions,
+- one runtime commit path records accepted versions in order,
+- Researcher and Terminal usually send evidence, progress, artifacts, and
+  proposals, not direct canonical diffs,
+- Writer owns canon and the readable presentation of marginalia,
+- `.writer_revisions` is transitional legacy machinery for the generic
+  `/writer/open` and `/writer/save` path and should be removed after that path
+  is migrated.
 
----
+This guide defines the target contract and the implementation sequence to get
+there without guessing from churn-era behavior.
 
-## Philosophy
+## What Changed
 
-The Writer API follows these design principles:
+- Replaced the obsolete "generic file editor" contract with the current
+  living-document contract.
+- Defined version authorship separately from version commit authority.
+- Defined explicit lanes for canon, marginalia, artifacts, and proposals.
+- Marked `.writer_revisions` as transitional, not canonical.
+- Added an implementation plan and acceptance criteria for removing
+  `.writer_revisions` safely.
 
-1. **Explicit Concurrency**: Rather than last-write-wins, conflicts are surfaced to clients
-2. **Stateless Operations**: Each request contains all context needed (path, revision, content)
-3. **Fail Fast**: Path validation happens before any file operations
-4. **Client Authority**: Clients are responsible for merge resolution during conflicts
+## What To Do Next
 
----
+1. Make the prompt bar flow and blank Writer window flow create the same initial
+   user-authored seed version.
+2. Separate run status from document versions so `running` and `done` stop being
+   inferred from document mutations.
+3. Stop treating Researcher and Terminal ingress as canonical diffs by default.
+4. Migrate `/writer/open` and `/writer/save` off `.writer_revisions`.
+5. Delete `.writer_revisions` code and docs only after the live API path is
+   moved.
 
-## Path Normalization Rules
+## 1) Current Reality
 
-All paths are normalized according to the following rules:
+### Current fact
 
-1. **Relative to Sandbox**: All paths are relative to `/Users/wiz/choiros-rs/sandbox`
-2. **Normalization**:
-   - Collapse multiple slashes: `//` → `/`
-   - Remove redundant `./` segments
-   - Remove trailing slashes (except root)
-3. **Security Validation**:
-   - Reject paths containing `..` that would escape the sandbox
-   - Reject absolute paths (starting with `/`)
-   - Reject null bytes and control characters
+Run-scoped Writer documents are already backed by:
 
-**Examples**:
-| Input Path | Normalized | Valid? |
-|------------|------------|--------|
-| `docs/readme.md` | `docs/readme.md` | Yes |
-| `./docs//readme.md` | `docs/readme.md` | Yes |
-| `docs/../config.md` | `config.md` | Yes |
-| `../etc/passwd` | - | No (PATH_TRAVERSAL) |
-| `/etc/passwd` | - | No (PATH_TRAVERSAL) |
-| `docs/./../..` | - | No (PATH_TRAVERSAL) |
+- `conductor/runs/{run_id}/draft.md`
+- `conductor/runs/{run_id}/draft.writer-state.json`
 
----
+The sidecar currently stores versions, overlays, and source references. This is
+the real run-document persistence model.
 
-## Error Response Format
+### Current fact
 
-All errors follow a consistent envelope format:
-
-```json
-{
-  "error": {
-    "code": "MACHINE_READABLE_CODE",
-    "message": "Human-readable description"
-  }
-}
-```
+`.writer_revisions` is still live only because the generic Writer HTTP API
+still uses it for optimistic revision tracking on `/writer/open` and
+`/writer/save`. It is not the canonical run-document history mechanism.
 
-### Error Codes
+### Current fact
 
-| Code | HTTP Status | Description |
-|------|-------------|-------------|
-| `PATH_TRAVERSAL` | 403 Forbidden | Path attempts to escape sandbox or is absolute |
-| `NOT_FOUND` | 404 Not Found | File does not exist at specified path |
-| `IS_DIRECTORY` | 400 Bad Request | Path points to a directory, not a file |
-| `INVALID_REVISION` | 400 Bad Request | Revision is not a valid positive integer |
-| `CONFLICT` | 409 Conflict | `base_rev` does not match current revision (see Conflict Response) |
-| `READ_ERROR` | 500 Internal Server Error | File read operation failed |
-| `WRITE_ERROR` | 500 Internal Server Error | File write operation failed |
+The current system still has contract bugs:
 
----
+- the initial prompt/version rendering is inconsistent,
+- `running` and `done` status display is unreliable,
+- marginalia is too thin and too raw,
+- version history and source links are not yet coherent enough to serve as the
+  readable story of a run.
 
-## Revision Semantics
+This guide treats those as contract defects, not just UI bugs.
 
-The revision system provides optimistic concurrency control:
+## 2) Core Writer Contract
 
-1. **Monotonic Counter**: Revision is a `u64` that increments on each successful save
-2. **Initial Revision**: New files start at revision `1` upon first save
-3. **Optimistic Locking**: Save requests must include `base_rev` matching the current revision
-4. **Conflict Detection**: If `base_rev ≠ current_revision`, a 409 Conflict is returned
+### 2.1 Writer is a living-document runtime
 
-**Revision Flow**:
-```
-Client opens file "doc.md" → Receives revision 5
-Client edits and saves with base_rev: 5 → Server accepts, returns revision 6
-Another client saves with base_rev: 5 → Server rejects with 409 Conflict
-```
+Writer is not best understood as a plain file editor. Its primary job is to
+maintain the canonical living document for a run and to present the progression
+of that run in a readable form.
 
----
+### 2.2 Versions are the canonical story of the run
 
-## Endpoints
+A `Version` is an immutable snapshot in document history.
 
-### 1. Open Document
-
-**POST** `/writer/open`
-
-Open a document for editing. Returns the current content and revision.
-
-#### Request Body
+Required rules:
 
-```json
-{
-  "path": "relative/path/to/file.md"
-}
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `path` | string | Yes | File path relative to sandbox |
-
-#### Response Schema (200 OK)
-
-```json
-{
-  "path": "relative/path/to/file.md",
-  "content": "# Document Title\n\nContent here...",
-  "mime": "text/markdown",
-  "revision": 123,
-  "readonly": false
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `path` | string | Normalized path relative to sandbox |
-| `content` | string | Full file content as UTF-8 string |
-| `mime` | string | MIME type (e.g., `text/markdown`, `text/plain`) |
-| `revision` | integer | Current revision number (u64) |
-| `readonly` | boolean | Whether the file is read-only |
-
-#### Example Request
-
-```bash
-curl -X POST "http://localhost:8080/writer/open" \
-  -H "Content-Type: application/json" \
-  -d '{"path": "docs/readme.md"}'
-```
-
-#### Example Response
-
-```json
-{
-  "path": "docs/readme.md",
-  "content": "# ChoirOS\n\nA Rust-based multi-agent operating system.",
-  "mime": "text/markdown",
-  "revision": 42,
-  "readonly": false
-}
-```
-
-#### Errors
-
-- `PATH_TRAVERSAL` (403): Path contains `..` or is absolute
-- `NOT_FOUND` (404): File does not exist
-- `IS_DIRECTORY` (400): Path points to a directory
-
----
-
-### 2. Save Document
-
-**POST** `/writer/save`
-
-Save document content with optimistic concurrency control.
-
-#### Request Body
-
-```json
-{
-  "path": "relative/path/to/file.md",
-  "base_rev": 123,
-  "content": "# Updated Title\n\nNew content here..."
-}
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `path` | string | Yes | File path relative to sandbox |
-| `base_rev` | integer | Yes | Revision this edit was based on |
-| `content` | string | Yes | New file content |
-
-#### Response Schema (200 OK)
-
-```json
-{
-  "path": "relative/path/to/file.md",
-  "revision": 124,
-  "saved": true
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `path` | string | Normalized path relative to sandbox |
-| `revision` | integer | New revision number after save |
-| `saved` | boolean | Always `true` on success |
-
-#### Conflict Response (409 Conflict)
-
-When `base_rev` does not match the current revision:
-
-```json
-{
-  "error": {
-    "code": "CONFLICT",
-    "message": "Document was modified by another client"
-  },
-  "path": "relative/path/to/file.md",
-  "current_revision": 125,
-  "current_content": "# Other Client's Version\n\nDifferent content..."
-}
-```
-
-The conflict response includes the current server state so the client can:
-1. Show the conflict to the user
-2. Perform a three-way merge
-3. Retry with the updated `base_rev`
-
-#### Example Request
-
-```bash
-curl -X POST "http://localhost:8080/writer/save" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "path": "docs/readme.md",
-    "base_rev": 42,
-    "content": "# ChoirOS\n\nUpdated description."
-  }'
-```
-
-#### Example Response (Success)
-
-```json
-{
-  "path": "docs/readme.md",
-  "revision": 43,
-  "saved": true
-}
-```
-
-#### Example Response (Conflict)
-
-```json
-{
-  "error": {
-    "code": "CONFLICT",
-    "message": "Document was modified by another client"
-  },
-  "path": "docs/readme.md",
-  "current_revision": 45,
-  "current_content": "# ChoirOS\n\nSomeone else edited this."
-}
-```
-
-#### Errors
-
-- `PATH_TRAVERSAL` (403): Path contains `..` or is absolute
-- `NOT_FOUND` (404): File does not exist
-- `INVALID_REVISION` (400): `base_rev` is not a valid positive integer
-- `IS_DIRECTORY` (400): Path points to a directory
-- `CONFLICT` (409): `base_rev` does not match current revision
-- `WRITE_ERROR` (500): File write operation failed
-
----
-
-### 3. Preview Markdown
-
-**POST** `/writer/preview`
-
-Render markdown to HTML for preview purposes. Accepts either a file path or raw content.
-
-#### Request Body
-
-**Option A: Preview by path**
-```json
-{
-  "path": "relative/path/to/file.md"
-}
-```
-
-**Option B: Preview raw content**
-```json
-{
-  "content": "# Markdown Title\n\nSome **bold** text."
-}
-```
-
-**Option C: Both (content takes precedence for rendering, path for context)**
-```json
-{
-  "path": "docs/readme.md",
-  "content": "# Draft\n\nUnsaved changes..."
-}
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `path` | string | No* | File path to read and render |
-| `content` | string | No* | Raw markdown content to render |
-
-*At least one of `path` or `content` must be provided.
-
-#### Response Schema (200 OK)
-
-```json
-{
-  "html": "<h1>Markdown Title</h1>\n<p>Some <strong>bold</strong> text.</p>"
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `html` | string | Rendered HTML output |
-
-#### Markdown Features
-
-The preview endpoint supports:
-- Standard CommonMark syntax
-- GitHub-flavored markdown (tables, strikethrough, task lists)
-- Fenced code blocks with language hints
-- Auto-linked URLs
-
-**Security Note**: The HTML output is raw rendered markdown. The frontend should sanitize if displaying in a security-sensitive context.
-
-#### Example Request
-
-```bash
-curl -X POST "http://localhost:8080/writer/preview" \
-  -H "Content-Type: application/json" \
-  -d '{"content": "# Hello\n\nThis is **bold**."}'
-```
-
-#### Example Response
-
-```json
-{
-  "html": "<h1>Hello</h1>\n<p>This is <strong>bold</strong>.</p>"
-}
-```
-
-#### Errors
-
-- `PATH_TRAVERSAL` (403): Path contains `..` or is absolute (if path provided)
-- `NOT_FOUND` (404): File does not exist (if path provided)
-- `IS_DIRECTORY` (400): Path points to a directory (if path provided)
-- `READ_ERROR` (500): File read operation failed (if path provided)
-
----
-
-## Type Definitions (Rust)
-
-### Request Types
-
-```rust
-use serde::{Deserialize, Serialize};
-
-/// Request to open a document
-#[derive(Debug, Deserialize)]
-pub struct OpenDocumentRequest {
-    pub path: String,
-}
-
-/// Request to save a document
-#[derive(Debug, Deserialize)]
-pub struct SaveDocumentRequest {
-    pub path: String,
-    pub base_rev: u64,
-    pub content: String,
-}
-
-/// Request to preview markdown
-#[derive(Debug, Deserialize)]
-pub struct PreviewRequest {
-    pub path: Option<String>,
-    pub content: Option<String>,
-}
-```
-
-### Response Types
-
-```rust
-/// Response for successful document open
-#[derive(Debug, Serialize)]
-pub struct OpenDocumentResponse {
-    pub path: String,
-    pub content: String,
-    pub mime: String,
-    pub revision: u64,
-    pub readonly: bool,
-}
-
-/// Response for successful document save
-#[derive(Debug, Serialize)]
-pub struct SaveDocumentResponse {
-    pub path: String,
-    pub revision: u64,
-    pub saved: bool,
-}
-
-/// Response for markdown preview
-#[derive(Debug, Serialize)]
-pub struct PreviewResponse {
-    pub html: String,
-}
-```
-
-### Error Types
-
-```rust
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
-use axum::Json;
-use serde::Serialize;
-use thiserror::Error;
-
-/// Writer-specific error codes
-#[derive(Debug, Clone)]
-pub enum WriterErrorCode {
-    PathTraversal,
-    NotFound,
-    IsDirectory,
-    InvalidRevision,
-    Conflict,
-    ReadError,
-    WriteError,
-}
-
-impl WriterErrorCode {
-    fn as_str(&self) -> &'static str {
-        match self {
-            WriterErrorCode::PathTraversal => "PATH_TRAVERSAL",
-            WriterErrorCode::NotFound => "NOT_FOUND",
-            WriterErrorCode::IsDirectory => "IS_DIRECTORY",
-            WriterErrorCode::InvalidRevision => "INVALID_REVISION",
-            WriterErrorCode::Conflict => "CONFLICT",
-            WriterErrorCode::ReadError => "READ_ERROR",
-            WriterErrorCode::WriteError => "WRITE_ERROR",
-        }
-    }
-
-    fn status_code(&self) -> StatusCode {
-        match self {
-            WriterErrorCode::PathTraversal => StatusCode::FORBIDDEN,
-            WriterErrorCode::NotFound => StatusCode::NOT_FOUND,
-            WriterErrorCode::IsDirectory => StatusCode::BAD_REQUEST,
-            WriterErrorCode::InvalidRevision => StatusCode::BAD_REQUEST,
-            WriterErrorCode::Conflict => StatusCode::CONFLICT,
-            WriterErrorCode::ReadError => StatusCode::INTERNAL_SERVER_ERROR,
-            WriterErrorCode::WriteError => StatusCode::INTERNAL_SERVER_ERROR,
-        }
-    }
-}
-
-/// Standard error response body
-#[derive(Debug, Serialize)]
-pub struct WriterErrorDetail {
-    pub code: String,
-    pub message: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct WriterErrorResponse {
-    pub error: WriterErrorDetail,
-}
-
-/// Conflict response includes current server state
-#[derive(Debug, Serialize)]
-pub struct ConflictResponse {
-    #[serde(flatten)]
-    pub error: WriterErrorResponse,
-    pub path: String,
-    pub current_revision: u64,
-    pub current_content: String,
-}
-```
-
----
-
-## Security / Sandbox Requirements
-
-### Path Validation
-
-All file operations must use the `validate_path()` pattern from `files.rs`:
-
-```rust
-/// Validates and normalizes a path relative to sandbox
-fn validate_path(sandbox: &Path, user_path: &str) -> Result<PathBuf, axum::response::Response> {
-    // Reject null bytes
-    if user_path.contains('\0') {
-        return Err(writer_error(
-            WriterErrorCode::PathTraversal,
-            "Path contains null bytes"
-        ).into_response());
-    }
-
-    // Reject absolute paths
-    if user_path.starts_with('/') {
-        return Err(writer_error(
-            WriterErrorCode::PathTraversal,
-            "Absolute paths are not allowed"
-        ).into_response());
-    }
-
-    // Normalize path by processing components manually
-    let mut normalized = PathBuf::new();
-    for comp in Path::new(user_path).components() {
-        match comp {
-            Component::Normal(s) => normalized.push(s),
-            Component::CurDir => {} // Skip .
-            Component::ParentDir => {
-                // Pop the last component if we can, otherwise this escapes the sandbox
-                if !normalized.pop() {
-                    return Err(writer_error(
-                        WriterErrorCode::PathTraversal,
-                        "Path escapes sandbox directory"
-                    ).into_response());
-                }
-            }
-            Component::RootDir | Component::Prefix(_) => {
-                return Err(writer_error(
-                    WriterErrorCode::PathTraversal,
-                    "Path contains invalid components"
-                ).into_response());
-            }
-        }
-    }
-
-    // Join with sandbox and validate
-    let full_path = sandbox.join(&normalized);
-    Ok(full_path)
-}
-```
-
-### Sandbox Root
-
-```rust
-/// Sandbox root path - all file operations are constrained to this directory
-fn sandbox_root() -> PathBuf {
-    Path::new("/Users/wiz/choiros-rs/sandbox").to_path_buf()
-}
-```
-
-### Security Checklist
-
-- [ ] All paths validated through `validate_path()` before use
-- [ ] Path traversal attempts (`..`) rejected with 403
-- [ ] Absolute paths rejected with 403
-- [ ] Final path checked to be within sandbox root
-
----
-
-## Example Flows
-
-### Flow 1: Successful Edit and Save
-
-```bash
-# 1. Client opens document
-curl -X POST "http://localhost:8080/writer/open" \
-  -d '{"path": "docs/guide.md"}'
-
-# Response:
-# {
-#   "path": "docs/guide.md",
-#   "content": "# Guide\n\nInitial content.",
-#   "revision": 10,
-#   "readonly": false
-# }
-
-# 2. Client edits and saves
-curl -X POST "http://localhost:8080/writer/save" \
-  -d '{
-    "path": "docs/guide.md",
-    "base_rev": 10,
-    "content": "# Guide\n\nUpdated content."
-  }'
-
-# Response:
-# {
-#   "path": "docs/guide.md",
-#   "revision": 11,
-#   "saved": true
-# }
-```
-
-### Flow 2: Conflict Resolution
-
-```bash
-# Client A and Client B both open revision 10
-# Client A saves first:
-
-curl -X POST "http://localhost:8080/writer/save" \
-  -d '{
-    "path": "docs/guide.md",
-    "base_rev": 10,
-    "content": "Client A version"
-  }'
-# Success: revision 11
-
-# Client B tries to save (still using base_rev 10):
-curl -X POST "http://localhost:8080/writer/save" \
-  -d '{
-    "path": "docs/guide.md",
-    "base_rev": 10,
-    "content": "Client B version"
-  }'
-
-# Response (409 Conflict):
-# {
-#   "error": {
-#     "code": "CONFLICT",
-#     "message": "Document was modified by another client"
-#   },
-#   "path": "docs/guide.md",
-#   "current_revision": 11,
-#   "current_content": "Client A version"
-# }
-
-# Client B must:
-# 1. Show conflict to user or auto-merge
-# 2. Retry with base_rev: 11
-```
-
-### Flow 3: Preview Unsaved Changes
-
-```bash
-# Preview current file content
-curl -X POST "http://localhost:8080/writer/preview" \
-  -d '{"path": "docs/guide.md"}'
-
-# Preview unsaved draft content
-curl -X POST "http://localhost:8080/writer/preview" \
-  -d '{"content": "# Draft\n\nWork in progress..."}'
-```
-
----
-
-## Implementation Notes
-
-### Dependencies
-
-Add to `sandbox/Cargo.toml`:
-
-```toml
-[dependencies]
-pulldown-cmark = "0.12"  # For markdown rendering
-```
-
-### Route Registration
-
-Add to `sandbox/src/api/mod.rs`:
-
-```rust
-pub mod writer;
-
-// In router() function:
-.route("/writer/open", post(writer::open_document))
-.route("/writer/save", post(writer::save_document))
-.route("/writer/preview", post(writer::preview_markdown))
-```
-
-### Revision Storage
-
-Revisions are stored in SQLite using the existing database connection:
-
-```sql
-CREATE TABLE IF NOT EXISTS document_revisions (
-    path TEXT PRIMARY KEY,
-    revision INTEGER NOT NULL DEFAULT 1,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-```
-
----
-
-## Changelog
-
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0.0 | 2024-02-09 | Initial API contract |
+- the first user prompt is a real version,
+- every version has a stable `version_id`,
+- every version has a `parent_version_id` except the seed,
+- every version must be renderable on its own,
+- version history must remain navigable even after later revisions supersede the
+  current head.
+
+The first visible version must not be an empty system placeholder. If the user
+starts a run with a prompt, that prompt is version `0` or `1` depending on the
+chosen indexing scheme, and it must render as an actual document state.
+
+### 2.3 Authorship is broader than Writer
+
+Writer is not the only possible author of a version.
+
+Version authors may be:
+
+- `user`
+- `writer`
+- `collaborator`
+- future privileged agents, if explicitly allowed
+
+The important distinction is:
+
+- authorship may be plural,
+- commit authority must remain centralized.
+
+One runtime commit path must enforce:
+
+- parent linkage,
+- ordering,
+- moderation and policy,
+- visibility,
+- notification behavior.
+
+### 2.4 Worker updates are not usually versions
+
+Researcher and Terminal do not normally create canonical versions directly.
+
+Their default job is to provide inputs to Writer:
+
+- evidence,
+- progress,
+- artifacts,
+- results,
+- optional structured proposals.
+
+Writer decides whether those inputs remain marginalia, stay as artifacts only,
+or become a new canonical version.
+
+## 3) Document Lanes
+
+Writer should maintain four explicit lanes.
+
+### 3.1 Canon
+
+Canonical document content.
+
+- immutable version snapshots,
+- readable as the main document body,
+- only changed through committed versions.
+
+### 3.2 Marginalia
+
+Readable side content attached to a version or version range.
+
+Examples:
+
+- researcher findings,
+- terminal progress,
+- verification notes,
+- rationale,
+- source summaries,
+- moderation or collaboration notes.
+
+Marginalia is Writer-owned presentation, not raw metadata dumps.
+
+### 3.3 Artifacts
+
+Run files that are useful but not canonical document content.
+
+Examples:
+
+- research reports,
+- fetched source captures,
+- test logs,
+- build outputs,
+- generated notes.
+
+### 3.4 Proposals
+
+Candidate revisions not yet committed as canonical versions.
+
+These are useful for:
+
+- collaborator suggestions,
+- researcher-proposed insertions,
+- future moderated or private revisions.
+
+## 4) Worker Ingress Contract
+
+### 4.1 User input
+
+User input is version-capable.
+
+Examples:
+
+- initial prompt,
+- explicit revision,
+- direct edit in Writer,
+- future collaborator-submitted revision.
+
+These may become committed versions through the Writer runtime path.
+
+### 4.2 Researcher ingress
+
+Researcher should usually send an evidence packet, not a canonical diff.
+
+Evidence packet fields should include:
+
+- `run_id`
+- `base_version_id` when relevant
+- `summary`
+- `citations`
+- `source_refs`
+- `confidence`
+- `section_hint` optional
+- `importance` optional
+- artifact refs
+
+Researcher should not be responsible for deciding where canon text goes.
+
+### 4.3 Terminal ingress
+
+Terminal should usually send:
+
+- progress updates,
+- execution summaries,
+- verification results,
+- artifact refs,
+- optional structured proposals.
+
+Terminal owns execution truth, not canonical document structure.
+
+### 4.4 Structured proposals
+
+When a worker wants to suggest document text, it should prefer a structured
+proposal over a raw diff.
+
+Example shape:
+
+- `proposal_kind`
+- `section_hint`
+- `content`
+- `citations`
+- `source_refs`
+- `base_version_id`
+
+Writer may convert an accepted proposal into a canonical revision.
+
+## 5) Run State Is Not Version State
+
+The UI must stop inferring run status from whether a new version has appeared.
+
+Run state should be tracked separately from document versions.
+
+Recommended states:
+
+- `idle`
+- `queued`
+- `running`
+- `waiting_for_worker`
+- `waiting_for_user`
+- `blocked`
+- `completed`
+- `failed`
+- `superseded`
+
+This separation is required to fix the current broken `running...` and `done`
+display behavior.
+
+## 6) Prompting and Context Rules
+
+### 6.1 Prompt bar and Writer window must be equivalent
+
+These two entry paths should have the same semantics:
+
+- prompt bar into Conductor,
+- opening a new Writer window, typing, and prompting for the first time.
+
+Both should:
+
+- create or open the run-scoped document,
+- commit an initial user-authored seed version,
+- start orchestration against that head version.
+
+### 6.2 Writer context budget
+
+Writer should not receive many full historical versions.
+
+Preferred prompt input:
+
+- full current head version,
+- compact summary or diff from the previous version,
+- bounded marginalia digest since the previous version,
+- relevant evidence and artifact summaries,
+- source-set summary for the head version.
+
+At most one full prior version should be included when diff context is
+insufficient.
+
+### 6.3 Canonical version writes should be serialized
+
+New inputs may arrive while Writer is still working, but canonical version
+creation should remain serialized.
+
+Queue new inputs against a known base. Do not allow multiple overlapping
+canonical writes against the same run head.
+
+## 7) Source and Link Contract
+
+Sources and links should be version-aware.
+
+Required rules:
+
+- every version should have a stable source set,
+- source display should be attached to a version or proposal context,
+- observed sources and selected sources must be distinguishable,
+- citations in canon should be traceable back to artifacts or evidence packets.
+
+The sidecar already carries `selected_source_refs` and `observed_source_refs`.
+The problem is not storage existence but contract clarity and presentation.
+
+## 8) File Representation
+
+The active target representation for run documents is:
+
+- one visible canonical file per run: `draft.md`
+- one sidecar state file per run: `draft.writer-state.json`
+
+The sidecar should hold:
+
+- version history,
+- head pointer,
+- marginalia and proposal state,
+- source sets,
+- run-linked document metadata.
+
+The system should not create one separate on-disk file per version for the
+normal run-document path.
+
+`.writer_revisions` is transitional and should not be described as the model for
+run history.
+
+## 9) Transitional Compatibility Contract
+
+The current generic Writer HTTP API still exposes:
+
+- `POST /writer/open`
+- `POST /writer/save`
+- `POST /writer/save-version`
+- version and overlay queries for run documents
+
+Transitional rule:
+
+- `/writer/open` and `/writer/save` may keep serving compatibility behavior
+  while migration is underway,
+- but the active docs must no longer describe `.writer_revisions` as the target
+  architecture,
+- and run documents must be documented in terms of `draft.md` plus
+  `draft.writer-state.json`.
+
+## 10) Implementation Guide
+
+### Phase 1: Correct the docs and runtime framing
+
+- stop documenting `.writer_revisions` as canonical Writer storage,
+- document run docs as `draft.md` plus `draft.writer-state.json`,
+- document the first prompt as a real version,
+- document Writer-owned marginalia and separate run state.
+
+### Phase 2: Fix initial version creation
+
+- make prompt-bar entry and blank Writer-window entry use the same seed-version
+  path,
+- remove any empty placeholder version behavior for new run documents,
+- ensure the first visible document state is renderable immediately.
+
+### Phase 3: Separate run state from document history
+
+- introduce explicit run status state,
+- stop using version appearance as status inference,
+- make `running`, `waiting`, `completed`, and `failed` durable and observable.
+
+### Phase 4: Fix ingress semantics
+
+- keep user edits and prompt-derived revisions as version-capable inputs,
+- convert Researcher default output to evidence packets,
+- convert Terminal default output to progress, result, and artifact packets,
+- use structured proposals instead of raw worker diffs where textual suggestions
+  are needed.
+
+### Phase 5: Upgrade marginalia
+
+- make marginalia readable and version-aware,
+- group updates by meaning instead of exposing raw metadata blobs,
+- attach progress, evidence, and verification to versions or version ranges.
+
+### Phase 6: Migrate off `.writer_revisions`
+
+- move `/writer/open` and `/writer/save` revision behavior onto the real
+  document runtime state,
+- update desktop client assumptions,
+- update integration tests,
+- remove sidecar revision helper code,
+- delete `.writer_revisions` from docs and runtime.
+
+## 11) Acceptance Criteria
+
+The contract is only correct if these are true.
+
+1. The first user prompt is committed and visible as the first version.
+2. Prompt-bar and new-Writer-window entry create equivalent initial state.
+3. Opening any version shows a coherent snapshot, not a blank placeholder.
+4. Run status can show `running` before a second canonical version exists.
+5. Researcher updates do not directly mutate canon by default.
+6. Terminal updates do not directly mutate canon by default.
+7. Writer can promote worker input into new canonical versions when appropriate.
+8. Source links can be traced from visible document content back to evidence or
+   artifacts.
+9. The system works with memory absent or empty.
+10. `.writer_revisions` can be deleted without breaking the supported Writer
+    flows.
+
+## 12) Notes on Current Code
+
+This guide is grounded in the current implementation split:
+
+- run-document state lives in `sandbox/src/actors/writer/document_runtime/`
+- generic Writer API revision sidecars still live in `sandbox/src/api/writer.rs`
+- desktop still calls `/writer/open` and `/writer/save`
+
+That split is why `.writer_revisions` removal is a migration step, not a single
+delete.
