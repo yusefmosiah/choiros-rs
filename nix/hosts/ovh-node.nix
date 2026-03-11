@@ -574,6 +574,28 @@
       runner = vmRunnerFcBlk; systemd_template = "firecracker";
     }}
 
+    # ── 8 vCPU / 8 GB (burst workloads: full build+test+e2e) ──
+    ${mkClass "ch-pmem-8c-8g" {
+      hypervisor = "cloud-hypervisor"; transport = "pmem";
+      vcpu = 8; memory_mb = 8192;
+      runner = vmRunnerChPmem; systemd_template = "cloud-hypervisor";
+    }}
+    ${mkClass "ch-blk-8c-8g" {
+      hypervisor = "cloud-hypervisor"; transport = "blk";
+      vcpu = 8; memory_mb = 8192;
+      runner = vmRunnerChBlk; systemd_template = "cloud-hypervisor";
+    }}
+    ${mkClass "fc-pmem-8c-8g" {
+      hypervisor = "firecracker"; transport = "pmem";
+      vcpu = 8; memory_mb = 8192;
+      runner = vmRunnerFcPmem; systemd_template = "firecracker";
+    }}
+    ${mkClass "fc-blk-8c-8g" {
+      hypervisor = "firecracker"; transport = "blk";
+      vcpu = 8; memory_mb = 8192;
+      runner = vmRunnerFcBlk; systemd_template = "firecracker";
+    }}
+
     [host]
     default_class = "ch-pmem-2c-1g"
     # nix_generation is read at runtime from /nix/var/nix/profiles/system
