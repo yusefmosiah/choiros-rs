@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use axum::{
     middleware as axum_middleware,
-    routing::{any, get, post},
+    routing::{any, delete, get, post, put},
     Router,
 };
 use tower_http::trace::TraceLayer;
@@ -70,6 +70,7 @@ async fn main() -> anyhow::Result<()> {
         config.sandbox_idle_timeout,
         config.provider_gateway_base_url.clone(),
         config.provider_gateway_token.clone(),
+        config.machine_classes.clone(),
     );
 
     // Boot live sandbox in background so the HTTP server starts immediately.
@@ -151,6 +152,16 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/admin/sandboxes/{user_id}/branches/{branch}/stop",
             post(api::stop_branch_sandbox),
+        )
+        // Machine class management (ADR-0014 Phase 6)
+        .route("/admin/machine-classes", get(api::list_machine_classes))
+        .route(
+            "/admin/sandboxes/{user_id}/machine-class",
+            put(api::set_machine_class),
+        )
+        .route(
+            "/admin/sandboxes/{user_id}/machine-class",
+            delete(api::clear_machine_class),
         )
         .route(
             "/admin/sandboxes/{user_id}/pointers",

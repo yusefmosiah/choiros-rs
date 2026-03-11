@@ -1,5 +1,79 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
+
+use serde::Deserialize;
+
+// ── Machine class config (ADR-0014 Phase 6) ────────────────────────────────
+
+/// A single machine class: named VM configuration with hypervisor, transport,
+/// resource sizing, and resolved nix store paths.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MachineClass {
+    pub hypervisor: String,
+    pub transport: String,
+    pub vcpu: u32,
+    pub memory_mb: u32,
+    /// Resolved nix store path to the microvm runner directory.
+    pub runner: String,
+    /// systemd template prefix (e.g. "cloud-hypervisor" or "firecracker").
+    pub systemd_template: String,
+}
+
+/// Host-level machine class defaults.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct HostConfig {
+    pub default_class: Option<String>,
+}
+
+/// Top-level machine classes config, parsed from /etc/choiros/machine-classes.toml.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct MachineClassesConfig {
+    #[serde(default)]
+    pub classes: HashMap<String, MachineClass>,
+    #[serde(default)]
+    pub host: HostConfig,
+}
+
+impl MachineClassesConfig {
+    /// Load from the TOML file at the given path. Returns empty config if file
+    /// doesn't exist (graceful degradation for dev environments).
+    pub fn load(path: &str) -> Self {
+        match std::fs::read_to_string(path) {
+            Ok(contents) => match toml::from_str(&contents) {
+                Ok(config) => {
+                    tracing::info!(
+                        path,
+                        classes = config_class_names(&config),
+                        default = config.host.default_class.as_deref().unwrap_or("none"),
+                        "loaded machine classes config"
+                    );
+                    config
+                }
+                Err(e) => {
+                    tracing::error!(path, error = %e, "failed to parse machine classes TOML");
+                    Self::default()
+                }
+            },
+            Err(_) => {
+                tracing::info!(path, "no machine classes config found (dev mode)");
+                Self::default()
+            }
+        }
+    }
+
+    /// Look up a class by name, falling back to the host default.
+    pub fn resolve(&self, name: Option<&str>) -> Option<&MachineClass> {
+        let key = name.or(self.host.default_class.as_deref())?;
+        self.classes.get(key)
+    }
+}
+
+fn config_class_names(config: &MachineClassesConfig) -> String {
+    let mut names: Vec<&str> = config.classes.keys().map(|k| k.as_str()).collect();
+    names.sort();
+    names.join(", ")
+}
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -33,6 +107,8 @@ pub struct Config {
     pub provider_gateway_allowed_upstreams: Vec<String>,
     /// Per-sandbox request budget over a rolling 60s window.
     pub provider_gateway_rate_limit_per_minute: usize,
+    /// Machine classes config (ADR-0014 Phase 6).
+    pub machine_classes: MachineClassesConfig,
 }
 
 impl Config {
@@ -91,6 +167,10 @@ impl Config {
                 "CHOIR_PROVIDER_GATEWAY_RATE_LIMIT_PER_MINUTE",
                 120,
             )?,
+            machine_classes: MachineClassesConfig::load(&env_str(
+                "CHOIR_MACHINE_CLASSES_PATH",
+                "/etc/choiros/machine-classes.toml",
+            )),
         };
 
         if cfg.sandbox_branch_port_start > cfg.sandbox_branch_port_end {

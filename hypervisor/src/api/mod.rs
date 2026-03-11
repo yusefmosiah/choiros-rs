@@ -105,6 +105,45 @@ pub async fn hibernate_sandbox(
     }
 }
 
+/// GET /admin/machine-classes — list available machine classes
+pub async fn list_machine_classes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(state.sandbox_registry.list_machine_classes())
+}
+
+/// PUT /admin/sandboxes/:user_id/machine-class — set per-user machine class override
+pub async fn set_machine_class(
+    State(state): State<Arc<AppState>>,
+    Path(user_id): Path<String>,
+    Json(body): Json<SetMachineClassRequest>,
+) -> impl IntoResponse {
+    match state
+        .sandbox_registry
+        .set_user_machine_class(&user_id, &body.class_name)
+    {
+        Ok(()) => Json(serde_json::json!({
+            "status": "ok",
+            "user_id": user_id,
+            "machine_class": body.class_name,
+        }))
+        .into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    }
+}
+
+/// DELETE /admin/sandboxes/:user_id/machine-class — clear per-user override
+pub async fn clear_machine_class(
+    State(state): State<Arc<AppState>>,
+    Path(user_id): Path<String>,
+) -> impl IntoResponse {
+    state.sandbox_registry.clear_user_machine_class(&user_id);
+    StatusCode::OK
+}
+
+#[derive(serde::Deserialize)]
+pub struct SetMachineClassRequest {
+    pub class_name: String,
+}
+
 /// POST /admin/sandboxes/:user_id/swap — promote dev to live
 pub async fn swap_sandbox_roles(
     State(state): State<Arc<AppState>>,

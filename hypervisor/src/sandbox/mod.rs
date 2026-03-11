@@ -10,6 +10,8 @@ use dashmap::{DashMap, DashSet};
 use tokio::{net::TcpStream, process::Command, sync::watch, time::sleep};
 use tracing::{error, info, warn};
 
+use crate::config::MachineClassesConfig;
+
 use self::systemd::SystemdLifecycle;
 
 // ── Memory pressure helpers (ADR-0018) ──────────────────────────────────────
@@ -138,6 +140,8 @@ pub struct SandboxEntry {
     pub status: SandboxStatus,
     pub last_activity: Instant,
     pub handle: Option<SandboxHandle>,
+    /// ADR-0014 Phase 6: machine class this VM was booted with.
+    pub machine_class: Option<String>,
 }
 
 pub enum SandboxHandle {
@@ -207,6 +211,10 @@ pub struct SandboxRegistry {
     max_concurrent_vms: usize,
     /// When set, use systemd unit templates instead of bash runtime-ctl (ADR-0017).
     systemd_lifecycle: Option<SystemdLifecycle>,
+    /// ADR-0014 Phase 6: machine class configurations.
+    machine_classes: MachineClassesConfig,
+    /// Per-user machine class overrides. user_id -> class name.
+    user_class_overrides: DashMap<String, String>,
 }
 
 impl SandboxRegistry {
@@ -220,6 +228,7 @@ impl SandboxRegistry {
         idle_timeout: Duration,
         provider_gateway_base_url: Option<String>,
         provider_gateway_token: Option<String>,
+        machine_classes: MachineClassesConfig,
     ) -> Arc<Self> {
         let systemd_lifecycle = SystemdLifecycle::from_env();
         if systemd_lifecycle.is_some() {
@@ -236,6 +245,18 @@ impl SandboxRegistry {
         port_allocator.reserve_specific(live_port);
         port_allocator.reserve_specific(dev_port);
 
+        if !machine_classes.classes.is_empty() {
+            info!(
+                classes = machine_classes.classes.len(),
+                default = machine_classes
+                    .host
+                    .default_class
+                    .as_deref()
+                    .unwrap_or("none"),
+                "ADR-0014: machine classes loaded"
+            );
+        }
+
         Arc::new(Self {
             runtime_ctl,
             idle_timeout,
@@ -247,6 +268,8 @@ impl SandboxRegistry {
             provider_gateway_token,
             max_concurrent_vms,
             systemd_lifecycle,
+            machine_classes,
+            user_class_overrides: DashMap::new(),
         })
     }
 
@@ -396,6 +419,7 @@ impl SandboxRegistry {
                             status: SandboxStatus::Starting(rx.clone()),
                             last_activity: Instant::now(),
                             handle: None,
+                            machine_class: None,
                         },
                     );
                 } else {
@@ -408,6 +432,7 @@ impl SandboxRegistry {
                             status: SandboxStatus::Starting(rx.clone()),
                             last_activity: Instant::now(),
                             handle: None,
+                            machine_class: None,
                         },
                     );
                 }
@@ -421,6 +446,7 @@ impl SandboxRegistry {
                         status: SandboxStatus::Starting(rx.clone()),
                         last_activity: Instant::now(),
                         handle: None,
+                        machine_class: None,
                     },
                 );
             }
@@ -510,6 +536,7 @@ impl SandboxRegistry {
                     status: SandboxStatus::Starting(rx.clone()),
                     last_activity: Instant::now(),
                     handle: None,
+                    machine_class: None,
                 },
             );
         }
@@ -680,6 +707,7 @@ impl SandboxRegistry {
                     port: e.port,
                     status: e.status.clone(),
                     idle_secs: e.last_activity.elapsed().as_secs(),
+                    machine_class: e.machine_class.clone(),
                 });
             }
             for e in user_map.branches.values() {
@@ -690,6 +718,7 @@ impl SandboxRegistry {
                     port: e.port,
                     status: e.status.clone(),
                     idle_secs: e.last_activity.elapsed().as_secs(),
+                    machine_class: e.machine_class.clone(),
                 });
             }
         }
@@ -854,6 +883,7 @@ impl SandboxRegistry {
                                 status: SandboxStatus::Running,
                                 last_activity: Instant::now(),
                                 handle: Some(handle),
+                                machine_class: None,
                             },
                         );
                     }
@@ -904,6 +934,7 @@ impl SandboxRegistry {
                                 status: SandboxStatus::Running,
                                 last_activity: Instant::now(),
                                 handle: Some(handle),
+                                machine_class: None,
                             },
                         );
                     }
@@ -1014,6 +1045,67 @@ impl SandboxRegistry {
         ))
     }
 
+    /// Resolve the machine class for a user: per-user override > host default.
+    fn resolve_machine_class(
+        &self,
+        user_id: &str,
+    ) -> Option<(String, crate::config::MachineClass)> {
+        let class_name = self
+            .user_class_overrides
+            .get(user_id)
+            .map(|r| r.value().clone())
+            .or_else(|| self.machine_classes.host.default_class.clone())?;
+        let class = self.machine_classes.classes.get(&class_name)?.clone();
+        Some((class_name, class))
+    }
+
+    /// ADR-0014 Phase 6: set machine class override for a user.
+    pub fn set_user_machine_class(&self, user_id: &str, class_name: &str) -> Result<(), String> {
+        if !self.machine_classes.classes.contains_key(class_name) {
+            return Err(format!(
+                "unknown machine class '{class_name}'. available: {}",
+                self.machine_classes
+                    .classes
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        self.user_class_overrides
+            .insert(user_id.to_string(), class_name.to_string());
+        info!(user_id, class_name, "machine class override set");
+        Ok(())
+    }
+
+    /// ADR-0014 Phase 6: clear machine class override (revert to host default).
+    pub fn clear_user_machine_class(&self, user_id: &str) {
+        self.user_class_overrides.remove(user_id);
+        info!(user_id, "machine class override cleared");
+    }
+
+    /// ADR-0014 Phase 6: list available machine classes.
+    pub fn list_machine_classes(&self) -> serde_json::Value {
+        let classes: Vec<serde_json::Value> = self
+            .machine_classes
+            .classes
+            .iter()
+            .map(|(name, mc)| {
+                serde_json::json!({
+                    "name": name,
+                    "hypervisor": mc.hypervisor,
+                    "transport": mc.transport,
+                    "vcpu": mc.vcpu,
+                    "memory_mb": mc.memory_mb,
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "classes": classes,
+            "default": self.machine_classes.host.default_class,
+        })
+    }
+
     async fn spawn_runtime(
         &self,
         user_id: &str,
@@ -1024,9 +1116,15 @@ impl SandboxRegistry {
     ) -> anyhow::Result<SandboxHandle> {
         // ADR-0017: prefer systemd lifecycle when available
         if let Some(lifecycle) = &self.systemd_lifecycle {
+            // ADR-0014 Phase 6: resolve machine class for this user
+            let resolved = self.resolve_machine_class(user_id);
+            let mc_arg = resolved.as_ref().map(|(name, mc)| (name.as_str(), mc));
             info!(
                 user_id,
-                runtime_name, port, "using systemd lifecycle (ADR-0017)"
+                runtime_name,
+                port,
+                machine_class = resolved.as_ref().map(|(n, _)| n.as_str()),
+                "using systemd lifecycle (ADR-0017)"
             );
             lifecycle
                 .ensure(
@@ -1034,6 +1132,7 @@ impl SandboxRegistry {
                     user_id,
                     port,
                     self.provider_gateway_token.as_deref(),
+                    mc_arg,
                 )
                 .await?;
         } else {
@@ -1232,6 +1331,7 @@ pub struct SandboxSnapshot {
     pub port: u16,
     pub status: SandboxStatus,
     pub idle_secs: u64,
+    pub machine_class: Option<String>,
 }
 
 impl serde::Serialize for SandboxRole {

@@ -9,6 +9,8 @@ use std::time::Duration;
 use tokio::process::Command;
 use tracing::{error, info, warn};
 
+use crate::config::MachineClass;
+
 /// systemd-based VM lifecycle manager.
 ///
 /// Each VM instance is identified by a string like `live` or `dev`.
@@ -332,12 +334,16 @@ impl SystemdLifecycle {
     /// Prepare state dir and start the full VM chain via systemd.
     ///
     /// This is the replacement for `run_runtime_ctl("ensure", ...)`.
+    /// When `machine_class` is provided, the runner path, vcpu, memory, and
+    /// systemd template are taken from the class config. Otherwise falls back
+    /// to the default vm_runner_dir and cloud-hypervisor template.
     pub async fn ensure(
         &self,
         instance: &str,
         user_id: &str,
         port: u16,
         gateway_token: Option<&str>,
+        machine_class: Option<(&str, &MachineClass)>,
     ) -> anyhow::Result<()> {
         let state_dir = self.instance_state_dir(instance);
         tokio::fs::create_dir_all(&state_dir).await?;
@@ -358,6 +364,37 @@ impl SystemdLifecycle {
             tokio::fs::write(state_dir.join("gateway-token"), token).await?;
         }
 
+        // ADR-0014 Phase 6: Write machine class config to state dir.
+        // The systemd unit templates read these files for runner path, vcpu/memory overrides.
+        let systemd_template = if let Some((class_name, mc)) = machine_class {
+            tokio::fs::write(state_dir.join("machine-class"), class_name).await?;
+            tokio::fs::write(state_dir.join("machine-runner"), &mc.runner).await?;
+            tokio::fs::write(state_dir.join("machine-vcpu"), mc.vcpu.to_string()).await?;
+            tokio::fs::write(
+                state_dir.join("machine-memory-mb"),
+                mc.memory_mb.to_string(),
+            )
+            .await?;
+            info!(
+                instance,
+                class_name,
+                hypervisor = mc.hypervisor,
+                transport = mc.transport,
+                vcpu = mc.vcpu,
+                memory_mb = mc.memory_mb,
+                "machine class config written to state dir"
+            );
+            mc.systemd_template.as_str()
+        } else {
+            // Legacy: no machine class, use default runner dir
+            tokio::fs::write(
+                state_dir.join("machine-runner"),
+                self.vm_runner_dir.to_string_lossy().as_ref(),
+            )
+            .await?;
+            "cloud-hypervisor"
+        };
+
         // Register MAC→IP with dnsmasq for DHCP reservation
         self.register_dhcp_host(&vm_mac, &vm_ip).await;
 
@@ -372,12 +409,16 @@ impl SystemdLifecycle {
             self.clean_stale_sockets(instance).await;
         }
 
-        // Start the full chain. systemd handles dependency ordering:
-        // socat-sandbox@ requires cloud-hypervisor@ requires virtiofsd@ requires tap-setup@
-        // Starting the leaf unit pulls in the entire chain.
+        // Start the full chain via the appropriate systemd template.
+        // socat-sandbox@ requires {template}@ requires tap-setup@
+        // Starting socat pulls in the entire chain.
+        systemctl_start(&format!("{systemd_template}@{instance}")).await?;
         systemctl_start(&format!("socat-sandbox@{instance}")).await?;
 
-        info!(instance, port, "VM chain started via systemd");
+        info!(
+            instance,
+            port, systemd_template, "VM chain started via systemd"
+        );
         Ok(())
     }
 
@@ -388,11 +429,13 @@ impl SystemdLifecycle {
         // Snapshot user data before stopping
         self.snapshot_data(user_id, instance).await?;
 
+        // Read which systemd template this instance was started with.
+        let template = self.read_instance_template(instance).await;
+
         // Stop units in reverse dependency order.
         // BindsTo should cascade, but explicit stops are more reliable.
         systemctl_stop(&format!("socat-sandbox@{instance}")).await;
-        systemctl_stop(&format!("cloud-hypervisor@{instance}")).await;
-        // ADR-0018: virtiofsd@ removed — no virtiofs shares
+        systemctl_stop(&format!("{template}@{instance}")).await;
         systemctl_stop(&format!("tap-setup@{instance}")).await;
 
         // Clean up VM snapshot since this is a hard stop
@@ -401,7 +444,7 @@ impl SystemdLifecycle {
             let _ = tokio::fs::remove_dir_all(&snap).await;
         }
 
-        info!(instance, "VM chain stopped");
+        info!(instance, template, "VM chain stopped");
         Ok(())
     }
 
@@ -439,8 +482,9 @@ impl SystemdLifecycle {
 
         // Stop process chain (state is on disk now)
         // Don't stop tap-setup — keep TAP alive for fast restore
+        let template = self.read_instance_template(instance).await;
         systemctl_stop(&format!("socat-sandbox@{instance}")).await;
-        systemctl_stop(&format!("cloud-hypervisor@{instance}")).await;
+        systemctl_stop(&format!("{template}@{instance}")).await;
 
         info!(instance, "VM hibernated (TAP kept alive)");
         Ok(())
@@ -449,7 +493,30 @@ impl SystemdLifecycle {
     /// Check if the VM is currently running.
     #[allow(dead_code)]
     pub async fn is_active(&self, instance: &str) -> bool {
-        systemctl_is_active(&format!("cloud-hypervisor@{instance}")).await
+        let template = self.read_instance_template(instance).await;
+        systemctl_is_active(&format!("{template}@{instance}")).await
+    }
+
+    /// Read the systemd template name from state dir, defaulting to cloud-hypervisor.
+    async fn read_instance_template(&self, instance: &str) -> String {
+        let class_file = self.instance_state_dir(instance).join("machine-class");
+        // We could read the class and look up the template, but it's simpler
+        // to just check which hypervisor process is expected. Read machine-runner
+        // and infer from the runner path, or check for a written template marker.
+        // Simplest: read machine-class, then check if runner path contains "firecracker".
+        let runner_file = self.instance_state_dir(instance).join("machine-runner");
+        if let Ok(runner) = tokio::fs::read_to_string(&runner_file).await {
+            if runner.contains("firecracker") {
+                return "firecracker".to_string();
+            }
+        }
+        // Also check if machine-class file hints at firecracker
+        if let Ok(class) = tokio::fs::read_to_string(&class_file).await {
+            if class.contains("fc-") {
+                return "firecracker".to_string();
+            }
+        }
+        "cloud-hypervisor".to_string()
     }
 
     async fn clean_stale_sockets(&self, instance: &str) {
