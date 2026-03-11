@@ -663,7 +663,7 @@ mod tests {
 
         let third = enforce_per_sandbox_rate_limit(&state, "u1:live").await;
         assert!(third.is_err());
-        let response = third.err().expect("third call should be rate limited");
+        let response = third.expect_err("third call should be rate limited");
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     }
 

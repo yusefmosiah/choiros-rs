@@ -19,7 +19,7 @@ fn read_available_memory_mb() -> Option<u64> {
     let contents = std::fs::read_to_string("/proc/meminfo").ok()?;
     for line in contents.lines() {
         if let Some(rest) = line.strip_prefix("MemAvailable:") {
-            let kb: u64 = rest.trim().split_whitespace().next()?.parse().ok()?;
+            let kb: u64 = rest.split_whitespace().next()?.parse().ok()?;
             return Some(kb / 1024);
         }
     }
@@ -33,9 +33,9 @@ fn read_memory_percent_available() -> Option<u64> {
     let mut avail_kb = 0u64;
     for line in contents.lines() {
         if let Some(rest) = line.strip_prefix("MemTotal:") {
-            total_kb = rest.trim().split_whitespace().next()?.parse().ok()?;
+            total_kb = rest.split_whitespace().next()?.parse().ok()?;
         } else if let Some(rest) = line.strip_prefix("MemAvailable:") {
-            avail_kb = rest.trim().split_whitespace().next()?.parse().ok()?;
+            avail_kb = rest.split_whitespace().next()?.parse().ok()?;
         }
     }
     if total_kb == 0 {

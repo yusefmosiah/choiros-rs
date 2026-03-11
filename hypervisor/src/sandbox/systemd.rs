@@ -552,7 +552,7 @@ async fn ch_api_snapshot(api_sock: &Path, dest: &Path) -> anyhow::Result<()> {
             &api_sock.to_string_lossy(),
             "-X",
             "PUT",
-            &format!("http://localhost/api/v1/vm.snapshot"),
+            "http://localhost/api/v1/vm.snapshot",
             "-H",
             "Content-Type: application/json",
             "-d",

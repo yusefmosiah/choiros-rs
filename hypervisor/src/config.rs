@@ -56,7 +56,7 @@ impl Config {
         // Accept both SANDBOX_RUNTIME_CTL (new) and SANDBOX_VFKIT_CTL (legacy)
         let runtime_ctl = std::env::var("SANDBOX_RUNTIME_CTL")
             .or_else(|_| std::env::var("SANDBOX_VFKIT_CTL"))
-            .unwrap_or_else(|_| default_runtime_ctl);
+            .unwrap_or(default_runtime_ctl);
 
         let cfg = Self {
             port,
