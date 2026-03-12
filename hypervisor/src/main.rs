@@ -2,6 +2,7 @@ mod api;
 mod auth;
 mod config;
 mod db;
+mod jobs;
 mod middleware;
 mod provider_gateway;
 mod proxy;
@@ -181,6 +182,21 @@ async fn main() -> anyhow::Result<()> {
             "/admin/sandboxes/{user_id}/pointers/set",
             post(api::set_route_pointer),
         )
+        // Job queue (ADR-0014 Phase 7)
+        .route("/admin/jobs", post(api::create_job))
+        .route("/admin/jobs", get(api::list_jobs))
+        .route("/admin/jobs/{job_id}", get(api::get_job))
+        .route("/admin/jobs/{job_id}", delete(api::cancel_job))
+        // Promotion API (ADR-0014 Phase 8)
+        .route(
+            "/admin/sandboxes/{user_id}/promote",
+            post(api::promote_sandbox),
+        )
+        .route(
+            "/admin/sandboxes/{user_id}/promotions",
+            get(api::list_promotions),
+        )
+        .route("/admin/promotions/{promotion_id}", get(api::get_promotion))
         // All non-auth traffic is routed to sandbox runtime (auth enforced by middleware)
         .fallback(middleware::proxy_to_sandbox)
         .layer(axum_middleware::from_fn_with_state(

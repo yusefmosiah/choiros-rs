@@ -6,12 +6,14 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use sqlx::Row;
 use tracing::error;
 
 use tower_sessions::Session;
 
 use crate::{
     auth::session as sess,
+    jobs,
     runtime_registry::{self, PointerTarget},
     sandbox::SandboxRole,
     AppState,
@@ -293,6 +295,195 @@ pub async fn set_route_pointer(
         .into_response(),
         Err(e) => {
             error!("set route pointer: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+// ── ADR-0014 Phase 7: Job queue endpoints ────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+pub struct CreateJobRequest {
+    pub job_type: String,
+    pub command: Option<String>,
+    pub payload_json: Option<String>,
+    pub machine_class: Option<String>,
+    pub priority: Option<i32>,
+    pub max_duration_s: Option<i32>,
+}
+
+/// POST /admin/jobs — create a new job in the queue
+pub async fn create_job(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<CreateJobRequest>,
+) -> impl IntoResponse {
+    match jobs::create_job(&jobs::CreateJobParams {
+        pool: &state.db,
+        user_id: "system",
+        job_type: &body.job_type,
+        command: body.command.as_deref(),
+        payload_json: body.payload_json.as_deref(),
+        machine_class: body.machine_class.as_deref(),
+        priority: body.priority.unwrap_or(0),
+        max_duration_s: body.max_duration_s.unwrap_or(1800),
+    })
+    .await
+    {
+        Ok(job_id) => {
+            Json(serde_json::json!({ "job_id": job_id, "status": "queued" })).into_response()
+        }
+        Err(e) => {
+            error!("create job: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+/// GET /admin/jobs/:job_id — get job status
+pub async fn get_job(
+    State(state): State<Arc<AppState>>,
+    Path(job_id): Path<String>,
+) -> impl IntoResponse {
+    match jobs::get_job(&state.db, &job_id).await {
+        Ok(Some(job)) => Json(job).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            error!("get job: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+/// GET /admin/jobs — list all queued/running jobs
+pub async fn list_jobs(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match sqlx::query(
+        r#"
+        SELECT id, user_id, job_type, status, priority, machine_class,
+               command, payload_json, result_json, error_message,
+               worker_vm_id, max_duration_s, created_at, started_at, completed_at
+        FROM jobs ORDER BY created_at DESC LIMIT 100
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(rows) => {
+            let jobs: Vec<serde_json::Value> = rows
+                .iter()
+                .map(|r| {
+                    serde_json::json!({
+                        "id": r.get::<String, _>("id"),
+                        "user_id": r.get::<String, _>("user_id"),
+                        "job_type": r.get::<String, _>("job_type"),
+                        "status": r.get::<String, _>("status"),
+                        "priority": r.get::<i32, _>("priority"),
+                        "created_at": r.get::<i64, _>("created_at"),
+                    })
+                })
+                .collect();
+            Json(serde_json::json!({ "jobs": jobs })).into_response()
+        }
+        Err(e) => {
+            error!("list jobs: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+/// DELETE /admin/jobs/:job_id — cancel a job
+pub async fn cancel_job(
+    State(state): State<Arc<AppState>>,
+    Path(job_id): Path<String>,
+) -> impl IntoResponse {
+    match jobs::cancel_job(&state.db, &job_id).await {
+        Ok(()) => {
+            Json(serde_json::json!({ "job_id": job_id, "status": "cancelled" })).into_response()
+        }
+        Err(e) => {
+            error!("cancel job: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+// ── ADR-0014 Phase 8: Promotion endpoints ────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+pub struct CreatePromotionRequest {
+    pub job_id: Option<String>,
+    pub binary_path: Option<String>,
+    pub verification: Option<serde_json::Value>,
+}
+
+/// POST /admin/sandboxes/:user_id/promote — start a promotion
+pub async fn promote_sandbox(
+    State(state): State<Arc<AppState>>,
+    Path(user_id): Path<String>,
+    Json(body): Json<CreatePromotionRequest>,
+) -> impl IntoResponse {
+    let verification_json = body
+        .verification
+        .as_ref()
+        .map(|v| serde_json::to_string(v).unwrap_or_default());
+
+    match jobs::create_promotion(
+        &state.db,
+        &user_id,
+        body.job_id.as_deref(),
+        body.binary_path.as_deref(),
+        verification_json.as_deref(),
+    )
+    .await
+    {
+        Ok(promotion_id) => {
+            // Execute promotion in background
+            let db = state.db.clone();
+            let registry = Arc::clone(&state.sandbox_registry);
+            let pid = promotion_id.clone();
+            let uid = user_id.clone();
+            tokio::spawn(async move {
+                if let Err(e) = jobs::execute_promotion(&db, &pid, &uid, &registry).await {
+                    error!(promotion_id = %pid, "promotion execution failed: {e}");
+                }
+            });
+
+            Json(serde_json::json!({
+                "promotion_id": promotion_id,
+                "status": "pending"
+            }))
+            .into_response()
+        }
+        Err(e) => {
+            error!("create promotion: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+/// GET /admin/sandboxes/:user_id/promotions — list promotions for a user
+pub async fn list_promotions(
+    State(state): State<Arc<AppState>>,
+    Path(user_id): Path<String>,
+) -> impl IntoResponse {
+    match jobs::list_promotions_for_user(&state.db, &user_id).await {
+        Ok(promotions) => Json(serde_json::json!({ "promotions": promotions })).into_response(),
+        Err(e) => {
+            error!("list promotions: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+/// GET /admin/promotions/:promotion_id — get promotion status
+pub async fn get_promotion(
+    State(state): State<Arc<AppState>>,
+    Path(promotion_id): Path<String>,
+) -> impl IntoResponse {
+    match jobs::get_promotion(&state.db, &promotion_id).await {
+        Ok(Some(p)) => Json(p).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            error!("get promotion: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
         }
     }

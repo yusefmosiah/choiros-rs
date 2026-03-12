@@ -55,6 +55,7 @@ serde_json = { workspace = true }
 
 # IDs
 uuid = { workspace = true }
+ulid = "1"
 
 # Time
 chrono = { workspace = true }
