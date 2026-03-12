@@ -2158,6 +2158,51 @@ impl WriterActor {
                 }
             }
         }
+
+        // Bug 4+5 fix: Re-invoke the Writer LLM after worker completion so
+        // it can incorporate the worker's findings into a revised document.
+        // Without this, the original harness has already finished and the
+        // worker results sit as progress events but never become content.
+        if success {
+            if let Ok(run_doc) = Self::resolve_run_document(state, &run_id) {
+                if let Ok(head) = run_doc.head_version() {
+                    let parent_version_id = head.version_id;
+                    let current_content = head.content.clone();
+                    let rewrite_call_id =
+                        format!("writer-rewrite-after-worker:{}", ulid::Ulid::new());
+
+                    let objective = format!(
+                        "A delegated {capability:?} worker has completed. \
+                         Incorporate its findings into the document.\n\n\
+                         ## Worker Summary\n\n{summary}\n\n\
+                         ## Current Document\n\n{current_content}\n\n\
+                         Review the worker's results and produce a revised version \
+                         that integrates the findings naturally into the document. \
+                         Always call write_revision with the updated content, \
+                         then call finished."
+                    );
+
+                    Self::emit_event(
+                        state,
+                        "writer.actor.delegation_worker.rewrite_triggered",
+                        serde_json::json!({
+                            "run_id": &run_id,
+                            "dispatch_id": &dispatch_id,
+                            "capability": format!("{capability:?}"),
+                            "parent_version_id": parent_version_id,
+                            "rewrite_call_id": &rewrite_call_id,
+                        }),
+                    );
+
+                    let _ = _myself.send_message(WriterMsg::OrchestrateUserPrompt {
+                        run_id,
+                        call_id: rewrite_call_id,
+                        objective,
+                        parent_version_id,
+                    });
+                }
+            }
+        }
     }
 
     /// 3.2: Emit citation.confirmed or citation.rejected events based on delegation success.

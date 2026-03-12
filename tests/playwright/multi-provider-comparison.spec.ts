@@ -156,7 +156,11 @@ async function setModelConfig(page: Page, userId: string, config: ProviderConfig
 async function runConductorPrompt(page: Page, prompt: string): Promise<{ durationMs: number; status: string; runId?: string }> {
   const t0 = Date.now();
   const res = await page.request.post("/conductor/execute", {
-    data: { prompt, output_mode: "full" },
+    data: {
+      objective: prompt,
+      desktop_id: "default-desktop",
+      output_mode: "auto",
+    },
     timeout: 120_000,
   });
   const durationMs = Date.now() - t0;

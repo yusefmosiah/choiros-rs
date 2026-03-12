@@ -48,7 +48,7 @@ Trace card. Writer went straight to "Done" with blank content.
 
 **Expected:** Each prompt should create a new run with fresh worker delegation.
 
-## Bug 4: No rewrite triggered after worker completion (ROOT CAUSE of Bug 1)
+## Bug 4: No rewrite triggered after worker completion (ROOT CAUSE of Bug 1) — FIXED
 
 **Observed:** `handle_delegation_worker_completed` (mod.rs:2028-2161) does
 three things when a worker finishes: sets section state to Complete/Failed,
@@ -73,11 +73,13 @@ User prompt
   → UI shows "Done" with minimal/blank content
 ```
 
-**Fix:** After worker completion, Writer must trigger a new LLM call that
-receives the worker's findings and produces a revised document. This is the
-missing "step 6" in the correct flow below.
+**Fix (implemented):** After worker completion, `handle_delegation_worker_completed`
+now sends an `OrchestrateUserPrompt` message that re-invokes the Writer LLM
+with the worker's summary and current document content. The LLM produces a
+revised version incorporating the findings. This implements option (a) from
+Bug 5 — event-driven re-invocation on worker completion.
 
-## Bug 5: Writer LLM delegates then finishes without waiting for results
+## Bug 5: Writer LLM delegates then finishes without waiting for results — FIXED (via Bug 4 fix)
 
 **Observed:** The Writer LLM runs in a `tokio::spawn` background task
 (`orchestrate_user_prompt_bg`). The system prompt tells the LLM to "call
@@ -89,28 +91,20 @@ The LLM delegates to terminal, then in the same or next turn calls `finished`
 because there's nothing else it can do. The harness ends. The worker
 completes later, but the Writer LLM session is already gone.
 
-**Expected:** The Writer LLM should either:
-(a) Yield its harness after delegation, and be re-invoked when worker results
-    arrive (event-driven, preferred), or
-(b) Have an explicit "wait for delegation" tool that suspends the harness
-    until the worker signals completion (simpler but blocking).
+**Fix (implemented):** Option (a) — event-driven re-invocation. The original
+harness is allowed to finish after delegation. When worker results arrive
+via `DelegationWorkerCompleted`, a new `OrchestrateUserPrompt` is dispatched
+with the worker summary + current document as objective. This starts a fresh
+Writer LLM call that can produce the final revision. The actor model is
+preserved — Writer wakes on worker completion message, starts a new LLM
+call with updated context.
 
-Option (a) aligns with the actor model — Writer wakes on worker completion
-message, starts a new LLM call with the updated context.
+## Bug 6: Inbox processing flag can stall permanently — RESOLVED (already guarded)
 
-## Bug 6: Inbox processing flag can stall permanently
-
-**Observed:** In `process_inbox` (mod.rs:1214), if `inbox_processing` is
-true, the function returns immediately. The flag is set to true at line 1218
-and cleared at line 1273. If the processing loop panics or encounters an
-unhandled error between those two points, the flag stays true forever.
-
-All subsequent inbox messages queue up in `inbox_queue` but never get
-processed. This is a silent deadlock — no error is logged, the actor stays
-alive, messages accumulate but nothing happens.
-
-**Fix:** Use a scope guard or ensure the flag is always cleared in a finally
-block, regardless of error path.
+**Status:** Not a bug. Code already wraps the processing loop in an async
+block and unconditionally clears `inbox_processing` after the `.await`
+(mod.rs:1281-1285). Comment explains panic recovery via ractor actor
+recreation. No fix needed.
 
 ## Bug 7: Overlay superseding on version creation drops pending worker content
 
@@ -156,14 +150,24 @@ of bugs 4 and 5 combined.
 
 ## Root Cause Summary
 
-The fundamental issue is architectural: the Writer LLM harness runs as a
-one-shot background task. It delegates, then finishes. There is no mechanism
-to re-invoke the Writer LLM when worker results arrive. The actor receives
-worker completion messages but only logs them as progress events — it never
-feeds them back into an LLM call for document revision.
+The fundamental issue was architectural: the Writer LLM harness ran as a
+one-shot background task. It delegated, then finished. There was no mechanism
+to re-invoke the Writer LLM when worker results arrived. The actor received
+worker completion messages but only logged them as progress events — it never
+fed them back into an LLM call for document revision.
 
-The fix requires making Writer event-driven across delegation boundaries:
-worker completion should wake a new Writer LLM call that incorporates the
-findings into the document. This is the same spatial/temporal pattern
-identified in ADR-0021: worker results are temporal events that should flow
-through Writer's channel to produce spatial (document state) updates.
+**Fixed (2026-03-11):** `handle_delegation_worker_completed` now dispatches
+`OrchestrateUserPrompt` on successful worker completion, re-invoking the
+Writer LLM with the worker's findings. The harness is still one-shot per
+invocation, but worker completion triggers a new invocation — event-driven
+re-invocation across delegation boundaries. This implements the
+spatial/temporal pattern from ADR-0021: worker results (temporal events)
+flow through Writer's re-invocation to produce document state (spatial)
+updates.
+
+Remaining bugs (2, 3, 7) are lower priority and may resolve partially as
+side effects of the Bug 4+5 fix. Bug 2 (worker contract) is still relevant
+but now the re-invocation path provides a structured channel for worker
+results even if they arrive as diffs. Bug 3 (second prompt) needs separate
+investigation. Bug 7 (overlay superseding) is mitigated because worker
+results now flow through re-invocation rather than overlays.
