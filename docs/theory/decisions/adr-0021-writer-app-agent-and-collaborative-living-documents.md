@@ -410,6 +410,80 @@ That is enough to justify the category without deciding its full shape today.
 - prefer Browser as the next app-agent spike,
 - only then expand to Tracing or other domain-specific orchestration surfaces.
 
+## Writer External API (Codesign Constraint)
+
+The Writer API has been designed from the inside out: actor contracts, signal
+flows, internal state management. The missing pressure is external consumers.
+
+Two upcoming consumers force the API shape:
+
+1. **Voice layer** (Gemini Live hackathon) — needs: what is in this document
+   now? What changed? Do this thing and tell me when it is done.
+2. **Publishing** — needs: what is the canonical version? Is it ready to be
+   seen? What is the diff between draft and published?
+
+Both are read-heavy external consumers of Writer state. They do not care about
+actor internals. They need a stable surface they can poll or subscribe to
+without understanding supervision trees, actor message types, or ractor
+internals.
+
+### Spatial vs temporal
+
+Document state and document mutations are fundamentally different kinds of
+data. Conflating them is the root of several current design bugs.
+
+**Document state is spatial.** It is a shared, readable snapshot. All consumers
+— frontend, voice client, publishing system, agent workers — should be able to
+read the current document without sending a message and waiting for a reply.
+This is a concurrent data structure with read-write mutex semantics (or the
+equivalent in whatever runtime hosts it). Reads do not require coordination.
+Reads do not block writes. The document is always available.
+
+**Mutations and signals are temporal.** They are channeled, ordered, causal.
+User edits (diffs) are legitimate temporal events: the user has write authority
+and their changes flow through the mutation channel. Worker signals (findings,
+results, questions) are also temporal, but they are NOT diffs. Workers do not
+have write authority over the document. They contribute information that Writer
+may choose to incorporate.
+
+**The bug this model prevents:** workers sending diffs is workers using the
+temporal interface to do spatial work (mutating the document) that is not
+theirs. The fix is not changing the message format or adding validation on the
+diff payload. The fix is making the write path physically impossible for
+workers. Workers can send signals. Only Writer (and the user) can write to the
+document. If the API does not enforce this at the type level, it will be
+violated.
+
+### One API for all consumers
+
+The API should be the same for all consumers: Dioxus frontend, voice client,
+publishing system, agent workers. If the frontend consumes a different API than
+external clients, the contract is not real — it is an internal implementation
+detail masquerading as a boundary.
+
+This means:
+
+- Document read (current state, version, metadata) is one endpoint or one
+  subscription. Same shape for everyone.
+- Document mutation (user edits, Writer revisions) flows through one write
+  channel with identity and authority attached.
+- Worker signals (findings, results, questions) flow through one signal
+  channel that is explicitly not a write channel.
+- Change notifications (what changed, when, by whom) are one subscription.
+  Same shape for everyone.
+
+If a voice client cannot get what it needs from the same API the frontend uses,
+the API is wrong. If a publishing system needs a separate "export" endpoint
+because the read API does not expose canonical state cleanly, the API is wrong.
+
+### Implications for implementation phases
+
+This constraint applies retroactively to Phase 1 (harden Writer contract) and
+Phase 2 (define agent request contract). The external API shape should inform
+the internal contract, not the other way around. Building the internal contract
+first and then wrapping it for external consumption will produce a leaky
+abstraction that drifts.
+
 ## Acceptance Signals
 
 This ADR is succeeding if:

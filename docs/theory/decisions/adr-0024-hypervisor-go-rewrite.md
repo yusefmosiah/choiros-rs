@@ -26,6 +26,11 @@ or serve as a fallback.
 
 Key concrete motivations:
 
+- Build times are in the critical path of the development loop itself. When
+  AI agents iterate every few minutes, a 30-second Rust build is a tax on
+  every thought. Go gives sub-second rebuilds. This is not developer
+  convenience — it is a multiplier on iteration speed. The right framing:
+  "Go until you have a profiler trace that proves you need Rust."
 - Rust cargo build: minutes, gigs of RAM. Cannot run in user VMs.
 - Go build: seconds, hundreds of MB. Pool turns around updates fast.
 - BAML adds token overhead, latency, and build complexity. Native tool-use
@@ -35,6 +40,8 @@ Key concrete motivations:
 
 ## What Changed
 
+- 2026-03-11: Added build-time critical path rationale, Go concurrency model
+  section, corrected cagent/choir.go relationship, sandbox build-as-UX framing.
 - 2026-03-11: Expanded from hypervisor-only to full ChoirOS Go migration path.
   Added sandbox rewrite as primary bootstrap target, BAML removal rationale,
   build pool implications, and the docs-as-spec principle.
@@ -240,13 +247,20 @@ itself.
    lines. The standard tool-use loop is ~100 lines in any language. The Go
    version starts simple and stays simple.
 
-4. **cagent foundation.** cagent (the coding agent CLI) is already Go. The
-   sandbox Go runtime can share code, patterns, and the native agent loop
-   with cagent. They converge into one codebase: choir.go.
+4. **cagent is a proof-of-concept, not a foundation.** cagent validates that
+   Go works for agentic coding. Its 4000-line slop files are evidence that
+   Go's build speed makes code disposable — you can rewrite faster than you
+   can refactor. choir.go starts fresh with proper design, informed by what
+   cagent proved but not derived from its code.
 
 5. **Iteration speed.** Agent logic is fast-changing and experimental. Go's
    edit-compile-test cycle is seconds. Rust's is minutes. For the part of the
    system that changes most often, this matters.
+
+6. **Build speed is the product UX.** The sandbox is what users experience as
+   development speed. Build latency is perceived latency. That is the product.
+   Runtime performance (Rust's edge) is invisible to users — LLM API calls
+   take seconds regardless of language. Build speed is what users feel.
 
 ### What the sandbox Go rewrite preserves
 
@@ -344,6 +358,52 @@ The current hypervisor communicates with sandboxes via:
 
 These protocol boundaries are what make decomposition and later sandbox
 replacement feasible.
+
+---
+
+## Go Concurrency Model
+
+No actor framework needed. Go's primitives are the actor model:
+
+- Goroutines are actors.
+- Channels are mailboxes.
+- `select` is the receive loop.
+
+The fundamental insight is spatial vs temporal. Shared memory is spatial:
+data exists at a location, readers go look at it. Communication is temporal:
+data arrives at a moment, you wait for it. Both are valid. The mistake is
+using one where you need the other.
+
+### Pattern: channels for control, shared reads for context, single-writer for mutations
+
+- **Channels** for control flow: wake-up signals, results, lifecycle events
+  (spawn, shutdown, error). These are temporal — something happened, react
+  to it.
+- **Shared reads** for context: agent tree state, event log, session data.
+  These are spatial — the data exists, go read it when you need it. Use
+  sync.RWMutex or atomic pointers. No channel needed for "what is the
+  current state?"
+- **Single-writer** for mutations: event store owner, state manager. One
+  goroutine owns the mutable state, receives mutation requests via channel,
+  applies them. Everyone else reads via shared read path.
+
+This maps directly to the existing ractor actor model:
+
+| ractor concept | Go equivalent |
+|----------------|---------------|
+| Actor + handle | goroutine + channel |
+| ActorRef::cast | `ch <- msg` (fire and forget) |
+| ActorRef::call | `ch <- Request{reply: replyCh}` + `<-replyCh` |
+| handle_message | `select { case msg := <-ch: ... }` |
+| supervision | parent goroutine with `select` on child error channels |
+
+### GC as strategic debt
+
+Go's garbage collector introduces microseconds of pause. This is cheap
+interest in exchange for massive developer and agent time savings. It is
+irrelevant when the bottleneck is LLM API latency measured in seconds. GC
+pause optimization is a problem to have after you have a profiler trace
+showing it matters — not before.
 
 ---
 

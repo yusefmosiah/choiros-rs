@@ -10,9 +10,13 @@ Authors: wiz + Codex
 
 ## Narrative Summary (1-minute read)
 
-ChoirOS memory is a per-user, document-centered retrieval subsystem. It is not a hidden conversation bucket, not a second source of truth, and not the global knowledge base.
+ChoirOS memory is a per-user, activity-driven retrieval subsystem. It is not a hidden conversation bucket, not a second source of truth, and not the global knowledge base.
 
-Living documents remain canonical. Memory is a derived, provenance-preserving query layer around document work, user objectives, run outcomes, and verification artifacts. A background `MemoryCurator` turns high-signal scoped activity into durable memory artifacts. A passive `MemoryActor` stores and retrieves those artifacts for Conductor, Writer, and later Terminal and Researcher.
+The knowledge graph is not a code graph or a document graph. It is a user activity graph. Users write research, plan trips, build products, curate media, and have conversations. All of these produce nodes and edges. Living in Choir builds the graph automatically through event projection; users never manually maintain it. Memory is a derived, provenance-preserving query layer over this activity — "what do I know about X?" is a graph query, not a retrieval operation.
+
+Living documents remain canonical as the human-authored surface. A background `MemoryCurator` turns high-signal scoped activity into durable memory artifacts. A passive `MemoryActor` stores and retrieves those artifacts for Conductor, Writer, and later Terminal and Researcher.
+
+The structural backbone is a per-user temporal knowledge graph in SQLite. The unit is the user, not the project — projects are clusters within the user's graph, and cross-project edges (dependencies, shared patterns) live naturally in this model. Storage starts with SQLite (already in data.img, ~1MB overhead), with DoltDB as the upgrade path for the global published KB and for paid users who need versioned knowledge.
 
 This ADR intentionally stops at per-user memory. Global or org-level knowledge comes later as a separate ADR that can reuse the same projector/query patterns without collapsing scope boundaries.
 
@@ -23,6 +27,22 @@ This ADR intentionally stops at per-user memory. Global or org-level knowledge c
 - Keeps `MemoryActor` passive: ingest plus query only.
 - Makes living documents the canonical authored record for memory provenance.
 - Defers global knowledge, temporal KG, and publication concerns to a later ADR.
+- (2026-03-11) Adds per-user knowledge graph as the unit of structure (Section 10).
+- (2026-03-11) Adds temporal graph schema for SQLite (Section 11).
+- (2026-03-11) Adds storage tier progression: SQLite now, DoltDB global, DoltDB paid-user (Section 12).
+- (2026-03-11) Adds doc-to-graph-to-view progression for project indexing (Section 13).
+- (2026-03-11) Generalizes KB beyond code-focused use: activity-driven graph projection from all user work (Section 14).
+
+## What To Do Next
+
+- Add temporal graph schema (Section 11) to the per-user SQLite database as
+  a migration when the first graph producer is ready.
+- Implement graph projection in `MemoryCurator`: extract nodes/edges from
+  ADR dependencies, file references, and cross-document relationships.
+- Build a prototype ATLAS.md renderer that reads from the graph instead of
+  scanning the filesystem.
+- Evaluate DoltDB as the global KB store when hypervisor-side publishing
+  lands (ADR-0024/0025 Go services are a natural host).
 
 ## Context
 
@@ -185,6 +205,186 @@ The future knowledge subsystem may reuse these patterns:
 - lexical search plus later richer retrieval
 
 But knowledge has different admission rules, sharing rules, and truth semantics. It will be decided separately.
+
+### 10. Per-User Knowledge Graph (Not Per-Project)
+
+The unit of the knowledge graph is the user, not the project.
+
+A user's knowledge graph spans all their projects. Projects are clusters of
+densely connected nodes within the user's graph, not separate graphs. This
+matters because cross-project edges are real and common: an ADR in project A
+depends on a library decision in project B, a testing pattern learned in
+project C applies to project D. These edges only make sense in a per-user
+graph. Per-project graphs cannot represent them without an awkward
+cross-graph join layer.
+
+Implications:
+
+- The graph lives in the user's storage, not in project-level storage
+- Node and edge identifiers include project context as metadata, not as
+  a partition boundary
+- Queries can scope to a single project (filter by cluster) or span the
+  full user graph (cross-project retrieval)
+
+### 11. Temporal Graph Schema
+
+The knowledge graph is temporal. Nodes and edges carry `valid_from` and
+`valid_to` timestamps so the graph represents how knowledge evolved, not
+just its current state. Events record mutations for audit and replay.
+
+Target schema (SQLite, lives in per-user data.img):
+
+```sql
+CREATE TABLE nodes (
+    id TEXT PRIMARY KEY,
+    kind TEXT,        -- 'adr', 'file', 'concept', 'test', 'agent'
+    data JSON,
+    valid_from INTEGER,
+    valid_to INTEGER
+);
+
+CREATE TABLE edges (
+    src TEXT,
+    dst TEXT,
+    kind TEXT,        -- 'depends_on', 'implements', 'tests', 'blocks'
+    data JSON,
+    valid_from INTEGER,
+    valid_to INTEGER
+);
+
+CREATE TABLE events (
+    id TEXT PRIMARY KEY,
+    ts INTEGER,
+    actor TEXT,
+    action TEXT,
+    target TEXT,
+    data JSON
+);
+```
+
+`valid_to IS NULL` means the node or edge is current. Point-in-time queries
+use `valid_from <= ?t AND (valid_to IS NULL OR valid_to > ?t)`.
+
+This schema is additive to the existing per-user SQLite database. It does not
+replace the existing memory artifact tables; it provides the structured graph
+layer that memory artifacts can project into over time.
+
+### 12. Storage Tier Progression
+
+Memory storage is not one-size-fits-all. The progression follows actual need:
+
+**Now: SQLite per-user.**
+Already exists in data.img. Add the temporal graph schema (Section 11) when
+the first graph producer is ready. SQLite baseline memory cost is ~1MB. On a
+430-470MB per-VM budget, this is negligible.
+
+**Global knowledge base: DoltDB.**
+When publishing exists and the global KB needs versioning, DoltDB earns its
+keep. Go-native, embeddable, MySQL-compatible, prolly trees with structural
+sharing. Runs as the hypervisor-side published knowledge store, not inside
+user VMs.
+
+**Per-user upgrade: DoltDB for paid users.**
+When a user has enough data that versioning matters and they are paying for
+the memory overhead. Dolt loads its commit graph into memory (10-20% of DB
+size as RAM). For an active knowledge base, that could be 50-100MB — viable
+for a paid tier with larger VM allocations, not viable on the free-tier
+430-470MB budget.
+
+Why not Dolt per-user from the start: Dolt is a Go GC'd runtime. Inside a
+user VM already running a sandbox process, that is a second Go runtime with
+its own heap and GC pressure. At 50-100MB for an active KB, that is 10-25%
+of the current VM budget consumed by the storage engine alone. SQLite avoids
+this entirely.
+
+### 13. From Markdown Docs to Graph Views
+
+The progression for project indexing:
+
+1. **Current**: Markdown files are the source of truth. ATLAS.md is a
+   generated index over those files.
+2. **Next**: The temporal graph (Section 11) becomes the machine-readable
+   project index. `MemoryCurator` projects document structure, ADR
+   dependencies, and cross-file relationships into graph nodes and edges.
+3. **Then**: ATLAS.md becomes a view rendered from the graph, not the
+   source of truth. Other views (dependency diagrams, staleness reports,
+   impact analysis) render from the same graph.
+
+Documents remain the human-authored surface. The graph is the
+machine-readable structure extracted from that surface. Views are
+human-readable projections of the graph. The document is upstream of the
+graph, not downstream.
+
+### 14. Activity-Driven Graph Projection
+
+The knowledge graph is not a code graph. It is a user activity graph.
+
+Users do all sorts of things in Choir: write research, plan trips, build
+products, curate media, have conversations. All of these produce nodes and
+edges. The graph is not limited to software concepts like ADRs, files, and
+tests. It captures whatever the user works on, in whatever domain they work
+in.
+
+**The graph builds itself from user activity.** Users never manually create
+nodes or edges. Living in Choir builds the graph. Events from normal use
+automatically project into KB structure:
+
+- User edits a document: node updated, edges to related nodes refreshed
+- User asks Conductor to research X: research nodes created, citation edges
+  to sources
+- User publishes a piece: node promoted to global KB, version snapshot taken
+- User starts a new project: cluster node created, edges to shared concepts
+  across existing projects
+- User has a conversation: key insights extracted as concept nodes, linked
+  to the conversation context
+
+**Memory is not a separate feature. It is a view over the activity graph.**
+"What do I know about X?" is a graph query that traverses nodes and edges,
+not a retrieval operation that searches a flat artifact store. The temporal
+dimension (Section 11) answers "when did I learn this?" and "how has my
+understanding evolved?" These are time-scoped graph traversals, not keyword
+searches.
+
+**The node `kind` field (Section 11 schema) is intentionally freeform to
+support this.** Beyond code-focused kinds like `adr`, `file`, `concept`,
+`test`, `agent`, the field accommodates any domain:
+
+- Research: `source`, `citation`, `argument`, `draft`, `published`
+- Travel: `destination`, `booking`, `preference`, `constraint`
+- Conversation: `conversation`, `insight`, `question`, `decision`
+- Media: `media`, `playlist`, `annotation`, `tag`
+
+The kind is a string, not an enum. New domains do not require schema
+changes. Edge kinds follow the same principle: `cites`, `contradicts`,
+`inspires`, `budgets`, `schedules` are all valid alongside `depends_on` and
+`implements`.
+
+**The event-to-graph projection is the key automation.** EventStore already
+captures all user activity as the observability backbone (CLAUDE.md). A
+projection layer watches that event stream and maintains the graph as a
+side effect. This is the Watcher pattern (from CLAUDE.md naming
+reconciliation): a persistent observer on the event stream that detects
+graph-relevant events and writes corresponding node/edge mutations.
+
+The projection is not a batch job. It runs continuously as part of
+`MemoryCurator`, processing events as they arrive. The curator decides
+which events are graph-worthy (most are not) and what structure to extract.
+This keeps the graph high-signal without requiring the user to curate
+anything manually.
+
+Implications for the existing design:
+
+- `MemoryCurator` (Section 2) gains a graph projection responsibility
+  alongside its existing artifact curation role. These are complementary:
+  artifacts are the retrieval units, the graph is the structural index
+  over them.
+- The curation policy (Section 7) extends to graph projection: not every
+  event produces a node, just as not every event produces an artifact.
+  The curator applies the same bounded, high-signal filtering.
+- The query model (Section 5) gains graph traversal as a query surface
+  alongside lexical retrieval. Graph queries answer structural questions
+  ("what depends on X?", "what did I research about Y?") that lexical
+  search handles poorly.
 
 ## Non-Goals
 

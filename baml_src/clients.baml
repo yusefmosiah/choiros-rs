@@ -24,6 +24,62 @@ client<llm> FastResponse {
   }
 }
 
+// OpenRouter: Hunter Alpha - 1T param agentic model, 1M context, free (logged)
+client<llm> HunterAlpha {
+  provider openai
+  retry_policy Exponential
+  options {
+    api_key env.OPENROUTER_API_KEY
+    base_url "https://openrouter.ai/api/v1"
+    model "openrouter/hunter-alpha"
+    headers {
+      "HTTP-Referer" "https://choir-ip.com"
+      "X-Title" "ChoirOS"
+    }
+  }
+}
+
+// OpenRouter: Healer Alpha - omni-modal (vision/audio/text), 262K context, free (logged)
+client<llm> HealerAlpha {
+  provider openai
+  retry_policy Exponential
+  options {
+    api_key env.OPENROUTER_API_KEY
+    base_url "https://openrouter.ai/api/v1"
+    model "openrouter/healer-alpha"
+    headers {
+      "HTTP-Referer" "https://choir-ip.com"
+      "X-Title" "ChoirOS"
+    }
+  }
+}
+
+// NVIDIA Nemotron 3 Super 120B - free tier on OpenRouter
+client<llm> Nemotron {
+  provider openai
+  retry_policy Exponential
+  options {
+    api_key env.OPENROUTER_API_KEY
+    base_url "https://openrouter.ai/api/v1"
+    model "nvidia/nemotron-3-super-120b-a12b:free"
+    headers {
+      "HTTP-Referer" "https://choir-ip.com"
+      "X-Title" "ChoirOS"
+    }
+  }
+}
+
+// Inception: Mercury 2 - diffusion LLM, very fast generation
+client<llm> Mercury {
+  provider openai
+  retry_policy Exponential
+  options {
+    api_key env.INCEPTION_API_KEY
+    base_url "https://api.inceptionlabs.ai/v1"
+    model "mercury-2"
+  }
+}
+
 // Retry policies
 retry_policy Exponential {
   max_retries 2

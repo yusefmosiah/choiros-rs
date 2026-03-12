@@ -4,10 +4,15 @@ Date: 2026-03-02
 Kind: Decision
 Status: Proposed
 Priority: 3
-Requires: [ADR-0014]
+Requires: [ADR-0014, ADR-0027]
 Owner: Platform / Runtime / Product
 
 ## Narrative Summary (1-minute read)
+
+**Note:** The publishing model is further refined by ADR-0027, which reframes
+publishing as a graph operation (promote subgraph from per-user KB to global
+KB), not a file export. The state/compute decoupling described here still
+holds; ADR-0027 adds the knowledge graph dimension.
 
 ChoirOS bootstrap target is publishing, not always-on per-user compute.
 

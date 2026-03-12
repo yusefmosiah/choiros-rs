@@ -2,7 +2,7 @@
 
 Date: 2026-02-28
 Kind: Decision
-Status: Draft
+Status: Accepted
 Priority: 2
 Requires: []
 Owner: Platform/Runtime

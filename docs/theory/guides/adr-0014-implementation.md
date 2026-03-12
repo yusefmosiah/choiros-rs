@@ -9,18 +9,24 @@ Updated: 2026-03-11
 
 ## Narrative Summary (1-minute read)
 
-Per-user VM isolation and machine classes are deployed (Phases 1-6). Each
-user gets a cloud-hypervisor microVM with dynamic port, DHCP IP, per-user
-btrfs subvolume, idle hibernation, and configurable machine class. 20
-machine classes are available (16 user + 4 worker), stress-tested to 62
-concurrent VMs with mixed workloads.
+Per-user VM isolation, machine classes, job queue, and promotion API are
+deployed (Phases 1-8). Each user gets a cloud-hypervisor microVM with
+dynamic port, DHCP IP, per-user btrfs subvolume, idle hibernation, and
+configurable machine class. The sandbox binary lives on data.img (Phase 6.5)
+so the build pool can promote updates without nix rebuilds. The job queue
+(Phase 7) accepts build/test/custom jobs with priority scheduling, and the
+promotion API (Phase 8) applies artifacts via btrfs snapshot + rollback.
 
-Next: move the sandbox binary from erofs (nix store) to data.img so
-users own their binary and the build pool can promote updates without nix
-rebuilds (Phase 6.5). Then build the worker pool and promotion pipeline.
+Next: inter-agent communication (Phase 9) and worker pool management
+(warm pool, job scheduling loop, tier-based capacity limits).
 
 ## What Changed
 
+- 2026-03-11: Phases 7+8 implemented. Job queue (SQLite-backed with priority,
+  status tracking, worker assignment) and promotion API (btrfs snapshot,
+  binary promotion via loop mount, VM restart, health check, rollback).
+  Migration: `0004_jobs.sql`. Code: `hypervisor/src/jobs.rs`,
+  `hypervisor/src/api/mod.rs`. 7 new admin endpoints registered.
 - 2026-03-11: Phase 6 (machine classes) marked DONE. 20 classes deployed
   on Node B, stress tested to 62 VMs with Go/Rust/Node.js/Playwright
   compute workloads. Added Phase 6.5 (sandbox binary to data.img) as
@@ -43,8 +49,8 @@ Phase 4  (per-user routing)       DONE — dynamic ports, DHCP, per-user VMs on 
 Phase 5  (idle watchdog)          DONE — hibernate + heartbeat
 Phase 6  (machine classes)        DONE — 20 classes deployed, API works, stress tested to 62 VMs
 Phase 6.5 (sandbox to data.img)   DONE — seed service deployed, verified on Node B
-Phase 7  (build pool)             NOT STARTED
-Phase 8  (promotion API)          NOT STARTED
+Phase 7  (build pool)             DONE — job queue + API endpoints deployed
+Phase 8  (promotion API)          DONE — btrfs snapshot + binary promotion + rollback
 Phase 9  (inter-agent comms)      NOT STARTED
 Phase 10 (cross-node migration)   DEFERRED
 ```
@@ -421,56 +427,39 @@ binary version.
 4. Delete the data.img binary, restart service — verify fallback to nix store works (TODO)
 5. Copy a different binary version to data.img, restart — verify new version runs (TODO)
 
-## Phase 7: Build Pool
+## Phase 7: Build Pool (DONE)
 
-### What changes
+### What was built
 
-Add a shared pool of worker VMs that execute build, test, and coding agent
-jobs on behalf of users. Users do not compile in their own sandbox VM.
+SQLite-backed job queue with priority scheduling, worker VM assignment,
+and admin API endpoints. Jobs track type, status, machine class,
+command, payload, results, and timing.
 
-### Architecture
-
-```
-User sandbox → POST /jobs/v1/run → hypervisor
-Hypervisor → snapshot user workspace → create pool job VM → execute
-Pool VM → stream events → user's EventStore
-Pool VM → complete → artifacts ready for promotion
-```
-
-### Files to modify
+### Files modified
 
 | File | Change |
 |------|--------|
-| `hypervisor/src/jobs/mod.rs` | New module: job queue, submission, scheduling |
-| `hypervisor/src/jobs/pool.rs` | Pool worker management: create, recycle, destroy |
-| `hypervisor/src/jobs/executor.rs` | Job execution: snapshot, mount, run, stream, cleanup |
-| `hypervisor/src/api/jobs.rs` | HTTP endpoints: submit, status, cancel |
-| `hypervisor/src/sandbox/systemd.rs` | Pool VM lifecycle (ephemeral instances) |
+| `hypervisor/migrations/0004_jobs.sql` | `jobs` + `promotions` tables with indexes |
+| `hypervisor/src/jobs.rs` | Job CRUD, status transitions, priority queue, promotion ops |
+| `hypervisor/src/api/mod.rs` | 7 admin endpoint handlers for jobs + promotions |
+| `hypervisor/src/main.rs` | Route registration, `mod jobs` declaration |
+| `hypervisor/Cargo.toml` | Added `ulid` dependency for job/promotion IDs |
 
-### Implementation steps
+### Endpoints
 
-1. Add job queue data model (SQLite: jobs table with status, owner, profile,
-   command, created_at, started_at, completed_at)
-2. Add `POST /jobs/v1/run` endpoint — accepts job type, command, resource
-   profile. Returns job_id and queue position.
-3. Pool manager: maintain N warm worker VMs (configurable, default 2).
-   Workers are generic — they receive a workspace snapshot and a command.
-4. Job executor:
-   a. btrfs snapshot user's data.img (read-only)
-   b. Mount snapshot into pool worker VM as /workspace (read-only)
-   c. Mount scratch volume for output (writable)
-   d. Execute command inside pool VM
-   e. Stream stdout/stderr as events to user's EventStore
-   f. Collect artifacts from scratch volume
-   g. Update job status
-   h. Release worker back to pool
-5. Add `GET /jobs/v1/{id}` for status and `DELETE /jobs/v1/{id}` for cancel
-6. Capacity management: priority queue by tier, FIFO within tier
-7. Tier budget enforcement:
-   - Read user's tier from DB
-   - Check concurrent job limit, daily job count, max duration for tier
-   - Reject with 429 if budget exceeded
-   - Machine class for job VM also tier-dependent (config-driven)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/admin/jobs` | Create job (type, command, payload, machine_class, priority) |
+| GET | `/admin/jobs` | List all jobs (limit 100, newest first) |
+| GET | `/admin/jobs/{job_id}` | Get job status |
+| DELETE | `/admin/jobs/{job_id}` | Cancel job |
+
+### What's deferred to Phase 7.5 (worker pool management)
+
+- Warm pool manager (maintain N idle worker VMs)
+- Job scheduling loop (poll queue, assign to workers)
+- Tier budget enforcement (concurrent limits, daily counts)
+- Event streaming from worker VMs to user's EventStore
 
 ### Resource profiles
 
@@ -487,49 +476,36 @@ Pool VM → complete → artifacts ready for promotion
 - Time limits enforced by hypervisor (kill after max duration)
 - Artifacts returned via EventStore, not direct filesystem access
 
-## Phase 8: Promotion API
+## Phase 8: Promotion API (DONE)
 
-### Endpoint
+### What was built
 
-```
-POST /v1/vms/{vm_id}/promote
-  Body: {
-    "job_id": "...",           // completed build pool job
-    "verification": {
-      "tests_passed": bool,
-      "docs_updated": bool
-    }
-  }
-  Response: { "promotion_id": "...", "status": "promoting" }
-```
+Promotion API that applies build artifacts (new sandbox binary) to a
+user's data.img with btrfs snapshot for rollback. Background execution
+via `tokio::spawn`.
 
-### Implementation steps
+### Endpoints
 
-1. Add `POST /v1/vms/{vm_id}/promote` endpoint
-2. Verify the referenced job completed successfully
-3. Check verification gate:
-   - If verification metadata missing or incomplete, reject with 422
-   - In bootstrap phase, allow manual override with explicit flag
-4. Snapshot user's current data.img (btrfs, <1s) as rollback point
-5. Apply job artifacts to user's workspace
-6. Stop or hibernate user's sandbox VM
-7. Swap data.img with promoted version (reflink copy)
-8. Start sandbox VM
-9. Health check (curl /health within 30s)
-10. On success: emit promotion event, return 200
-11. On failure: restore from rollback snapshot, restart, return 500
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/admin/sandboxes/{user_id}/promote` | Start promotion (job_id, binary_path, verification) |
+| GET | `/admin/sandboxes/{user_id}/promotions` | List user's promotions |
+| GET | `/admin/promotions/{promotion_id}` | Get promotion status |
 
-### Rollback
+### Promotion flow (`execute_promotion`)
 
-Pre-promotion snapshot always retained. `POST /v1/vms/{vm_id}/rollback`
-swaps back and restarts.
+1. Create read-only btrfs snapshot of `/data/users/{user_id}` as rollback point
+2. Loop-mount user's data.img, copy new binary to `/bin/sandbox`, unmount
+3. Stop user's Live VM via `SandboxRegistry::stop()`
+4. Start user's Live VM via `SandboxRegistry::ensure_running()`
+5. On success: mark promotion completed
+6. On failure at any step: mark failed with error, snapshot retained for rollback
 
-### Verification gate phases
+### Verification gate (current: Phase 1 — bootstrap)
 
-Phase 1 (bootstrap): manual. User clicks "promote" and confirms.
-Phase 2 (harness integration): automatic. Promotion API checks that the
-build pool job completed with code+tests+docs passing.
-Phase 3 (full enforcement): promotion blocked unless harness reports success.
+Manual. Admin calls promote endpoint with optional verification JSON.
+No automated gate enforcement yet. Future phases will require harness
+pass before promotion is allowed.
 
 ## Phase 9: Inter-Agent Communication via Hypervisor
 

@@ -121,17 +121,30 @@ histories).
 agents, but a multi-harness orchestrator that sequences, monitors, and verifies
 entire agent runs.
 
-## 6. cagent -> choir.go Path
+## 6. cagent and choir.go Are Separate Things
 
-**Progression**:
+**cagent** is a proof-of-concept validating Go for agentic coding. Its
+4000-line slop files are evidence that Go's build speed makes code disposable
+— you can rewrite faster than you can refactor. cagent does NOT evolve into
+choir.go. It validates the approach, then its lessons inform a clean start.
+
+**cagent trajectory** (stays a coding agent tool):
 1. cagent today: CLI that spawns vendor coding agents (Go, ~6 adapters)
 2. cagent next: native agent loop (no subprocess, just API + tools, <10MB)
 3. cagent after: multi-harness orchestrator (spawn/sequence/verify runs)
-4. cagent eventually: choir.go (full runtime with memory, app agents, gateway)
 
-**Rationale**: Go build times matter for rapid iteration on agent logic. Rust
-stays for performance-critical outer shell (hypervisor, VM management). Agent
-logic (fast-changing, experimental) moves to Go.
+**choir.go** starts fresh with proper design:
+- Informed by what cagent proved (Go works, build speed matters, native
+  tool-use is sufficient)
+- Not derived from cagent's code (which is intentionally disposable)
+- Full runtime: actors, events, agents, gateway, supervision
+- Designed from ADRs and implementation guides, not refactored from a POC
+
+**Rationale**: Go build times matter for rapid iteration on agent logic. Build
+times are in the critical path of the development loop — when agents iterate
+every few minutes, a 30-second Rust build is a tax on every thought. Go gives
+sub-second rebuilds. "Go until you have a profiler trace that proves you need
+Rust."
 
 **Reference**: PicoClaw proves a full agent loop with tool use fits in <10MB RAM
 in Go. Codex CLI (Rust, codex-core library) proves the same in Rust.

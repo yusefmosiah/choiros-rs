@@ -7,6 +7,14 @@ Requires: []
 
 ## Narrative Summary (1-minute read)
 
+**DEPRECATION NOTICE (2026-03-11):** The DECIDE -> EXECUTE pattern described
+here is a BAML artifact. BAML is being removed (ADR-0024) and replaced with
+the standard tool-use protocol loop (native Anthropic Messages API / OpenAI
+function calling). The Conductor -> worker spawning model described in this
+doc also predates the current hierarchy: Conductor routes to app agents, app
+agents manage their own workers (see ADR-0021). This doc remains as a record
+of the current deployed code but should not inform new design.
+
 The agent harness has been simplified from a complex multi-phase loop to a clean, unified DECIDE -> EXECUTE -> (loop/return) pattern. This document describes the new architecture, worker integration patterns, and how Conductor spawns harness-based workers.
 
 ## What Changed
