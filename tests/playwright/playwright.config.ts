@@ -38,6 +38,7 @@ export default defineConfig({
         "vm-resize-cold-boot.spec.ts",
         "worker-workload.spec.ts",
         "worker-interactive.spec.ts",
+        "multi-provider-comparison.spec.ts",
       ],
       use: {
         baseURL: hypervisorBaseUrl,
