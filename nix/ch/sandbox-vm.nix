@@ -135,15 +135,44 @@
     '';
   };
 
-  # Sandbox service — binary from nix store (erofs via virtio-pmem)
+  # ADR-0014 Phase 6.5: Seed sandbox binary from nix store to data.img on
+  # first boot. This lets the build pool promote new binaries without a nix
+  # rebuild — users own their binary on data.img, nix store is the fallback.
+  systemd.services.choir-seed-sandbox = {
+    description = "Seed sandbox binary to data.img";
+    wantedBy = [ "choir-sandbox.service" ];
+    before = [ "choir-sandbox.service" ];
+    after = [ "opt-choiros-data-sandbox.mount" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "seed-sandbox" ''
+        mkdir -p /opt/choiros/data/sandbox/bin
+        if [ ! -x /opt/choiros/data/sandbox/bin/sandbox ]; then
+          cp ${sandboxPackage}/bin/sandbox /opt/choiros/data/sandbox/bin/sandbox
+          chmod 755 /opt/choiros/data/sandbox/bin/sandbox
+          echo "Seeded sandbox binary from nix store to data.img"
+        fi
+      '';
+    };
+  };
+
+  # Sandbox service — prefers binary on data.img (updatable by build pool),
+  # falls back to nix store binary (immutable erofs) if missing.
   systemd.services.choir-sandbox = {
     description = "ChoirOS Sandbox (${sandboxRole})";
     wantedBy = [ "multi-user.target" ];
-    after = [ "network-online.target" "choir-extract-cmdline-secrets.service" ];
+    after = [ "network-online.target" "choir-extract-cmdline-secrets.service" "choir-seed-sandbox.service" ];
     wants = [ "network-online.target" ];
-    requires = [ "choir-extract-cmdline-secrets.service" ];
+    requires = [ "choir-extract-cmdline-secrets.service" "choir-seed-sandbox.service" ];
     serviceConfig = {
-      ExecStart = "${sandboxPackage}/bin/sandbox";
+      ExecStart = pkgs.writeShellScript "run-sandbox" ''
+        if [ -x /opt/choiros/data/sandbox/bin/sandbox ]; then
+          exec /opt/choiros/data/sandbox/bin/sandbox
+        else
+          exec ${sandboxPackage}/bin/sandbox
+        fi
+      '';
       Restart = "on-failure";
       RestartSec = 1;
       # ADR-0018: Gateway token extracted from kernel cmdline by oneshot above

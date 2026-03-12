@@ -59,6 +59,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/decisions/adr-0024-hypervisor-go-rewrite.md`
 - **[P2]** ADR-0026: Self-Directing Agent Dispatch — Decision (Proposed) | Requires: [ADR-0021, ADR-0024]  
   `docs/theory/decisions/adr-0026-self-directing-agent-dispatch.md`
+- **[P2]** ADR-0028: Multi-Provider LLM Scaling — Decision (Draft) | Requires: [ADR-0003, ADR-0022]  
+  `docs/theory/decisions/adr-0028-multi-provider-scaling.md`
 - **[P2]** Implementing ADR-0014: Per-User VM Lifecycle and Storage — Guide (Active) | Requires: [ADR-0014]  
   `docs/theory/guides/adr-0014-implementation.md`
 - **[P2]** Implementing ADR-0024: Hypervisor Go Rewrite — Guide (Active) | Requires: [ADR-0024]  
@@ -232,6 +234,7 @@ ADR-0007, ADR-0014, ADR-0021 → ADR-0024: ChoirOS Go Rewrite — Hypervisor Dec
 ADR-0024 → ADR-0025: Go Admin Dashboard
 ADR-0021, ADR-0024 → ADR-0026: Self-Directing Agent Dispatch
 ADR-0011, ADR-0019, ADR-0026 → ADR-0027: Publishing and Global Knowledge Base
+ADR-0003, ADR-0022 → ADR-0028: Multi-Provider LLM Scaling
 ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
 ADR-0018 → Implementing ADR-0018: Drop Virtiofs, Adaptive Capacity
 ADR-0020 → Implementing ADR-0020: Security Hardening
@@ -246,4 +249,4 @@ ADR-0014, ADR-0018 → Snapshot Portability Across VM Sizings
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-11 — 24 practice, 40 theory, 20 state docs.*
+*Generated 2026-03-11 — 24 practice, 41 theory, 20 state docs.*

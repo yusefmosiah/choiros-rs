@@ -43,13 +43,14 @@ migration via btrfs send/receive. This is deployed and proven.
 
 ## What To Do Next
 
-1. Implement machine classes (runtime config, not hardcoded).
-2. Build and test all 4 VM types (CH/FC × blk/pmem) via E2E evals.
-3. Implement build pool with tier-aware job queue.
-4. Implement promotion API with verification gate.
-5. Experiment with VM sizing per class to find real constraints.
-6. Wire btrfs snapshot into promotion (snapshot, apply, health check).
-7. (Later) Evaluate Mutagen for desktop sync prototype.
+1. ~~Implement machine classes (runtime config, not hardcoded).~~ DONE — 20 classes deployed, stress tested to 62 VMs.
+2. Move sandbox binary from erofs to data.img (Phase 6.5) — prerequisite for promotion.
+3. Build and test all 4 VM types (CH/FC × blk/pmem) via E2E evals.
+4. Implement build pool with tier-aware job queue.
+5. Implement promotion API with verification gate.
+6. Experiment with VM sizing per class to find real constraints.
+7. Wire btrfs snapshot into promotion (snapshot, apply, health check).
+8. (Later) Evaluate Mutagen for desktop sync prototype.
 
 ---
 
