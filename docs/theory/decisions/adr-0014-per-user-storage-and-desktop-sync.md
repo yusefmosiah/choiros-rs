@@ -476,13 +476,17 @@ integration (VS Code, Cursor, etc.) for users who want it.
 - Persistence across VM stop/start and hibernate/restore
 - Per-user routing with dynamic ports, DHCP, per-user VMs on Node B
 - Idle hibernation with heartbeat watchdog
+- Machine class config: 20 classes defined, deployed, stress tested
+- Machine class selection via API (`PUT /profile/machine-class`)
+- Mixed-class stress test: 62 VMs (ch-blk-2c-2g + w-ch-pmem-4c-4g)
+- Compute workloads verified: Go, Rust, Node.js, Playwright, disk I/O
+- Sandbox binary seeded from nix store to data.img on first boot
 
 ### Remaining gates
 
-- Machine class config: define, deploy, and select VM types at runtime
-- All 4 VM types boot and pass health checks (CH/FC × blk/pmem)
-- Machine class selection via API (E2E testable, not manual nix changes)
+- All 4 VM types boot and pass health checks (CH/FC × blk/pmem) — CH done, FC untested
 - VM sizing experimentation: find minimum viable sizes per workload
+- Sandbox binary update via build pool (promotion pushes new binary to data.img)
 - Promotion API with verification gate
 - Promotion snapshot → apply → health check cycle
 - Tier-aware job queue: submission, priority, budgets
