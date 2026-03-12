@@ -27,22 +27,14 @@ decoupling for publishing (ADR-0011, P3).
 <details open>
 <summary><h2>Theory (What We're Thinking)</h2></summary>
 
-- **[P1]** ADR-0018: Drop Virtiofs, Enable KSM, Adaptive VM Capacity Management — Decision (Accepted (Phases 1-6 deployed), Phase 7 planned) | Requires: [ADR-0014, ADR-0016]  
-  `docs/theory/decisions/adr-0018-drop-virtiofs-adaptive-capacity.md`
 - **[P1]** ADR-0020: Security Hardening — Multi-Tenant Isolation — Decision (Accepted) | Requires: [ADR-0014, ADR-0018]  
   `docs/theory/decisions/adr-0020-security-hardening.md`
-- **[P1]** ADR-0022: Hypervisor Concurrency and Dynamic Capacity — Decision (Accepted) | Requires: [ADR-0014, ADR-0018]  
-  `docs/theory/decisions/adr-0022-hypervisor-concurrency-and-capacity.md`
 - **[P1]** ADR-0023: microvm.nix Store Disk Transport Selection (`blk` vs `pmem`) — Decision (Proposed) | Requires: [ADR-0018, ADR-0020]  
   `docs/theory/decisions/adr-0023-microvm-store-disk-transport-selection.md`
 - **[P1]** ADR-0025: Go Admin Dashboard — Decision (Proposed) | Requires: [ADR-0024]  
   `docs/theory/decisions/adr-0025-go-admin-dashboard.md`
-- **[P1]** Implementing ADR-0018: Drop Virtiofs, Adaptive Capacity — Guide (Active) | Requires: [ADR-0018]  
-  `docs/theory/guides/adr-0018-implementation.md`
 - **[P1]** Implementing ADR-0020: Security Hardening — Guide (Active) | Requires: [ADR-0020]  
   `docs/theory/guides/adr-0020-implementation.md`
-- **[P1]** Implementing ADR-0022: Hypervisor Concurrency and Dynamic Capacity — Guide (Active) | Requires: [ADR-0022]  
-  `docs/theory/guides/adr-0022-implementation.md`
 - **[P1]** Implementing ADR-0023: microvm.nix Store Disk Transport Selection — Guide (Active) | Requires: [ADR-0023]  
   `docs/theory/guides/adr-0023-implementation.md`
 - **[P1]** Implementing ADR-0025: Go Admin Dashboard — Guide (Active) | Requires: [ADR-0025]  
@@ -69,7 +61,7 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/notes/2026-03-11-ci-boundaries-and-bootstrap-thesis.md`
 - **[P2]** Deferred Machine Class Items — Note (Active) | Requires: [ADR-0014]  
   `docs/theory/notes/2026-03-11-deferred-machine-class-items.md`
-- **[P3]** ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes) — Decision (Proposed) | Requires: [ADR-0014]  
+- **[P3]** ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes) — Decision (Proposed) | Requires: [ADR-0014, ADR-0027]  
   `docs/theory/decisions/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
 - **[P3]** ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion — Decision (Draft)  
   `docs/theory/decisions/adr-0013-fleet-ctl-change-lifecycle-and-promotion.md`
@@ -91,18 +83,10 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/notes/2026-03-11-agent-architecture-session-notes.md`
 - **[P5]** ADR-0002: Rust + Nix Build and Cache Strategy — Decision (Draft)  
   `docs/theory/decisions/adr-0002-rust-nix-build-and-cache-strategy.md`
-- **[P5]** ADR-0005: ALM Harness Integration Strategy (Draft) — Decision (Draft)  
-  `docs/theory/decisions/adr-0005-alm-harness-integration.md`
-- **[P5]** ADR-0006: Prompt Centralization in BAML (Draft) — Decision (Draft)  
-  `docs/theory/decisions/adr-0006-prompt-centralization-baml.md`
 - **[P5]** ADR-0009: Terminal Renderer Strategy (xterm.js vs Ghostty/libghostty) — Decision (Proposed)  
   `docs/theory/decisions/adr-0009-terminal-renderer-strategy-xterm-vs-libghostty.md`
-- **[P5]** ADR-0015: Documentation Kanban Architecture — Decision (Draft)  
-  `docs/theory/decisions/adr-0015-docs-kanban-architecture.md`
-- **[P5]** Deployment Checkpoint and Next Steps — Guide (Active)  
-  `docs/theory/guides/deployment-checkpoint-and-next-steps.md`
-- **[P5]** OVH US-East Bootstrap Runbook: Secrets + Compute Lifecycle — Guide (Active)  
-  `docs/theory/guides/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
+- **[P5]** cagent Spec And Implementation Guide — Spec + implementation handoff (Draft)  
+  `docs/theory/guides/cagent-spec-and-implementation-guide.md`
 - **[P5]** KSM (Kernel Same-page Merging) Research for MicroVM Workloads — Research Note (Complete)  
   `docs/theory/notes/2026-03-11-ksm-research.md`
 - **[P5]** nix-bench — ? (?)  
@@ -115,7 +99,15 @@ decoupling for publishing (ADR-0011, P3).
 <details>
 <summary><h2>Practice (What Exists)</h2></summary>
 
-- ADR-0007: 3-Tier Control/Runtime/Client Architecture — Decision (Draft)  
+- ADR-0018: Drop Virtiofs, Enable KSM, Adaptive VM Capacity Management — Decision (Accepted (Phases 1-6 deployed), Phase 7 planned) | Requires: [ADR-0014, ADR-0016]  
+  `docs/practice/decisions/adr-0018-drop-virtiofs-adaptive-capacity.md`
+- ADR-0022: Hypervisor Concurrency and Dynamic Capacity — Decision (Accepted) | Requires: [ADR-0014, ADR-0018]  
+  `docs/practice/decisions/adr-0022-hypervisor-concurrency-and-capacity.md`
+- Implementing ADR-0018: Drop Virtiofs, Adaptive Capacity — Guide (Active) | Requires: [ADR-0018]  
+  `docs/practice/guides/adr-0018-implementation.md`
+- Implementing ADR-0022: Hypervisor Concurrency and Dynamic Capacity — Guide (Active) | Requires: [ADR-0022]  
+  `docs/practice/guides/adr-0022-implementation.md`
+- ADR-0007: 3-Tier Control/Runtime/Client Architecture — Decision (Accepted)  
   `docs/practice/decisions/adr-0007-3-tier-control-runtime-client-architecture.md`
 - ADR-0017: systemd-Native VM Lifecycle Management — Decision (Accepted) | Requires: [ADR-0014, ADR-0016]  
   `docs/practice/decisions/adr-0017-systemd-native-vm-lifecycle.md`
@@ -131,14 +123,14 @@ decoupling for publishing (ADR-0011, P3).
   `docs/practice/decisions/adr-0008-ovh-selfhosted-secrets-architecture.md`
 - ADR-0012: OVH US-East Bootstrap Secrets and Two-Node Compute Lifecycle — Decision (Accepted)  
   `docs/practice/decisions/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
+- ADR-0015: Documentation Kanban Architecture — Decision (Draft)  
+  `docs/practice/decisions/adr-0015-docs-kanban-architecture.md`
 - ChoirOS Actor Network Orientation — Guide (Accepted)  
   `docs/practice/guides/actor-network-orientation.md`
 - ADR-0017 Implementation Guide: systemd-Native VM Lifecycle — ? (?)  
   `docs/practice/guides/adr-0017-implementation.md`
 - Backend-Authoritative UI State Pattern — Note (Active)  
   `docs/practice/guides/backend-authoritative-ui-state-pattern.md`
-- cagent Spec And Implementation Guide — Spec + implementation handoff (Draft)  
-  `docs/practice/guides/cagent-spec-and-implementation-guide.md`
 - Files App API Contract — Guide (Accepted)  
   `docs/practice/guides/files-api-contract.md`
 - Local Provider Matrix Validation — Guide (Accepted)  
@@ -217,18 +209,20 @@ decoupling for publishing (ADR-0011, P3).
 ```
 ADR-0002, ADR-0014 → ADR-0016: NixOS Declarative Deployment
 ADR-0014, ADR-0016 → ADR-0017: systemd-Native VM Lifecycle Management
+ADR-0014, ADR-0016 → ADR-0018: Drop Virtiofs, Enable KSM, Adaptive VM Capacity Management
+ADR-0014, ADR-0018 → ADR-0022: Hypervisor Concurrency and Dynamic Capacity
 ADR-0016 → Implementing ADR-0016: NixOS Declarative Deployment
+ADR-0018 → Implementing ADR-0018: Drop Virtiofs, Adaptive Capacity
+ADR-0022 → Implementing ADR-0022: Hypervisor Concurrency and Dynamic Capacity
 ADR-0015 → Docs System Philosophy and Practice
 ADR-0001 → Writer Contract and Implementation Guide
 ADR-0008, ADR-0014 → ADR-0003: Hypervisor-Sandbox Secrets Boundary
 ADR-0007 → ADR-0004: Hypervisor-Sandbox UI Runtime Boundary
-ADR-0014 → ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes)
+ADR-0014, ADR-0027 → ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes)
 ADR-0007, ADR-0012 → ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync
-ADR-0014, ADR-0016 → ADR-0018: Drop Virtiofs, Enable KSM, Adaptive VM Capacity Management
 ADR-0001 → ADR-0019: Per-User Memory Curation and Retrieval
 ADR-0014, ADR-0018 → ADR-0020: Security Hardening — Multi-Tenant Isolation
 ADR-0001, ADR-0007 → ADR-0021: Writer App Agent and Collaborative Living Documents
-ADR-0014, ADR-0018 → ADR-0022: Hypervisor Concurrency and Dynamic Capacity
 ADR-0018, ADR-0020 → ADR-0023: microvm.nix Store Disk Transport Selection (`blk` vs `pmem`)
 ADR-0007, ADR-0014, ADR-0021 → ADR-0024: ChoirOS Go Rewrite — Hypervisor Decomposition and Sandbox Migration
 ADR-0024 → ADR-0025: Go Admin Dashboard
@@ -236,9 +230,7 @@ ADR-0021, ADR-0024 → ADR-0026: Self-Directing Agent Dispatch
 ADR-0011, ADR-0019, ADR-0026 → ADR-0027: Publishing and Global Knowledge Base
 ADR-0003, ADR-0022 → ADR-0028: Multi-Provider LLM Scaling
 ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
-ADR-0018 → Implementing ADR-0018: Drop Virtiofs, Adaptive Capacity
 ADR-0020 → Implementing ADR-0020: Security Hardening
-ADR-0022 → Implementing ADR-0022: Hypervisor Concurrency and Dynamic Capacity
 ADR-0023 → Implementing ADR-0023: microvm.nix Store Disk Transport Selection
 ADR-0024 → Implementing ADR-0024: Hypervisor Go Rewrite
 ADR-0025 → Implementing ADR-0025: Go Admin Dashboard
@@ -249,4 +241,4 @@ ADR-0014, ADR-0018 → Snapshot Portability Across VM Sizings
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 ```
 
-*Generated 2026-03-11 — 24 practice, 41 theory, 20 state docs.*
+*Generated 2026-03-11 — 28 practice, 33 theory, 20 state docs.*

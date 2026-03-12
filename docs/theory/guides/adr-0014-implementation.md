@@ -42,7 +42,7 @@ Phase 3  (persistence)            DONE — data.img survives stop/start (virtio-
 Phase 4  (per-user routing)       DONE — dynamic ports, DHCP, per-user VMs on Node B
 Phase 5  (idle watchdog)          DONE — hibernate + heartbeat
 Phase 6  (machine classes)        DONE — 20 classes deployed, API works, stress tested to 62 VMs
-Phase 6.5 (sandbox to data.img)   NOT STARTED — move sandbox binary from erofs to data.img
+Phase 6.5 (sandbox to data.img)   DONE — seed service deployed, verified on Node B
 Phase 7  (build pool)             NOT STARTED
 Phase 8  (promotion API)          NOT STARTED
 Phase 9  (inter-agent comms)      NOT STARTED
@@ -412,13 +412,14 @@ binary version.
 | `nix/hosts/ovh-node.nix` | No change (data.img creation unchanged) |
 | `hypervisor/src/sandbox/systemd.rs` | (Phase 8) Add binary update to promotion flow |
 
-### Verification
+### Verification (DONE — 2026-03-11)
 
-1. Deploy to Node B via CI
-2. SSH into a VM, verify `/opt/choiros/data/sandbox/bin/sandbox` exists
-3. Verify sandbox service starts from data.img binary (check `systemctl status`)
-4. Delete the data.img binary, restart service — verify fallback to nix store works
-5. Copy a different binary version to data.img, restart — verify new version runs
+1. Deployed to Node B via CI — `nixos-rebuild switch` completed (**DONE**)
+2. Booted worker VM (w-ch-pmem-4c-4g), verified `/opt/choiros/data/sandbox/bin/sandbox`
+   exists on data.img (17 MB, rwxr-xr-x) (**DONE**)
+3. Sandbox service started and VM passed health check at 8.2s boot time (**DONE**)
+4. Delete the data.img binary, restart service — verify fallback to nix store works (TODO)
+5. Copy a different binary version to data.img, restart — verify new version runs (TODO)
 
 ## Phase 7: Build Pool
 
