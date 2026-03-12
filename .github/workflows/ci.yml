@@ -90,11 +90,16 @@ jobs:
             systemctl reset-failed nixos-rebuild-switch-to-configuration.service 2>/dev/null || true
 
             echo "==> Pre-building NixOS closure (catches OOM before switch)"
-            nix build .#nixosConfigurations.choiros-b.config.system.build.toplevel --print-build-logs >>"$LOG" 2>&1
+            nix build .#nixosConfigurations.choiros-b.config.system.build.toplevel \
+              --print-build-logs \
+              --option narinfo-cache-negative-ttl 0 \
+              >>"$LOG" 2>&1
             echo "    Pre-build complete ($(wc -l < "$LOG") log lines)"
 
             echo "==> Activating NixOS config"
-            nixos-rebuild switch --flake .#choiros-b --print-build-logs >>"$LOG" 2>&1
+            nixos-rebuild switch --flake .#choiros-b \
+              --print-build-logs \
+              >>"$LOG" 2>&1
             echo "    Switch complete"
 
             echo "==> Waiting for hypervisor"
