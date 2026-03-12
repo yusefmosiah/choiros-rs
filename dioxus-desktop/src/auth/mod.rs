@@ -125,7 +125,6 @@ impl AuthIntent {
             AuthIntent::Register => " Register ",
         }
     }
-
 }
 
 fn auth_intent_from_url() -> AuthIntent {
@@ -183,15 +182,13 @@ pub fn AuthModal() -> Element {
     // Dismiss the BIOS boot screen once auth modal is visible
     use_effect(move || {
         if let Some(window) = web_sys::window() {
-            let _ = window
-                .document()
-                .and_then(|doc| {
-                    doc.get_element_by_id("bios-boot").map(|el| {
-                        // Call __biosComplete if available
-                        let _ = js_sys::eval("window.__biosComplete && window.__biosComplete()");
-                        el
-                    })
-                });
+            let _ = window.document().and_then(|doc| {
+                doc.get_element_by_id("bios-boot").map(|el| {
+                    // Call __biosComplete if available
+                    let _ = js_sys::eval("window.__biosComplete && window.__biosComplete()");
+                    el
+                })
+            });
         }
     });
 
@@ -247,10 +244,8 @@ pub fn AuthModal() -> Element {
                 let username = username.clone();
                 let flow = *intent.read();
                 spawn(async move {
-                    run_passkey_ceremony(
-                        username, flow, busy, error, status_lines, step, auth,
-                    )
-                    .await;
+                    run_passkey_ceremony(username, flow, busy, error, status_lines, step, auth)
+                        .await;
                 });
             });
         }
@@ -454,7 +449,11 @@ async fn run_login_ceremony(
     mut step: Signal<Step>,
     mut auth: Signal<AuthState>,
 ) {
-    push_status(&mut status_lines, "Contacting auth server . . . . . . ", LineState::Working);
+    push_status(
+        &mut status_lines,
+        "Contacting auth server . . . . . . ",
+        LineState::Working,
+    );
 
     let start_res = Request::post("/auth/login/start")
         .json(&serde_json::json!({ "username": email }))
@@ -469,7 +468,12 @@ async fn run_login_ceremony(
                 Ok(t) => t,
                 Err(e) => {
                     update_last_status(&mut status_lines, LineState::Failed);
-                    finish_with_error(format!("network error: {e}"), &mut busy, &mut error, &mut step);
+                    finish_with_error(
+                        format!("network error: {e}"),
+                        &mut busy,
+                        &mut error,
+                        &mut step,
+                    );
                     return;
                 }
             }
@@ -492,12 +496,21 @@ async fn run_login_ceremony(
         }
         Err(e) => {
             update_last_status(&mut status_lines, LineState::Failed);
-            finish_with_error(format!("network error: {e}"), &mut busy, &mut error, &mut step);
+            finish_with_error(
+                format!("network error: {e}"),
+                &mut busy,
+                &mut error,
+                &mut step,
+            );
             return;
         }
     };
 
-    push_status(&mut status_lines, "Passkey challenge . . . . . . . . ", LineState::Working);
+    push_status(
+        &mut status_lines,
+        "Passkey challenge . . . . . . . . ",
+        LineState::Working,
+    );
 
     let cred_json = match passkey::get_credential(&start_body).await {
         Ok(j) => {
@@ -511,7 +524,11 @@ async fn run_login_ceremony(
         }
     };
 
-    push_status(&mut status_lines, "Verifying credential . . . . . .  ", LineState::Working);
+    push_status(
+        &mut status_lines,
+        "Verifying credential . . . . . .  ",
+        LineState::Working,
+    );
 
     let finish_res = Request::post("/auth/login/finish")
         .header("Content-Type", "application/json")
@@ -523,7 +540,11 @@ async fn run_login_ceremony(
     match finish_res {
         Ok(r) if r.ok() => {
             update_last_status(&mut status_lines, LineState::Ok);
-            push_status(&mut status_lines, "Session established . . . . . . . ", LineState::Ok);
+            push_status(
+                &mut status_lines,
+                "Session established . . . . . . . ",
+                LineState::Ok,
+            );
             auth.set(AuthState::Authenticated(AuthUser {
                 user_id: String::new(),
                 username: email,
@@ -536,7 +557,12 @@ async fn run_login_ceremony(
         }
         Err(e) => {
             update_last_status(&mut status_lines, LineState::Failed);
-            finish_with_error(format!("network error: {e}"), &mut busy, &mut error, &mut step);
+            finish_with_error(
+                format!("network error: {e}"),
+                &mut busy,
+                &mut error,
+                &mut step,
+            );
         }
     }
 }
@@ -556,7 +582,11 @@ async fn run_register_ceremony(
         .unwrap_or("user")
         .to_string();
 
-    push_status(&mut status_lines, "Creating identity . . . . . . . . ", LineState::Working);
+    push_status(
+        &mut status_lines,
+        "Creating identity . . . . . . . . ",
+        LineState::Working,
+    );
 
     let start_res = Request::post("/auth/register/start")
         .json(&serde_json::json!({ "username": email.clone(), "display_name": display_name }))
@@ -599,7 +629,11 @@ async fn run_register_ceremony(
         }
     };
 
-    push_status(&mut status_lines, "Passkey enrollment  . . . . . . . ", LineState::Working);
+    push_status(
+        &mut status_lines,
+        "Passkey enrollment  . . . . . . . ",
+        LineState::Working,
+    );
 
     let cred_json = match passkey::create_credential(&start_body).await {
         Ok(j) => {
@@ -613,7 +647,11 @@ async fn run_register_ceremony(
         }
     };
 
-    push_status(&mut status_lines, "Registering credential . . . . .  ", LineState::Working);
+    push_status(
+        &mut status_lines,
+        "Registering credential . . . . .  ",
+        LineState::Working,
+    );
 
     let finish_res = Request::post("/auth/register/finish")
         .header("Content-Type", "application/json")
@@ -625,7 +663,11 @@ async fn run_register_ceremony(
     match finish_res {
         Ok(r) if r.ok() => {
             update_last_status(&mut status_lines, LineState::Ok);
-            push_status(&mut status_lines, "Account provisioned . . . . . . . ", LineState::Ok);
+            push_status(
+                &mut status_lines,
+                "Account provisioned . . . . . . . ",
+                LineState::Ok,
+            );
             auth.set(AuthState::Authenticated(AuthUser {
                 user_id: String::new(),
                 username: email,

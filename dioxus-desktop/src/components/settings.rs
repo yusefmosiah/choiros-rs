@@ -1,70 +1,15 @@
+use std::collections::HashMap;
+
 use dioxus::prelude::*;
 
-use crate::api::files_api::read_file_content;
+use crate::api::{fetch_model_catalog, fetch_model_config, update_model_config, ModelInfo};
 
 use super::styles::CHAT_STYLES;
-
-fn settings_doc_candidates(tab: &str) -> &'static [&'static str] {
-    match tab {
-        "model_config" => &["config/model-catalog.toml"],
-        "runtime" => &["config/runtime-policy.toml"],
-        "ui" => &["config/ui-policy.toml"],
-        _ => &["config/settings.txt"],
-    }
-}
 
 #[component]
 pub fn SettingsView(desktop_id: String, window_id: String) -> Element {
     let _ = (&desktop_id, &window_id);
     let mut active_tab = use_signal(|| "model_config".to_string());
-    let mut doc_content = use_signal(String::new);
-    let mut doc_error = use_signal(|| None::<String>);
-    let mut doc_loading = use_signal(|| false);
-    let mut resolved_doc_path =
-        use_signal(|| settings_doc_candidates("model_config")[0].to_string());
-    let mut refresh_counter = use_signal(|| 0u64);
-    let tab_label = match active_tab().as_str() {
-        "model_config" => "Model Config",
-        "runtime" => "Runtime",
-        "ui" => "UI",
-        _ => "Settings",
-    };
-    let doc_path = resolved_doc_path();
-
-    use_effect(move || {
-        let tab = active_tab();
-        let _refresh = refresh_counter();
-        let candidates = settings_doc_candidates(tab.as_str())
-            .iter()
-            .map(|v| (*v).to_string())
-            .collect::<Vec<_>>();
-        spawn(async move {
-            doc_loading.set(true);
-            doc_error.set(None);
-            let mut last_error = None::<String>;
-
-            for path in candidates {
-                resolved_doc_path.set(path.clone());
-                match read_file_content(&path).await {
-                    Ok(response) => {
-                        doc_content.set(response.content);
-                        doc_error.set(None);
-                        doc_loading.set(false);
-                        return;
-                    }
-                    Err(err) => {
-                        last_error = Some(err);
-                    }
-                }
-            }
-
-            doc_content.set(String::new());
-            doc_error.set(Some(
-                last_error.unwrap_or_else(|| "No candidate settings path matched".to_string()),
-            ));
-            doc_loading.set(false);
-        });
-    });
 
     rsx! {
         style { {CHAT_STYLES} }
@@ -80,43 +25,116 @@ pub fn SettingsView(desktop_id: String, window_id: String) -> Element {
                     onclick: move |_| active_tab.set("model_config".to_string()),
                     "Model Config"
                 }
-                button {
-                    class: "tool-summary",
-                    style: if active_tab() == "runtime" { "text-align:left; width:100%; font-weight:700;" } else { "text-align:left; width:100%;" },
-                    onclick: move |_| active_tab.set("runtime".to_string()),
-                    "Runtime"
-                }
-                button {
-                    class: "tool-summary",
-                    style: if active_tab() == "ui" { "text-align:left; width:100%; font-weight:700;" } else { "text-align:left; width:100%;" },
-                    onclick: move |_| active_tab.set("ui".to_string()),
-                    "UI"
-                }
             }
             div {
                 style: "flex: 1; padding: 0.75rem; overflow: auto; display:flex; flex-direction:column; gap:0.5rem;",
-                div { class: "panel-header",
-                    h3 { "{tab_label}" }
-                    span { class: "panel-status", "Document: {doc_path}" }
+                if active_tab() == "model_config" {
+                    ModelConfigPanel {}
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn ModelConfigPanel() -> Element {
+    let mut models = use_signal(Vec::<ModelInfo>::new);
+    let mut callsites = use_signal(Vec::<String>::new);
+    let mut selections = use_signal(HashMap::<String, String>::new);
+    let mut status_msg = use_signal(|| None::<String>);
+    let mut loading = use_signal(|| true);
+
+    // Load catalog + current config on mount
+    use_effect(move || {
+        spawn(async move {
+            loading.set(true);
+            match fetch_model_catalog().await {
+                Ok(catalog) => {
+                    models.set(catalog.models);
+                    callsites.set(catalog.callsites);
+                    // Start with defaults
+                    let mut sels = catalog.defaults;
+                    // Override with user config
+                    // TODO: get user_id from auth context
+                    if let Ok(config) = fetch_model_config("default").await {
+                        for (k, v) in config.callsite_models {
+                            sels.insert(k, v);
+                        }
+                    }
+                    selections.set(sels);
+                }
+                Err(e) => {
+                    status_msg.set(Some(format!("Failed to load catalog: {e}")));
+                }
+            }
+            loading.set(false);
+        });
+    });
+
+    let on_save = move |_| {
+        let sels = selections();
+        spawn(async move {
+            status_msg.set(Some("Saving...".to_string()));
+            match update_model_config("default", &sels).await {
+                Ok(_) => status_msg.set(Some("Saved".to_string())),
+                Err(e) => status_msg.set(Some(format!("Error: {e}"))),
+            }
+        });
+    };
+
+    rsx! {
+        div { class: "panel-header",
+            h3 { "Model Config" }
+            if let Some(msg) = status_msg() {
+                span { class: "panel-status", "{msg}" }
+            }
+        }
+        if loading() {
+            p { "Loading model catalog..." }
+        } else {
+            div {
+                style: "display: flex; flex-direction: column; gap: 0.75rem;",
+                for callsite in callsites() {
+                    {
+                        let cs = callsite.clone();
+                        let cs2 = callsite.clone();
+                        let current = selections().get(&callsite).cloned().unwrap_or_default();
+                        rsx! {
+                            div {
+                                style: "display: flex; align-items: center; gap: 0.75rem;",
+                                label {
+                                    style: "min-width: 100px; font-weight: 600; text-transform: capitalize;",
+                                    "{cs}"
+                                }
+                                select {
+                                    style: "flex: 1; padding: 0.35rem 0.5rem; background: var(--window-bg, #111827); color: var(--text-color, #e2e8f0); border: 1px solid var(--border-color, #334155); border-radius: 4px;",
+                                    value: "{current}",
+                                    onchange: move |evt: Event<FormData>| {
+                                        let val = evt.value();
+                                        let cs_key = cs2.clone();
+                                        selections.write().insert(cs_key, val);
+                                    },
+                                    for model in models() {
+                                        option {
+                                            value: "{model.id}",
+                                            selected: model.id == current,
+                                            "{model.name}"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                div {
+                    style: "margin-top: 0.5rem;",
                     button {
                         class: "tool-summary",
-                        style: "margin-left: auto; width: auto; padding: 0.2rem 0.55rem;",
-                        onclick: move |_| refresh_counter += 1,
-                        "Refresh"
+                        style: "width: auto; padding: 0.35rem 1rem; font-weight: 600;",
+                        onclick: on_save,
+                        "Save"
                     }
                 }
-                pre {
-                    class: "tool-pre",
-                    style: "flex: 1; min-height: 320px; max-height: none;",
-                    if doc_loading() {
-                        "Loading {doc_path}..."
-                    } else if let Some(err) = doc_error() {
-                        "Failed to load {doc_path}:\n{err}"
-                    } else {
-                        "{doc_content}"
-                    }
-                }
-                p { class: "tool-meta", "Displays live file contents. Use Refresh after external edits." }
             }
         }
     }

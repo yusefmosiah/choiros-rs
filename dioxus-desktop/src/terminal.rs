@@ -337,7 +337,10 @@ fn push_pending_terminal_output(pending_output_chunks: &Rc<RefCell<VecDeque<Stri
     }
 }
 
-fn flush_pending_terminal_output(term_id: u32, pending_output_chunks: &Rc<RefCell<VecDeque<String>>>) {
+fn flush_pending_terminal_output(
+    term_id: u32,
+    pending_output_chunks: &Rc<RefCell<VecDeque<String>>>,
+) {
     let mut pending = pending_output_chunks.borrow_mut();
     while let Some(chunk) = pending.pop_front() {
         write_terminal(term_id, &chunk);

@@ -59,6 +59,12 @@ pub fn router() -> Router<ApiState> {
             "/user/{user_id}/preferences",
             get(user::get_user_preferences).patch(user::update_user_preferences),
         )
+        // Model catalog + per-user model config
+        .route("/models/catalog", get(user::get_model_catalog))
+        .route(
+            "/user/{user_id}/model-config",
+            get(user::get_model_config).patch(user::update_model_config),
+        )
         // Desktop routes
         .route("/desktop/{desktop_id}", get(desktop::get_desktop_state))
         .route(

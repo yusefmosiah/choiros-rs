@@ -662,7 +662,10 @@ mod tests {
         let parsed = parse_prompt_event(&event).expect("writer reprompt prompt event");
 
         assert_eq!(parsed.run_id, "run-writer-1");
-        assert_eq!(parsed.objective, "Revise the document with the user's edits.");
+        assert_eq!(
+            parsed.objective,
+            "Revise the document with the user's edits."
+        );
     }
 
     #[test]

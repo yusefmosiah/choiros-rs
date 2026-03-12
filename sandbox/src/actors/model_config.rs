@@ -153,6 +153,10 @@ impl ModelRegistry {
         ids
     }
 
+    pub fn callsite_defaults(&self) -> HashMap<String, String> {
+        self.routing.callsite_defaults.clone()
+    }
+
     pub fn resolve(
         &self,
         context: &ModelResolutionContext,

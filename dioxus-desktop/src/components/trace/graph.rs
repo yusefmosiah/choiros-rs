@@ -241,11 +241,15 @@ pub fn build_run_graph_summaries(
         if run_event.timestamp > entry.timestamp {
             entry.timestamp = run_event.timestamp.clone();
         }
-        let normalized_status = run_event.status.as_deref().or(match run_event.event_type.as_str() {
-            "conductor.task.completed" => Some("completed"),
-            "conductor.task.failed" => Some("failed"),
-            _ => None,
-        });
+        let normalized_status =
+            run_event
+                .status
+                .as_deref()
+                .or(match run_event.event_type.as_str() {
+                    "conductor.task.completed" => Some("completed"),
+                    "conductor.task.failed" => Some("failed"),
+                    _ => None,
+                });
         match normalized_status {
             Some("completed") => {
                 if run_event.seq >= entry.run_terminal_seq {
@@ -321,15 +325,7 @@ mod tests {
             error_message: None,
         }];
 
-        let summaries = build_run_graph_summaries(
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &run_events,
-            &[],
-        );
+        let summaries = build_run_graph_summaries(&[], &[], &[], &[], &[], &run_events, &[]);
 
         assert_eq!(summaries.len(), 1);
         assert_eq!(summaries[0].run_id, "run-writer-graph");

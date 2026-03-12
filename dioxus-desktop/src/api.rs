@@ -369,6 +369,78 @@ pub async fn update_user_theme_preference(user_id: &str, theme: &str) -> Result<
     Ok(data.theme)
 }
 
+// ── Model catalog + config ──────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ModelInfo {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ModelCatalogResponse {
+    pub models: Vec<ModelInfo>,
+    pub callsites: Vec<String>,
+    pub defaults: std::collections::HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ModelConfigResponse {
+    pub success: bool,
+    pub callsite_models: std::collections::HashMap<String, String>,
+}
+
+pub async fn fetch_model_catalog() -> Result<ModelCatalogResponse, String> {
+    let url = format!("{}/models/catalog", api_base());
+    let response = Request::get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+    if !response.ok() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+    response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))
+}
+
+pub async fn fetch_model_config(user_id: &str) -> Result<ModelConfigResponse, String> {
+    let url = format!("{}/user/{}/model-config", api_base(), user_id);
+    let response = Request::get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+    if !response.ok() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+    response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))
+}
+
+pub async fn update_model_config(
+    user_id: &str,
+    callsite_models: &std::collections::HashMap<String, String>,
+) -> Result<ModelConfigResponse, String> {
+    let url = format!("{}/user/{}/model-config", api_base(), user_id);
+    let body = serde_json::json!({ "callsite_models": callsite_models });
+    let response = Request::patch(&url)
+        .json(&body)
+        .map_err(|e| format!("Failed to serialize: {e}"))?
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+    if !response.ok() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+    response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {e}"))
+}
+
 pub async fn close_window(desktop_id: &str, window_id: &str) -> Result<(), String> {
     let url = format!(
         "{}/desktop/{}/windows/{}",
