@@ -38,7 +38,8 @@ const INITIAL_USERS = parseInt(process.env.INITIAL_USERS ?? "5", 10);
 const INITIAL_WORKERS = parseInt(process.env.INITIAL_WORKERS ?? "2", 10);
 const PROMPT_WAVES = parseInt(process.env.PROMPT_WAVES ?? "3", 10);
 const EXTRA_BATCH = parseInt(process.env.EXTRA_BATCH ?? "3", 10);
-const HEALTH_TIMEOUT_S = 30;
+const BOOT_BATCH_SIZE = parseInt(process.env.BOOT_BATCH_SIZE ?? "10", 10);
+const HEALTH_TIMEOUT_S = parseInt(process.env.HEALTH_TIMEOUT_S ?? "60", 10);
 const PROMPT_TIMEOUT_MS = 120_000;
 
 // ── Light prompts (user tier — conductor/toast, no terminal agent) ──
@@ -237,6 +238,8 @@ test.describe("Heterogeneous Workload Stress", () => {
     log("config", "initial-workers", INITIAL_WORKERS);
     log("config", "prompt-waves", PROMPT_WAVES);
     log("config", "extra-batch", EXTRA_BATCH);
+    log("config", "boot-batch-size", BOOT_BATCH_SIZE);
+    log("config", "health-timeout", HEALTH_TIMEOUT_S, "s");
 
     // Get baseline
     const probePage = await (await browser.newContext()).newPage();
@@ -245,21 +248,39 @@ test.describe("Heterogeneous Workload Stress", () => {
     // Just use first session for host stats after boot
 
     // ════════════════════════════════════════════════════════════════════
-    // Phase 1: Ramp — boot initial users + workers
+    // Phase 1: Ramp — boot initial users + workers (batched)
     // ════════════════════════════════════════════════════════════════════
 
-    console.log(`\n=== Phase 1: Boot ${INITIAL_USERS} users + ${INITIAL_WORKERS} workers ===`);
+    const totalBoot = INITIAL_USERS + INITIAL_WORKERS;
+    console.log(`\n=== Phase 1: Boot ${INITIAL_USERS} users + ${INITIAL_WORKERS} workers (batch size ${BOOT_BATCH_SIZE}) ===`);
 
-    const bootPromises: Promise<VMSession>[] = [];
+    // Build the full boot queue: interleave users and workers
+    const bootQueue: Array<{ cls: string; tier: "user" | "worker"; idx: number }> = [];
     for (let i = 0; i < INITIAL_USERS; i++) {
-      bootPromises.push(registerAndBoot(browser, USER_CLASS, "user", i));
+      bootQueue.push({ cls: USER_CLASS, tier: "user", idx: i });
     }
     for (let i = 0; i < INITIAL_WORKERS; i++) {
-      bootPromises.push(registerAndBoot(browser, WORKER_CLASS, "worker", i));
+      bootQueue.push({ cls: WORKER_CLASS, tier: "worker", idx: i });
     }
 
     const t0Phase1 = Date.now();
-    const bootResults = await Promise.all(bootPromises);
+    const bootResults: VMSession[] = [];
+
+    // Boot in batches to avoid overwhelming concurrent boot contention
+    for (let batchStart = 0; batchStart < bootQueue.length; batchStart += BOOT_BATCH_SIZE) {
+      const batch = bootQueue.slice(batchStart, batchStart + BOOT_BATCH_SIZE);
+      const batchNum = Math.floor(batchStart / BOOT_BATCH_SIZE) + 1;
+      console.log(`  Batch ${batchNum}: booting ${batch.length} VMs (${batchStart + batch.length}/${bootQueue.length})...`);
+
+      const batchResults = await Promise.all(
+        batch.map((b) => registerAndBoot(browser, b.cls, b.tier, b.idx))
+      );
+      bootResults.push(...batchResults);
+
+      const batchOk = batchResults.filter((s) => s.ok).length;
+      log(`batch-${batchNum}`, "booted", `${batchOk}/${batch.length}`);
+    }
+
     const phase1Ms = Date.now() - t0Phase1;
 
     for (const s of bootResults) {

@@ -79,6 +79,7 @@ export default defineConfig({
         "machine-class-matrix.spec.ts",
         "heterogeneous-capacity.spec.ts",
         "heterogeneous-workload-stress.spec.ts",
+        "compute-workload-stress.spec.ts",
       ],
       use: {
         baseURL: hypervisorBaseUrl,
