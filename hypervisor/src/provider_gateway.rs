@@ -456,6 +456,12 @@ fn provider_key_for_upstream(
             "inception_api_key",
             UpstreamAuthMode::Bearer,
         )
+    } else if upstream_base_url.contains("openrouter.ai") {
+        (
+            "OPENROUTER_API_KEY",
+            "openrouter_api_key",
+            UpstreamAuthMode::Bearer,
+        )
     } else if upstream_base_url.contains("api.tavily.com") {
         ("TAVILY_API_KEY", "tavily_api_key", UpstreamAuthMode::Bearer)
     } else if upstream_base_url.contains("api.search.brave.com") {
@@ -725,9 +731,16 @@ mod tests {
         assert_eq!(inception, "i-key");
         assert_eq!(inception_mode, UpstreamAuthMode::Bearer);
 
+        std::env::set_var("OPENROUTER_API_KEY", "or-key");
+        let (openrouter, openrouter_mode) =
+            provider_key_for_upstream("https://openrouter.ai/api/v1").expect("openrouter key");
+        assert_eq!(openrouter, "or-key");
+        assert_eq!(openrouter_mode, UpstreamAuthMode::Bearer);
+
         std::env::remove_var("TAVILY_API_KEY");
         std::env::remove_var("BRAVE_API_KEY");
         std::env::remove_var("EXA_API_KEY");
         std::env::remove_var("INCEPTION_API_KEY");
+        std::env::remove_var("OPENROUTER_API_KEY");
     }
 }

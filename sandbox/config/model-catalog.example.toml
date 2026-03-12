@@ -9,7 +9,10 @@ allowed_models = [
   "ZaiGLM47",
   "ZaiGLM47Flash",
   "KimiK25",
-  "InceptionMercury2"
+  "InceptionMercury2",
+  "OpenRouterHunterAlpha",
+  "OpenRouterHealerAlpha",
+  "OpenRouterNemotron"
 ]
 
 [callsite_defaults]
@@ -106,6 +109,42 @@ base_url = "https://api.inceptionlabs.ai/v1"
 api_key_env = "INCEPTION_API_KEY"
 model = "mercury-2"
 aliases = ["InceptionMercury2", "mercury-2"]
+
+[models.OpenRouterHunterAlpha]
+name = "Hunter Alpha (OpenRouter, free)"
+provider = "openai-generic"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+model = "openrouter/hunter-alpha"
+aliases = ["OpenRouterHunterAlpha", "hunter-alpha"]
+
+[models.OpenRouterHunterAlpha.headers]
+HTTP-Referer = "https://choir-ip.com"
+X-Title = "ChoirOS"
+
+[models.OpenRouterHealerAlpha]
+name = "Healer Alpha (OpenRouter, free)"
+provider = "openai-generic"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+model = "openrouter/healer-alpha"
+aliases = ["OpenRouterHealerAlpha", "healer-alpha"]
+
+[models.OpenRouterHealerAlpha.headers]
+HTTP-Referer = "https://choir-ip.com"
+X-Title = "ChoirOS"
+
+[models.OpenRouterNemotron]
+name = "Nemotron 3 Super 120B (OpenRouter, free)"
+provider = "openai-generic"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+model = "nvidia/nemotron-3-super-120b-a12b:free"
+aliases = ["OpenRouterNemotron", "nemotron"]
+
+[models.OpenRouterNemotron.headers]
+HTTP-Referer = "https://choir-ip.com"
+X-Title = "ChoirOS"
 
 # [models.KimiK25Fallback]
 # name = "Kimi K2.5 Fallback"

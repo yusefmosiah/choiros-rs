@@ -241,6 +241,7 @@
         "kimi_api_key:/run/choiros/credentials/platform/kimi_api_key"
         "openai_api_key:/run/choiros/credentials/platform/openai_api_key"
         "inception_api_key:/run/choiros/credentials/platform/inception_api_key"
+        "openrouter_api_key:/run/choiros/credentials/platform/openrouter_api_key"
         "tavily_api_key:/run/choiros/credentials/platform/tavily_api_key"
         "brave_api_key:/run/choiros/credentials/platform/brave_api_key"
         "exa_api_key:/run/choiros/credentials/platform/exa_api_key"

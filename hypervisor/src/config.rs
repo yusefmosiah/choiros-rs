@@ -158,6 +158,7 @@ impl Config {
                     "https://api.kimi.com/coding/",
                     "https://api.openai.com",
                     "https://api.inceptionlabs.ai/v1",
+                    "https://openrouter.ai/api/v1",
                     "https://api.tavily.com",
                     "https://api.search.brave.com",
                     "https://api.exa.ai",

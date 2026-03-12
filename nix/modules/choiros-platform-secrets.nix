@@ -10,6 +10,7 @@ let
     (mkCredentialEntry "kimi_api_key" cfg.credentialPaths.KIMI_API_KEY)
     (mkCredentialEntry "openai_api_key" cfg.credentialPaths.OPENAI_API_KEY)
     (mkCredentialEntry "inception_api_key" cfg.credentialPaths.INCEPTION_API_KEY)
+    (mkCredentialEntry "openrouter_api_key" cfg.credentialPaths.OPENROUTER_API_KEY)
     (mkCredentialEntry "tavily_api_key" cfg.credentialPaths.TAVILY_API_KEY)
     (mkCredentialEntry "brave_api_key" cfg.credentialPaths.BRAVE_API_KEY)
     (mkCredentialEntry "exa_api_key" cfg.credentialPaths.EXA_API_KEY)
@@ -47,6 +48,11 @@ in
         type = lib.types.nullOr lib.types.str;
         default = null;
         description = "Absolute host path to Inception Labs API key file.";
+      };
+      OPENROUTER_API_KEY = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "Absolute host path to OpenRouter API key file.";
       };
       TAVILY_API_KEY = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
