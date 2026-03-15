@@ -161,6 +161,8 @@ decoupling for publishing (ADR-0011, P3).
 <details>
 <summary><h2>State (Snapshots & Reports)</h2></summary>
 
+- Secrets Architecture Audit & Scaling Plan — Report (Active) | Requires: [adr-0008, adr-0020, adr-0003]  
+  `docs/state/reports/2026-03-12-secrets-architecture-audit.md`
 - Heterogeneous Workload Stress Test — Report (Active)  
   `docs/state/reports/2026-03-11-heterogeneous-workload-stress.md`
 - Node B E2E Test Report — 2026-03-08 — ? (?)  
@@ -185,6 +187,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/state/reports/2026-03-11-dax-vs-nodax-load-test.md`
 - Machine Class Stress Test Comparison (ADR-0014 Phase 6) — ? (?)  
   `docs/state/reports/2026-03-11-machine-class-stress-comparison.md`
+- 2026-03-15-cagent-docs-landscape-audit — Architecture audit (Complete)  
+  `docs/state/reports/2026-03-15-cagent-docs-landscape-audit.md`
 - ChoirOS Logging Security & Compliance Report — Report (Active)  
   `docs/state/reports/choiros-logging-security-report.md`
 - Conductor E2E Test Intelligence Report — Report (Active)  
@@ -239,6 +243,7 @@ ADR-0016, ADR-0023, ADR-0024 → CI Boundaries and the Bootstrap Thesis
 ADR-0014 → Deferred Machine Class Items
 ADR-0014, ADR-0018 → Snapshot Portability Across VM Sizings
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
+adr-0008, adr-0020, adr-0003 → Secrets Architecture Audit & Scaling Plan
 ```
 
-*Generated 2026-03-11 — 28 practice, 33 theory, 20 state docs.*
+*Generated 2026-03-15 — 28 practice, 33 theory, 22 state docs.*

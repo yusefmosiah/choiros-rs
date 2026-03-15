@@ -130,3 +130,10 @@ skills/dev-browser/node_modules/
 skills/actorcode/node_modules/
 skills/actorcode/package-lock.json
 .actorcode/
+# cagent local state — track DB, ignore artifacts
+.cagent/raw/
+.cagent/jobs/
+.cagent/transfers/
+.cagent/debriefs/
+.cagent/cagent.db-shm
+.cagent/cagent.db-wal
