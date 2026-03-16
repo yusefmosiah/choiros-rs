@@ -6,7 +6,6 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,179 +16,11 @@ use crate::actors::desktop::DesktopActorMsg;
 use crate::actors::event_store::EventStoreMsg;
 use crate::api::ApiState;
 use crate::app_state::AppState;
+pub use shared_types::DesktopWsMessage as WsMessage;
+use shared_types::WriterRunEvent;
 
 /// Shared state for WebSocket sessions
 pub type WsSessions = Arc<Mutex<HashMap<String, HashMap<Uuid, mpsc::UnboundedSender<Message>>>>>;
-
-/// WebSocket message types
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum WsMessage {
-    // Client -> Server
-    #[serde(rename = "subscribe")]
-    Subscribe { desktop_id: String },
-
-    #[serde(rename = "ping")]
-    Ping,
-
-    // Server -> Client
-    #[serde(rename = "pong")]
-    Pong,
-
-    #[serde(rename = "desktop_state")]
-    DesktopState { desktop: shared_types::DesktopState },
-
-    #[serde(rename = "window_opened")]
-    WindowOpened { window: shared_types::WindowState },
-
-    #[serde(rename = "window_closed")]
-    WindowClosed { window_id: String },
-
-    #[serde(rename = "window_moved")]
-    WindowMoved { window_id: String, x: i32, y: i32 },
-
-    #[serde(rename = "window_resized")]
-    WindowResized {
-        window_id: String,
-        width: i32,
-        height: i32,
-    },
-
-    #[serde(rename = "window_focused")]
-    WindowFocused { window_id: String, z_index: u32 },
-
-    #[serde(rename = "window_minimized")]
-    WindowMinimized { window_id: String },
-
-    #[serde(rename = "window_maximized")]
-    WindowMaximized {
-        window_id: String,
-        x: i32,
-        y: i32,
-        width: i32,
-        height: i32,
-    },
-
-    #[serde(rename = "window_restored")]
-    WindowRestored {
-        window_id: String,
-        x: i32,
-        y: i32,
-        width: i32,
-        height: i32,
-        from: String,
-        maximized: bool,
-    },
-
-    #[serde(rename = "app_registered")]
-    AppRegistered { app: shared_types::AppDefinition },
-
-    #[serde(rename = "telemetry")]
-    Telemetry {
-        event_type: String,
-        capability: String,
-        phase: String,
-        importance: String,
-        data: serde_json::Value,
-    },
-
-    /// Document update event for live streaming of conductor run documents
-    #[serde(rename = "conductor.run.document_update")]
-    DocumentUpdate {
-        run_id: String,
-        document_path: String,
-        content_excerpt: String,
-        timestamp: String,
-    },
-
-    #[serde(rename = "writer.run.started")]
-    WriterRunStarted {
-        desktop_id: String,
-        session_id: String,
-        thread_id: String,
-        run_id: String,
-        document_path: String,
-        revision: u64,
-        timestamp: String,
-        objective: String,
-    },
-
-    #[serde(rename = "writer.run.progress")]
-    WriterRunProgress {
-        desktop_id: String,
-        session_id: String,
-        thread_id: String,
-        run_id: String,
-        document_path: String,
-        revision: u64,
-        timestamp: String,
-        phase: String,
-        message: String,
-        progress_pct: Option<u8>,
-        source_refs: Vec<String>,
-    },
-
-    #[serde(rename = "writer.run.patch")]
-    WriterRunPatch {
-        desktop_id: String,
-        session_id: String,
-        thread_id: String,
-        run_id: String,
-        document_path: String,
-        revision: u64,
-        timestamp: String,
-        patch_id: String,
-        source: shared_types::PatchSource,
-        section_id: Option<String>,
-        ops: Vec<shared_types::PatchOp>,
-        proposal: Option<String>,
-        base_version_id: Option<u64>,
-        target_version_id: Option<u64>,
-        overlay_id: Option<String>,
-    },
-
-    #[serde(rename = "writer.run.status")]
-    WriterRunStatus {
-        desktop_id: String,
-        session_id: String,
-        thread_id: String,
-        run_id: String,
-        document_path: String,
-        revision: u64,
-        timestamp: String,
-        status: shared_types::WriterRunStatusKind,
-        message: Option<String>,
-    },
-
-    #[serde(rename = "writer.run.failed")]
-    WriterRunFailed {
-        desktop_id: String,
-        session_id: String,
-        thread_id: String,
-        run_id: String,
-        document_path: String,
-        revision: u64,
-        timestamp: String,
-        error_code: String,
-        error_message: String,
-        failure_kind: Option<shared_types::FailureKind>,
-    },
-
-    #[serde(rename = "writer.run.changeset")]
-    WriterRunChangeset {
-        desktop_id: String,
-        run_id: String,
-        patch_id: String,
-        target_version_id: u64,
-        source: String,
-        summary: String,
-        impact: String,
-        op_taxonomy: Vec<String>,
-    },
-
-    #[serde(rename = "error")]
-    Error { message: String },
-}
 
 /// WebSocket handler
 pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<ApiState>) -> impl IntoResponse {
@@ -309,198 +140,72 @@ pub async fn broadcast_event(sessions: &WsSessions, desktop_id: &str, event: WsM
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct WriterRunBasePayload {
-    desktop_id: String,
-    session_id: String,
-    thread_id: String,
-    run_id: String,
-    document_path: String,
-    revision: u64,
-    timestamp: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct WriterRunStartedPayload {
-    #[serde(flatten)]
-    base: WriterRunBasePayload,
-    objective: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct WriterRunProgressPayload {
-    #[serde(flatten)]
-    base: WriterRunBasePayload,
-    phase: String,
-    message: String,
-    progress_pct: Option<u8>,
-    source_refs: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct WriterRunPatchPayload {
-    #[serde(flatten)]
-    base: WriterRunBasePayload,
-    patch_id: String,
-    source: shared_types::PatchSource,
-    section_id: Option<String>,
-    ops: Vec<shared_types::PatchOp>,
-    proposal: Option<String>,
-    base_version_id: Option<u64>,
-    target_version_id: Option<u64>,
-    overlay_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct WriterRunStatusPayload {
-    #[serde(flatten)]
-    base: WriterRunBasePayload,
-    status: shared_types::WriterRunStatusKind,
-    message: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct WriterRunFailedPayload {
-    #[serde(flatten)]
-    base: WriterRunBasePayload,
-    error_code: String,
-    error_message: String,
-    failure_kind: Option<shared_types::FailureKind>,
-}
-
-#[derive(Debug, Deserialize)]
-struct WriterRunChangesetPayload {
-    desktop_id: String,
-    run_id: String,
-    patch_id: String,
-    target_version_id: u64,
-    source: String,
-    summary: String,
-    impact: String,
-    op_taxonomy: Vec<String>,
-}
-
 fn writer_ws_message_from_event(
     event_type: &str,
     payload: &serde_json::Value,
 ) -> Option<(String, WsMessage)> {
-    match event_type {
-        "writer.run.started" => {
-            let parsed: WriterRunStartedPayload = serde_json::from_value(payload.clone()).ok()?;
-            let desktop_id = parsed.base.desktop_id.clone();
-            Some((
-                desktop_id,
-                WsMessage::WriterRunStarted {
-                    desktop_id: parsed.base.desktop_id,
-                    session_id: parsed.base.session_id,
-                    thread_id: parsed.base.thread_id,
-                    run_id: parsed.base.run_id,
-                    document_path: parsed.base.document_path,
-                    revision: parsed.base.revision,
-                    timestamp: parsed.base.timestamp,
-                    objective: parsed.objective,
-                },
-            ))
-        }
-        "writer.run.progress" => {
-            let parsed: WriterRunProgressPayload = serde_json::from_value(payload.clone()).ok()?;
-            let desktop_id = parsed.base.desktop_id.clone();
-            Some((
-                desktop_id,
-                WsMessage::WriterRunProgress {
-                    desktop_id: parsed.base.desktop_id,
-                    session_id: parsed.base.session_id,
-                    thread_id: parsed.base.thread_id,
-                    run_id: parsed.base.run_id,
-                    document_path: parsed.base.document_path,
-                    revision: parsed.base.revision,
-                    timestamp: parsed.base.timestamp,
-                    phase: parsed.phase,
-                    message: parsed.message,
-                    progress_pct: parsed.progress_pct,
-                    source_refs: parsed.source_refs,
-                },
-            ))
-        }
-        "writer.run.patch" => {
-            let parsed: WriterRunPatchPayload = serde_json::from_value(payload.clone()).ok()?;
-            let desktop_id = parsed.base.desktop_id.clone();
-            Some((
-                desktop_id,
-                WsMessage::WriterRunPatch {
-                    desktop_id: parsed.base.desktop_id,
-                    session_id: parsed.base.session_id,
-                    thread_id: parsed.base.thread_id,
-                    run_id: parsed.base.run_id,
-                    document_path: parsed.base.document_path,
-                    revision: parsed.base.revision,
-                    timestamp: parsed.base.timestamp,
-                    patch_id: parsed.patch_id,
-                    source: parsed.source,
-                    section_id: parsed.section_id,
-                    ops: parsed.ops,
-                    proposal: parsed.proposal,
-                    base_version_id: parsed.base_version_id,
-                    target_version_id: parsed.target_version_id,
-                    overlay_id: parsed.overlay_id,
-                },
-            ))
-        }
-        "writer.run.status" => {
-            let parsed: WriterRunStatusPayload = serde_json::from_value(payload.clone()).ok()?;
-            let desktop_id = parsed.base.desktop_id.clone();
-            Some((
-                desktop_id,
-                WsMessage::WriterRunStatus {
-                    desktop_id: parsed.base.desktop_id,
-                    session_id: parsed.base.session_id,
-                    thread_id: parsed.base.thread_id,
-                    run_id: parsed.base.run_id,
-                    document_path: parsed.base.document_path,
-                    revision: parsed.base.revision,
-                    timestamp: parsed.base.timestamp,
-                    status: parsed.status,
-                    message: parsed.message,
-                },
-            ))
-        }
-        "writer.run.failed" => {
-            let parsed: WriterRunFailedPayload = serde_json::from_value(payload.clone()).ok()?;
-            let desktop_id = parsed.base.desktop_id.clone();
-            Some((
-                desktop_id,
-                WsMessage::WriterRunFailed {
-                    desktop_id: parsed.base.desktop_id,
-                    session_id: parsed.base.session_id,
-                    thread_id: parsed.base.thread_id,
-                    run_id: parsed.base.run_id,
-                    document_path: parsed.base.document_path,
-                    revision: parsed.base.revision,
-                    timestamp: parsed.base.timestamp,
-                    error_code: parsed.error_code,
-                    error_message: parsed.error_message,
-                    failure_kind: parsed.failure_kind,
-                },
-            ))
-        }
-        "writer.run.changeset" => {
-            let parsed: WriterRunChangesetPayload = serde_json::from_value(payload.clone()).ok()?;
-            let desktop_id = parsed.desktop_id.clone();
-            Some((
-                desktop_id,
-                WsMessage::WriterRunChangeset {
-                    desktop_id: parsed.desktop_id,
-                    run_id: parsed.run_id,
-                    patch_id: parsed.patch_id,
-                    target_version_id: parsed.target_version_id,
-                    source: parsed.source,
-                    summary: parsed.summary,
-                    impact: parsed.impact,
-                    op_taxonomy: parsed.op_taxonomy,
-                },
-            ))
-        }
-        _ => None,
+    let mut writer_event_payload = payload.clone();
+    writer_event_payload.as_object_mut()?.insert(
+        "event_type".to_string(),
+        serde_json::Value::String(event_type.to_string()),
+    );
+    let writer_event: WriterRunEvent = serde_json::from_value(writer_event_payload).ok()?;
+
+    match writer_event {
+        WriterRunEvent::Started { base, objective } => Some((
+            base.desktop_id.clone(),
+            WsMessage::WriterRunStarted { base, objective },
+        )),
+        WriterRunEvent::Progress {
+            base,
+            phase,
+            message,
+            progress_pct,
+            source_refs,
+        } => Some((
+            base.desktop_id.clone(),
+            WsMessage::WriterRunProgress {
+                base,
+                phase,
+                message,
+                progress_pct,
+                source_refs,
+            },
+        )),
+        WriterRunEvent::Patch { base, payload } => Some((
+            base.desktop_id.clone(),
+            WsMessage::WriterRunPatch { base, payload },
+        )),
+        WriterRunEvent::Changeset { base, payload } => Some((
+            base.desktop_id.clone(),
+            WsMessage::WriterRunChangeset { base, payload },
+        )),
+        WriterRunEvent::Status {
+            base,
+            status,
+            message,
+        } => Some((
+            base.desktop_id.clone(),
+            WsMessage::WriterRunStatus {
+                base,
+                status,
+                message,
+            },
+        )),
+        WriterRunEvent::Failed {
+            base,
+            error_code,
+            error_message,
+            failure_kind,
+        } => Some((
+            base.desktop_id.clone(),
+            WsMessage::WriterRunFailed {
+                base,
+                error_code,
+                error_message,
+                failure_kind,
+            },
+        )),
     }
 }
 
@@ -589,6 +294,57 @@ fn send_json(tx: &mpsc::UnboundedSender<Message>, msg: &WsMessage) -> bool {
         Err(e) => {
             tracing::error!("Failed to serialize WS message: {}", e);
             false
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{writer_ws_message_from_event, WsMessage};
+    use serde_json::json;
+
+    #[test]
+    fn changeset_ws_message_preserves_writer_run_base_fields() {
+        let payload = json!({
+            "desktop_id": "desktop-1",
+            "session_id": "session-1",
+            "thread_id": "thread-1",
+            "run_id": "run-1",
+            "document_path": "conductor/runs/run-1/draft.md",
+            "revision": 7,
+            "head_version_id": 3,
+            "timestamp": "2026-03-13T22:00:00Z",
+            "patch_id": "patch-1",
+            "loop_id": "loop-1",
+            "target_version_id": 3,
+            "source": "writer",
+            "summary": "Added a tighter summary paragraph.",
+            "impact": "medium",
+            "op_taxonomy": ["insert", "clarification"]
+        });
+
+        let (_, message) = writer_ws_message_from_event("writer.run.changeset", &payload)
+            .expect("changeset should map to websocket message");
+
+        match message {
+            WsMessage::WriterRunChangeset { base, payload } => {
+                assert_eq!(base.desktop_id, "desktop-1");
+                assert_eq!(base.session_id, "session-1");
+                assert_eq!(base.thread_id, "thread-1");
+                assert_eq!(base.run_id, "run-1");
+                assert_eq!(base.document_path, "conductor/runs/run-1/draft.md");
+                assert_eq!(base.revision, 7);
+                assert_eq!(base.head_version_id, Some(3));
+                assert_eq!(base.timestamp.to_rfc3339(), "2026-03-13T22:00:00+00:00");
+                assert_eq!(payload.patch_id, "patch-1");
+                assert_eq!(payload.loop_id.as_deref(), Some("loop-1"));
+                assert_eq!(payload.target_version_id, Some(3));
+                assert_eq!(payload.source.as_deref(), Some("writer"));
+                assert_eq!(payload.summary, "Added a tighter summary paragraph.");
+                assert_eq!(payload.impact, shared_types::ChangesetImpact::Medium);
+                assert_eq!(payload.op_taxonomy, vec!["insert", "clarification"]);
+            }
+            other => panic!("unexpected websocket message: {other:?}"),
         }
     }
 }

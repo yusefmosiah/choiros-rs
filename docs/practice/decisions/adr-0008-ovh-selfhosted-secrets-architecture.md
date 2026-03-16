@@ -252,7 +252,7 @@ Primary references used for this ADR:
 ## Repo References
 
 1. Existing ADR boundary and missing user-secret implementation:
-   - `docs/architecture/adr-0003-hypervisor-sandbox-secrets-boundary.md`
+   - `docs/theory/decisions/adr-0003-hypervisor-sandbox-secrets-boundary.md`
 2. Legacy committed encrypted secrets path (removed from repo):
    - `infra/secrets/choiros-platform.secrets.sops.yaml`
 3. Control-plane credential wiring module (LoadCredential-based):

@@ -548,7 +548,7 @@ async fn tier1_decide_eval() {
                     Ok(decision) => {
                         let tool_names: Vec<String> =
                             decision.tool_calls.iter().map(extract_tool_name).collect();
-                        let decision_message = decision.message.as_deref().unwrap_or("");
+                        let decision_message = &decision.message;
                         let grade =
                             grade_decide(expect_tc, &acceptable, &tool_names, decision_message);
                         EvalResult {

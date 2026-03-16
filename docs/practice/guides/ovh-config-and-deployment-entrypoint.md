@@ -50,33 +50,33 @@ If you have been away for a few days, read this file first. It gives:
 
 Read these in order:
 
-1. [Narrative Index](../architecture/NARRATIVE_INDEX.md)
-2. [Wave Plan: Local -> OVH -> Publishing](../architecture/2026-02-28-wave-plan-local-to-ovh-bootstrap.md)
-3. [ADR-0012: OVH US-East Secrets + Two-Node Lifecycle](../architecture/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md)
-4. [OVH US-East Bootstrap Runbook](./ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md)
+1. [Atlas](../../ATLAS.md)
+2. [Wave Plan: Local -> OVH -> Publishing (archive)](../../archive/2026-02-28-wave-plan-local-to-ovh-bootstrap.md)
+3. [ADR-0012: OVH US-East Secrets + Two-Node Lifecycle](../decisions/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md)
+4. [OVH US-East Bootstrap Runbook (archive)](../../archive/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md)
 5. [Platform Secrets Policy Runbook](./platform-secrets-sops-nix.md)
-6. [ADR-0010: Minimal 80/20 VM Lifecycle API](../architecture/adr-0010-ovh-bootstrap-vm-fleet-capacity-and-minimal-lifecycle-api.md)
-7. [ADR-0011: Bootstrap Into Publishing](../architecture/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md)
+6. [ADR-0010: Minimal 80/20 VM Lifecycle API (archive)](../../archive/adr-0010-ovh-bootstrap-vm-fleet-capacity-and-minimal-lifecycle-api.md)
+7. [ADR-0011: Bootstrap Into Publishing](../../theory/decisions/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md)
 
 ## Document Map by Task
 
 1. Big-picture status and sequence:
-   1. [Wave Plan](../architecture/2026-02-28-wave-plan-local-to-ovh-bootstrap.md)
-   2. [Roadmap Dependency Tree](../architecture/roadmap-dependency-tree.md)
+   1. [Wave Plan (archive)](../../archive/2026-02-28-wave-plan-local-to-ovh-bootstrap.md)
+   2. [Roadmap Dependency Tree (archive)](../../archive/roadmap-dependency-tree.md)
 2. OVH account, secrets, and trust boundaries:
-   1. [ADR-0008](../architecture/adr-0008-ovh-selfhosted-secrets-architecture.md)
-   2. [ADR-0012](../architecture/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md)
-   3. [OVH US-East Bootstrap Runbook](./ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md)
+   1. [ADR-0008](../decisions/adr-0008-ovh-selfhosted-secrets-architecture.md)
+   2. [ADR-0012](../decisions/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md)
+   3. [OVH US-East Bootstrap Runbook (archive)](../../archive/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md)
 3. Runtime lifecycle and capacity:
-   1. [ADR-0010](../architecture/adr-0010-ovh-bootstrap-vm-fleet-capacity-and-minimal-lifecycle-api.md)
-   2. [3-Tier Gap Closure Plan](../architecture/2026-02-28-3-tier-gap-closure-plan.md)
+   1. [ADR-0010 (archive)](../../archive/adr-0010-ovh-bootstrap-vm-fleet-capacity-and-minimal-lifecycle-api.md)
+   2. [3-Tier Gap Closure Plan (archive)](../../archive/2026-02-28-3-tier-gap-closure-plan.md)
 4. Local proof and deployment-shape gates:
-   1. [Local vfkit NixOS Miniguide](./2026-02-28-local-vfkit-nixos-miniguide.md)
+   1. [Local vfkit NixOS Miniguide](./local-vfkit-nixos-miniguide.md)
    2. [vfkit Local Proof](./vfkit-local-proof.md)
    3. [Local Provider Matrix Validation](./local-provider-matrix-validation.md)
 5. Current ops checkpoint and next steps:
-   1. [Deployment Checkpoint (2026-03-05)](./2026-03-05-deployment-checkpoint-and-next-steps.md)
-   2. [Archive index](../archive/README.md)
+   1. [OVH Bootstrap Current Status Snapshot](../../state/snapshots/2026-03-04-231800-ovh-bootstrap-current-status.md)
+   2. [Archive index](../../archive/README.md)
 
 ## Execution Checklist (Current)
 
@@ -104,6 +104,8 @@ Out of scope:
 
 ## Operator Notes
 
-1. Prioritize authoritative docs under `docs/architecture` and `docs/runbooks`.
+1. Prioritize authoritative docs under `docs/practice/`, then use `docs/theory/` for
+   planned changes and `docs/state/` for recent evidence.
 2. Treat `docs/archive/*` as historical context only.
-3. If a conflict appears between docs, prefer newer ADR status + wave plan order.
+3. If a conflict appears between docs, prefer `docs/practice/` for current truth, `docs/theory/`
+   for active design direction, and `docs/state/` for the latest evidence.

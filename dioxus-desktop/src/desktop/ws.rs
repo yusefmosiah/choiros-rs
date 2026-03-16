@@ -3,8 +3,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use shared_types::{
-    ChangesetImpact, DesktopState, FailureKind, PatchOp, PatchSource, WindowState,
-    WriterRunEventBase, WriterRunPatchPayload, WriterRunStatusKind,
+    AppDefinition, ChangesetImpact, DesktopState, DesktopWsMessage, EventImportance,
+    FailureKind, WindowState, WriterRunEventBase, WriterRunPatchPayload, WriterRunStatusKind,
 };
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -24,6 +24,7 @@ pub enum WsEvent {
     Connected,
     Disconnected,
     DesktopStateUpdate(DesktopState),
+    AppRegistered(AppDefinition),
     WindowOpened(WindowState),
     WindowClosed(String),
     WindowMoved {
@@ -139,374 +140,132 @@ pub fn http_to_ws_url(http_url: &str) -> String {
 }
 
 pub fn parse_ws_message(payload: &str) -> Option<WsEvent> {
-    let json = serde_json::from_str::<serde_json::Value>(payload).ok()?;
-    let msg_type = json.get("type")?.as_str()?;
+    let message: DesktopWsMessage = serde_json::from_str(payload).ok()?;
 
-    match msg_type {
-        "pong" => Some(WsEvent::Pong),
-        "desktop_state" => {
-            serde_json::from_value::<DesktopState>(json.get("desktop").cloned().unwrap_or_default())
-                .ok()
-                .map(WsEvent::DesktopStateUpdate)
+    match message {
+        DesktopWsMessage::Pong => Some(WsEvent::Pong),
+        DesktopWsMessage::DesktopState { desktop } => Some(WsEvent::DesktopStateUpdate(desktop)),
+        DesktopWsMessage::AppRegistered { app } => Some(WsEvent::AppRegistered(app)),
+        DesktopWsMessage::WindowOpened { window } => Some(WsEvent::WindowOpened(window)),
+        DesktopWsMessage::WindowClosed { window_id } => Some(WsEvent::WindowClosed(window_id)),
+        DesktopWsMessage::WindowMoved { window_id, x, y } => {
+            Some(WsEvent::WindowMoved { window_id, x, y })
         }
-        "window_opened" => {
-            serde_json::from_value::<WindowState>(json.get("window").cloned().unwrap_or_default())
-                .ok()
-                .map(WsEvent::WindowOpened)
+        DesktopWsMessage::WindowResized {
+            window_id,
+            width,
+            height,
+        } => Some(WsEvent::WindowResized {
+            window_id,
+            width,
+            height,
+        }),
+        DesktopWsMessage::WindowFocused { window_id, z_index } => {
+            Some(WsEvent::WindowFocused { window_id, z_index })
         }
-        "window_closed" => json
-            .get("window_id")
-            .and_then(|v| v.as_str())
-            .map(|window_id| WsEvent::WindowClosed(window_id.to_string())),
-        "window_moved" => {
-            if let (Some(window_id), Some(x), Some(y)) = (
-                json.get("window_id").and_then(|v| v.as_str()),
-                json.get("x").and_then(|v| v.as_i64()),
-                json.get("y").and_then(|v| v.as_i64()),
-            ) {
-                Some(WsEvent::WindowMoved {
-                    window_id: window_id.to_string(),
-                    x: x as i32,
-                    y: y as i32,
-                })
-            } else {
-                None
-            }
+        DesktopWsMessage::WindowMinimized { window_id } => Some(WsEvent::WindowMinimized(window_id)),
+        DesktopWsMessage::WindowMaximized {
+            window_id,
+            x,
+            y,
+            width,
+            height,
+        } => Some(WsEvent::WindowMaximized {
+            window_id,
+            x,
+            y,
+            width,
+            height,
+        }),
+        DesktopWsMessage::WindowRestored {
+            window_id,
+            x,
+            y,
+            width,
+            height,
+            from: _,
+            maximized,
+        } => Some(WsEvent::WindowRestored {
+            window_id,
+            x,
+            y,
+            width,
+            height,
+            maximized,
+        }),
+        DesktopWsMessage::Telemetry { payload } => Some(WsEvent::Telemetry {
+            event_type: payload.event_type,
+            capability: payload.capability,
+            phase: payload.phase,
+            importance: importance_to_string(payload.importance),
+            data: payload.data,
+        }),
+        DesktopWsMessage::DocumentUpdate { payload } => Some(WsEvent::DocumentUpdate {
+            run_id: payload.run_id,
+            document_path: payload.document_path,
+            content_excerpt: payload.content_excerpt,
+            timestamp: payload.timestamp,
+        }),
+        DesktopWsMessage::WriterRunStarted { base, objective } => {
+            Some(WsEvent::WriterRunStarted { base, objective })
         }
-        "window_resized" => {
-            if let (Some(window_id), Some(width), Some(height)) = (
-                json.get("window_id").and_then(|v| v.as_str()),
-                json.get("width").and_then(|v| v.as_i64()),
-                json.get("height").and_then(|v| v.as_i64()),
-            ) {
-                Some(WsEvent::WindowResized {
-                    window_id: window_id.to_string(),
-                    width: width as i32,
-                    height: height as i32,
-                })
-            } else {
-                None
-            }
+        DesktopWsMessage::WriterRunProgress {
+            base,
+            phase,
+            message,
+            progress_pct,
+            source_refs,
+        } => Some(WsEvent::WriterRunProgress {
+            base,
+            phase,
+            message,
+            progress_pct,
+            source_refs,
+        }),
+        DesktopWsMessage::WriterRunPatch { base, payload } => {
+            Some(WsEvent::WriterRunPatch { base, payload })
         }
-        "window_focused" => {
-            if let (Some(window_id), Some(z_index)) = (
-                json.get("window_id").and_then(|v| v.as_str()),
-                json.get("z_index").and_then(|v| v.as_u64()),
-            ) {
-                Some(WsEvent::WindowFocused {
-                    window_id: window_id.to_string(),
-                    z_index: z_index as u32,
-                })
-            } else {
-                None
-            }
+        DesktopWsMessage::WriterRunStatus {
+            base,
+            status,
+            message,
+        } => Some(WsEvent::WriterRunStatus {
+            base,
+            status,
+            message,
+        }),
+        DesktopWsMessage::WriterRunFailed {
+            base,
+            error_code,
+            error_message,
+            failure_kind,
+        } => Some(WsEvent::WriterRunFailed {
+            base,
+            error_code,
+            error_message,
+            failure_kind,
+        }),
+        DesktopWsMessage::WriterRunChangeset { base, payload } => {
+            Some(WsEvent::WriterRunChangeset {
+                base,
+                patch_id: payload.patch_id,
+                loop_id: payload.loop_id,
+                summary: payload.summary,
+                impact: payload.impact,
+                op_taxonomy: payload.op_taxonomy,
+            })
         }
-        "window_minimized" => json
-            .get("window_id")
-            .and_then(|v| v.as_str())
-            .map(|window_id| WsEvent::WindowMinimized(window_id.to_string())),
-        "window_maximized" => {
-            if let (Some(window_id), Some(x), Some(y), Some(width), Some(height)) = (
-                json.get("window_id").and_then(|v| v.as_str()),
-                json.get("x").and_then(|v| v.as_i64()),
-                json.get("y").and_then(|v| v.as_i64()),
-                json.get("width").and_then(|v| v.as_i64()),
-                json.get("height").and_then(|v| v.as_i64()),
-            ) {
-                Some(WsEvent::WindowMaximized {
-                    window_id: window_id.to_string(),
-                    x: x as i32,
-                    y: y as i32,
-                    width: width as i32,
-                    height: height as i32,
-                })
-            } else {
-                None
-            }
-        }
-        "window_restored" => {
-            if let (
-                Some(window_id),
-                Some(x),
-                Some(y),
-                Some(width),
-                Some(height),
-                Some(_from),
-                Some(maximized),
-            ) = (
-                json.get("window_id").and_then(|v| v.as_str()),
-                json.get("x").and_then(|v| v.as_i64()),
-                json.get("y").and_then(|v| v.as_i64()),
-                json.get("width").and_then(|v| v.as_i64()),
-                json.get("height").and_then(|v| v.as_i64()),
-                json.get("from").and_then(|v| v.as_str()),
-                json.get("maximized").and_then(|v| v.as_bool()),
-            ) {
-                Some(WsEvent::WindowRestored {
-                    window_id: window_id.to_string(),
-                    x: x as i32,
-                    y: y as i32,
-                    width: width as i32,
-                    height: height as i32,
-                    maximized,
-                })
-            } else {
-                None
-            }
-        }
-        "telemetry" => {
-            if let (Some(event_type), Some(capability), Some(phase), Some(importance)) = (
-                json.get("event_type").and_then(|v| v.as_str()),
-                json.get("capability").and_then(|v| v.as_str()),
-                json.get("phase").and_then(|v| v.as_str()),
-                json.get("importance").and_then(|v| v.as_str()),
-            ) {
-                let data = json.get("data").cloned().unwrap_or_default();
-                Some(WsEvent::Telemetry {
-                    event_type: event_type.to_string(),
-                    capability: capability.to_string(),
-                    phase: phase.to_string(),
-                    importance: importance.to_string(),
-                    data,
-                })
-            } else {
-                None
-            }
-        }
-        "conductor.run.document_update" => {
-            if let (Some(run_id), Some(document_path), Some(content_excerpt)) = (
-                json.get("run_id").and_then(|v| v.as_str()),
-                json.get("document_path").and_then(|v| v.as_str()),
-                json.get("content_excerpt").and_then(|v| v.as_str()),
-            ) {
-                Some(WsEvent::DocumentUpdate {
-                    run_id: run_id.to_string(),
-                    document_path: document_path.to_string(),
-                    content_excerpt: content_excerpt.to_string(),
-                    timestamp: json
-                        .get("timestamp")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                })
-            } else {
-                None
-            }
-        }
-        "writer.run.started" => parse_writer_run_started(&json),
-        "writer.run.progress" => parse_writer_run_progress(&json),
-        "writer.run.patch" => parse_writer_run_patch(&json),
-        "writer.run.changeset" => parse_writer_run_changeset(&json),
-        "writer.run.status" => parse_writer_run_status(&json),
-        "writer.run.failed" => parse_writer_run_failed(&json),
-        "error" => json
-            .get("message")
-            .and_then(|v| v.as_str())
-            .map(|message| WsEvent::Error(message.to_string())),
-        _ => None,
+        DesktopWsMessage::Error { message } => Some(WsEvent::Error(message)),
+        DesktopWsMessage::Subscribe { .. } | DesktopWsMessage::Ping => None,
     }
 }
 
-fn parse_writer_run_base(json: &serde_json::Value) -> Option<WriterRunEventBase> {
-    Some(WriterRunEventBase {
-        desktop_id: json.get("desktop_id")?.as_str()?.to_string(),
-        session_id: json.get("session_id")?.as_str()?.to_string(),
-        thread_id: json.get("thread_id")?.as_str()?.to_string(),
-        run_id: json.get("run_id")?.as_str()?.to_string(),
-        document_path: json.get("document_path")?.as_str()?.to_string(),
-        revision: json.get("revision")?.as_u64()?,
-        timestamp: json
-            .get("timestamp")
-            .and_then(|v| v.as_str())
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|dt| dt.with_timezone(&chrono::Utc))
-            .unwrap_or_else(chrono::Utc::now),
-    })
-}
-
-fn parse_writer_run_started(json: &serde_json::Value) -> Option<WsEvent> {
-    let base = parse_writer_run_base(json)?;
-    let objective = json.get("objective")?.as_str()?.to_string();
-    Some(WsEvent::WriterRunStarted { base, objective })
-}
-
-fn parse_writer_run_progress(json: &serde_json::Value) -> Option<WsEvent> {
-    let base = parse_writer_run_base(json)?;
-    let phase = json.get("phase")?.as_str()?.to_string();
-    let message = json.get("message")?.as_str()?.to_string();
-    let progress_pct = json
-        .get("progress_pct")
-        .and_then(|v| v.as_u64())
-        .map(|v| v as u8);
-    let source_refs = json
-        .get("source_refs")?
-        .as_array()?
-        .iter()
-        .filter_map(|value| value.as_str().map(ToString::to_string))
-        .collect::<Vec<_>>();
-    Some(WsEvent::WriterRunProgress {
-        base,
-        phase,
-        message,
-        progress_pct,
-        source_refs,
-    })
-}
-
-fn parse_patch_ops(json: &serde_json::Value) -> Option<Vec<PatchOp>> {
-    let ops_array = json.get("ops")?.as_array()?;
-    let mut ops = Vec::new();
-    for op_json in ops_array {
-        let op_type = op_json.get("op")?.as_str()?;
-        let patch_op = match op_type {
-            "insert" => PatchOp::Insert {
-                pos: op_json.get("pos")?.as_u64()?,
-                text: op_json.get("text")?.as_str()?.to_string(),
-            },
-            "delete" => PatchOp::Delete {
-                pos: op_json.get("pos")?.as_u64()?,
-                len: op_json.get("len")?.as_u64()?,
-            },
-            "replace" => PatchOp::Replace {
-                pos: op_json.get("pos")?.as_u64()?,
-                len: op_json.get("len")?.as_u64()?,
-                text: op_json.get("text")?.as_str()?.to_string(),
-            },
-            "retain" => PatchOp::Retain {
-                len: op_json.get("len")?.as_u64()?,
-            },
-            _ => continue,
-        };
-        ops.push(patch_op);
+fn importance_to_string(importance: EventImportance) -> String {
+    match importance {
+        EventImportance::High => "high".to_string(),
+        EventImportance::Normal => "normal".to_string(),
+        EventImportance::Low => "low".to_string(),
     }
-    Some(ops)
-}
-
-fn parse_patch_source(json: &serde_json::Value) -> Option<PatchSource> {
-    match json.get("source")?.as_str()? {
-        "agent" => Some(PatchSource::Agent),
-        "user" => Some(PatchSource::User),
-        "system" => Some(PatchSource::System),
-        _ => None,
-    }
-}
-
-fn parse_writer_run_patch(json: &serde_json::Value) -> Option<WsEvent> {
-    let base = parse_writer_run_base(json)?;
-    let ops = parse_patch_ops(json)?;
-    let payload = WriterRunPatchPayload {
-        patch_id: json.get("patch_id")?.as_str()?.to_string(),
-        source: parse_patch_source(json)?,
-        section_id: json
-            .get("section_id")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        ops,
-        proposal: json
-            .get("proposal")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        base_version_id: json.get("base_version_id").and_then(|v| v.as_u64()),
-        target_version_id: json.get("target_version_id").and_then(|v| v.as_u64()),
-        overlay_id: json
-            .get("overlay_id")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-    };
-    Some(WsEvent::WriterRunPatch { base, payload })
-}
-
-fn parse_writer_run_status(json: &serde_json::Value) -> Option<WsEvent> {
-    let base = parse_writer_run_base(json)?;
-    let status_str = json.get("status")?.as_str()?;
-    let status = match status_str {
-        "initializing" => WriterRunStatusKind::Initializing,
-        "running" => WriterRunStatusKind::Running,
-        "waiting_for_worker" => WriterRunStatusKind::WaitingForWorker,
-        "completing" => WriterRunStatusKind::Completing,
-        "completed" => WriterRunStatusKind::Completed,
-        "failed" => WriterRunStatusKind::Failed,
-        "blocked" => WriterRunStatusKind::Blocked,
-        _ => return None,
-    };
-    let message = json
-        .get("message")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    Some(WsEvent::WriterRunStatus {
-        base,
-        status,
-        message,
-    })
-}
-
-fn parse_failure_kind(json: &serde_json::Value) -> Option<FailureKind> {
-    match json.get("failure_kind")?.as_str()? {
-        "timeout" => Some(FailureKind::Timeout),
-        "network" => Some(FailureKind::Network),
-        "auth" => Some(FailureKind::Auth),
-        "rate_limit" => Some(FailureKind::RateLimit),
-        "validation" => Some(FailureKind::Validation),
-        "provider" => Some(FailureKind::Provider),
-        _ => Some(FailureKind::Unknown),
-    }
-}
-
-fn parse_writer_run_failed(json: &serde_json::Value) -> Option<WsEvent> {
-    let base = parse_writer_run_base(json)?;
-    let error_code = json.get("error_code")?.as_str()?.to_string();
-    let error_message = json.get("error_message")?.as_str()?.to_string();
-    let failure_kind = parse_failure_kind(json);
-    Some(WsEvent::WriterRunFailed {
-        base,
-        error_code,
-        error_message,
-        failure_kind,
-    })
-}
-
-fn parse_writer_run_changeset(json: &serde_json::Value) -> Option<WsEvent> {
-    // Changeset events have a flat payload (no full WriterRunEventBase fields).
-    // Build a minimal base from what's available.
-    let desktop_id = json.get("desktop_id")?.as_str()?.to_string();
-    let run_id = json.get("run_id")?.as_str()?.to_string();
-    let base = WriterRunEventBase {
-        desktop_id,
-        session_id: String::new(),
-        thread_id: run_id.clone(),
-        run_id,
-        document_path: String::new(),
-        revision: 0,
-        timestamp: chrono::Utc::now(),
-    };
-    let patch_id = json.get("patch_id")?.as_str()?.to_string();
-    let loop_id = json
-        .get("loop_id")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    let summary = json.get("summary")?.as_str()?.to_string();
-    let impact = match json.get("impact").and_then(|v| v.as_str()).unwrap_or("low") {
-        "high" => ChangesetImpact::High,
-        "medium" => ChangesetImpact::Medium,
-        _ => ChangesetImpact::Low,
-    };
-    let op_taxonomy = json
-        .get("op_taxonomy")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-    Some(WsEvent::WriterRunChangeset {
-        base,
-        patch_id,
-        loop_id,
-        summary,
-        impact,
-        op_taxonomy,
-    })
 }
 
 pub fn connect_websocket<F>(desktop_id: &str, on_event: F) -> Result<DesktopWsRuntime, String>
@@ -539,9 +298,11 @@ where
         dioxus_logger::tracing::info!("WebSocket connected");
         on_event_open.borrow_mut()(WsEvent::Connected);
 
-        let subscribe_msg =
-            format!("{{\"type\":\"subscribe\",\"desktop_id\":\"{desktop_id_clone}\"}}");
-        let _ = ws_clone.send_with_str(&subscribe_msg);
+        if let Ok(subscribe_msg) =
+            serde_json::to_string(&DesktopWsMessage::Subscribe { desktop_id: desktop_id_clone.clone() })
+        {
+            let _ = ws_clone.send_with_str(&subscribe_msg);
+        }
     }) as Box<dyn FnMut(wasm_bindgen::JsValue)>);
     ws.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
 
@@ -598,5 +359,87 @@ impl Drop for DesktopWsRuntime {
         self.ws.set_onerror(None);
         self.ws.set_onclose(None);
         let _ = self.ws.close();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_ws_message, WsEvent};
+
+    #[test]
+    fn parse_app_registered_message() {
+        let payload = serde_json::json!({
+            "type": "app_registered",
+            "app": {
+                "id": "trace",
+                "name": "Trace",
+                "icon": "🔍",
+                "component_code": "TraceApp",
+                "default_width": 900,
+                "default_height": 600
+            }
+        });
+
+        let event =
+            parse_ws_message(&payload.to_string()).expect("expected parsed websocket event");
+
+        match event {
+            WsEvent::AppRegistered(app) => {
+                assert_eq!(app.id, "trace");
+                assert_eq!(app.name, "Trace");
+            }
+            other => panic!("unexpected websocket event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_changeset_message_uses_full_writer_run_base_when_present() {
+        let payload = serde_json::json!({
+            "type": "writer.run.changeset",
+            "desktop_id": "desktop-1",
+            "session_id": "session-1",
+            "thread_id": "thread-1",
+            "run_id": "run-1",
+            "document_path": "conductor/runs/run-1/draft.md",
+            "revision": 5,
+            "timestamp": "2026-03-13T22:00:00Z",
+            "patch_id": "patch-1",
+            "loop_id": "loop-1",
+            "target_version_id": 2,
+            "source": "writer",
+            "summary": "Reworked the introduction.",
+            "impact": "high",
+            "op_taxonomy": ["replace", "structural_rewrite"]
+        });
+
+        let event =
+            parse_ws_message(&payload.to_string()).expect("expected parsed websocket event");
+
+        match event {
+            WsEvent::WriterRunChangeset {
+                base,
+                patch_id,
+                loop_id,
+                summary,
+                impact,
+                op_taxonomy,
+            } => {
+                assert_eq!(base.desktop_id, "desktop-1");
+                assert_eq!(base.session_id, "session-1");
+                assert_eq!(base.thread_id, "thread-1");
+                assert_eq!(base.run_id, "run-1");
+                assert_eq!(base.document_path, "conductor/runs/run-1/draft.md");
+                assert_eq!(base.revision, 5);
+                assert_eq!(patch_id, "patch-1");
+                assert_eq!(loop_id.as_deref(), Some("loop-1"));
+                assert_eq!(summary, "Reworked the introduction.");
+                assert_eq!(impact, shared_types::ChangesetImpact::High);
+                assert_eq!(
+                    op_taxonomy,
+                    vec!["replace".to_string(), "structural_rewrite".to_string()]
+                );
+            }
+            other => panic!("unexpected websocket event: {other:?}"),
+        }
     }
 }

@@ -38,7 +38,7 @@ Proof has two checks:
 5. Run `just test-e2e-vfkit-proof`.
 6. Review generated video artifact and trace.
 7. Use the operator quickstart:
-   1. `docs/runbooks/2026-02-28-local-vfkit-nixos-miniguide.md`
+   1. `docs/practice/guides/local-vfkit-nixos-miniguide.md`
 
 ## Prerequisites
 

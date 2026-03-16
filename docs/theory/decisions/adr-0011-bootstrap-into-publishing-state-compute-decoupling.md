@@ -217,9 +217,9 @@ Serving:
 
 ## Repo References
 
-1. `docs/architecture/2026-02-28-wave-plan-local-to-ovh-bootstrap.md`
-2. `docs/architecture/adr-0007-3-tier-control-runtime-client-architecture.md`
-3. `docs/architecture/adr-0008-ovh-selfhosted-secrets-architecture.md`
-4. `docs/architecture/adr-0010-ovh-bootstrap-vm-fleet-capacity-and-minimal-lifecycle-api.md`
+1. `docs/archive/2026-02-28-wave-plan-local-to-ovh-bootstrap.md`
+2. `docs/practice/decisions/adr-0007-3-tier-control-runtime-client-architecture.md`
+3. `docs/practice/decisions/adr-0008-ovh-selfhosted-secrets-architecture.md`
+4. `docs/archive/adr-0010-ovh-bootstrap-vm-fleet-capacity-and-minimal-lifecycle-api.md`
 5. `hypervisor/src/sandbox/mod.rs`
 6. `hypervisor/src/bin/vfkit-runtime-ctl.rs`

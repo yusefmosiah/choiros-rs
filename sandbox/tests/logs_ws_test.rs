@@ -94,6 +94,26 @@ async fn recv_json(
     }
 }
 
+async fn append_event(
+    event_store: &ractor::ActorRef<EventStoreMsg>,
+    event_type: &str,
+    payload: Value,
+    actor_id: &str,
+    user_id: &str,
+) {
+    let _ = ractor::call!(event_store, |reply| EventStoreMsg::Append {
+        event: AppendEvent {
+            event_type: event_type.to_string(),
+            payload,
+            actor_id: actor_id.to_string(),
+            user_id: user_id.to_string(),
+        },
+        reply
+    })
+    .unwrap()
+    .unwrap();
+}
+
 #[tokio::test]
 async fn test_logs_ws_connected() {
     let server = start_test_server().await;
@@ -119,33 +139,91 @@ async fn test_logs_ws_streams_filtered_events() {
     let connected = recv_json(&mut ws).await;
     assert_eq!(connected["type"], "connected");
 
-    let _ = ractor::call!(server.event_store, |reply| EventStoreMsg::Append {
-        event: AppendEvent {
-            event_type: "worker.task.progress".to_string(),
-            payload: serde_json::json!({"step":"ignore"}),
-            actor_id: "supervisor:test".to_string(),
-            user_id: "system".to_string(),
-        },
-        reply
-    })
-    .unwrap()
-    .unwrap();
+    append_event(
+        &server.event_store,
+        "worker.task.progress",
+        serde_json::json!({"step":"ignore"}),
+        "supervisor:test",
+        "system",
+    )
+    .await;
 
-    let _ = ractor::call!(server.event_store, |reply| EventStoreMsg::Append {
-        event: AppendEvent {
-            event_type: "watcher.alert.failure_spike".to_string(),
-            payload: serde_json::json!({"rule":"worker_failure_spike"}),
-            actor_id: "watcher:default".to_string(),
-            user_id: "system".to_string(),
-        },
-        reply
-    })
-    .unwrap()
-    .unwrap();
+    append_event(
+        &server.event_store,
+        "watcher.alert.failure_spike",
+        serde_json::json!({"rule":"worker_failure_spike"}),
+        "watcher:default",
+        "system",
+    )
+    .await;
 
     let event = recv_json(&mut ws).await;
     assert_eq!(event["type"], "event");
     assert_eq!(event["event_type"], "watcher.alert.failure_spike");
     assert_eq!(event["actor_id"], "watcher:default");
     assert_eq!(event["payload"]["rule"], "worker_failure_spike");
+}
+
+#[tokio::test]
+async fn test_logs_ws_streams_only_events_in_requested_scope() {
+    let server = start_test_server().await;
+    let (mut ws, _) = connect_async(ws_url(
+        server.addr,
+        "/ws/logs/events?session_id=session-a&thread_id=thread-a&run_id=run-a&correlation_id=corr-a&poll_ms=50",
+    ))
+    .await
+    .expect("Failed to connect WebSocket");
+
+    let connected = recv_json(&mut ws).await;
+    assert_eq!(connected["type"], "connected");
+    assert_eq!(connected["session_id"], "session-a");
+    assert_eq!(connected["thread_id"], "thread-a");
+    assert_eq!(connected["run_id"], "run-a");
+    assert_eq!(connected["correlation_id"], "corr-a");
+
+    append_event(
+        &server.event_store,
+        "interaction.user_msg",
+        serde_json::json!({
+            "text":"wrong scope",
+            "run_id":"run-b",
+            "correlation_id":"corr-b",
+            "scope": {
+                "session_id":"session-b",
+                "thread_id":"thread-b"
+            }
+        }),
+        "thread-b",
+        "user-1",
+    )
+    .await;
+
+    append_event(
+        &server.event_store,
+        "interaction.user_msg",
+        serde_json::json!({
+            "text":"correct scope",
+            "run_id":"run-a",
+            "correlation_id":"corr-a",
+            "scope": {
+                "session_id":"session-a",
+                "thread_id":"thread-a"
+            }
+        }),
+        "thread-a",
+        "user-1",
+    )
+    .await;
+
+    let event = recv_json(&mut ws).await;
+    assert_eq!(event["type"], "event");
+    assert_eq!(event["payload"]["text"], "correct scope");
+    assert_eq!(event["payload"]["run_id"], "run-a");
+    assert_eq!(event["payload"]["correlation_id"], "corr-a");
+
+    let next_frame = timeout(Duration::from_millis(250), ws.next()).await;
+    assert!(
+        next_frame.is_err(),
+        "unexpected extra websocket frame after scoped match"
+    );
 }

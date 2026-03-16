@@ -503,58 +503,115 @@ pub fn parse_conductor_delegation_event(event: &LogsEvent) -> Option<ConductorDe
     let payload = &event.payload;
     let data = payload.get("data").unwrap_or(payload);
     let meta = payload.get("_meta");
-    let run_id = payload_run_id(payload)?;
-
-    Some(ConductorDelegationEvent {
-        seq: event.seq,
-        event_id: event.event_id.clone(),
-        event_type: event.event_type.clone(),
-        timestamp: event.timestamp.clone(),
-        run_id,
-        worker_type: payload
-            .get("worker_type")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string)
-            .or_else(|| {
-                payload
-                    .get("capability")
+    match event.event_type.as_str() {
+        "conductor.worker.call" => {
+            let payload: shared_types::ConductorWorkerCallPayload =
+                serde_json::from_value(payload.clone()).ok()?;
+            Some(ConductorDelegationEvent {
+                seq: event.seq,
+                event_id: event.event_id.clone(),
+                event_type: event.event_type.clone(),
+                timestamp: event.timestamp.clone(),
+                run_id: payload.run_id,
+                worker_type: Some(payload.worker_type),
+                worker_objective: Some(payload.worker_objective),
+                success: None,
+                result_summary: None,
+                call_id: data
+                    .get("call_id")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string),
+                capability: None,
+                error: None,
+                failure_kind: None,
+                reason: None,
+                lane: meta
+                    .and_then(|m| m.get("lane"))
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string),
+            })
+        }
+        "conductor.worker.result" => {
+            let payload: shared_types::ConductorWorkerResultPayload =
+                serde_json::from_value(payload.clone()).ok()?;
+            Some(ConductorDelegationEvent {
+                seq: event.seq,
+                event_id: event.event_id.clone(),
+                event_type: event.event_type.clone(),
+                timestamp: event.timestamp.clone(),
+                run_id: payload.run_id,
+                worker_type: Some(payload.worker_type),
+                worker_objective: None,
+                success: Some(payload.success),
+                result_summary: Some(payload.result_summary),
+                call_id: data
+                    .get("call_id")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string),
+                capability: None,
+                error: None,
+                failure_kind: None,
+                reason: None,
+                lane: meta
+                    .and_then(|m| m.get("lane"))
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string),
+            })
+        }
+        _ => {
+            let run_id = payload_run_id(payload)?;
+            Some(ConductorDelegationEvent {
+                seq: event.seq,
+                event_id: event.event_id.clone(),
+                event_type: event.event_type.clone(),
+                timestamp: event.timestamp.clone(),
+                run_id,
+                worker_type: payload
+                    .get("worker_type")
                     .and_then(|v| v.as_str())
                     .map(ToString::to_string)
-            }),
-        worker_objective: payload
-            .get("worker_objective")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        success: payload.get("success").and_then(|v| v.as_bool()),
-        result_summary: payload
-            .get("result_summary")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        call_id: data
-            .get("call_id")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        capability: payload
-            .get("capability")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        error: data
-            .get("error")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        failure_kind: data
-            .get("failure_kind")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        reason: data
-            .get("reason")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        lane: meta
-            .and_then(|m| m.get("lane"))
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-    })
+                    .or_else(|| {
+                        payload
+                            .get("capability")
+                            .and_then(|v| v.as_str())
+                            .map(ToString::to_string)
+                    }),
+                worker_objective: payload
+                    .get("worker_objective")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string),
+                success: payload.get("success").and_then(|v| v.as_bool()),
+                result_summary: payload
+                    .get("result_summary")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string),
+                call_id: data
+                    .get("call_id")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string),
+                capability: payload
+                    .get("capability")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string),
+                error: data
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string),
+                failure_kind: data
+                    .get("failure_kind")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string),
+                reason: data
+                    .get("reason")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string),
+                lane: meta
+                    .and_then(|m| m.get("lane"))
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string),
+            })
+        }
+    }
 }
 
 pub fn parse_conductor_run_event(event: &LogsEvent) -> Option<ConductorRunEvent> {
@@ -573,7 +630,6 @@ pub fn parse_conductor_run_event(event: &LogsEvent) -> Option<ConductorRunEvent>
     }
 
     let payload = &event.payload;
-    let run_id = payload_run_id(payload)?;
     let synthetic_status = match event.event_type.as_str() {
         "writer.actor.user_prompt_orchestration.dispatched" => Some("running"),
         "writer.actor.user_prompt_orchestration.completed" => Some("completed"),
@@ -598,37 +654,99 @@ pub fn parse_conductor_run_event(event: &LogsEvent) -> Option<ConductorRunEvent>
         }
         _ => None,
     };
-    Some(ConductorRunEvent {
-        seq: event.seq,
-        event_id: event.event_id.clone(),
-        event_type: event.event_type.clone(),
-        timestamp: event.timestamp.clone(),
-        run_id,
-        phase: payload
-            .get("phase")
-            .and_then(|v| v.as_str())
-            .or(synthetic_phase)
-            .map(ToString::to_string),
-        status: payload
-            .get("status")
-            .and_then(|v| v.as_str())
-            .or(synthetic_status)
-            .map(ToString::to_string),
-        message: payload
-            .get("message")
-            .and_then(|v| v.as_str())
-            .or(synthetic_message)
-            .map(ToString::to_string),
-        error_code: payload
-            .get("error_code")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        error_message: payload
-            .get("error_message")
-            .and_then(|v| v.as_str())
-            .or_else(|| payload.get("error").and_then(|v| v.as_str()))
-            .map(ToString::to_string),
-    })
+    match event.event_type.as_str() {
+        "conductor.task.progress" => {
+            let payload: shared_types::ConductorTaskProgressPayload =
+                serde_json::from_value(payload.clone()).ok()?;
+            Some(ConductorRunEvent {
+                seq: event.seq,
+                event_id: event.event_id.clone(),
+                event_type: event.event_type.clone(),
+                timestamp: event.timestamp.clone(),
+                run_id: payload.run_id,
+                phase: Some(payload.phase),
+                status: Some(payload.status),
+                message: payload
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("message"))
+                    .and_then(|value| value.as_str())
+                    .map(ToString::to_string),
+                error_code: None,
+                error_message: None,
+            })
+        }
+        "conductor.task.completed" => {
+            let payload: shared_types::ConductorTaskCompletedPayload =
+                serde_json::from_value(payload.clone()).ok()?;
+            Some(ConductorRunEvent {
+                seq: event.seq,
+                event_id: event.event_id.clone(),
+                event_type: event.event_type.clone(),
+                timestamp: event.timestamp.clone(),
+                run_id: payload.run_id,
+                phase: None,
+                status: Some(payload.status),
+                message: payload
+                    .toast
+                    .as_ref()
+                    .map(|toast| toast.message.clone())
+                    .or_else(|| Some(payload.report_path)),
+                error_code: None,
+                error_message: None,
+            })
+        }
+        "conductor.task.failed" => {
+            let payload: shared_types::ConductorTaskFailedPayload =
+                serde_json::from_value(payload.clone()).ok()?;
+            Some(ConductorRunEvent {
+                seq: event.seq,
+                event_id: event.event_id.clone(),
+                event_type: event.event_type.clone(),
+                timestamp: event.timestamp.clone(),
+                run_id: payload.run_id,
+                phase: None,
+                status: Some(payload.status),
+                message: None,
+                error_code: Some(payload.error_code),
+                error_message: Some(payload.error_message),
+            })
+        }
+        _ => {
+            let run_id = payload_run_id(payload)?;
+            Some(ConductorRunEvent {
+                seq: event.seq,
+                event_id: event.event_id.clone(),
+                event_type: event.event_type.clone(),
+                timestamp: event.timestamp.clone(),
+                run_id,
+                phase: payload
+                    .get("phase")
+                    .and_then(|v| v.as_str())
+                    .or(synthetic_phase)
+                    .map(ToString::to_string),
+                status: payload
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .or(synthetic_status)
+                    .map(ToString::to_string),
+                message: payload
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .or(synthetic_message)
+                    .map(ToString::to_string),
+                error_code: payload
+                    .get("error_code")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string),
+                error_message: payload
+                    .get("error_message")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| payload.get("error").and_then(|v| v.as_str()))
+                    .map(ToString::to_string),
+            })
+        }
+    }
 }
 
 #[cfg(test)]
@@ -719,72 +837,166 @@ pub fn parse_worker_lifecycle_event(event: &LogsEvent) -> Option<WorkerLifecycle
         return None;
     }
     let payload = &event.payload;
-    let task_id = payload.get("task_id").and_then(|v| v.as_str())?.to_string();
-    let worker_id = payload
-        .get("worker_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
 
-    Some(WorkerLifecycleEvent {
-        seq: event.seq,
-        event_id: event.event_id.clone(),
-        event_type: event.event_type.clone(),
-        timestamp: event.timestamp.clone(),
-        worker_id,
-        task_id,
-        phase: payload
-            .get("phase")
-            .and_then(|v| v.as_str())
-            .unwrap_or("agent_loop")
-            .to_string(),
-        run_id: payload_run_id(payload),
-        objective: payload
-            .get("objective")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        model_used: payload
-            .get("model_used")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        message: payload
-            .get("message")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        summary: payload
-            .get("summary")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        status: payload
-            .get("status")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        error: payload
-            .get("error")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        finding_id: payload
-            .get("finding_id")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        claim: payload
-            .get("claim")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        confidence: payload.get("confidence").and_then(|v| v.as_f64()),
-        learning_id: payload
-            .get("learning_id")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        insight: payload
-            .get("insight")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        call_id: payload
-            .get("call_id")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-    })
+    match event.event_type.as_str() {
+        "worker.task.started" => {
+            let payload: shared_types::WorkerTaskStartedPayload =
+                serde_json::from_value(payload.clone()).ok()?;
+            Some(WorkerLifecycleEvent {
+                seq: event.seq,
+                event_id: event.event_id.clone(),
+                event_type: event.event_type.clone(),
+                timestamp: event.timestamp.clone(),
+                worker_id: payload.worker_id,
+                task_id: payload.task_id,
+                phase: payload.phase,
+                run_id: payload.run_id,
+                objective: Some(payload.objective),
+                model_used: Some(payload.model_used),
+                message: None,
+                summary: None,
+                status: Some(payload.status),
+                error: None,
+                finding_id: None,
+                claim: None,
+                confidence: None,
+                learning_id: None,
+                insight: None,
+                call_id: payload.call_id,
+            })
+        }
+        "worker.task.progress" => {
+            let payload: shared_types::WorkerTaskProgressPayload =
+                serde_json::from_value(payload.clone()).ok()?;
+            Some(WorkerLifecycleEvent {
+                seq: event.seq,
+                event_id: event.event_id.clone(),
+                event_type: event.event_type.clone(),
+                timestamp: event.timestamp.clone(),
+                worker_id: payload.worker_id,
+                task_id: payload.task_id,
+                phase: payload.phase,
+                run_id: payload.run_id,
+                objective: None,
+                model_used: payload.model_used,
+                message: Some(payload.message),
+                summary: None,
+                status: None,
+                error: None,
+                finding_id: None,
+                claim: None,
+                confidence: None,
+                learning_id: None,
+                insight: None,
+                call_id: payload.call_id,
+            })
+        }
+        "worker.task.completed" => {
+            let payload: shared_types::WorkerTaskCompletedPayload =
+                serde_json::from_value(payload.clone()).ok()?;
+            Some(WorkerLifecycleEvent {
+                seq: event.seq,
+                event_id: event.event_id.clone(),
+                event_type: event.event_type.clone(),
+                timestamp: event.timestamp.clone(),
+                worker_id: payload.worker_id,
+                task_id: payload.task_id,
+                phase: payload.phase,
+                run_id: payload.run_id,
+                objective: None,
+                model_used: None,
+                message: None,
+                summary: Some(payload.summary),
+                status: Some(payload.status),
+                error: None,
+                finding_id: None,
+                claim: None,
+                confidence: None,
+                learning_id: None,
+                insight: None,
+                call_id: payload.call_id,
+            })
+        }
+        "worker.task.failed" => {
+            let payload: shared_types::WorkerTaskFailedPayload =
+                serde_json::from_value(payload.clone()).ok()?;
+            Some(WorkerLifecycleEvent {
+                seq: event.seq,
+                event_id: event.event_id.clone(),
+                event_type: event.event_type.clone(),
+                timestamp: event.timestamp.clone(),
+                worker_id: payload.worker_id,
+                task_id: payload.task_id,
+                phase: payload.phase,
+                run_id: payload.run_id,
+                objective: None,
+                model_used: None,
+                message: None,
+                summary: None,
+                status: Some(payload.status),
+                error: Some(payload.error),
+                finding_id: None,
+                claim: None,
+                confidence: None,
+                learning_id: None,
+                insight: None,
+                call_id: payload.call_id,
+            })
+        }
+        "worker.task.finding" => {
+            let payload: shared_types::WorkerFindingEventPayload =
+                serde_json::from_value(payload.clone()).ok()?;
+            Some(WorkerLifecycleEvent {
+                seq: event.seq,
+                event_id: event.event_id.clone(),
+                event_type: event.event_type.clone(),
+                timestamp: event.timestamp.clone(),
+                worker_id: payload.worker_id,
+                task_id: payload.task_id,
+                phase: payload.phase,
+                run_id: payload.run_id,
+                objective: None,
+                model_used: None,
+                message: None,
+                summary: None,
+                status: None,
+                error: None,
+                finding_id: Some(payload.finding_id),
+                claim: Some(payload.claim),
+                confidence: Some(payload.confidence),
+                learning_id: None,
+                insight: None,
+                call_id: payload.call_id,
+            })
+        }
+        "worker.task.learning" => {
+            let payload: shared_types::WorkerLearningEventPayload =
+                serde_json::from_value(payload.clone()).ok()?;
+            Some(WorkerLifecycleEvent {
+                seq: event.seq,
+                event_id: event.event_id.clone(),
+                event_type: event.event_type.clone(),
+                timestamp: event.timestamp.clone(),
+                worker_id: payload.worker_id,
+                task_id: payload.task_id,
+                phase: payload.phase,
+                run_id: payload.run_id,
+                objective: None,
+                model_used: None,
+                message: None,
+                summary: None,
+                status: None,
+                error: None,
+                finding_id: None,
+                claim: None,
+                confidence: Some(payload.confidence),
+                learning_id: Some(payload.learning_id),
+                insight: Some(payload.insight),
+                call_id: payload.call_id,
+            })
+        }
+        _ => None,
+    }
 }
 
 // ── Tool pair helpers ────────────────────────────────────────────────────────

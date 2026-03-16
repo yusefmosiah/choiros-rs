@@ -46,8 +46,6 @@ All researcher execution and signals are EventStore-first, then relayed to Event
 
 ## Latest Validation Snapshot (2026-02-08)
 
-- Live async matrix report added:
-  - `/Users/wiz/choiros-rs/docs/architecture/chat-superbowl-live-matrix-report-2026-02-08.md`
 - Key outcome:
   - delegation/execution path is functioning across providers and models,
   - primary remaining gap is autonomous multi-tool chaining (`web_search -> bash`) when search-only results are insufficient.
@@ -355,8 +353,8 @@ No provider-specific weather assumptions in tests.
 
 ## 10) References
 
-- `/Users/wiz/choiros-rs/docs/architecture/adr-0001-eventstore-eventbus-reconciliation.md`
-- `/Users/wiz/choiros-rs/docs/architecture/2026-02-14-worker-live-update-event-model.md`
-- `/Users/wiz/choiros-rs/docs/architecture/actor-network-orientation.md`
-- `/Users/wiz/choiros-rs/docs/architecture/roadmap-dependency-tree.md`
+- `/Users/wiz/choiros-rs/docs/practice/decisions/adr-0001-eventstore-eventbus-reconciliation.md`
+- `/Users/wiz/choiros-rs/docs/archive/handoffs/2026-Q1/2026-02-14-worker-live-update-event-model.md`
+- `/Users/wiz/choiros-rs/docs/practice/guides/actor-network-orientation.md`
+- `/Users/wiz/choiros-rs/docs/archive/roadmap-dependency-tree.md`
 - `/Users/wiz/choiros-rs/roadmap_progress.md`

@@ -283,9 +283,9 @@ if lifecycle parking and quotas are enforced.
 
 ## Repo References
 
-1. `docs/architecture/adr-0008-ovh-selfhosted-secrets-architecture.md`
-2. `docs/architecture/adr-0010-ovh-bootstrap-vm-fleet-capacity-and-minimal-lifecycle-api.md`
-3. `docs/architecture/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
+1. `docs/practice/decisions/adr-0008-ovh-selfhosted-secrets-architecture.md`
+2. `docs/archive/adr-0010-ovh-bootstrap-vm-fleet-capacity-and-minimal-lifecycle-api.md`
+3. `docs/theory/decisions/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
 4. `nix/modules/choiros-platform-secrets.nix`
 5. `hypervisor/src/provider_gateway.rs`
 6. `hypervisor/src/config.rs`

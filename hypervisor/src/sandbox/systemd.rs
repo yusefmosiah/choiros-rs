@@ -16,9 +16,10 @@ use crate::config::MachineClass;
 /// Each VM instance is identified by a string like `live` or `dev`.
 /// systemd unit templates are parameterized by this instance ID:
 ///   - `tap-setup@{instance}.service`
-///   - `virtiofsd@{instance}.service`
 ///   - `cloud-hypervisor@{instance}.service`
-///   - `socat-sandbox@{instance}.service`
+///   - `firecracker@{instance}.service`
+///   - `socat-sandbox@{instance}.service` (cloud-hypervisor)
+///   - `socat-sandbox-firecracker@{instance}.service`
 #[allow(dead_code)] // public API — new() and is_active() used after full rollout
 pub struct SystemdLifecycle {
     /// Base directory for VM state: /opt/choiros/vms/state
@@ -85,6 +86,13 @@ impl SystemdLifecycle {
 
     fn boot_mode_path(&self, instance: &str) -> PathBuf {
         self.instance_state_dir(instance).join("boot-mode")
+    }
+
+    fn socat_unit(template: &str, instance: &str) -> String {
+        match template {
+            "firecracker" => format!("socat-sandbox-firecracker@{instance}"),
+            _ => format!("socat-sandbox@{instance}"),
+        }
     }
 
     // ── btrfs policy ──────────────────────────────────────────────────────
@@ -410,10 +418,11 @@ impl SystemdLifecycle {
         }
 
         // Start the full chain via the appropriate systemd template.
-        // socat-sandbox@ requires {template}@ requires tap-setup@
-        // Starting socat pulls in the entire chain.
+        // The socat unit must match the hypervisor template so systemd binds
+        // the port-forward lifecycle to the correct VM process.
+        let socat_unit = Self::socat_unit(systemd_template, instance);
         systemctl_start(&format!("{systemd_template}@{instance}")).await?;
-        systemctl_start(&format!("socat-sandbox@{instance}")).await?;
+        systemctl_start(&socat_unit).await?;
 
         info!(
             instance,
@@ -431,10 +440,11 @@ impl SystemdLifecycle {
 
         // Read which systemd template this instance was started with.
         let template = self.read_instance_template(instance).await;
+        let socat_unit = Self::socat_unit(&template, instance);
 
         // Stop units in reverse dependency order.
         // BindsTo should cascade, but explicit stops are more reliable.
-        systemctl_stop(&format!("socat-sandbox@{instance}")).await;
+        systemctl_stop(&socat_unit).await;
         systemctl_stop(&format!("{template}@{instance}")).await;
         systemctl_stop(&format!("tap-setup@{instance}")).await;
 
@@ -453,6 +463,16 @@ impl SystemdLifecycle {
     ///
     /// Replacement for `run_runtime_ctl("hibernate", ...)`.
     pub async fn hibernate(&self, instance: &str, user_id: &str) -> anyhow::Result<()> {
+        let template = self.read_instance_template(instance).await;
+        if template != "cloud-hypervisor" {
+            info!(
+                instance,
+                template,
+                "hibernate snapshot flow is only implemented for cloud-hypervisor; falling back to hard stop"
+            );
+            return self.stop(instance, user_id).await;
+        }
+
         let api_sock = self.api_sock_path(instance);
 
         // Snapshot user data
@@ -482,8 +502,8 @@ impl SystemdLifecycle {
 
         // Stop process chain (state is on disk now)
         // Don't stop tap-setup — keep TAP alive for fast restore
-        let template = self.read_instance_template(instance).await;
-        systemctl_stop(&format!("socat-sandbox@{instance}")).await;
+        let socat_unit = Self::socat_unit(&template, instance);
+        systemctl_stop(&socat_unit).await;
         systemctl_stop(&format!("{template}@{instance}")).await;
 
         info!(instance, "VM hibernated (TAP kept alive)");
@@ -636,4 +656,73 @@ async fn ch_api_snapshot(api_sock: &Path, dest: &Path) -> anyhow::Result<()> {
         anyhow::bail!("CH API vm.snapshot returned error: {response}");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::SystemdLifecycle;
+
+    fn test_lifecycle(state_base: PathBuf) -> SystemdLifecycle {
+        SystemdLifecycle::new(
+            state_base,
+            PathBuf::from("/tmp/users"),
+            PathBuf::from("/tmp/snapshots"),
+            PathBuf::from("/tmp/runner"),
+        )
+    }
+
+    #[test]
+    fn socat_unit_tracks_hypervisor_template() {
+        assert_eq!(
+            SystemdLifecycle::socat_unit("cloud-hypervisor", "live"),
+            "socat-sandbox@live"
+        );
+        assert_eq!(
+            SystemdLifecycle::socat_unit("firecracker", "dev"),
+            "socat-sandbox-firecracker@dev"
+        );
+    }
+
+    #[tokio::test]
+    async fn read_instance_template_defaults_to_cloud_hypervisor() {
+        let state_base = std::env::temp_dir().join(format!(
+            "systemd-lifecycle-default-{}",
+            uuid::Uuid::new_v4()
+        ));
+        tokio::fs::create_dir_all(state_base.join("live"))
+            .await
+            .expect("create state dir");
+
+        let lifecycle = test_lifecycle(state_base.clone());
+        let template = lifecycle.read_instance_template("live").await;
+        assert_eq!(template, "cloud-hypervisor");
+
+        let _ = tokio::fs::remove_dir_all(state_base).await;
+    }
+
+    #[tokio::test]
+    async fn read_instance_template_detects_firecracker_runner() {
+        let state_base = std::env::temp_dir().join(format!(
+            "systemd-lifecycle-firecracker-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let instance_dir = state_base.join("dev");
+        tokio::fs::create_dir_all(&instance_dir)
+            .await
+            .expect("create state dir");
+        tokio::fs::write(
+            instance_dir.join("machine-runner"),
+            "/nix/store/abc123-firecracker-runner",
+        )
+        .await
+        .expect("write runner marker");
+
+        let lifecycle = test_lifecycle(state_base.clone());
+        let template = lifecycle.read_instance_template("dev").await;
+        assert_eq!(template, "firecracker");
+
+        let _ = tokio::fs::remove_dir_all(state_base).await;
+    }
 }

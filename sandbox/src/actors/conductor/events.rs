@@ -10,10 +10,17 @@
 use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use chrono::Utc;
 use ractor::ActorRef;
+use serde::Serialize;
 use shared_types::{
-    ConductorOutputMode, ConductorToastPayload, EventImportance, EventLane, EventMetadata,
-    FailureKind,
+    ConductorOutputMode, ConductorTaskCompletedPayload, ConductorTaskFailedPayload,
+    ConductorTaskProgressPayload, ConductorTaskStartedPayload, ConductorToastPayload,
+    ConductorWorkerCallPayload, ConductorWorkerResultPayload, EventImportance, EventLane,
+    EventMetadata, FailureKind,
 };
+
+fn to_payload<T: Serialize>(payload: T) -> serde_json::Value {
+    serde_json::to_value(payload).unwrap_or(serde_json::Value::Null)
+}
 
 /// Emit task started event
 pub async fn emit_prompt_received(
@@ -48,13 +55,13 @@ pub async fn emit_task_started(
     objective: &str,
     desktop_id: &str,
 ) {
-    let payload = serde_json::json!({
-        "run_id": run_id,
-        "objective": objective,
-        "desktop_id": desktop_id,
-        "status": "started",
-        "phase": "initialization",
-        "timestamp": Utc::now().to_rfc3339(),
+    let payload = to_payload(ConductorTaskStartedPayload {
+        run_id: run_id.to_string(),
+        objective: objective.to_string(),
+        desktop_id: desktop_id.to_string(),
+        status: "started".to_string(),
+        phase: "initialization".to_string(),
+        timestamp: Utc::now().to_rfc3339(),
     });
 
     let event = AppendEvent {
@@ -77,18 +84,13 @@ pub async fn emit_task_progress(
     phase: &str,
     details: Option<serde_json::Value>,
 ) {
-    let mut payload = serde_json::json!({
-        "run_id": run_id,
-        "status": status,
-        "phase": phase,
-        "timestamp": Utc::now().to_rfc3339(),
+    let payload = to_payload(ConductorTaskProgressPayload {
+        run_id: run_id.to_string(),
+        status: status.to_string(),
+        phase: phase.to_string(),
+        details,
+        timestamp: Utc::now().to_rfc3339(),
     });
-
-    if let Some(details) = details {
-        if let Some(obj) = payload.as_object_mut() {
-            obj.insert("details".to_string(), details);
-        }
-    }
 
     let event = AppendEvent {
         event_type: shared_types::EVENT_TOPIC_CONDUCTOR_TASK_PROGRESS.to_string(),
@@ -109,11 +111,11 @@ pub async fn emit_worker_call(
     worker_type: &str,
     worker_objective: &str,
 ) {
-    let payload = serde_json::json!({
-        "run_id": run_id,
-        "worker_type": worker_type,
-        "worker_objective": worker_objective,
-        "timestamp": Utc::now().to_rfc3339(),
+    let payload = to_payload(ConductorWorkerCallPayload {
+        run_id: run_id.to_string(),
+        worker_type: worker_type.to_string(),
+        worker_objective: worker_objective.to_string(),
+        timestamp: Utc::now().to_rfc3339(),
     });
 
     let event = AppendEvent {
@@ -136,12 +138,12 @@ pub async fn emit_worker_result(
     success: bool,
     result_summary: &str,
 ) {
-    let payload = serde_json::json!({
-        "run_id": run_id,
-        "worker_type": worker_type,
-        "success": success,
-        "result_summary": result_summary,
-        "timestamp": Utc::now().to_rfc3339(),
+    let payload = to_payload(ConductorWorkerResultPayload {
+        run_id: run_id.to_string(),
+        worker_type: worker_type.to_string(),
+        success,
+        result_summary: result_summary.to_string(),
+        timestamp: Utc::now().to_rfc3339(),
     });
 
     let event = AppendEvent {
@@ -165,21 +167,15 @@ pub async fn emit_task_completed(
     writer_props: Option<&serde_json::Value>,
     toast: Option<&ConductorToastPayload>,
 ) {
-    let mut payload = serde_json::json!({
-        "run_id": run_id,
-        "output_mode": output_mode,
-        "report_path": report_path,
-        "status": "completed",
-        "timestamp": Utc::now().to_rfc3339(),
+    let payload = to_payload(ConductorTaskCompletedPayload {
+        run_id: run_id.to_string(),
+        output_mode,
+        report_path: report_path.to_string(),
+        status: "completed".to_string(),
+        writer_window_props: writer_props.cloned(),
+        toast: toast.cloned(),
+        timestamp: Utc::now().to_rfc3339(),
     });
-    if let Some(obj) = payload.as_object_mut() {
-        if let Some(props) = writer_props {
-            obj.insert("writer_window_props".to_string(), props.clone());
-        }
-        if let Some(toast) = toast {
-            obj.insert("toast".to_string(), serde_json::json!(toast));
-        }
-    }
 
     let event = AppendEvent {
         event_type: shared_types::EVENT_TOPIC_CONDUCTOR_TASK_COMPLETED.to_string(),
@@ -201,19 +197,14 @@ pub async fn emit_task_failed(
     error_message: &str,
     failure_kind: Option<FailureKind>,
 ) {
-    let mut payload = serde_json::json!({
-        "run_id": run_id,
-        "error_code": error_code,
-        "error_message": error_message,
-        "status": "failed",
-        "timestamp": Utc::now().to_rfc3339(),
+    let payload = to_payload(ConductorTaskFailedPayload {
+        run_id: run_id.to_string(),
+        error_code: error_code.to_string(),
+        error_message: error_message.to_string(),
+        status: "failed".to_string(),
+        failure_kind,
+        timestamp: Utc::now().to_rfc3339(),
     });
-
-    if let Some(failure_kind) = failure_kind {
-        if let Some(obj) = payload.as_object_mut() {
-            obj.insert("failure_kind".to_string(), serde_json::json!(failure_kind));
-        }
-    }
 
     let event = AppendEvent {
         event_type: shared_types::EVENT_TOPIC_CONDUCTOR_TASK_FAILED.to_string(),

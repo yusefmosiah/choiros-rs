@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -116,7 +116,8 @@ impl Config {
         dotenvy::dotenv().ok();
 
         let port = env_parse("HYPERVISOR_PORT", 9090)?;
-        let provider_gateway_token = std::env::var("CHOIR_PROVIDER_GATEWAY_TOKEN").ok();
+        let provider_gateway_token =
+            env_or_credential("CHOIR_PROVIDER_GATEWAY_TOKEN", "provider_gateway_token");
         let provider_gateway_base_url = std::env::var("CHOIR_PROVIDER_GATEWAY_BASE_URL")
             .ok()
             .or_else(|| Some(format!("http://127.0.0.1:{port}")));
@@ -196,6 +197,32 @@ fn env_str(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
+fn env_or_credential(key: &str, credential_name: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .and_then(trimmed_non_empty)
+        .or_else(|| {
+            std::env::var("CREDENTIALS_DIRECTORY")
+                .ok()
+                .map(PathBuf::from)
+                .and_then(|dir| read_credential_from_dir(&dir, credential_name))
+        })
+}
+
+fn read_credential_from_dir(dir: &Path, credential_name: &str) -> Option<String> {
+    let value = std::fs::read_to_string(dir.join(credential_name)).ok()?;
+    trimmed_non_empty(value)
+}
+
+fn trimmed_non_empty(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 fn env_parse<T: std::str::FromStr>(key: &str, default: T) -> anyhow::Result<T>
 where
     T::Err: std::fmt::Display,
@@ -249,4 +276,25 @@ pub fn frontend_dist_from_env() -> String {
 
     // Final fallback for environments that provide dist through runtime wiring.
     debug.to_string_lossy().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_credential_from_dir;
+
+    #[test]
+    fn reads_trimmed_credential_value() {
+        let dir = std::env::temp_dir().join(format!(
+            "hypervisor-config-credentials-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp credential dir");
+        std::fs::write(dir.join("provider_gateway_token"), " token-from-file \n")
+            .expect("write credential");
+
+        let value = read_credential_from_dir(&dir, "provider_gateway_token");
+        assert_eq!(value.as_deref(), Some("token-from-file"));
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

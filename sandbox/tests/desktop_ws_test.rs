@@ -134,6 +134,57 @@ async fn post_json(
 }
 
 #[tokio::test]
+async fn test_desktop_ws_emits_app_registered_after_registration() {
+    let server = start_test_server().await;
+    let desktop_id = test_desktop_id();
+    let client = reqwest::Client::new();
+
+    let (mut ws, _) = connect_async(ws_url(server.addr, "/ws"))
+        .await
+        .expect("ws connect failed");
+    let _ = recv_json(&mut ws).await;
+
+    send_json(
+        &mut ws,
+        json!({
+            "type": "subscribe",
+            "desktop_id": desktop_id,
+        }),
+    )
+    .await;
+
+    let initial = wait_for_type(&mut ws, "desktop_state").await;
+    assert_eq!(
+        initial["desktop"]["apps"]
+            .as_array()
+            .expect("apps array")
+            .len(),
+        0
+    );
+
+    let register = json!({
+        "id": "trace",
+        "name": "Trace",
+        "icon": "🔍",
+        "component_code": "TraceApp",
+        "default_width": 900,
+        "default_height": 600
+    });
+    let response = post_json(
+        &client,
+        server.addr,
+        &format!("/desktop/{desktop_id}/apps"),
+        register.clone(),
+    )
+    .await;
+    assert!(response.status().is_success());
+
+    let registered = wait_for_type(&mut ws, "app_registered").await;
+    assert_eq!(registered["app"]["id"], register["id"]);
+    assert_eq!(registered["app"]["name"], register["name"]);
+}
+
+#[tokio::test]
 async fn test_desktop_ws_emits_window_delta_after_mutation() {
     let server = start_test_server().await;
     let desktop_id = test_desktop_id();
@@ -294,4 +345,47 @@ async fn test_desktop_ws_delta_order_matches_mutation_order() {
     assert_eq!(msg1["window_id"], window_id);
     assert_eq!(msg2["window_id"], window_id);
     assert_eq!(msg3["window_id"], window_id);
+}
+
+#[tokio::test]
+async fn test_desktop_ws_emits_app_registered_after_subscription() {
+    let server = start_test_server().await;
+    let desktop_id = test_desktop_id();
+    let client = reqwest::Client::new();
+
+    let (mut ws, _) = connect_async(ws_url(server.addr, "/ws"))
+        .await
+        .expect("ws connect failed");
+    let _ = recv_json(&mut ws).await;
+
+    send_json(
+        &mut ws,
+        json!({
+            "type": "subscribe",
+            "desktop_id": desktop_id,
+        }),
+    )
+    .await;
+
+    let _ = wait_for_type(&mut ws, "desktop_state").await;
+
+    let response = post_json(
+        &client,
+        server.addr,
+        &format!("/desktop/{desktop_id}/apps"),
+        json!({
+            "id": "inspector",
+            "name": "Inspector",
+            "icon": "🔎",
+            "component_code": "InspectorApp",
+            "default_width": 720,
+            "default_height": 520
+        }),
+    )
+    .await;
+    assert!(response.status().is_success());
+
+    let registered = wait_for_type(&mut ws, "app_registered").await;
+    assert_eq!(registered["app"]["id"], "inspector");
+    assert_eq!(registered["app"]["name"], "Inspector");
 }

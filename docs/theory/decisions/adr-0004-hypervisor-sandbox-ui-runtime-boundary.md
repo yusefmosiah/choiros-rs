@@ -131,8 +131,8 @@ Revisit this ADR when any of the following becomes true:
 
 ## References
 
-- `docs/architecture/2026-02-22-sandbox-owned-ui-runtime-spec.md`
-- `docs/architecture/adr-0003-hypervisor-sandbox-secrets-boundary.md`
+- `docs/archive/handoffs/2026-Q1/2026-02-22-sandbox-owned-ui-runtime-spec.md`
+- `docs/theory/decisions/adr-0003-hypervisor-sandbox-secrets-boundary.md`
 - `hypervisor/src/main.rs`
 - `hypervisor/src/middleware.rs`
 - `tests/playwright/proxy-integration.spec.ts`

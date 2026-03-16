@@ -4,7 +4,9 @@
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use axum::Json;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
 use std::collections::HashMap;
@@ -12,6 +14,7 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 
 use crate::actors::event_store::EventStoreMsg;
+use crate::api::logs::{event_matches_run_filter, validate_scope_pair, RunLogQuery};
 use crate::api::ApiState;
 
 pub async fn logs_websocket(
@@ -32,11 +35,30 @@ pub async fn logs_websocket(
     let event_type_prefix = query.get("event_type_prefix").cloned();
     let actor_id = query.get("actor_id").cloned();
     let user_id = query.get("user_id").cloned();
+    let session_id = query.get("session_id").cloned();
+    let thread_id = query.get("thread_id").cloned();
+    let run_id = query.get("run_id").cloned();
+    let correlation_id = query.get("correlation_id").cloned();
     let poll_ms = query
         .get("poll_ms")
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(250)
         .clamp(50, 5_000);
+
+    if let Err(error) = validate_scope_pair(&session_id, &thread_id) {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response();
+    }
+
+    let run_filter = RunLogQuery {
+        since_seq: None,
+        limit: None,
+        actor_id: actor_id.clone(),
+        user_id: user_id.clone(),
+        session_id,
+        thread_id,
+        run_id,
+        correlation_id,
+    };
 
     let event_store = state.app_state.event_store();
     ws.on_upgrade(move |socket| {
@@ -49,6 +71,7 @@ pub async fn logs_websocket(
             actor_id,
             user_id,
             poll_ms,
+            run_filter,
         )
     })
 }
@@ -62,6 +85,7 @@ async fn handle_logs_socket(
     actor_id: Option<String>,
     user_id: Option<String>,
     poll_ms: u64,
+    run_filter: RunLogQuery,
 ) {
     let (mut sender, mut receiver) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
@@ -78,9 +102,13 @@ async fn handle_logs_socket(
             "type": "connected",
             "since_seq": since_seq,
             "limit": limit,
-            "event_type_prefix": event_type_prefix,
-            "actor_id": actor_id,
-            "user_id": user_id,
+            "event_type_prefix": event_type_prefix.clone(),
+            "actor_id": actor_id.clone(),
+            "user_id": user_id.clone(),
+            "session_id": run_filter.session_id.clone(),
+            "thread_id": run_filter.thread_id.clone(),
+            "run_id": run_filter.run_id.clone(),
+            "correlation_id": run_filter.correlation_id.clone(),
             "poll_ms": poll_ms,
         })
         .to_string()
@@ -130,6 +158,9 @@ async fn handle_logs_socket(
 
                 for event in recent {
                     since_seq = since_seq.max(event.seq);
+                    if !event_matches_run_filter(&event, &run_filter) {
+                        continue;
+                    }
                     let _ = tx.send(Message::Text(
                         json!({
                             "type": "event",

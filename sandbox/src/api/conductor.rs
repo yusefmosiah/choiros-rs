@@ -13,9 +13,10 @@ use crate::actors::event_store::{AppendEvent, EventStoreMsg};
 use crate::api::websocket::{broadcast_event, WsMessage};
 use crate::api::ApiState;
 use shared_types::{
-    ConductorError, ConductorExecuteRequest, ConductorExecuteResponse, ConductorRunState,
-    ConductorRunStatus, ConductorRunStatusResponse, ConductorToastPayload, ConductorToastTone,
-    EventImportance, WriterWindowProps,
+    ConductorDocumentUpdatePayload, ConductorError, ConductorExecuteRequest,
+    ConductorExecuteResponse, ConductorRunState, ConductorRunStatus, ConductorRunStatusResponse,
+    ConductorToastPayload, ConductorToastTone, DesktopTelemetryEvent, EventImportance,
+    WriterWindowProps,
 };
 
 /// Conductor error codes for machine-readable error responses
@@ -406,21 +407,17 @@ async fn broadcast_telemetry_event(
     importance: EventImportance,
     data: serde_json::Value,
 ) {
-    let importance_str = match importance {
-        EventImportance::High => "high",
-        EventImportance::Normal => "normal",
-        EventImportance::Low => "low",
-    };
-
     broadcast_event(
         ws_sessions,
         desktop_id,
         WsMessage::Telemetry {
-            event_type: event_type.to_string(),
-            capability: capability.to_string(),
-            phase: phase.to_string(),
-            importance: importance_str.to_string(),
-            data,
+            payload: DesktopTelemetryEvent {
+                event_type: event_type.to_string(),
+                capability: capability.to_string(),
+                phase: phase.to_string(),
+                importance,
+                data,
+            },
         },
     )
     .await;
@@ -439,10 +436,12 @@ pub async fn broadcast_document_update(
         ws_sessions,
         desktop_id,
         WsMessage::DocumentUpdate {
-            run_id: run_id.to_string(),
-            document_path: document_path.to_string(),
-            content_excerpt: content_excerpt.to_string(),
-            timestamp: timestamp.to_string(),
+            payload: ConductorDocumentUpdatePayload {
+                run_id: run_id.to_string(),
+                document_path: document_path.to_string(),
+                content_excerpt: content_excerpt.to_string(),
+                timestamp: timestamp.to_string(),
+            },
         },
     )
     .await;

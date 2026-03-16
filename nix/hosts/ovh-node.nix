@@ -248,7 +248,7 @@
         "aws_bedrock:/run/choiros/credentials/platform/aws_bedrock"
         "provider_gateway_token:/run/choiros/credentials/platform/provider_gateway_token"
       ];
-      EnvironmentFile = "/run/choiros/credentials/platform/hypervisor.env";
+      EnvironmentFile = "-/run/choiros/credentials/platform/hypervisor.env";
       Environment = [
         "HYPERVISOR_PORT=9090"
         "HYPERVISOR_DATABASE_URL=sqlite:/opt/choiros/data/hypervisor.db"
@@ -271,8 +271,9 @@
 
   # ── ADR-0017: systemd unit templates for VM lifecycle ──────────────────
   # Each unit is parameterized by instance ID (%i), e.g., "live" or "dev".
-  # The hypervisor starts these via `systemctl start socat-sandbox@live`,
-  # which pulls in the full dependency chain automatically.
+  # The hypervisor starts the selected VM template directly
+  # (`cloud-hypervisor@%i` or `firecracker@%i`) and then the matching socat
+  # unit (`socat-sandbox@%i` or `socat-sandbox-firecracker@%i`).
 
   # TAP device setup (oneshot, persists after exit for other units)
   systemd.services."tap-setup@" = {
@@ -339,6 +340,9 @@
         VM_MAC="52:54:00:00:00:0a"  # default for legacy "live"
         if [[ -f "''${STATE_DIR}/vm-mac" ]]; then
           VM_MAC=$(cat "''${STATE_DIR}/vm-mac")
+        fi
+        if [[ -f "''${STATE_DIR}/machine-runner" ]]; then
+          RUNNER_DIR=$(cat "''${STATE_DIR}/machine-runner")
         fi
         TAP="tap-''${INSTANCE}"
         TAP="''${TAP:0:15}"  # IFNAMSIZ limit
@@ -758,6 +762,8 @@
   # socat port forwarding (localhost:HOST_PORT -> VM_IP:8080)
   # ADR-0014: reads vm-ip and host-port from state dir config files
   # written by SystemdLifecycle.ensure() in Rust.
+  # Keep one unit per hypervisor template so the port-forward binds to the
+  # correct VM process tree.
   systemd.services."socat-sandbox@" = {
     description = "Socat port forward for sandbox %i";
     requires = [ "cloud-hypervisor@%i.service" ];
@@ -800,6 +806,71 @@
         echo "WARNING: Sandbox not healthy after ''${MAX_WAIT}s, starting socat anyway"
       '' + " %i";
       ExecStart = pkgs.writeShellScript "socat-start" ''
+        set -euo pipefail
+        INSTANCE="$1"
+        STATE_DIR="/opt/choiros/vms/state/''${INSTANCE}"
+
+        # Read per-instance config
+        if [[ -f "''${STATE_DIR}/vm-ip" ]] && [[ -f "''${STATE_DIR}/host-port" ]]; then
+          VM_IP=$(cat "''${STATE_DIR}/vm-ip")
+          HOST_PORT=$(cat "''${STATE_DIR}/host-port")
+        else
+          # Fallback for legacy instances
+          case "$INSTANCE" in
+            live*) VM_IP="10.0.0.100"; HOST_PORT="8080" ;;
+            dev*)  VM_IP="10.0.0.101"; HOST_PORT="8081" ;;
+            *)     VM_IP="10.0.0.100"; HOST_PORT="8080" ;;
+          esac
+        fi
+
+        echo "Starting socat 127.0.0.1:''${HOST_PORT} -> ''${VM_IP}:8080"
+        exec ${pkgs.socat}/bin/socat \
+          TCP-LISTEN:''${HOST_PORT},bind=127.0.0.1,reuseaddr,fork \
+          TCP:''${VM_IP}:8080
+      '' + " %i";
+    };
+  };
+
+  systemd.services."socat-sandbox-firecracker@" = {
+    description = "Socat port forward for firecracker sandbox %i";
+    requires = [ "firecracker@%i.service" ];
+    after = [ "firecracker@%i.service" ];
+    bindsTo = [ "firecracker@%i.service" ];
+    partOf = [ "firecracker@%i.service" ];
+    serviceConfig = {
+      Type = "simple";
+      KillMode = "control-group";
+      ExecStartPre = pkgs.writeShellScript "socat-firecracker-wait-health" ''
+        set -euo pipefail
+        INSTANCE="$1"
+        STATE_DIR="/opt/choiros/vms/state/''${INSTANCE}"
+
+        # Read per-instance config (written by hypervisor Rust code)
+        if [[ -f "''${STATE_DIR}/vm-ip" ]]; then
+          VM_IP=$(cat "''${STATE_DIR}/vm-ip")
+        else
+          # Fallback for legacy instances
+          case "$INSTANCE" in
+            live*) VM_IP="10.0.0.100" ;;
+            dev*)  VM_IP="10.0.0.101" ;;
+            *)     VM_IP="10.0.0.100" ;;
+          esac
+        fi
+
+        echo "Waiting for sandbox health at ''${VM_IP}:8080"
+        MAX_WAIT=90
+        ELAPSED=0
+        while (( ELAPSED < MAX_WAIT )); do
+          if ${pkgs.curl}/bin/curl -fsS --connect-timeout 2 "http://''${VM_IP}:8080/health" &>/dev/null; then
+            echo "Sandbox healthy after ''${ELAPSED}s"
+            exit 0
+          fi
+          sleep 3
+          ELAPSED=$((ELAPSED + 3))
+        done
+        echo "WARNING: Sandbox not healthy after ''${MAX_WAIT}s, starting socat anyway"
+      '' + " %i";
+      ExecStart = pkgs.writeShellScript "socat-firecracker-start" ''
         set -euo pipefail
         INSTANCE="$1"
         STATE_DIR="/opt/choiros/vms/state/''${INSTANCE}"

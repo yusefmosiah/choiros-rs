@@ -1,6 +1,7 @@
 use dioxus::prelude::{Signal, WritableExt};
 use shared_types::{
-    ChangesetImpact, DesktopState, PatchOp, PatchSource, WindowState, WriterRunStatusKind,
+    AppDefinition, ChangesetImpact, DesktopState, PatchOp, PatchSource, WindowState,
+    WriterRunStatusKind,
 };
 
 use crate::desktop::ws::WsEvent;
@@ -112,9 +113,16 @@ fn merge_source_refs(run: &mut ActiveWriterRun, incoming: &[String], prioritize:
 
 /// Update the global writer runs state from a WsEvent
 pub fn update_writer_runs_from_event(event: &WsEvent) {
+    let mut runs = ACTIVE_WRITER_RUNS.write();
+    apply_writer_runs_event(&mut runs, event);
+}
+
+pub fn apply_writer_runs_event(
+    runs: &mut std::collections::HashMap<String, ActiveWriterRun>,
+    event: &WsEvent,
+) {
     match event {
         WsEvent::WriterRunPatch { base, payload } => {
-            let mut runs = ACTIVE_WRITER_RUNS.write();
             let patch = PendingPatch {
                 patch_id: payload.patch_id.clone(),
                 revision: base.revision,
@@ -165,9 +173,7 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
                 last_applied_revision: 0,
                 recent_changesets: Vec::new(),
             };
-            ACTIVE_WRITER_RUNS
-                .write()
-                .insert(base.document_path.clone(), run);
+            runs.insert(base.document_path.clone(), run);
         }
         WsEvent::WriterRunProgress {
             base,
@@ -176,7 +182,6 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
             progress_pct,
             source_refs,
         } => {
-            let mut runs = ACTIVE_WRITER_RUNS.write();
             if let Some(run) = runs.get_mut(&base.document_path) {
                 run.revision = base.revision;
                 if !matches!(
@@ -218,7 +223,6 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
             status,
             message,
         } => {
-            let mut runs = ACTIVE_WRITER_RUNS.write();
             if let Some(run) = runs.get_mut(&base.document_path) {
                 run.revision = base.revision;
                 run.status = *status;
@@ -252,7 +256,6 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
             error_message,
             failure_kind: _,
         } => {
-            let mut runs = ACTIVE_WRITER_RUNS.write();
             if let Some(run) = runs.get_mut(&base.document_path) {
                 run.revision = base.revision;
                 run.status = WriterRunStatusKind::Failed;
@@ -293,7 +296,6 @@ pub fn update_writer_runs_from_event(event: &WsEvent) {
                 impact: impact.clone(),
                 op_taxonomy: op_taxonomy.clone(),
             };
-            let mut runs = ACTIVE_WRITER_RUNS.write();
             // Match by document_path if available, otherwise fall back to run_id scan.
             let matched = if !base.document_path.is_empty() {
                 runs.get_mut(&base.document_path)
@@ -339,64 +341,82 @@ pub fn apply_ws_event(
         WsEvent::Disconnected => {
             ws_connected.set(false);
         }
-        WsEvent::DesktopStateUpdate(state) => {
-            desktop_state.set(Some(state));
+        _ => {
+            let next_state = {
+                let current = desktop_state.write().take();
+                apply_desktop_state_event(current, &event)
+            };
+            desktop_state.set(next_state);
+        }
+    }
+}
+
+pub fn apply_desktop_state_event(
+    state: Option<DesktopState>,
+    event: &WsEvent,
+) -> Option<DesktopState> {
+    match event {
+        WsEvent::DesktopStateUpdate(state) => Some(state.clone()),
+        WsEvent::AppRegistered(app) => {
+            let mut state = state?;
+            upsert_app(&mut state, app.clone());
+            Some(state)
         }
         WsEvent::WindowOpened(window) => {
-            if let Some(state) = desktop_state.write().as_mut() {
-                push_window_and_activate(state, window);
-            }
+            let mut state = state?;
+            push_window_and_activate(&mut state, window.clone());
+            Some(state)
         }
         WsEvent::WindowClosed(window_id) => {
-            if let Some(state) = desktop_state.write().as_mut() {
-                state.windows.retain(|w| w.id != window_id);
-            }
+            let mut state = state?;
+            remove_window_and_reselect_active(&mut state, window_id);
+            Some(state)
         }
         WsEvent::WindowMoved { window_id, x, y } => {
-            if let Some(state) = desktop_state.write().as_mut() {
-                if let Some(window) = state.windows.iter_mut().find(|w| w.id == window_id) {
-                    window.x = x;
-                    window.y = y;
-                }
+            let mut state = state?;
+            if let Some(window) = state.windows.iter_mut().find(|w| w.id == *window_id) {
+                window.x = *x;
+                window.y = *y;
             }
+            Some(state)
         }
         WsEvent::WindowResized {
             window_id,
             width,
             height,
         } => {
-            if let Some(state) = desktop_state.write().as_mut() {
-                if let Some(window) = state.windows.iter_mut().find(|w| w.id == window_id) {
-                    window.width = width;
-                    window.height = height;
-                }
+            let mut state = state?;
+            if let Some(window) = state.windows.iter_mut().find(|w| w.id == *window_id) {
+                window.width = *width;
+                window.height = *height;
             }
+            Some(state)
         }
         WsEvent::WindowFocused { window_id, z_index } => {
-            if let Some(state) = desktop_state.write().as_mut() {
-                state.active_window = Some(window_id.clone());
-                if let Some(window) = state.windows.iter_mut().find(|w| w.id == window_id) {
-                    window.minimized = false;
-                    window.z_index = z_index;
-                }
+            let mut state = state?;
+            state.active_window = Some(window_id.clone());
+            if let Some(window) = state.windows.iter_mut().find(|w| w.id == *window_id) {
+                window.minimized = false;
+                window.z_index = *z_index;
             }
+            Some(state)
         }
         WsEvent::WindowMinimized(window_id) => {
-            if let Some(state) = desktop_state.write().as_mut() {
-                if let Some(window) = state.windows.iter_mut().find(|w| w.id == window_id) {
-                    window.minimized = true;
-                    window.maximized = false;
-                }
-
-                if state.active_window.as_deref() == Some(&window_id) {
-                    state.active_window = state
-                        .windows
-                        .iter()
-                        .filter(|w| !w.minimized)
-                        .max_by_key(|w| w.z_index)
-                        .map(|w| w.id.clone());
-                }
+            let mut state = state?;
+            if let Some(window) = state.windows.iter_mut().find(|w| w.id == *window_id) {
+                window.minimized = true;
+                window.maximized = false;
             }
+
+            if state.active_window.as_deref() == Some(window_id.as_str()) {
+                state.active_window = state
+                    .windows
+                    .iter()
+                    .filter(|w| !w.minimized)
+                    .max_by_key(|w| w.z_index)
+                    .map(|w| w.id.clone());
+            }
+            Some(state)
         }
         WsEvent::WindowMaximized {
             window_id,
@@ -405,19 +425,19 @@ pub fn apply_ws_event(
             width,
             height,
         } => {
-            if let Some(state) = desktop_state.write().as_mut() {
-                let next_z = state.windows.iter().map(|w| w.z_index).max().unwrap_or(0) + 1;
-                if let Some(window) = state.windows.iter_mut().find(|w| w.id == window_id) {
-                    window.minimized = false;
-                    window.maximized = true;
-                    window.x = x;
-                    window.y = y;
-                    window.width = width;
-                    window.height = height;
-                    window.z_index = next_z;
-                }
-                state.active_window = Some(window_id);
+            let mut state = state?;
+            let next_z = state.windows.iter().map(|w| w.z_index).max().unwrap_or(0) + 1;
+            if let Some(window) = state.windows.iter_mut().find(|w| w.id == *window_id) {
+                window.minimized = false;
+                window.maximized = true;
+                window.x = *x;
+                window.y = *y;
+                window.width = *width;
+                window.height = *height;
+                window.z_index = next_z;
             }
+            state.active_window = Some(window_id.clone());
+            Some(state)
         }
         WsEvent::WindowRestored {
             window_id,
@@ -427,37 +447,40 @@ pub fn apply_ws_event(
             height,
             maximized,
         } => {
-            if let Some(state) = desktop_state.write().as_mut() {
-                if let Some(window) = state.windows.iter_mut().find(|w| w.id == window_id) {
-                    window.minimized = false;
-                    window.maximized = maximized;
-                    window.x = x;
-                    window.y = y;
-                    window.width = width;
-                    window.height = height;
-                }
-                state.active_window = Some(window_id);
+            let mut state = state?;
+            let next_z = state.windows.iter().map(|w| w.z_index).max().unwrap_or(0) + 1;
+            if let Some(window) = state.windows.iter_mut().find(|w| w.id == *window_id) {
+                window.minimized = false;
+                window.maximized = *maximized;
+                window.x = *x;
+                window.y = *y;
+                window.width = *width;
+                window.height = *height;
+                window.z_index = next_z;
             }
+            state.active_window = Some(window_id.clone());
+            Some(state)
         }
-        WsEvent::Pong => {}
-        WsEvent::Error(_) => {}
-        WsEvent::Telemetry { .. } => {
-            // Telemetry events are handled separately by the prompt bar
-            // They don't modify desktop state
-        }
-        WsEvent::DocumentUpdate { .. } => {
-            // Document update events are handled separately by the run view
-            // They don't modify desktop state
-        }
-        WsEvent::WriterRunStarted { .. }
+        WsEvent::Connected
+        | WsEvent::Disconnected
+        | WsEvent::Pong
+        | WsEvent::Error(_)
+        | WsEvent::Telemetry { .. }
+        | WsEvent::DocumentUpdate { .. }
+        | WsEvent::WriterRunStarted { .. }
         | WsEvent::WriterRunProgress { .. }
         | WsEvent::WriterRunPatch { .. }
         | WsEvent::WriterRunStatus { .. }
         | WsEvent::WriterRunFailed { .. }
-        | WsEvent::WriterRunChangeset { .. } => {
-            // Writer run events are handled by the writer component
-            // They don't modify desktop state directly
-        }
+        | WsEvent::WriterRunChangeset { .. } => state,
+    }
+}
+
+pub fn upsert_app(state: &mut DesktopState, app: AppDefinition) {
+    if let Some(existing) = state.apps.iter_mut().find(|existing| existing.id == app.id) {
+        *existing = app;
+    } else {
+        state.apps.push(app);
     }
 }
 
@@ -482,5 +505,174 @@ pub fn focus_window_and_raise_z(state: &mut DesktopState, window_id: &str) {
     let max_z = state.windows.iter().map(|w| w.z_index).max().unwrap_or(0);
     if let Some(window) = state.windows.iter_mut().find(|w| w.id == window_id) {
         window.z_index = max_z + 1;
+    }
+}
+
+#[cfg(test)]
+mod ws_state_tests {
+    use super::apply_writer_runs_event;
+    use crate::desktop::ws::WsEvent;
+    use chrono::{TimeZone, Utc};
+    use shared_types::{ChangesetImpact, WriterRunEventBase};
+    use std::collections::HashMap;
+
+    #[test]
+    fn changeset_events_attach_to_existing_writer_run_by_document_path() {
+        let mut runs = HashMap::new();
+
+        let base = WriterRunEventBase {
+            desktop_id: "desktop-1".to_string(),
+            session_id: "session-1".to_string(),
+            thread_id: "thread-1".to_string(),
+            run_id: "run-1".to_string(),
+            document_path: "conductor/runs/run-1/draft.md".to_string(),
+            revision: 4,
+            head_version_id: None,
+            timestamp: Utc.with_ymd_and_hms(2026, 3, 13, 22, 0, 0).unwrap(),
+        };
+
+        apply_writer_runs_event(
+            &mut runs,
+            &WsEvent::WriterRunStarted {
+                base: base.clone(),
+                objective: "Draft the answer".to_string(),
+            },
+        );
+        apply_writer_runs_event(
+            &mut runs,
+            &WsEvent::WriterRunChangeset {
+                base: base.clone(),
+                patch_id: "patch-1".to_string(),
+                loop_id: Some("loop-1".to_string()),
+                summary: "Tightened the opening section.".to_string(),
+                impact: ChangesetImpact::Medium,
+                op_taxonomy: vec!["replace".to_string(), "clarification".to_string()],
+            },
+        );
+
+        let run = runs
+            .get("conductor/runs/run-1/draft.md")
+            .expect("writer run should exist");
+        assert_eq!(run.recent_changesets.len(), 1);
+        assert_eq!(run.recent_changesets[0].patch_id, "patch-1");
+        assert_eq!(
+            run.recent_changesets[0].summary,
+            "Tightened the opening section."
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{apply_desktop_state_event, upsert_app};
+    use crate::desktop::ws::WsEvent;
+    use shared_types::{AppDefinition, DesktopState, WindowState};
+
+    fn app(id: &str, name: &str) -> AppDefinition {
+        AppDefinition {
+            id: id.to_string(),
+            name: name.to_string(),
+            icon: "x".to_string(),
+            component_code: format!("{name}View"),
+            default_width: 640,
+            default_height: 480,
+        }
+    }
+
+    fn window(id: &str, z_index: u32) -> WindowState {
+        WindowState {
+            id: id.to_string(),
+            app_id: "writer".to_string(),
+            title: id.to_string(),
+            x: 10,
+            y: 10,
+            width: 400,
+            height: 300,
+            z_index,
+            minimized: false,
+            maximized: false,
+            props: serde_json::Value::Null,
+        }
+    }
+
+    #[test]
+    fn upsert_app_replaces_matching_id() {
+        let mut state = DesktopState {
+            windows: Vec::new(),
+            active_window: None,
+            apps: vec![app("writer", "Writer")],
+        };
+
+        upsert_app(&mut state, app("writer", "Writer 2"));
+
+        assert_eq!(state.apps.len(), 1);
+        assert_eq!(state.apps[0].name, "Writer 2");
+    }
+
+    #[test]
+    fn apply_ws_event_app_registered_updates_app_catalog() {
+        let state = apply_desktop_state_event(
+            Some(DesktopState {
+                windows: Vec::new(),
+                active_window: None,
+                apps: vec![app("writer", "Writer")],
+            }),
+            &WsEvent::AppRegistered(app("trace", "Trace")),
+        );
+
+        let state = state.expect("desktop state");
+        assert_eq!(state.apps.len(), 2);
+        assert!(state.apps.iter().any(|app| app.id == "trace"));
+    }
+
+    #[test]
+    fn apply_ws_event_window_closed_reselects_active_window() {
+        let state = apply_desktop_state_event(
+            Some(DesktopState {
+                windows: vec![window("left", 1), window("right", 2)],
+                active_window: Some("right".to_string()),
+                apps: Vec::new(),
+            }),
+            &WsEvent::WindowClosed("right".to_string()),
+        );
+
+        let state = state.expect("desktop state");
+        assert_eq!(state.windows.len(), 1);
+        assert_eq!(state.active_window.as_deref(), Some("left"));
+    }
+
+    #[test]
+    fn apply_ws_event_window_restored_raises_window() {
+        let state = apply_desktop_state_event(
+            Some(DesktopState {
+                windows: vec![
+                    window("other", 3),
+                    WindowState {
+                        minimized: true,
+                        ..window("restored", 1)
+                    },
+                ],
+                active_window: Some("other".to_string()),
+                apps: Vec::new(),
+            }),
+            &WsEvent::WindowRestored {
+                window_id: "restored".to_string(),
+                x: 20,
+                y: 30,
+                width: 500,
+                height: 320,
+                maximized: false,
+            },
+        );
+
+        let state = state.expect("desktop state");
+        let restored = state
+            .windows
+            .iter()
+            .find(|window| window.id == "restored")
+            .expect("restored window");
+        assert!(!restored.minimized);
+        assert_eq!(restored.z_index, 4);
+        assert_eq!(state.active_window.as_deref(), Some("restored"));
     }
 }

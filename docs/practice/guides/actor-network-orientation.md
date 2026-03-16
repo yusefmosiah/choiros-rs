@@ -155,7 +155,7 @@ Design intent:
 ## 6) Reconciliation Decision (New)
 
 Architecture gate:
-- `docs/architecture/adr-0001-eventstore-eventbus-reconciliation.md`
+- `docs/practice/decisions/adr-0001-eventstore-eventbus-reconciliation.md`
 
 Decision summary:
 - `EventStore` is canonical source of truth.
@@ -166,7 +166,7 @@ Decision summary:
 ## 7) Worker Live-Update Event Model Decision (New)
 
 Architecture gate:
-- `docs/architecture/2026-02-14-worker-live-update-event-model.md`
+- `docs/archive/handoffs/2026-Q1/2026-02-14-worker-live-update-event-model.md`
 
 Decision summary:
 - Workers emit typed runtime events (`progress/result/failed/request`).

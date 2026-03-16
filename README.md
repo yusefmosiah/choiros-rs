@@ -4,21 +4,25 @@
 
 > *Agency lives in computation. Agency exists in language. The Agent Choir sings in the automatic computer.*
 
-## Current Status (2026-02-14)
+## Current Status (2026-03-13)
 
-Human-first docs entrypoint: [`docs/architecture/NARRATIVE_INDEX.md`](docs/architecture/NARRATIVE_INDEX.md)
+Human-first docs entrypoint: [`docs/ATLAS.md`](docs/ATLAS.md)
 
 **Working:**
-- Supervision-tree runtime (`ApplicationSupervisor -> SessionSupervisor -> per-type supervisors`)
-- Actors: EventStore, EventBus, Desktop, Terminal, Researcher, Conductor, Writer, RunWriter
-- Event sourcing with SQLite via sqlx persistence
-- WebSocket streaming for desktop, terminal, writer, and telemetry events
-- Dioxus 0.7 frontend with DesktopShell, PromptBar, WorkspaceCanvas
-- Model providers: Z.ai (GLM), Kimi, OpenAI-compatible endpoints (OpenAI, Inception)
+- Supervision-tree runtime (`ApplicationSupervisor -> SessionSupervisor -> {Conductor, Desktop, Terminal, Researcher, Writer}Supervisor`)
+- `bash` execution delegated through `TerminalActor` paths rather than direct conductor tool execution
+- WebSocket streaming for desktop, terminal, writer, and worker `actor_call` telemetry
+- Scope-isolated event retrieval via `session_id` and `thread_id`
+- EventBus/EventStore observability backbone with SQLite persistence
+- Dioxus 0.7 frontend with DesktopShell, PromptBar, and workspace canvas
+- Current model defaults: conductor/writer on `ClaudeBedrockSonnet46`, other callsites on `ClaudeBedrockHaiku45`
 
 **In Progress:**
+- Typed worker event schema for actor-call rendering
+- Terminal loop event enrichment (`tool_call`, `tool_result`, durations, retry/error metadata)
 - Direct worker/app-to-conductor request-message contract
-- Writer app-agent harness hardening
+- Ordered websocket integration tests for scoped multi-instance streams
+- Writer app-agent harness completion and contract hardening
 - Tracing rollout (human UX → headless API → app-agent harness)
 - Conductor wake-context with bounded agent-tree snapshots
 - Harness simplification (one while-loop model)
@@ -55,21 +59,14 @@ just stop
 ```
 
 Detailed guide:
-- `docs/runbooks/2026-02-28-local-vfkit-nixos-miniguide.md`
+- `docs/practice/guides/local-vfkit-nixos-miniguide.md`
 
 ## OVH Deploy Path
 
-Use SSH-based host convergence for deployed hosts:
+Use the OVH deployment guide as the canonical operator entrypoint:
 
-```bash
-DEPLOY_HOST=<ovh-host> just deploy-ovh-ssh
-```
-
-Optional environment overrides:
-- `DEPLOY_USER`, `DEPLOY_PORT`, `SSH_KEY_PATH`
-- `DEPLOY_SHA`, `WORKDIR`, `REPO_URL`
-- `SANDBOX_STORE_PATH`, `HYPERVISOR_STORE_PATH`, `DESKTOP_STORE_PATH`
-- `ALLOW_HOST_BUILD_FALLBACK=true` (if host-side flake build is allowed)
+- `docs/practice/guides/ovh-config-and-deployment-entrypoint.md`
+- `AGENTS.md` contains the current push → pull → build → restart flow and post-deploy verification commands.
 
 ## FlakeHub Cache + Releases
 
@@ -95,6 +92,7 @@ ApplicationSupervisor
 ├── EventBusActor
 ├── EventRelayActor
 └── SessionSupervisor
+    ├── ConductorSupervisor
     ├── DesktopSupervisor
     ├── TerminalSupervisor
     ├── ResearcherSupervisor
@@ -124,20 +122,25 @@ choiros-rs/
 │   ├── src/api/            # HTTP/WebSocket handlers
 │   └── src/supervisor/     # Supervision tree
 ├── dioxus-desktop/         # Frontend (WASM)
-├── shared-types/           # Shared TypeScript/Rust types
-├── hypervisor/             # Multi-tenant routing (WIP)
+├── shared-types/           # Shared Rust types and generated bindings
+├── hypervisor/             # Control plane, auth, routing, provider gateway
 └── docs/
-    └── architecture/NARRATIVE_INDEX.md  # Start here
+    ├── ATLAS.md            # Start here
+    ├── practice/           # Implemented/current guidance
+    ├── theory/             # Proposals and future design
+    ├── state/              # Reports and snapshots
+    └── archive/            # Historical material
 ```
 
 ## Documentation
 
-- **Entry point:** `docs/architecture/NARRATIVE_INDEX.md`
+- **Entry point:** `docs/ATLAS.md`
 - **Dev guide:** `AGENTS.md`
-- **Platform secrets runbook:** `docs/runbooks/platform-secrets-sops-nix.md`
-- **Bootstrap execution plan:** `docs/architecture/2026-02-28-wave-plan-local-to-ovh-bootstrap.md`
-- **Active handoffs:** `docs/handoffs/` (7 files)
-- **Architecture specs:** `docs/architecture/` (47 files)
+- **Current operating guides:** `docs/practice/guides/`
+- **Current accepted decisions:** `docs/practice/decisions/`
+- **Future design and planned migrations:** `docs/theory/`
+- **Execution evidence and checkpoints:** `docs/state/`
+- **Historical context only:** `docs/archive/`
 
 ## Testing
 

@@ -1468,95 +1468,138 @@ impl EventStoreEmitter {
     pub fn emit_worker_progress(
         &self,
         task_id: &str,
+        run_id: Option<&str>,
+        call_id: Option<&str>,
         phase: &str,
         message: &str,
         model_used: Option<&str>,
     ) {
-        let payload = serde_json::json!({
-            "task_id": task_id,
-            "worker_id": self.worker_id,
-            "phase": phase,
-            "message": message,
-            "model_used": model_used,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        });
+        let payload = serde_json::to_value(shared_types::WorkerTaskProgressPayload {
+            task_id: task_id.to_string(),
+            worker_id: self.worker_id.clone(),
+            run_id: run_id.map(ToString::to_string),
+            call_id: call_id.map(ToString::to_string),
+            phase: phase.to_string(),
+            message: message.to_string(),
+            model_used: model_used.map(ToString::to_string),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        })
+        .unwrap_or(serde_json::Value::Null);
         self.emit_event("worker.task.progress", payload);
     }
 
-    pub fn emit_worker_started(&self, task_id: &str, objective: &str, model: &str) {
-        let payload = serde_json::json!({
-            "task_id": task_id,
-            "worker_id": self.worker_id,
-            "status": "started",
-            "phase": "agent_loop",
-            "objective": objective,
-            "model_used": model,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        });
+    pub fn emit_worker_started(
+        &self,
+        task_id: &str,
+        run_id: Option<&str>,
+        call_id: Option<&str>,
+        objective: &str,
+        model: &str,
+    ) {
+        let payload = serde_json::to_value(shared_types::WorkerTaskStartedPayload {
+            task_id: task_id.to_string(),
+            worker_id: self.worker_id.clone(),
+            run_id: run_id.map(ToString::to_string),
+            call_id: call_id.map(ToString::to_string),
+            status: "started".to_string(),
+            phase: "agent_loop".to_string(),
+            objective: objective.to_string(),
+            model_used: model.to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        })
+        .unwrap_or(serde_json::Value::Null);
         self.emit_event("worker.task.started", payload);
     }
 
-    pub fn emit_worker_completed(&self, task_id: &str, summary: &str) {
-        let payload = serde_json::json!({
-            "task_id": task_id,
-            "worker_id": self.worker_id,
-            "status": "completed",
-            "phase": "agent_loop",
-            "summary": summary,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        });
+    pub fn emit_worker_completed(
+        &self,
+        task_id: &str,
+        run_id: Option<&str>,
+        call_id: Option<&str>,
+        summary: &str,
+    ) {
+        let payload = serde_json::to_value(shared_types::WorkerTaskCompletedPayload {
+            task_id: task_id.to_string(),
+            worker_id: self.worker_id.clone(),
+            run_id: run_id.map(ToString::to_string),
+            call_id: call_id.map(ToString::to_string),
+            status: "completed".to_string(),
+            phase: "agent_loop".to_string(),
+            summary: summary.to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        })
+        .unwrap_or(serde_json::Value::Null);
         self.emit_event("worker.task.completed", payload);
     }
 
-    pub fn emit_worker_failed(&self, task_id: &str, error: &str) {
-        let payload = serde_json::json!({
-            "task_id": task_id,
-            "worker_id": self.worker_id,
-            "status": "failed",
-            "phase": "agent_loop",
-            "error": error,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        });
+    pub fn emit_worker_failed(
+        &self,
+        task_id: &str,
+        run_id: Option<&str>,
+        call_id: Option<&str>,
+        error: &str,
+    ) {
+        let payload = serde_json::to_value(shared_types::WorkerTaskFailedPayload {
+            task_id: task_id.to_string(),
+            worker_id: self.worker_id.clone(),
+            run_id: run_id.map(ToString::to_string),
+            call_id: call_id.map(ToString::to_string),
+            status: "failed".to_string(),
+            phase: "agent_loop".to_string(),
+            error: error.to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        })
+        .unwrap_or(serde_json::Value::Null);
         self.emit_event("worker.task.failed", payload);
     }
 
     pub fn emit_worker_finding(
         &self,
         task_id: &str,
+        run_id: Option<&str>,
+        call_id: Option<&str>,
         finding_id: &str,
         claim: &str,
         confidence: f64,
         evidence_refs: &[String],
     ) {
-        let payload = serde_json::json!({
-            "task_id": task_id,
-            "worker_id": self.worker_id,
-            "phase": "finding",
-            "finding_id": finding_id,
-            "claim": claim,
-            "confidence": confidence,
-            "evidence_refs": evidence_refs,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        });
+        let payload = serde_json::to_value(shared_types::WorkerFindingEventPayload {
+            task_id: task_id.to_string(),
+            worker_id: self.worker_id.clone(),
+            run_id: run_id.map(ToString::to_string),
+            call_id: call_id.map(ToString::to_string),
+            phase: "finding".to_string(),
+            finding_id: finding_id.to_string(),
+            claim: claim.to_string(),
+            confidence,
+            evidence_refs: evidence_refs.to_vec(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        })
+        .unwrap_or(serde_json::Value::Null);
         self.emit_event("worker.task.finding", payload);
     }
 
     pub fn emit_worker_learning(
         &self,
         task_id: &str,
+        run_id: Option<&str>,
+        call_id: Option<&str>,
         learning_id: &str,
         insight: &str,
         confidence: f64,
     ) {
-        let payload = serde_json::json!({
-            "task_id": task_id,
-            "worker_id": self.worker_id,
-            "phase": "learning",
-            "learning_id": learning_id,
-            "insight": insight,
-            "confidence": confidence,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        });
+        let payload = serde_json::to_value(shared_types::WorkerLearningEventPayload {
+            task_id: task_id.to_string(),
+            worker_id: self.worker_id.clone(),
+            run_id: run_id.map(ToString::to_string),
+            call_id: call_id.map(ToString::to_string),
+            phase: "learning".to_string(),
+            learning_id: learning_id.to_string(),
+            insight: insight.to_string(),
+            confidence,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        })
+        .unwrap_or(serde_json::Value::Null);
         self.emit_event("worker.task.learning", payload);
     }
 }
@@ -1631,12 +1674,15 @@ impl WorkerPort for DefaultAdapter {
         report: WorkerTurnReport,
     ) -> Result<(), HarnessError> {
         if let Some(emitter) = &self.event_emitter {
-            let payload = serde_json::json!({
-                "task_id": ctx.loop_id,
-                "worker_id": ctx.worker_id,
-                "report": report,
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-            });
+            let payload = serde_json::to_value(shared_types::WorkerReportReceivedPayload {
+                task_id: ctx.loop_id.clone(),
+                worker_id: ctx.worker_id.clone(),
+                run_id: ctx.run_id.clone(),
+                call_id: ctx.call_id.clone(),
+                report,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            })
+            .unwrap_or(serde_json::Value::Null);
             emitter.emit_event("worker.report.received", payload);
         }
         Ok(())
@@ -1650,6 +1696,8 @@ impl WorkerPort for DefaultAdapter {
         if let Some(emitter) = &self.event_emitter {
             emitter.emit_worker_progress(
                 &ctx.loop_id,
+                ctx.run_id.as_deref(),
+                ctx.call_id.as_deref(),
                 &progress.phase,
                 &progress.message,
                 progress.model_used.as_deref(),

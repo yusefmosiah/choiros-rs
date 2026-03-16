@@ -45,16 +45,16 @@ VM lifecycle (`create/start/stop/snapshot/restore/delete/get/list`).
 
 | File | Purpose | Relevance |
 |------|---------|-----------|
-| docs/runbooks/ovh-config-and-deployment-entrypoint.md | Single OVH bootstrap/deployment entrypoint | New comprehensive big-picture doc for re-onboarding |
-| docs/architecture/NARRATIVE_INDEX.md | Human-first architecture/docs index | Updated with prominent local startup commands and new OVH entrypoint link |
+| docs/practice/guides/ovh-config-and-deployment-entrypoint.md | Single OVH bootstrap/deployment entrypoint | New comprehensive big-picture doc for re-onboarding |
+| docs/ATLAS.md | Human-first docs index | Current successor to the historical `docs/archive/NARRATIVE_INDEX.md` |
 | README.md | Repo landing doc | Updated to show canonical local startup path (`just dev`) |
-| docs/runbooks/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md | Operator procedure for OVH secrets + lifecycle | Still authoritative for execution details |
-| docs/architecture/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md | Accepted OVH bootstrap ADR | Decision authority for secrets and two-node lifecycle |
+| docs/archive/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md | Operator procedure for OVH secrets + lifecycle | Historical execution detail referenced by newer practice docs |
+| docs/practice/decisions/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md | Accepted OVH bootstrap ADR | Decision authority for secrets and two-node lifecycle |
 | Justfile | Current command source of truth | Confirms `just dev`/`dev-status`/`stop` are canonical now |
 
 ## Key Patterns Discovered
 
-1. `NARRATIVE_INDEX.md` is the top human-first index and should include fast operator actions.
+1. `docs/ATLAS.md` is now the top human-first index; this snapshot originally updated the predecessor `docs/archive/NARRATIVE_INDEX.md`.
 2. Major architecture/roadmap docs require:
    - `Narrative Summary (1-minute read)`
    - `What Changed`
@@ -69,9 +69,9 @@ VM lifecycle (`create/start/stop/snapshot/restore/delete/get/list`).
 ## Tasks Finished
 
 - [x] Created comprehensive OVH config/deployment entrypoint doc.
-- [x] Linked the new entrypoint in `docs/architecture/NARRATIVE_INDEX.md`.
+- [x] Linked the new entrypoint in the human-first index (`docs/archive/NARRATIVE_INDEX.md` at the time; now `docs/ATLAS.md`).
 - [x] Added prominent canonical local startup section in `README.md`.
-- [x] Added prominent canonical local startup section in `docs/architecture/NARRATIVE_INDEX.md`.
+- [x] Added prominent canonical local startup section in the human-first index (`docs/archive/NARRATIVE_INDEX.md` at the time; now `docs/ATLAS.md`).
 - [x] Verified local start commands against current `Justfile`.
 
 ## Files Modified
@@ -79,9 +79,9 @@ VM lifecycle (`create/start/stop/snapshot/restore/delete/get/list`).
 | File | Changes | Rationale |
 |------|---------|-----------|
 | README.md | Replaced outdated sandbox-only quick start with canonical `just dev` startup on `9090` | Reduce operator confusion from command churn |
-| docs/architecture/NARRATIVE_INDEX.md | Added `Start Local Now (Canonical)` and inserted OVH entrypoint into runbook order | Make current startup and OVH docs discoverable from one index |
-| docs/runbooks/ovh-config-and-deployment-entrypoint.md | New comprehensive OVH bootstrap/deployment entrypoint with map/checklist | Provide single big-picture re-onboarding doc |
-| docs/handoffs/2026-03-04-231800-ovh-bootstrap-current-status.md | New handoff summarizing current status and next steps | Preserve session context and actionable continuation |
+| docs/archive/NARRATIVE_INDEX.md | Added `Start Local Now (Canonical)` and inserted OVH entrypoint into runbook order | Historical predecessor to the current `docs/ATLAS.md` index |
+| docs/practice/guides/ovh-config-and-deployment-entrypoint.md | New comprehensive OVH bootstrap/deployment entrypoint with map/checklist | Provide single big-picture re-onboarding doc |
+| docs/state/snapshots/2026-03-04-231800-ovh-bootstrap-current-status.md | New handoff summarizing current status and next steps | Preserve session context and actionable continuation |
 
 ## Decisions Made
 
@@ -161,8 +161,8 @@ nixos-rebuild switch --flake .#choiros-ovh-node
 
 - Many legacy docs in archive/reference still mention `dev-sandbox`/`dev-ui`; do not treat those as canonical.
 - `scripts/ops/ovh-account-setup.sh` is present locally but gitignored; do not assume it is committed.
-- The new OVH entrypoint doc is currently untracked until committed.
-- `NARRATIVE_INDEX.md` date header still says `2026-03-03`; content is newer but date was not bumped in this session.
+- The new OVH entrypoint doc was originally created during this session and now lives at `docs/practice/guides/ovh-config-and-deployment-entrypoint.md`.
+- The historical `docs/archive/NARRATIVE_INDEX.md` captured this session's index updates before `docs/ATLAS.md` became the active entrypoint.
 
 ## Environment State
 
@@ -190,14 +190,14 @@ nixos-rebuild switch --flake .#choiros-ovh-node
 
 ## Related Resources
 
-- `docs/architecture/NARRATIVE_INDEX.md`
-- `docs/runbooks/ovh-config-and-deployment-entrypoint.md`
-- `docs/runbooks/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
-- `docs/architecture/adr-0008-ovh-selfhosted-secrets-architecture.md`
-- `docs/architecture/adr-0010-ovh-bootstrap-vm-fleet-capacity-and-minimal-lifecycle-api.md`
-- `docs/architecture/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
-- `docs/architecture/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
-- `docs/runbooks/2026-02-28-local-vfkit-nixos-miniguide.md`
+- `docs/ATLAS.md`
+- `docs/practice/guides/ovh-config-and-deployment-entrypoint.md`
+- `docs/archive/ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
+- `docs/practice/decisions/adr-0008-ovh-selfhosted-secrets-architecture.md`
+- `docs/archive/adr-0010-ovh-bootstrap-vm-fleet-capacity-and-minimal-lifecycle-api.md`
+- `docs/theory/decisions/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
+- `docs/practice/decisions/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
+- `docs/practice/guides/local-vfkit-nixos-miniguide.md`
 
 ---
 

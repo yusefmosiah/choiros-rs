@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 use gloo_timers::future::TimeoutFuture;
-use shared_types::DesktopState;
+use shared_types::{AppDefinition, DesktopState};
 
 use crate::auth::{probe_session, AuthModal, AuthState};
 use crate::desktop::actions;
@@ -232,6 +232,7 @@ pub fn DesktopShell(desktop_id: String) -> Element {
                             WsEvent::WriterRunStarted { .. }
                                 | WsEvent::WriterRunProgress { .. }
                                 | WsEvent::WriterRunPatch { .. }
+                                | WsEvent::WriterRunChangeset { .. }
                                 | WsEvent::WriterRunStatus { .. }
                                 | WsEvent::WriterRunFailed { .. }
                         ) {
@@ -363,6 +364,7 @@ pub fn DesktopShell(desktop_id: String) -> Element {
 
     let state_snapshot = desktop_state.read().clone();
     let is_desktop = viewport.read().0 > 1024;
+    let workspace_apps = merged_workspace_apps(&core_apps, state_snapshot.as_ref());
     let windows = state_snapshot
         .as_ref()
         .map(|state| state.windows.clone())
@@ -385,7 +387,7 @@ pub fn DesktopShell(desktop_id: String) -> Element {
 
             WorkspaceCanvas {
                 desktop_id: desktop_id_signal.read().clone(),
-                apps: core_apps,
+                apps: workspace_apps,
                 on_open_app: open_app_window,
                 is_mobile: !is_desktop,
                 loading,
@@ -417,6 +419,56 @@ pub fn DesktopShell(desktop_id: String) -> Element {
 
         // Auth modal — renders as fixed overlay when AuthState::Required
         AuthModal {}
+    }
+}
+
+fn merged_workspace_apps(
+    fallback_apps: &[AppDefinition],
+    desktop_state: Option<&DesktopState>,
+) -> Vec<AppDefinition> {
+    let mut apps = fallback_apps.to_vec();
+    if let Some(state) = desktop_state {
+        for live_app in &state.apps {
+            if let Some(existing) = apps.iter_mut().find(|app| app.id == live_app.id) {
+                *existing = live_app.clone();
+            } else {
+                apps.push(live_app.clone());
+            }
+        }
+    }
+    apps
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merged_workspace_apps;
+    use shared_types::{AppDefinition, DesktopState};
+
+    fn app(id: &str, name: &str) -> AppDefinition {
+        AppDefinition {
+            id: id.to_string(),
+            name: name.to_string(),
+            icon: "x".to_string(),
+            component_code: format!("{id}App"),
+            default_width: 640,
+            default_height: 480,
+        }
+    }
+
+    #[test]
+    fn merged_workspace_apps_keeps_fallback_order_and_upserts_live_apps() {
+        let fallback = vec![app("writer", "Writer"), app("trace", "Trace")];
+        let desktop_state = DesktopState {
+            windows: Vec::new(),
+            active_window: None,
+            apps: vec![app("trace", "Trace Live"), app("inspector", "Inspector")],
+        };
+
+        let merged = merged_workspace_apps(&fallback, Some(&desktop_state));
+        let ids = merged.iter().map(|app| app.id.as_str()).collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["writer", "trace", "inspector"]);
+        assert_eq!(merged[1].name, "Trace Live");
     }
 }
 

@@ -51,6 +51,11 @@ export type ConductorCapabilityCall = { call_id: string, capability: string, obj
 export type ConductorDecision = { decision_id: string, decision_type: DecisionType, reason: string, timestamp: string, affected_agenda_items: Array<string>, new_agenda_items: Array<string>, };
 
 /**
+ * Live document update payload streamed over the desktop WebSocket.
+ */
+export type ConductorDocumentUpdatePayload = { run_id: string, document_path: string, content_excerpt: string, timestamp: string, };
+
+/**
  * Typed error for Conductor task failures
  */
 export type ConductorError = { code: string, message: string, failure_kind: FailureKind | null, };
@@ -114,6 +119,26 @@ export type ConductorRunStatus = "initializing" | "running" | "waiting_for_calls
 export type ConductorRunStatusResponse = { run_id: string, status: ConductorRunStatus, objective: string, desktop_id: string, output_mode: ConductorOutputMode, created_at: string, updated_at: string, completed_at: string | null, document_path: string, report_path: string | null, toast: ConductorToastPayload | null, error: ConductorError | null, };
 
 /**
+ * Payload for `conductor.task.completed`.
+ */
+export type ConductorTaskCompletedPayload = { run_id: string, output_mode: ConductorOutputMode, report_path: string, status: string, writer_window_props: unknown | null, toast: ConductorToastPayload | null, timestamp: string, };
+
+/**
+ * Payload for `conductor.task.failed`.
+ */
+export type ConductorTaskFailedPayload = { run_id: string, error_code: string, error_message: string, status: string, failure_kind: FailureKind | null, timestamp: string, };
+
+/**
+ * Payload for `conductor.task.progress`.
+ */
+export type ConductorTaskProgressPayload = { run_id: string, status: string, phase: string, details: unknown | null, timestamp: string, };
+
+/**
+ * Payload for `conductor.task.started`.
+ */
+export type ConductorTaskStartedPayload = { run_id: string, objective: string, desktop_id: string, status: string, phase: string, timestamp: string, };
+
+/**
  * Typed prompt-bar toast payload for Conductor completion.
  */
 export type ConductorToastPayload = { title: string, message: string, tone: ConductorToastTone, report_path: string | null, };
@@ -124,6 +149,16 @@ export type ConductorToastPayload = { title: string, message: string, tone: Cond
 export type ConductorToastTone = "info" | "success" | "warning" | "error";
 
 /**
+ * Payload for `conductor.worker.call`.
+ */
+export type ConductorWorkerCallPayload = { run_id: string, worker_type: string, worker_objective: string, timestamp: string, };
+
+/**
+ * Payload for `conductor.worker.result`.
+ */
+export type ConductorWorkerResultPayload = { run_id: string, worker_type: string, success: boolean, result_summary: string, timestamp: string, };
+
+/**
  * Types of decisions the conductor can make
  */
 export type DecisionType = "dispatch" | "retry" | "spawn_followup" | "complete" | "block" | "continue";
@@ -132,6 +167,44 @@ export type DecisionType = "dispatch" | "retry" | "spawn_followup" | "complete" 
  * Desktop state - all windows and their positions
  */
 export type DesktopState = { windows: Array<WindowState>, active_window: string | null, apps: Array<AppDefinition>, };
+
+/**
+ * Desktop telemetry payload streamed over the desktop WebSocket.
+ */
+export type DesktopTelemetryEvent = { event_type: string, capability: string, phase: string, importance: EventImportance, data: unknown, };
+
+/**
+ * Canonical desktop WebSocket protocol shared by sandbox and UI.
+ */
+export type DesktopWsMessage = { "type": "subscribe", desktop_id: string, } | { "type": "ping" } | { "type": "pong" } | { "type": "desktop_state", desktop: DesktopState, } | { "type": "window_opened", window: WindowState, } | { "type": "window_closed", window_id: string, } | { "type": "window_moved", window_id: string, x: number, y: number, } | { "type": "window_resized", window_id: string, width: number, height: number, } | { "type": "window_focused", window_id: string, z_index: number, } | { "type": "window_minimized", window_id: string, } | { "type": "window_maximized", window_id: string, x: number, y: number, width: number, height: number, } | { "type": "window_restored", window_id: string, x: number, y: number, width: number, height: number, from: string, maximized: boolean, } | { "type": "app_registered", app: AppDefinition, } | { "type": "telemetry", event_type: string, capability: string, phase: string, importance: EventImportance, data: unknown, } | { "type": "conductor.run.document_update", run_id: string, document_path: string, content_excerpt: string, timestamp: string, } | { "type": "writer.run.started", objective: string, desktop_id: string, session_id: string, thread_id: string, run_id: string, document_path: string, revision: bigint, head_version_id: bigint | null, timestamp: string, } | { "type": "writer.run.progress", phase: string, message: string, progress_pct: number | null, source_refs: Array<string>, desktop_id: string, session_id: string, thread_id: string, run_id: string, document_path: string, revision: bigint, head_version_id: bigint | null, timestamp: string, } | { "type": "writer.run.patch", desktop_id: string, session_id: string, thread_id: string, run_id: string, document_path: string, revision: bigint, head_version_id: bigint | null, timestamp: string, patch_id: string, source: PatchSource, source_actor: string | null, section_id: string | null, ops: Array<PatchOp>, proposal: string | null, base_version_id: bigint | null, target_version_id: bigint | null, overlay_id: string | null, } | { "type": "writer.run.status", status: WriterRunStatusKind, message: string | null, desktop_id: string, session_id: string, thread_id: string, run_id: string, document_path: string, revision: bigint, head_version_id: bigint | null, timestamp: string, } | { "type": "writer.run.failed", error_code: string, error_message: string, failure_kind: FailureKind | null, desktop_id: string, session_id: string, thread_id: string, run_id: string, document_path: string, revision: bigint, head_version_id: bigint | null, timestamp: string, } | { "type": "writer.run.changeset", desktop_id: string, session_id: string, thread_id: string, run_id: string, document_path: string, revision: bigint, head_version_id: bigint | null, timestamp: string, 
+/**
+ * Correlates to the patch_id from the preceding writer.run.patch event
+ */
+patch_id: string, 
+/**
+ * Correlates to the writer run loop id when available
+ */
+loop_id: string | null, 
+/**
+ * Materialized version id after the patch was applied, when known
+ */
+target_version_id: bigint | null, 
+/**
+ * Actor/source responsible for the changeset, when known
+ */
+source: string | null, 
+/**
+ * Human-readable 1–2 sentence summary of what changed
+ */
+summary: string, 
+/**
+ * Estimated scope of the change
+ */
+impact: ChangesetImpact, 
+/**
+ * List of change categories present (e.g. "insert", "structural_rewrite")
+ */
+op_taxonomy: Array<string>, } | { "type": "error", message: string, };
 
 /**
  * Event - append-only log entry
@@ -246,7 +319,22 @@ export type WorkerEscalationUrgency = "low" | "medium" | "high";
 
 export type WorkerFinding = { finding_id: string, claim: string, confidence: number, evidence_refs: Array<string>, novel: boolean | null, };
 
+/**
+ * Payload for `worker.task.finding`.
+ */
+export type WorkerFindingEventPayload = { task_id: string, worker_id: string, run_id: string | null, call_id: string | null, phase: string, finding_id: string, claim: string, confidence: number, evidence_refs: Array<string>, timestamp: string, };
+
 export type WorkerLearning = { learning_id: string, insight: string, confidence: number, supports: Array<string>, changes_plan: boolean | null, };
+
+/**
+ * Payload for `worker.task.learning`.
+ */
+export type WorkerLearningEventPayload = { task_id: string, worker_id: string, run_id: string | null, call_id: string | null, phase: string, learning_id: string, insight: string, confidence: number, timestamp: string, };
+
+/**
+ * Payload for `worker.report.received`.
+ */
+export type WorkerReportReceivedPayload = { task_id: string, worker_id: string, run_id: string | null, call_id: string | null, report: WorkerTurnReport, timestamp: string, };
 
 /**
  * A lateral request from one worker to another.
@@ -330,6 +418,26 @@ export type WorkerSignalRejectReason = "max_per_turn_exceeded" | "low_confidence
 export type WorkerSignalRejection = { signal_type: WorkerSignalType, signal_id: string, reason: WorkerSignalRejectReason, detail: string, };
 
 export type WorkerSignalType = "finding" | "learning" | "escalation" | "artifact";
+
+/**
+ * Payload for `worker.task.completed`.
+ */
+export type WorkerTaskCompletedPayload = { task_id: string, worker_id: string, run_id: string | null, call_id: string | null, status: string, phase: string, summary: string, timestamp: string, };
+
+/**
+ * Payload for `worker.task.failed`.
+ */
+export type WorkerTaskFailedPayload = { task_id: string, worker_id: string, run_id: string | null, call_id: string | null, status: string, phase: string, error: string, timestamp: string, };
+
+/**
+ * Payload for `worker.task.progress`.
+ */
+export type WorkerTaskProgressPayload = { task_id: string, worker_id: string, run_id: string | null, call_id: string | null, phase: string, message: string, model_used: string | null, timestamp: string, };
+
+/**
+ * Payload for `worker.task.started`.
+ */
+export type WorkerTaskStartedPayload = { task_id: string, worker_id: string, run_id: string | null, call_id: string | null, status: string, phase: string, objective: string, model_used: string, timestamp: string, };
 
 export type WorkerTurnReport = { turn_id: string, worker_id: string, task_id: string, worker_role: string | null, status: WorkerTurnStatus, summary: string | null, findings: Array<WorkerFinding>, learnings: Array<WorkerLearning>, escalations: Array<WorkerEscalation>, artifacts: Array<WorkerArtifact>, created_at: string | null, };
 

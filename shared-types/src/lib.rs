@@ -222,6 +222,156 @@ pub enum WsMsg {
     Error { message: String },
 }
 
+/// Desktop telemetry payload streamed over the desktop WebSocket.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
+pub struct DesktopTelemetryEvent {
+    pub event_type: String,
+    pub capability: String,
+    pub phase: String,
+    pub importance: EventImportance,
+    #[ts(type = "unknown")]
+    pub data: serde_json::Value,
+}
+
+/// Live document update payload streamed over the desktop WebSocket.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
+pub struct ConductorDocumentUpdatePayload {
+    pub run_id: String,
+    pub document_path: String,
+    pub content_excerpt: String,
+    pub timestamp: String,
+}
+
+/// Canonical desktop WebSocket protocol shared by sandbox and UI.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "type")]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
+pub enum DesktopWsMessage {
+    #[serde(rename = "subscribe")]
+    Subscribe { desktop_id: String },
+
+    #[serde(rename = "ping")]
+    Ping,
+
+    #[serde(rename = "pong")]
+    Pong,
+
+    #[serde(rename = "desktop_state")]
+    DesktopState { desktop: DesktopState },
+
+    #[serde(rename = "window_opened")]
+    WindowOpened { window: WindowState },
+
+    #[serde(rename = "window_closed")]
+    WindowClosed { window_id: String },
+
+    #[serde(rename = "window_moved")]
+    WindowMoved { window_id: String, x: i32, y: i32 },
+
+    #[serde(rename = "window_resized")]
+    WindowResized {
+        window_id: String,
+        width: i32,
+        height: i32,
+    },
+
+    #[serde(rename = "window_focused")]
+    WindowFocused { window_id: String, z_index: u32 },
+
+    #[serde(rename = "window_minimized")]
+    WindowMinimized { window_id: String },
+
+    #[serde(rename = "window_maximized")]
+    WindowMaximized {
+        window_id: String,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    },
+
+    #[serde(rename = "window_restored")]
+    WindowRestored {
+        window_id: String,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        from: String,
+        maximized: bool,
+    },
+
+    #[serde(rename = "app_registered")]
+    AppRegistered { app: AppDefinition },
+
+    #[serde(rename = "telemetry")]
+    Telemetry {
+        #[serde(flatten)]
+        payload: DesktopTelemetryEvent,
+    },
+
+    #[serde(rename = "conductor.run.document_update")]
+    DocumentUpdate {
+        #[serde(flatten)]
+        payload: ConductorDocumentUpdatePayload,
+    },
+
+    #[serde(rename = "writer.run.started")]
+    WriterRunStarted {
+        #[serde(flatten)]
+        base: WriterRunEventBase,
+        objective: String,
+    },
+
+    #[serde(rename = "writer.run.progress")]
+    WriterRunProgress {
+        #[serde(flatten)]
+        base: WriterRunEventBase,
+        phase: String,
+        message: String,
+        progress_pct: Option<u8>,
+        source_refs: Vec<String>,
+    },
+
+    #[serde(rename = "writer.run.patch")]
+    WriterRunPatch {
+        #[serde(flatten)]
+        base: WriterRunEventBase,
+        #[serde(flatten)]
+        payload: WriterRunPatchPayload,
+    },
+
+    #[serde(rename = "writer.run.status")]
+    WriterRunStatus {
+        #[serde(flatten)]
+        base: WriterRunEventBase,
+        status: WriterRunStatusKind,
+        message: Option<String>,
+    },
+
+    #[serde(rename = "writer.run.failed")]
+    WriterRunFailed {
+        #[serde(flatten)]
+        base: WriterRunEventBase,
+        error_code: String,
+        error_message: String,
+        failure_kind: Option<FailureKind>,
+    },
+
+    #[serde(rename = "writer.run.changeset")]
+    WriterRunChangeset {
+        #[serde(flatten)]
+        base: WriterRunEventBase,
+        #[serde(flatten)]
+        payload: WriterRunChangesetPayload,
+    },
+
+    #[serde(rename = "error")]
+    Error { message: String },
+}
+
 // ============================================================================
 // Tool Definitions
 // ============================================================================
@@ -895,6 +1045,7 @@ pub struct WriterRunEventBase {
     pub run_id: String,
     pub document_path: String,
     pub revision: u64,
+    pub head_version_id: Option<u64>,
     pub timestamp: DateTime<Utc>,
 }
 
@@ -904,6 +1055,7 @@ pub struct WriterRunEventBase {
 pub struct WriterRunPatchPayload {
     pub patch_id: String,
     pub source: PatchSource,
+    pub source_actor: Option<String>,
     pub section_id: Option<String>,
     pub ops: Vec<PatchOp>,
     pub proposal: Option<String>,
@@ -930,6 +1082,10 @@ pub struct WriterRunChangesetPayload {
     pub patch_id: String,
     /// Correlates to the writer run loop id when available
     pub loop_id: Option<String>,
+    /// Materialized version id after the patch was applied, when known
+    pub target_version_id: Option<u64>,
+    /// Actor/source responsible for the changeset, when known
+    pub source: Option<String>,
     /// Human-readable 1–2 sentence summary of what changed
     pub summary: String,
     /// Estimated scope of the change
@@ -1005,6 +1161,177 @@ pub struct ConductorRunStatusResponse {
     pub report_path: Option<String>,
     pub toast: Option<ConductorToastPayload>,
     pub error: Option<ConductorError>,
+}
+
+/// Payload for `conductor.task.started`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
+pub struct ConductorTaskStartedPayload {
+    pub run_id: String,
+    pub objective: String,
+    pub desktop_id: String,
+    pub status: String,
+    pub phase: String,
+    pub timestamp: String,
+}
+
+/// Payload for `conductor.task.progress`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
+pub struct ConductorTaskProgressPayload {
+    pub run_id: String,
+    pub status: String,
+    pub phase: String,
+    #[ts(type = "unknown | null")]
+    pub details: Option<serde_json::Value>,
+    pub timestamp: String,
+}
+
+/// Payload for `conductor.worker.call`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
+pub struct ConductorWorkerCallPayload {
+    pub run_id: String,
+    pub worker_type: String,
+    pub worker_objective: String,
+    pub timestamp: String,
+}
+
+/// Payload for `conductor.worker.result`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
+pub struct ConductorWorkerResultPayload {
+    pub run_id: String,
+    pub worker_type: String,
+    pub success: bool,
+    pub result_summary: String,
+    pub timestamp: String,
+}
+
+/// Payload for `conductor.task.completed`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
+pub struct ConductorTaskCompletedPayload {
+    pub run_id: String,
+    pub output_mode: ConductorOutputMode,
+    pub report_path: String,
+    pub status: String,
+    #[ts(type = "unknown | null")]
+    pub writer_window_props: Option<serde_json::Value>,
+    pub toast: Option<ConductorToastPayload>,
+    pub timestamp: String,
+}
+
+/// Payload for `conductor.task.failed`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
+pub struct ConductorTaskFailedPayload {
+    pub run_id: String,
+    pub error_code: String,
+    pub error_message: String,
+    pub status: String,
+    pub failure_kind: Option<FailureKind>,
+    pub timestamp: String,
+}
+
+/// Payload for `worker.task.started`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
+pub struct WorkerTaskStartedPayload {
+    pub task_id: String,
+    pub worker_id: String,
+    pub run_id: Option<String>,
+    pub call_id: Option<String>,
+    pub status: String,
+    pub phase: String,
+    pub objective: String,
+    pub model_used: String,
+    pub timestamp: String,
+}
+
+/// Payload for `worker.task.progress`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
+pub struct WorkerTaskProgressPayload {
+    pub task_id: String,
+    pub worker_id: String,
+    pub run_id: Option<String>,
+    pub call_id: Option<String>,
+    pub phase: String,
+    pub message: String,
+    pub model_used: Option<String>,
+    pub timestamp: String,
+}
+
+/// Payload for `worker.task.completed`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
+pub struct WorkerTaskCompletedPayload {
+    pub task_id: String,
+    pub worker_id: String,
+    pub run_id: Option<String>,
+    pub call_id: Option<String>,
+    pub status: String,
+    pub phase: String,
+    pub summary: String,
+    pub timestamp: String,
+}
+
+/// Payload for `worker.task.failed`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
+pub struct WorkerTaskFailedPayload {
+    pub task_id: String,
+    pub worker_id: String,
+    pub run_id: Option<String>,
+    pub call_id: Option<String>,
+    pub status: String,
+    pub phase: String,
+    pub error: String,
+    pub timestamp: String,
+}
+
+/// Payload for `worker.task.finding`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
+pub struct WorkerFindingEventPayload {
+    pub task_id: String,
+    pub worker_id: String,
+    pub run_id: Option<String>,
+    pub call_id: Option<String>,
+    pub phase: String,
+    pub finding_id: String,
+    pub claim: String,
+    pub confidence: f64,
+    pub evidence_refs: Vec<String>,
+    pub timestamp: String,
+}
+
+/// Payload for `worker.task.learning`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
+pub struct WorkerLearningEventPayload {
+    pub task_id: String,
+    pub worker_id: String,
+    pub run_id: Option<String>,
+    pub call_id: Option<String>,
+    pub phase: String,
+    pub learning_id: String,
+    pub insight: String,
+    pub confidence: f64,
+    pub timestamp: String,
+}
+
+/// Payload for `worker.report.received`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../dioxus-desktop/src/types/generated.ts")]
+pub struct WorkerReportReceivedPayload {
+    pub task_id: String,
+    pub worker_id: String,
+    pub run_id: Option<String>,
+    pub call_id: Option<String>,
+    pub report: WorkerTurnReport,
+    pub timestamp: String,
 }
 
 // ============================================================================
@@ -1841,6 +2168,9 @@ mod tests {
         ViewerDescriptor::export(&config).unwrap();
         ViewerRevision::export(&config).unwrap();
         WsMsg::export(&config).unwrap();
+        DesktopTelemetryEvent::export(&config).unwrap();
+        ConductorDocumentUpdatePayload::export(&config).unwrap();
+        DesktopWsMessage::export(&config).unwrap();
         ToolDef::export(&config).unwrap();
         ToolCall::export(&config).unwrap();
         WorkerTurnStatus::export(&config).unwrap();
@@ -1862,6 +2192,19 @@ mod tests {
         ConductorExecuteResponse::export(&config).unwrap();
         ConductorError::export(&config).unwrap();
         ConductorRunStatusResponse::export(&config).unwrap();
+        ConductorTaskStartedPayload::export(&config).unwrap();
+        ConductorTaskProgressPayload::export(&config).unwrap();
+        ConductorWorkerCallPayload::export(&config).unwrap();
+        ConductorWorkerResultPayload::export(&config).unwrap();
+        ConductorTaskCompletedPayload::export(&config).unwrap();
+        ConductorTaskFailedPayload::export(&config).unwrap();
+        WorkerTaskStartedPayload::export(&config).unwrap();
+        WorkerTaskProgressPayload::export(&config).unwrap();
+        WorkerTaskCompletedPayload::export(&config).unwrap();
+        WorkerTaskFailedPayload::export(&config).unwrap();
+        WorkerFindingEventPayload::export(&config).unwrap();
+        WorkerLearningEventPayload::export(&config).unwrap();
+        WorkerReportReceivedPayload::export(&config).unwrap();
         // New runtime types
         EventLane::export(&config).unwrap();
         EventImportance::export(&config).unwrap();

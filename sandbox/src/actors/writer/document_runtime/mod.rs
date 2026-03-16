@@ -99,6 +99,18 @@ impl WriterDocumentRuntime {
         self.state.desktop_id.as_str()
     }
 
+    pub fn session_id(&self) -> &str {
+        self.state.session_id.as_str()
+    }
+
+    pub fn thread_id(&self) -> &str {
+        self.state.thread_id.as_str()
+    }
+
+    pub fn document_path_relative(&self) -> &str {
+        self.state.document_path_relative.as_str()
+    }
+
     pub fn revision(&self) -> u64 {
         self.state.revision
     }
@@ -721,17 +733,25 @@ impl WriterDocumentRuntime {
         Ok(overlay)
     }
 
-    fn base_event_payload(&self) -> serde_json::Value {
-        serde_json::json!({
-            "desktop_id": self.state.desktop_id,
-            "session_id": self.state.session_id,
-            "thread_id": self.state.thread_id,
-            "run_id": self.state.run_id,
-            "document_path": self.state.document_path_relative,
-            "revision": self.state.revision,
-            "head_version_id": self.state.document.head_version_id,
-            "timestamp": Utc::now().to_rfc3339(),
-        })
+    fn writer_run_event_base(&self) -> shared_types::WriterRunEventBase {
+        shared_types::WriterRunEventBase {
+            desktop_id: self.state.desktop_id.clone(),
+            session_id: self.state.session_id.clone(),
+            thread_id: self.state.thread_id.clone(),
+            run_id: self.state.run_id.clone(),
+            document_path: self.state.document_path_relative.clone(),
+            revision: self.state.revision,
+            head_version_id: Some(self.state.document.head_version_id),
+            timestamp: Utc::now(),
+        }
+    }
+
+    fn payload_from_writer_event(event: shared_types::WriterRunEvent) -> serde_json::Value {
+        let mut payload = serde_json::to_value(event).unwrap_or(serde_json::Value::Null);
+        if let Some(object) = payload.as_object_mut() {
+            object.remove("event_type");
+        }
+        payload
     }
 
     async fn emit_event(&self, event_type: &str, payload: serde_json::Value) {
@@ -748,13 +768,10 @@ impl WriterDocumentRuntime {
     }
 
     async fn emit_started_event(&mut self) {
-        let mut payload = self.base_event_payload();
-        if let Some(object) = payload.as_object_mut() {
-            object.insert(
-                "objective".to_string(),
-                serde_json::Value::String(self.state.objective.clone()),
-            );
-        }
+        let payload = Self::payload_from_writer_event(shared_types::WriterRunEvent::Started {
+            base: self.writer_run_event_base(),
+            objective: self.state.objective.clone(),
+        });
         self.emit_event("writer.run.started", payload).await;
     }
 
@@ -768,57 +785,20 @@ impl WriterDocumentRuntime {
         target_version_id: Option<u64>,
         overlay_id: Option<&str>,
     ) {
-        let mut payload = self.base_event_payload();
-        if let Some(object) = payload.as_object_mut() {
-            object.insert(
-                "patch_id".to_string(),
-                serde_json::Value::String(ulid::Ulid::new().to_string()),
-            );
-            object.insert(
-                "source".to_string(),
-                serde_json::to_value(Self::source_to_patch_source(source))
-                    .unwrap_or_else(|_| serde_json::Value::String("system".to_string())),
-            );
-            object.insert(
-                "source_actor".to_string(),
-                serde_json::Value::String(source.to_string()),
-            );
-            object.insert(
-                "section_id".to_string(),
-                section_id
-                    .map(|value| serde_json::Value::String(value.to_string()))
-                    .unwrap_or(serde_json::Value::Null),
-            );
-            object.insert(
-                "ops".to_string(),
-                serde_json::to_value(&ops).unwrap_or(serde_json::Value::Null),
-            );
-            object.insert(
-                "proposal".to_string(),
-                proposal
-                    .map(serde_json::Value::String)
-                    .unwrap_or(serde_json::Value::Null),
-            );
-            object.insert(
-                "base_version_id".to_string(),
-                base_version_id
-                    .map(serde_json::Value::from)
-                    .unwrap_or(serde_json::Value::Null),
-            );
-            object.insert(
-                "target_version_id".to_string(),
-                target_version_id
-                    .map(serde_json::Value::from)
-                    .unwrap_or(serde_json::Value::Null),
-            );
-            object.insert(
-                "overlay_id".to_string(),
-                overlay_id
-                    .map(|value| serde_json::Value::String(value.to_string()))
-                    .unwrap_or(serde_json::Value::Null),
-            );
-        }
-
+        let payload = Self::payload_from_writer_event(shared_types::WriterRunEvent::Patch {
+            base: self.writer_run_event_base(),
+            payload: shared_types::WriterRunPatchPayload {
+                patch_id: ulid::Ulid::new().to_string(),
+                source: Self::source_to_patch_source(source),
+                source_actor: Some(source.to_string()),
+                section_id: section_id.map(ToString::to_string),
+                ops,
+                proposal,
+                base_version_id,
+                target_version_id,
+                overlay_id: overlay_id.map(ToString::to_string),
+            },
+        });
         self.emit_event("writer.run.patch", payload).await;
     }
 
@@ -828,18 +808,13 @@ impl WriterDocumentRuntime {
         message: impl Into<String>,
         source_refs: Vec<String>,
     ) {
-        let mut payload = self.base_event_payload();
-        if let Some(object) = payload.as_object_mut() {
-            object.insert("phase".to_string(), serde_json::Value::String(phase.into()));
-            object.insert(
-                "message".to_string(),
-                serde_json::Value::String(message.into()),
-            );
-            object.insert(
-                "source_refs".to_string(),
-                serde_json::to_value(source_refs).unwrap_or(serde_json::Value::Array(Vec::new())),
-            );
-        }
+        let payload = Self::payload_from_writer_event(shared_types::WriterRunEvent::Progress {
+            base: self.writer_run_event_base(),
+            phase: phase.into(),
+            message: message.into(),
+            progress_pct: None,
+            source_refs,
+        });
         self.emit_event("writer.run.progress", payload).await;
     }
 
@@ -848,20 +823,11 @@ impl WriterDocumentRuntime {
         status: shared_types::WriterRunStatusKind,
         message: Option<String>,
     ) {
-        let mut payload = self.base_event_payload();
-        if let Some(object) = payload.as_object_mut() {
-            object.insert(
-                "status".to_string(),
-                serde_json::to_value(status)
-                    .unwrap_or_else(|_| serde_json::Value::String("running".to_string())),
-            );
-            object.insert(
-                "message".to_string(),
-                message
-                    .map(serde_json::Value::String)
-                    .unwrap_or(serde_json::Value::Null),
-            );
-        }
+        let payload = Self::payload_from_writer_event(shared_types::WriterRunEvent::Status {
+            base: self.writer_run_event_base(),
+            status,
+            message,
+        });
         self.emit_event("writer.run.status", payload).await;
     }
 }

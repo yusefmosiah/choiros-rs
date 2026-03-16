@@ -305,6 +305,10 @@ struct ChangesetSummarizationCtx {
     model_registry: ModelRegistry,
     run_id: String,
     desktop_id: String,
+    session_id: String,
+    thread_id: String,
+    document_path: String,
+    revision: u64,
     source: String,
     before_content: String,
     after_content: String,
@@ -1367,6 +1371,8 @@ impl WriterActor {
         source: VersionSource,
     ) -> Result<DocumentVersion, WriterError> {
         Self::ensure_run_document_loaded(state, &run_id).await?;
+        let event_store = state.event_store.clone();
+        let model_registry = state.model_registry.clone();
         let run_doc = Self::resolve_run_document_mut(state, &run_id)?;
 
         // Capture before-content from the effective parent so changeset summarization
@@ -1391,12 +1397,23 @@ impl WriterActor {
             .await
             .map_err(|e| WriterError::WriterDocumentFailed(e.to_string()))?;
 
+        let (session_id, thread_id, document_path, revision) = (
+            run_doc.session_id().to_string(),
+            run_doc.thread_id().to_string(),
+            run_doc.document_path_relative().to_string(),
+            run_doc.revision(),
+        );
+
         // Fire-and-forget changeset summarization (never blocks the caller).
         Self::spawn_changeset_summarization(ChangesetSummarizationCtx {
-            event_store: state.event_store.clone(),
-            model_registry: state.model_registry.clone(),
+            event_store,
+            model_registry,
             run_id: run_id.clone(),
             desktop_id,
+            session_id,
+            thread_id,
+            document_path,
+            revision,
             source: source_str,
             before_content,
             after_content: content,
@@ -1857,6 +1874,10 @@ impl WriterActor {
             model_registry,
             run_id,
             desktop_id,
+            session_id,
+            thread_id,
+            document_path,
+            revision,
             source,
             before_content,
             after_content,
@@ -1917,25 +1938,41 @@ impl WriterActor {
                 .await
             {
                 Ok(summary) => {
-                    let impact_str = match summary.impact {
-                        ImpactLevel::Low => "low",
-                        ImpactLevel::Medium => "medium",
-                        ImpactLevel::High => "high",
+                    let impact = match summary.impact {
+                        ImpactLevel::Low => shared_types::ChangesetImpact::Low,
+                        ImpactLevel::Medium => shared_types::ChangesetImpact::Medium,
+                        ImpactLevel::High => shared_types::ChangesetImpact::High,
                     };
+                    let mut payload =
+                        serde_json::to_value(shared_types::WriterRunEvent::Changeset {
+                            base: shared_types::WriterRunEventBase {
+                                desktop_id,
+                                session_id,
+                                thread_id,
+                                run_id,
+                                document_path,
+                                revision,
+                                head_version_id: Some(target_version_id),
+                                timestamp: chrono::Utc::now(),
+                            },
+                            payload: shared_types::WriterRunChangesetPayload {
+                                patch_id,
+                                loop_id: None,
+                                target_version_id: Some(target_version_id),
+                                source: Some(source),
+                                summary: summary.summary,
+                                impact,
+                                op_taxonomy: summary.op_taxonomy,
+                            },
+                        })
+                        .unwrap_or(serde_json::Value::Null);
+                    if let Some(object) = payload.as_object_mut() {
+                        object.remove("event_type");
+                    }
                     let _ = event_store.cast(EventStoreMsg::AppendAsync {
                         event: AppendEvent {
                             event_type: shared_types::EVENT_TOPIC_WRITER_RUN_CHANGESET.to_string(),
-                            payload: serde_json::json!({
-                                "run_id": run_id,
-                                "desktop_id": desktop_id,
-                                "patch_id": patch_id,
-                                "loop_id": null,
-                                "target_version_id": target_version_id,
-                                "source": source,
-                                "summary": summary.summary,
-                                "impact": impact_str,
-                                "op_taxonomy": summary.op_taxonomy,
-                            }),
+                            payload,
                             actor_id: "writer".to_string(),
                             user_id: String::new(),
                         },

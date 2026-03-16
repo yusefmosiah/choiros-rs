@@ -674,17 +674,26 @@ pub async fn register_app(
 
     // Use ractor call pattern
     match ractor::call!(desktop, |reply| DesktopActorMsg::RegisterApp {
-        app: req,
+        app: req.clone(),
         reply,
     }) {
-        Ok(Ok(())) => (
-            StatusCode::OK,
-            Json(json!({
-                "success": true,
-                "message": "App registered"
-            })),
-        )
-            .into_response(),
+        Ok(Ok(())) => {
+            broadcast_event(
+                &state.ws_sessions,
+                &desktop_id,
+                WsMessage::AppRegistered { app: req },
+            )
+            .await;
+
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "message": "App registered"
+                })),
+            )
+                .into_response()
+        }
         Ok(Err(e)) => (
             StatusCode::BAD_REQUEST,
             Json(json!({
