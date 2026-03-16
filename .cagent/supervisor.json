@@ -1,20 +1,20 @@
 {
-  "pid": 47595,
-  "cycle": 48,
-  "timestamp": "2026-03-16T05:40:14Z",
-  "uptime": "28m20s",
+  "pid": 4413,
+  "cycle": 1668,
+  "timestamp": "2026-03-16T22:21:32Z",
+  "uptime": "16h11m10s",
   "in_flight": [
     {
-      "work_id": "work_01KKT680MZ3JBV5M1FJK4EZJBV",
-      "job_id": "job_01KKTGXWYPB56FB2G15PNVKJQJ",
+      "work_id": "work_01KKSXX0X2XMK3DXSDR1MTYTNN",
+      "job_id": "job_01KKTM8YTBZHD8S1SD2WFTWGGJ",
       "adapter": "codex",
-      "elapsed": "28m11s"
+      "elapsed": "16h11m1s"
     }
   ],
   "ready": 2,
   "last_report": {
-    "cycle": 48,
-    "timestamp": "2026-03-16T05:40:09Z",
+    "cycle": 1668,
+    "timestamp": "2026-03-16T22:21:28Z",
     "ready": 2,
     "in_flight": 1
   }

@@ -138,3 +138,4 @@ skills/actorcode/package-lock.json
 .cagent/cagent-private.db
 .cagent/cagent-private.db-shm
 .cagent/cagent-private.db-wal
+e2e_test_output.log
