@@ -131,8 +131,49 @@
         esac
       done
 
-      chmod 0600 "$ENV_FILE"
+      # ADR-0020: readable by choiros user (non-root sandbox)
+      chmod 0640 "$ENV_FILE"
+      chown root:choiros "$ENV_FILE" 2>/dev/null || chmod 0644 "$ENV_FILE"
     '';
+  };
+
+  # ADR-0020 Phase 1: Non-root sandbox user
+  users.users.choiros = {
+    isSystemUser = true;
+    group = "choiros";
+    home = "/var/lib/choiros";
+    createHome = true;
+    shell = pkgs.bash;
+  };
+  users.groups.choiros = {};
+
+  # Per-user home directory setup (runs before sandbox)
+  systemd.services.choir-setup-user-dirs = {
+    description = "Create ChoirOS user directories";
+    wantedBy = [ "choir-sandbox.service" ];
+    before = [ "choir-sandbox.service" ];
+    after = [ "opt-choiros-data-sandbox.mount" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "setup-user-dirs" ''
+        # Ensure sandbox data owned by choiros user
+        chown -R choiros:choiros /opt/choiros/data/sandbox 2>/dev/null || true
+        # Create users dir for per-user homes
+        mkdir -p /opt/choiros/data/sandbox/users
+        chown choiros:choiros /opt/choiros/data/sandbox/users
+        # Create workspace dir
+        mkdir -p /opt/choiros/data/sandbox/workspace
+        chown choiros:choiros /opt/choiros/data/sandbox/workspace
+        # Create bashrc with cagent-friendly prompt
+        cat > /var/lib/choiros/.bashrc << 'BASHRC'
+export PS1='\[\033[0;32m\]\u@\h\[\033[0m\]:\[\033[0;34m\]\w\[\033[0m\]\$ '
+export CHOIR_SANDBOX_ROOT=/opt/choiros/data/sandbox
+cd /opt/choiros/data/sandbox/workspace 2>/dev/null || cd ~
+BASHRC
+        chown choiros:choiros /var/lib/choiros/.bashrc
+      '';
+    };
   };
 
   # ADR-0014 Phase 6.5: Seed sandbox binary from nix store to data.img on
@@ -151,6 +192,7 @@
         if [ ! -x /opt/choiros/data/sandbox/bin/sandbox ]; then
           cp ${sandboxPackage}/bin/sandbox /opt/choiros/data/sandbox/bin/sandbox
           chmod 755 /opt/choiros/data/sandbox/bin/sandbox
+          chown choiros:choiros /opt/choiros/data/sandbox/bin/sandbox
           echo "Seeded sandbox binary from nix store to data.img"
         fi
       '';
@@ -173,9 +215,13 @@
           exec ${sandboxPackage}/bin/sandbox
         fi
       '';
+      # ADR-0020 Phase 1: Run as non-root user
+      User = "choiros";
+      Group = "choiros";
       Restart = "on-failure";
       RestartSec = 1;
       # ADR-0018: Gateway token extracted from kernel cmdline by oneshot above
+      # Note: EnvironmentFile needs to be readable by choiros user
       EnvironmentFile = [ "-/run/choiros-sandbox.env" ];
       Environment = [
         "PORT=${toString sandboxPort}"
