@@ -161,7 +161,28 @@
     # Runtime credentials (tmpfs, populated by materialize service)
     "d /run/choiros/credentials/platform 0700 root root -"
     "d /run/choiros/credentials/sandbox 0700 choiros choiros -"
+    # ADR-0020 Phase 0: Admin token for programmatic /admin/ access
+    "d /run/choiros 0755 root root -"
   ];
+
+  # ADR-0020 Phase 0: Generate admin token on boot
+  systemd.services.choir-generate-admin-token = {
+    description = "Generate ChoirOS admin API token";
+    wantedBy = [ "multi-user.target" ];
+    before = [ "choiros-hypervisor.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "gen-admin-token" ''
+        TOKEN_FILE="/run/choiros/admin.token"
+        if [ ! -f "$TOKEN_FILE" ]; then
+          ${pkgs.openssl}/bin/openssl rand -hex 32 > "$TOKEN_FILE"
+          chmod 0600 "$TOKEN_FILE"
+          echo "Generated admin API token"
+        fi
+      '';
+    };
+  };
 
   # Materialize secrets from persistent NVMe storage to tmpfs on boot.
   # Secrets are delivered once via SCP to /opt/choiros/secrets/ and survive reboots.

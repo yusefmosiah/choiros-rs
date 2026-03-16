@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use axum::{
     body::Body,
@@ -171,6 +171,7 @@ fn strip_path_prefix(path_and_query: &str, prefix: &str) -> String {
 
 /// Middleware: require an authenticated session.
 /// Unauthenticated requests to non-auth paths are redirected to /login.
+/// Admin endpoints accept a bearer token from /run/choiros/admin.token (ADR-0020 Phase 0).
 pub async fn require_auth(
     State(_state): State<Arc<AppState>>,
     session: Session,
@@ -184,6 +185,26 @@ pub async fn require_auth(
         || path.starts_with("/provider/v1/")
         || is_public_bootstrap_path(path)
     {
+        return next.run(req).await;
+    }
+
+    // ADR-0020 Phase 0: Admin token auth for /admin/ endpoints.
+    // The token is generated at boot and stored in /run/choiros/admin.token.
+    // Machine-to-machine callers pass it as Authorization: Bearer <token>.
+    if path.starts_with("/admin/") || path == "/health" {
+        if let Some(auth_header) = req.headers().get("authorization") {
+            if let Ok(auth_str) = auth_header.to_str() {
+                if let Some(token) = auth_str.strip_prefix("Bearer ") {
+                    if verify_admin_token(token) {
+                        return next.run(req).await;
+                    }
+                }
+            }
+        }
+    }
+
+    // /health is always public (monitoring)
+    if path == "/health" {
         return next.run(req).await;
     }
 
@@ -433,6 +454,23 @@ async fn materialize_route_target(
     };
 
     Ok(resolved)
+}
+
+/// ADR-0020 Phase 0: Verify admin bearer token against /run/choiros/admin.token.
+/// The token is generated at boot by a systemd oneshot and is only readable by root.
+/// This enables machine-to-machine admin operations without WebAuthn.
+fn verify_admin_token(token: &str) -> bool {
+    static ADMIN_TOKEN: OnceLock<Option<String>> = OnceLock::new();
+    let expected = ADMIN_TOKEN.get_or_init(|| {
+        std::fs::read_to_string("/run/choiros/admin.token")
+            .ok()
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+    });
+    match expected {
+        Some(expected) => token == expected,
+        None => false, // no token file = admin token auth disabled
+    }
 }
 
 #[cfg(test)]
