@@ -53,6 +53,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/decisions/adr-0026-self-directing-agent-dispatch.md`
 - **[P2]** ADR-0028: Multi-Provider LLM Scaling — Decision (Draft) | Requires: [ADR-0003, ADR-0022]  
   `docs/theory/decisions/adr-0028-multi-provider-scaling.md`
+- **[P2]** adr-0029-cagent-vsock-work-broker — Architecture decision (Proposed) | Requires: [adr-0007, adr-0014, adr-0020, adr-0026]  
+  `docs/theory/decisions/adr-0029-cagent-vsock-work-broker.md`
 - **[P2]** Implementing ADR-0014: Per-User VM Lifecycle and Storage — Guide (Active) | Requires: [ADR-0014]  
   `docs/theory/guides/adr-0014-implementation.md`
 - **[P2]** Implementing ADR-0024: Hypervisor Go Rewrite — Guide (Active) | Requires: [ADR-0024]  
@@ -239,6 +241,7 @@ ADR-0024 → ADR-0025: Go Admin Dashboard
 ADR-0021, ADR-0024 → ADR-0026: Self-Directing Agent Dispatch
 ADR-0011, ADR-0019, ADR-0026 → ADR-0027: Publishing and Global Knowledge Base
 ADR-0003, ADR-0022 → ADR-0028: Multi-Provider LLM Scaling
+adr-0007, adr-0014, adr-0020, adr-0026 → adr-0029-cagent-vsock-work-broker
 ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
 ADR-0019 → Implementing ADR-0019: Per-User Memory Curation and Retrieval
 ADR-0020 → Implementing ADR-0020: Security Hardening
@@ -255,4 +258,4 @@ ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 adr-0008, adr-0020, adr-0003 → Secrets Architecture Audit & Scaling Plan
 ```
 
-*Generated 2026-03-15 — 28 practice, 36 theory, 22 state docs.*
+*Generated 2026-03-15 — 28 practice, 37 theory, 22 state docs.*
