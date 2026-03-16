@@ -1,20 +1,49 @@
 #!/usr/bin/env bash
 # Pre-commit hook for ChoirOS.
-# No framework needed — just bash + just commands.
-#
 # Checks:
 #   1. cargo fmt (fast, always)
-#   2. atlas regeneration (if docs changed)
+#   2. doc-work alignment via cagent (auto-creates work items for new docs)
+#   3. atlas regeneration (human-readable index for GitHub)
 set -euo pipefail
 
 # --- Formatting ---
-# Only check staged .rs files to keep it fast
 if git diff --cached --name-only | grep -qE '\.rs$'; then
   echo "pre-commit: checking cargo fmt..."
   cargo fmt --all -- --check || {
     echo "pre-commit: formatting failed. Run 'cargo fmt --all' to fix."
     exit 1
   }
+fi
+
+# --- Doc-Work Alignment ---
+if git diff --cached --name-only | grep -qE '^docs/.*\.md$'; then
+  if command -v cagent &>/dev/null; then
+    echo "pre-commit: checking doc-work alignment..."
+    while IFS= read -r docpath; do
+      # Skip auto-generated and archived docs
+      [[ "$docpath" == "docs/ATLAS.md" ]] && continue
+      [[ "$docpath" == docs/archive/* ]] && continue
+
+      # Check if this doc path is already linked to a work item
+      has_work=$(cagent work list --json 2>/dev/null | python3 -c "
+import json, sys
+try:
+    items = json.load(sys.stdin)
+    for i in items:
+        if '${docpath}' in i.get('objective', ''):
+            print('yes'); break
+except: pass
+" 2>/dev/null || true)
+
+      if [ -z "$has_work" ]; then
+        echo "  → auto-creating work item for $docpath"
+        cagent work doc-set --file "$docpath" --path "$docpath" 2>/dev/null && \
+          echo "  ✓ created" || echo "  ✗ failed (non-blocking)"
+      fi
+    done < <(git diff --cached --name-only | grep -E '^docs/.*\.md$')
+  else
+    echo "pre-commit: cagent not found, skipping doc-work alignment"
+  fi
 fi
 
 # --- Atlas ---
