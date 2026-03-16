@@ -75,9 +75,7 @@ sandbox/.writer_revisions/
 sandbox/reports/
 sandbox/agent_harness/tool_outputs/
 
-# Agent instruction files (contain ops details, keep local)
-CLAUDE.md
-AGENTS.md
+# Agent instruction files — now safe stubs pointing to cagent
 
 # AI Agent Config Directories
 .adal/
