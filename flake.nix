@@ -363,6 +363,7 @@ EOF
           src = cagent-src;
           vendorHash = "sha256-Okp/YvYTjla1EexXiwYtJP8B5N1myprjg9Sw5rrY9PQ=";
           subPackages = [ "cmd/cagent" ];
+          doCheck = false; # e2e tests need running adapters
           meta.description = "Local work-control plane for governed agent work";
         };
       };
