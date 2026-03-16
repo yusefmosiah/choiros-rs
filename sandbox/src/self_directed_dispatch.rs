@@ -215,7 +215,15 @@ fn compare_numeric_identifier(left: &ReadyWorkItem, right: &ReadyWorkItem) -> Or
 
 fn extract_numeric_identifier(item: &ReadyWorkItem) -> Option<u32> {
     extract_numeric_identifier_from_text(&item.title)
-        .or_else(|| extract_numeric_identifier_from_text(&item.objective))
+        .or_else(|| extract_numeric_identifier_from_objective(&item.objective))
+}
+
+fn extract_numeric_identifier_from_objective(objective: &str) -> Option<u32> {
+    let head = objective
+        .split_once(':')
+        .map(|(prefix, _)| prefix)
+        .unwrap_or(objective);
+    extract_numeric_identifier_from_text(head)
 }
 
 fn extract_numeric_identifier_from_text(text: &str) -> Option<u32> {
@@ -319,6 +327,28 @@ mod tests {
         assert_eq!(sorted[0].title, "ADR-0014: Per-User VM Lifecycle");
         assert_eq!(sorted[1].title, "ADR-0024: ChoirOS Go Rewrite");
         assert_eq!(sorted[2].title, "ADR-0026: Self-Directing Agent Dispatch");
+    }
+
+    #[test]
+    fn ignores_dependency_mentions_inside_freeform_objectives() {
+        let items = vec![
+            work_item(
+                "work_review",
+                "Review all ADRs against code",
+                "Systematically review every ADR. Foundation: ADR-0001, ADR-0007. Agents: ADR-0021 -> ADR-0026.",
+                1,
+            ),
+            work_item(
+                "work_adr",
+                "ADR-0020: Security Hardening",
+                "docs/theory/decisions/adr-0020-security-hardening.md: A security architecture review",
+                1,
+            ),
+        ];
+
+        let sorted = sorted_ready_work(items);
+        assert_eq!(sorted[0].title, "ADR-0020: Security Hardening");
+        assert_eq!(sorted[1].title, "Review all ADRs against code");
     }
 
     #[test]

@@ -1,0 +1,21 @@
+{
+  "pid": 47595,
+  "cycle": 48,
+  "timestamp": "2026-03-16T05:40:14Z",
+  "uptime": "28m20s",
+  "in_flight": [
+    {
+      "work_id": "work_01KKT680MZ3JBV5M1FJK4EZJBV",
+      "job_id": "job_01KKTGXWYPB56FB2G15PNVKJQJ",
+      "adapter": "codex",
+      "elapsed": "28m11s"
+    }
+  ],
+  "ready": 2,
+  "last_report": {
+    "cycle": 48,
+    "timestamp": "2026-03-16T05:40:09Z",
+    "ready": 2,
+    "in_flight": 1
+  }
+}

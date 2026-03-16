@@ -43,7 +43,7 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/guides/rolling-deploys.md`
 - **[P1]** Writer Bugs — Note (Active)  
   `docs/theory/notes/2026-03-11-writer-bugs.md`
-- **[P2]** ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync — Decision (Draft) | Requires: [ADR-0007, ADR-0012]  
+- **[P2]** ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync — Decision (Accepted) | Requires: [ADR-0007, ADR-0012]  
   `docs/theory/decisions/adr-0014-per-user-storage-and-desktop-sync.md`
 - **[P2]** ADR-0021: Writer App Agent and Collaborative Living Documents — Decision (Draft) | Requires: [ADR-0001, ADR-0007]  
   `docs/theory/decisions/adr-0021-writer-app-agent-and-collaborative-living-documents.md`
