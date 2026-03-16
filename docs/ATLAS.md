@@ -258,4 +258,4 @@ ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 adr-0008, adr-0020, adr-0003 → Secrets Architecture Audit & Scaling Plan
 ```
 
-*Generated 2026-03-15 — 28 practice, 37 theory, 22 state docs.*
+*Generated 2026-03-16 — 28 practice, 37 theory, 22 state docs.*

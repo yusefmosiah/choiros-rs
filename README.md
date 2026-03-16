@@ -27,6 +27,12 @@ Human-first docs entrypoint: [`docs/ATLAS.md`](docs/ATLAS.md)
 - Conductor wake-context with bounded agent-tree snapshots
 - Harness simplification (one while-loop model)
 
+Repo-only worker bootstrap prototype for ADR-0026:
+
+```bash
+cargo run -p sandbox --bin repo-worker-bootstrap -- --repo /Users/wiz/choiros-rs --dry-run
+```
+
 ## Execution Policy
 
 - Primary orchestration: `Prompt Bar -> Conductor`

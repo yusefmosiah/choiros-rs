@@ -32,6 +32,10 @@ surface. Only after that should the external dispatch contract collapse to
 
 ## What Changed
 
+- 2026-03-16: Added `sandbox/src/bin/repo_worker_bootstrap.rs`, an isolated
+  repo-only bootstrap that reads `cagent work ready --json`, applies the
+  documented selection rule explicitly, and can preview or claim one ready
+  work item without going through the prompt-driven Conductor API.
 - 2026-03-15: Initial implementation guide grounded in the live Rust conductor,
   `docs/ATLAS.md`, and `cagent` work graph.
 - 2026-03-15: Clarified that the first machine-readable graph is the current
@@ -84,8 +88,8 @@ pieces for ADR-0026:
 ## Phase Status
 
 ```text
-Phase 1  (deterministic ready-work contract)    NOT STARTED
-Phase 2  (repo-only worker bootstrap)           NOT STARTED
+Phase 1  (deterministic ready-work contract)    IN PROGRESS
+Phase 2  (repo-only worker bootstrap)           PROTOTYPED
 Phase 3  (one-task worker loop)                 NOT STARTED
 Phase 4  (multi-worker claiming + capacity)     NOT STARTED
 ```
@@ -118,6 +122,9 @@ work from the repo without receiving an objective string.
 4. The worker needs both layers:
    - docs for desired state and implementation guidance
    - `cagent` for ready/claimed/blocked execution state
+5. Do not treat `cagent work claim-next` as the contract yet.
+   The worker bootstrap should sort the ready set itself until the shared CLI
+   behavior is proven to match the ADR-0026 ordering rule.
 
 ### Exit Criteria
 
@@ -151,6 +158,10 @@ Goal: introduce a worker entrypoint whose only semantic input is the repo path.
 3. The first prototype can live beside the current runtime as an isolated path.
    ADR-0024 already establishes that the durable destination is the Go rewrite;
    do not force the current Rust conductor to become both products at once.
+4. `sandbox/src/bin/repo_worker_bootstrap.rs` is the first isolated prototype.
+   Today it proves the repo-only input shape and deterministic ready-item
+   selection against `cagent`; it does not replace the prompt-driven Conductor
+   or execute the work item yet.
 
 ### Exit Criteria
 

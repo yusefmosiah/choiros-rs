@@ -17,6 +17,7 @@ pub mod markdown;
 pub mod observability;
 pub mod paths;
 pub mod runtime_env;
+pub mod self_directed_dispatch;
 pub mod tools;
 
 pub mod supervisor;
