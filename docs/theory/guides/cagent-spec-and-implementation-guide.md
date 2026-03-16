@@ -2,7 +2,8 @@
 
 Date: 2026-03-09
 Kind: Spec + implementation handoff
-Status: Draft
+Status: Active
+Priority: 3
 Requires: []
 
 ## Narrative Summary (1-minute read)
@@ -31,39 +32,32 @@ The implementation language should be Go.
 
 ## What Changed
 
-1. Named the project `cagent`.
-2. Declared the product as a standalone general-purpose CLI, not an embedded
-   host-specific subsystem.
-3. Declared the CLI contract and JSON output as the primary public API.
-4. Declared same-vendor `resume` versus cross-vendor `handoff` as a hard rule.
-5. Defined canonical job, session, turn, handoff, and event schemas.
-6. Defined the adapter contract and runtime model.
-7. Included implementation guidance for these adapters:
-   - Codex
-   - Claude Code
-   - Factory Droid
-   - Pi
-   - pi_agent_rust
-   - Gemini CLI
-   - OpenCode
-8. Added implementation order, testing strategy, and packaging guidance.
+- 2026-03-15: Promoted this from draft to the active v0 implementation plan.
+- 2026-03-15: Clarified the `cagent` versus `choir.go` boundary and made the
+  v0 subprocess-runner scope explicit.
+- 2026-03-09: Named the project `cagent`, declared the CLI/JSON contract as
+  the primary API, defined the canonical schemas and adapter contract, and
+  added implementation order, testing strategy, and packaging guidance.
 
 ## What To Do Next
 
 1. Create a dedicated `cagent` repository.
-2. Implement the core runtime, SQLite store, and CLI shell.
-3. Implement Tier 1 adapters first:
+2. Treat this document as the v0 shipping contract: a standalone subprocess
+   runner with a stable CLI/JSON surface, not the future native-agent loop.
+3. Implement the core runtime, SQLite store, and CLI shell.
+4. Implement Tier 1 adapters first:
    - Codex
    - Claude Code
    - Factory Droid
    - Pi
-4. Implement fake adapter fixtures and golden event translation tests.
-5. Implement Tier 2 adapters:
+5. Implement fake adapter fixtures and golden event translation tests.
+6. Implement Tier 2 adapters:
    - Gemini CLI
    - pi_agent_rust
-6. Implement the OpenCode adapter as experimental.
-7. Publish a stable `--json` contract before adding daemon/server mode.
-8. Add Nix packaging and reproducible integration tests.
+7. Implement the OpenCode adapter as experimental.
+8. Publish a stable `--json` contract before adding daemon/server mode or
+   any higher-level orchestration features.
+9. Add Nix packaging and reproducible integration tests.
 
 ## Product Statement
 
@@ -84,6 +78,32 @@ It must let callers do the following through one binary:
 - pretend all CLIs share one native session model,
 - require a daemon in v0,
 - require host integration code to understand each vendor separately.
+
+## Relationship To `choir.go`
+
+`cagent` and `choir.go` are separate products with different jobs.
+
+This guide specifies `cagent` v0 as a standalone open source CLI and a
+proof-of-concept for durable local control over external coding-agent CLIs.
+It validates the adapter contract, the CLI/JSON contract, local job control,
+and Go as the implementation language.
+
+`choir.go` may borrow lessons from `cagent`, but it should not inherit
+`cagent` internals, repository structure, or scope decisions. Do not expand
+this v0 guide into a plan for the future native agent loop, distributed
+runtime control, or the broader ChoirOS architecture.
+
+## v0 Success Criteria
+
+This guide is complete when a dedicated `cagent` repository can ship a single
+binary that:
+- starts detached or foreground jobs on supported adapters,
+- preserves raw artifacts and native session identities,
+- exposes a stable human CLI plus `--json` machine contract,
+- supports same-vendor `send` only where native resume is verified,
+- supports cross-vendor continuation only through explicit handoffs,
+- passes fixture, fake-CLI, and golden translation tests for Tier 1 adapters,
+- does not require daemon mode, remote orchestration, or ChoirOS host code.
 
 ## Goals
 

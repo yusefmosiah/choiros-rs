@@ -57,6 +57,10 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/guides/adr-0014-implementation.md`
 - **[P2]** Implementing ADR-0024: Hypervisor Go Rewrite — Guide (Active) | Requires: [ADR-0024]  
   `docs/theory/guides/adr-0024-implementation.md`
+- **[P2]** Implementing ADR-0026: Self-Directing Agent Dispatch — Guide (Active) | Requires: [ADR-0026]  
+  `docs/theory/guides/adr-0026-implementation.md`
+- **[P2]** Implementing ADR-0028: Multi-Provider LLM Scaling — Guide (Active) | Requires: [ADR-0028, ADR-0003, ADR-0022]  
+  `docs/theory/guides/adr-0028-implementation.md`
 - **[P2]** CI Boundaries and the Bootstrap Thesis — Note (Draft) | Requires: [ADR-0016, ADR-0023, ADR-0024]  
   `docs/theory/notes/2026-03-11-ci-boundaries-and-bootstrap-thesis.md`
 - **[P2]** Deferred Machine Class Items — Note (Active) | Requires: [ADR-0014]  
@@ -67,6 +71,8 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/decisions/adr-0013-fleet-ctl-change-lifecycle-and-promotion.md`
 - **[P3]** ADR-0027: Publishing and Global Knowledge Base — Decision (Draft) | Requires: [ADR-0011, ADR-0019, ADR-0026]  
   `docs/theory/decisions/adr-0027-publishing-and-global-knowledge-base.md`
+- **[P3]** cagent Spec And Implementation Guide — Spec + implementation handoff (Active)  
+  `docs/theory/guides/cagent-spec-and-implementation-guide.md`
 - **[P3]** Snapshot Portability Across VM Sizings — Research Note (Active) | Requires: [ADR-0014, ADR-0018]  
   `docs/theory/notes/2026-03-11-snapshot-portability-research.md`
 - **[P3]** Inbox — Note (Active)  
@@ -79,14 +85,14 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/decisions/adr-0004-hypervisor-sandbox-ui-runtime-boundary.md`
 - **[P4]** ADR-0019: Per-User Memory Curation and Retrieval — Decision (Draft) | Requires: [ADR-0001]  
   `docs/theory/decisions/adr-0019-per-user-memory-curation-and-retrieval.md`
+- **[P4]** Implementing ADR-0019: Per-User Memory Curation and Retrieval — Guide (Active) | Requires: [ADR-0019]  
+  `docs/theory/guides/adr-0019-implementation.md`
 - **[P4]** Agent Architecture Session Notes — Note (Active) | Requires: [ADR-0021, ADR-0022]  
   `docs/theory/notes/2026-03-11-agent-architecture-session-notes.md`
 - **[P5]** ADR-0002: Rust + Nix Build and Cache Strategy — Decision (Draft)  
   `docs/theory/decisions/adr-0002-rust-nix-build-and-cache-strategy.md`
 - **[P5]** ADR-0009: Terminal Renderer Strategy (xterm.js vs Ghostty/libghostty) — Decision (Proposed)  
   `docs/theory/decisions/adr-0009-terminal-renderer-strategy-xterm-vs-libghostty.md`
-- **[P5]** cagent Spec And Implementation Guide — Spec + implementation handoff (Draft)  
-  `docs/theory/guides/cagent-spec-and-implementation-guide.md`
 - **[P5]** KSM (Kernel Same-page Merging) Research for MicroVM Workloads — Research Note (Complete)  
   `docs/theory/notes/2026-03-11-ksm-research.md`
 - **[P5]** nix-bench — ? (?)  
@@ -234,10 +240,13 @@ ADR-0021, ADR-0024 → ADR-0026: Self-Directing Agent Dispatch
 ADR-0011, ADR-0019, ADR-0026 → ADR-0027: Publishing and Global Knowledge Base
 ADR-0003, ADR-0022 → ADR-0028: Multi-Provider LLM Scaling
 ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
+ADR-0019 → Implementing ADR-0019: Per-User Memory Curation and Retrieval
 ADR-0020 → Implementing ADR-0020: Security Hardening
 ADR-0023 → Implementing ADR-0023: microvm.nix Store Disk Transport Selection
 ADR-0024 → Implementing ADR-0024: Hypervisor Go Rewrite
 ADR-0025 → Implementing ADR-0025: Go Admin Dashboard
+ADR-0026 → Implementing ADR-0026: Self-Directing Agent Dispatch
+ADR-0028, ADR-0003, ADR-0022 → Implementing ADR-0028: Multi-Provider LLM Scaling
 ADR-0021, ADR-0022 → Agent Architecture Session Notes
 ADR-0016, ADR-0023, ADR-0024 → CI Boundaries and the Bootstrap Thesis
 ADR-0014 → Deferred Machine Class Items
@@ -246,4 +255,4 @@ ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
 adr-0008, adr-0020, adr-0003 → Secrets Architecture Audit & Scaling Plan
 ```
 
-*Generated 2026-03-15 — 28 practice, 33 theory, 22 state docs.*
+*Generated 2026-03-15 — 28 practice, 36 theory, 22 state docs.*

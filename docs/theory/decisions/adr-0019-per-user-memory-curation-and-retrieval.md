@@ -32,6 +32,7 @@ This ADR intentionally stops at per-user memory. Global or org-level knowledge c
 - (2026-03-11) Adds storage tier progression: SQLite now, DoltDB global, DoltDB paid-user (Section 12).
 - (2026-03-11) Adds doc-to-graph-to-view progression for project indexing (Section 13).
 - (2026-03-11) Generalizes KB beyond code-focused use: activity-driven graph projection from all user work (Section 14).
+- (2026-03-15) Adds an implementation guide at `docs/theory/guides/adr-0019-implementation.md` grounded in the live Rust memory path.
 
 ## What To Do Next
 

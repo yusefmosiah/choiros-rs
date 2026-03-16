@@ -2,7 +2,7 @@
 # Used on OVH bare metal hosts. Per-instance values (role, port, IP, MAC)
 # and transport choices are passed via specialArgs from flake.nix.
 { config, lib, pkgs, sandboxRole, sandboxPort, vmIp, vmMac, vmTap,
-  sandboxPackage, sandboxHypervisor ? "cloud-hypervisor",
+  sandboxPackage, cagentPackage ? null, sandboxHypervisor ? "cloud-hypervisor",
   sandboxStoreDiskInterface ? "blk", guestProfile ? "minimal", ... }:
 {
   networking.hostName = "sandbox-${sandboxRole}";
@@ -263,10 +263,13 @@
       # Go toolchain (ADR-0024: hypervisor rewrite, general dev)
       go
 
+      # Coding agent adapters (worker VMs only)
+      codex  # OpenAI Codex CLI — auth via `codex login --device-auth`
+
       # Useful for debugging
       strace
       gdb
-    ]
+    ] ++ (if cagentPackage != null then [ cagentPackage ] else [])
     else throw "Unknown guestProfile: ${guestProfile}");
 
   system.stateVersion = "25.11";

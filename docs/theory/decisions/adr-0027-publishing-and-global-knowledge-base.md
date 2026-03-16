@@ -19,27 +19,53 @@ The per-user KB stays SQLite (ADR-0019).
 
 ## What Changed
 
-Previous thinking (ADR-0011) framed publishing as state/compute decoupling --
-separating the published artifact from the runtime. That still holds. What is
-new: publishing is a graph operation (promote subgraph from private to public),
-not a file operation (export document). The relationship between pieces, their
-sources, their version history -- all of that is structure in the graph, not
-metadata on a file.
+- 2026-03-15: Tightens the draft into an execution plan.
+  - Defines scope boundaries between per-user memory, global publishing, and
+    published serving/runtime behavior.
+  - Maps ADR-0011 `stable`/`candidate` semantics onto Dolt branches instead of
+    treating them as a replaced model.
+  - Defines a bounded v1 promotion contract, privacy scrub rules, and
+    withdrawal semantics.
+  - Adds phased implementation direction and verification criteria.
+- 2026-03-11: Initial draft.
+  - Reframed publishing from file export to graph promotion.
+  - Declared DoltDB as the global KB store and SQLite as the per-user default.
 
 ## What To Do Next
 
-1. Finalize per-user KB schema (ADR-0019) -- publishing depends on having a
-   graph to promote from.
-2. Design the promotion operation: which nodes, which edges, privacy trimming.
-3. Stand up DoltDB instance on hypervisor for global KB prototype.
-4. Define the published piece schema in the global graph (version history,
-   authorship, license, media type).
-5. Build the simplest possible publish flow: user marks a document node as
-   "publish", promoted to global graph, viewable at a URL.
+1. Finalize the shared node/edge vocabulary between ADR-0019 and publishing so
+   promotion has stable kinds to allowlist and scrub.
+2. Implement a promotion planner against the per-user SQLite graph:
+   root selection, bounded traversal, review set, trim set, scrub set.
+3. Stand up a single embedded DoltDB instance on the hypervisor for the global
+   KB prototype with branch policy for `stable` and `candidate`.
+4. Build the smallest publish path:
+   `POST /v1/publishes`, `POST /v1/publishes/{id}/promote`,
+   `POST /v1/publishes/{id}/rollback`,
+   `POST /v1/publishes/{id}/withdraw`, `GET /p/{publish_id}`.
+5. Add audit, moderation, and quota rails before opening global discovery.
+
+## Context
+
+ADR-0019 defines the private per-user temporal graph. ADR-0011 defines the
+runtime and promotion semantics for serving published work. This ADR fills the
+missing middle: how private graph structure becomes public graph structure
+without leaking private context.
+
+The key planning mistake to avoid is collapsing three different concerns into
+one system:
+
+1. Per-user KB: private, upstream, SQLite-first, activity-derived.
+2. Global KB: shared, published, versioned, Dolt-backed.
+3. Published runtime: routes, read views, prompts, forks, reconcile workers.
+
+They are connected, but they are not the same authority. The per-user graph is
+upstream. The global KB is a projection. The published runtime is how that
+projection is served and interacted with.
 
 ## Decision
 
-### 1. Publishing Is Subgraph Promotion
+### 1. Publishing Is Bounded Subgraph Promotion
 
 User selects nodes (a document, its citations, supporting research) and
 promotes them from the per-user SQLite graph to the global DoltDB graph. The
@@ -50,7 +76,42 @@ This means the publish operation is not "export this file." It is "project
 this connected subgraph into the public namespace, preserving internal
 structure and trimming external references that point to private state."
 
-### 2. Version History Is Native
+Implications:
+
+- The publish unit is a graph slice, not a blob.
+- The promoted subgraph must be explicit and reviewable before commit.
+- Promotion must be deterministic from a root node plus traversal/scrub policy.
+
+### 2. The Global KB Is a Shared Graph, Not a Document Store
+
+Published pieces have edges to other published pieces -- citations, responses,
+derivatives, translations. This structure emerges from the publishing act, not
+from manual linking.
+
+The global graph schema mirrors the per-user temporal graph schema (ADR-0019
+Section 11) but adds publication-specific fields on the published root and on
+published revisions:
+
+- `publish_id`
+- `author_id`
+- `license`
+- `media_type`
+- `created_at`
+- `updated_at`
+- `withdrawn_at` (nullable)
+- `source_user_node_id` (author-visible only)
+- `source_user_version_id` (author-visible only)
+
+Cross-publish edge rule:
+
+- If the destination is already public, keep the graph edge.
+- If the destination is included in the same promotion set, keep the edge.
+- If the destination is private and not promoted, trim the edge.
+- If the user wants public attribution to a private source, emit a bounded
+  citation payload on the published node, not a live edge back into the
+  private graph.
+
+### 3. Version History Is Native
 
 DoltDB's prolly trees with structural sharing mean storing hundreds of
 versions of a published piece costs proportional to diffs, not full
@@ -58,26 +119,14 @@ documents. Every edit to a published piece is a Dolt commit. Readers can
 view any historical version. Diff between versions is a first-class
 operation.
 
-This replaces the `stable`/`candidate` pointer model from ADR-0011 with
-something richer: the full commit graph is the version history, not just two
-named pointers. Pointer semantics (`stable`, `candidate`, rollback) layer on
-top as branch refs in the Dolt commit graph.
+This does not replace ADR-0011 pointer semantics. It implements them:
 
-### 3. The Global KB Is a Shared Graph, Not a Document Store
+- `candidate` is a Dolt branch for staged but not yet serving revisions.
+- `stable` is a Dolt branch for the currently served revision.
+- rollback is a branch move or revert commit, depending on audit policy.
 
-Published pieces have edges to other published pieces -- citations, responses,
-derivatives, translations. This structure emerges from the publishing act, not
-from manual linking. If a user's source node had an edge to another user's
-published node, that edge carries through on publish.
-
-The global graph schema mirrors the per-user temporal graph schema (ADR-0019
-Section 11) with additional fields:
-
-- `author_id` (user who published)
-- `license` (content license)
-- `media_type` (text, audio, video, interactive)
-- `published_at` / `updated_at`
-- `source_user_node_id` (opaque ref back to origin, for the author only)
+The full commit graph is the history. `stable` and `candidate` remain the
+serving contract.
 
 ### 4. Publishing Does Not Copy, It Projects
 
@@ -88,14 +137,50 @@ user remains the authority over their published content.
 
 Consequences:
 
-- Deleting a published piece removes it from the global graph. Other pieces
-  that cited it retain dangling edges (citation target gone), which is the
-  correct semantic -- the citation existed, the target was withdrawn.
-- The per-user KB keeps its full history regardless of global KB state.
 - There is no reverse sync from global to per-user. The per-user graph is
   upstream.
+- The per-user KB keeps its full history regardless of global KB state.
+- Withdrawal is not hard deletion. A withdrawn piece is tombstoned on the
+  serving branch, and readers see that the target was withdrawn.
+- Hard purge is reserved for policy/legal cases and is an admin action, not
+  the normal user-facing unpublish path.
 
-### 5. Choir as Streaming and Media Platform
+### 5. Promotion Must Enforce an Admission and Scrub Policy
+
+Privacy safety is part of the publish contract, not a UX suggestion.
+
+Admission rules:
+
+- Only allowlisted node kinds can be promoted in v1.
+- Only allowlisted edge kinds can cross into the global graph in v1.
+- Private provenance fields must be scrubbed or replaced with bounded public
+  metadata.
+- Promotion must fail closed if the planner cannot classify a node, edge, or
+  field.
+
+Initial v1 allowlist:
+
+- Node kinds: `document`, `claim`, `citation`, `source`, `argument`, `media`
+- Edge kinds: `cites`, `supports`, `contradicts`, `responds_to`, `contains`
+
+Everything else stays private until deliberately modeled.
+
+### 6. Minimal v1 Publish Contract
+
+The first implementation should be intentionally narrow:
+
+1. User selects a root node, usually a `document`.
+2. System traverses a bounded depth over allowlisted edges.
+3. System produces a review set, trim set, and scrub summary.
+4. User confirms or deselects nodes before first publish.
+5. System writes the promoted graph to Dolt as a `candidate` revision.
+6. User promotes `candidate` to `stable`.
+7. The published root gets a stable URL at `/p/{publish_id}`.
+
+Updates repeat the same flow. Reader prompts, forks, and reconcile workers
+remain governed by ADR-0011; this ADR only defines what the published state is.
+
+### 7. Choir as Streaming and Media Platform
 
 Once published pieces include video, audio, and interactive content (not just
 text), and the desktop app supports fullscreen playback, Choir becomes a
@@ -108,7 +193,7 @@ do not bake in text-only assumptions. `media_type` on nodes, byte-range
 addressability for large blobs, and edge kinds that support sequential
 ordering (playlist, series, chapter) keep the door open.
 
-### 6. Revenue Model Implied
+### 8. Revenue Model Implied
 
 Publishing is the natural monetization layer:
 
@@ -122,20 +207,32 @@ The free tier is fully functional for private use. Publishing is the
 value-add that justifies payment -- your work becomes durable, versioned,
 citable, and discoverable in the global graph.
 
-## Promotion Operation Design
+## Implementation Direction
 
-The publish flow at minimum:
+### Phase 1: Shared Contracts
 
-1. User selects a root node (typically a document).
-2. System traverses outward edges to a bounded depth, collecting the subgraph.
-3. User reviews the subgraph and deselects any nodes they want to keep private.
-4. Edges to deselected or untraversed nodes are trimmed.
-5. The remaining subgraph is written to the global DoltDB graph as a Dolt
-   commit, with authorship and timestamp metadata.
-6. The published root node gets a stable URL: `/p/{publish_id}`.
+- Finalize shared node and edge kind vocabulary with ADR-0019.
+- Define scrub rules for private provenance fields.
+- Define publish identifiers and revision metadata.
 
-Updates repeat the same flow. Dolt commit history preserves all prior
-versions. The `stable` pointer (ADR-0011) maps to the Dolt branch HEAD.
+### Phase 2: Single-Piece Publish Flow
+
+- Stand up one hypervisor-local DoltDB instance.
+- Implement promotion planning and review against the per-user SQLite graph.
+- Support root document plus directly connected public citation graph.
+- Ship `candidate`, `stable`, promote, rollback, and withdraw flows.
+
+### Phase 3: Published Runtime Integration
+
+- Wire the published graph into `GET /p/{publish_id}` and status views.
+- Reuse ADR-0011 runtime modes against the graph-backed published state.
+- Add audit records for publish, promote, rollback, withdraw, and reconcile.
+
+### Phase 4: Discovery and Moderation
+
+- Add search and related-piece discovery over the global graph.
+- Add quota enforcement, abuse workflows, and admin moderation tooling.
+- Add policy/legal purge flow distinct from normal withdrawal.
 
 ## Risks
 
@@ -170,8 +267,24 @@ versions. The `stable` pointer (ADR-0011) maps to the Dolt branch HEAD.
 - Graph-based publishing is more complex than file-based publishing, though
   the user-facing UX can hide that complexity.
 
+## Verification
+
+- [ ] Promotion is deterministic from root node plus traversal/scrub policy.
+- [ ] A publish review clearly shows promoted nodes, trimmed edges, and fields
+  scrubbed before commit.
+- [ ] `stable` and `candidate` semantics from ADR-0011 are preserved on top of
+  Dolt revision history.
+- [ ] Rollback can restore a prior served revision without deleting commit
+  history or bypassing audit.
+- [ ] Withdrawing a piece removes it from normal serving without destroying
+  audit history.
+- [ ] Private-only nodes and provenance fields do not appear in the global KB.
+- [ ] Cross-publish citations resolve as graph edges only when the destination
+  is public.
+- [ ] `GET /p/{publish_id}` can render the published root and version metadata.
+
 ## References
 
 - ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling)
-- ADR-0019: Per-User Memory Curation and Retrieval (Sections 10-13)
+- ADR-0019: Per-User Memory Curation and Retrieval (Sections 10-14)
 - ADR-0026: Self-Directing Agent Dispatch

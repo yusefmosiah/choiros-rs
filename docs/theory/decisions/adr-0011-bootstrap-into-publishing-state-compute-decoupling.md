@@ -24,17 +24,24 @@ Hard invariants:
 Decision direction:
 
 1. Decouple persistent user state from elastic compute.
-2. Use adaptive compute tiers (`lite`, `standard`, `heavy`) instead of fixed per-user VM sizing.
+2. Use ADR-0014 machine classes plus a shared worker pool instead of fixed always-on per-user compute.
 3. Make publishing first-class:
-   1. Immutable published artifacts for read concurrency.
-   2. `stable` and `candidate` pointers with instant rollback.
-   3. Prompt-enabled read mode that writes to publisher via queued intents.
+   1. Immutable published revisions/projections for read concurrency.
+   2. `stable` and `candidate` refs with instant rollback.
+   3. Prompt-enabled read mode that writes to publisher-owned candidate state via queued intents.
 4. Reconcile inbound intent queues on scheduled headless publisher wakes (hourly default).
 
 This gives lower baseline cost, better isolation, and faster path to real user validation.
 
 ## What Changed
 
+- 2026-03-15: Clarified scope after ADR-0027 and ADR-0014.
+  1. ADR-0027 owns the knowledge-graph interpretation of publishing
+     (subgraph promotion from private KB to global KB).
+  2. ADR-0011 remains the runtime/control-plane decision for decoupling state
+     from compute, runtime modes, reconcile flow, and rollback semantics.
+  3. Replaced superseded compute-tier terminology with ADR-0014 machine
+     classes and shared worker pool language.
 - 2026-03-11: Compute tier terminology (`lite`, `standard`, `heavy`) superseded
   by ADR-0014 machine classes. Machine classes are runtime configuration with
   account tier mapping. Publishing concepts remain valid and are the next
@@ -47,10 +54,13 @@ This gives lower baseline cost, better isolation, and faster path to real user v
 
 ## What To Do Next
 
-1. Implement publish contract surface (artifact + pointers + fork + intent queue).
-2. Implement scheduler policy for compute tier escalation/demotion.
+1. Implement publish contract surface for graph promotion (`publish` + refs +
+   fork + intent queue), with ADR-0027 owning the promoted-subgraph schema.
+2. Map publish/reconcile workloads onto ADR-0014 machine classes and shared
+   worker-pool policy.
 3. Add headless publisher reconcile worker with hourly default cadence.
-4. Add audit and observability for intent ingestion, reconcile decisions, and promotions.
+4. Add audit, privacy review, and observability for intent ingestion,
+   reconcile decisions, promotions, and rollbacks.
 
 ## Context
 
@@ -60,6 +70,9 @@ Current state:
    contracts.
 2. Runtime lifecycle control is still minimal in implementation (`ensure|stop` path currently).
 3. Prior wave plan puts publishing in post-bootstrap product expansion, after memory lane work.
+4. ADR-0027 now defines publishing as subgraph promotion from private KB to
+   global KB, so this ADR should focus on runtime and scheduling semantics,
+   not file-export mechanics.
 
 Observed planning issue:
 
@@ -74,7 +87,7 @@ Observed planning issue:
 After OVH single-node bring-up and bootstrap loop stabilization, next target is publishing
 bootstrap:
 
-1. Publish immutable artifacts.
+1. Publish immutable revisions/projections from private authoring state.
 2. Serve read concurrency cheaply.
 3. Introduce controlled writeback to publisher state.
 
@@ -93,8 +106,10 @@ If a cost optimization weakens either, reject it.
 
 Separate:
 
-1. State plane (long-lived): docs, world model, history, pointers, permissions.
-2. Compute plane (ephemeral): leased workers/microVMs by workload class.
+1. State plane (long-lived): per-user KB state, published revisions, history,
+   refs, permissions, and audit records.
+2. Compute plane (ephemeral): leased workers/microVMs selected by machine
+   class and workload policy.
 
 No permanent compute reservation per user is required.
 
@@ -107,40 +122,43 @@ No permanent compute reservation per user is required.
 
 ### 5) Pointer Model
 
-Each publish target maintains:
+Each publish target maintains serving refs over its published history:
 
-1. `stable` pointer: currently serving version.
-2. `candidate` pointer: pending/promoted version.
+1. `stable` ref: currently serving version.
+2. `candidate` ref: pending/promoted version.
 
-Rollback is pointer flip from `stable` to previous artifact.
+Rollback is a ref flip from `stable` to a previous published revision. Under
+ADR-0027, these refs layer on top of the global KB commit graph rather than a
+standalone artifact store.
 
 ### 6) Inbound Prompt Writeback Model
 
 Reader prompts in published mode do not write directly to `stable`.
-They produce `inbound_intent` records scoped to `(publisher_id, publish_id, target_doc)`.
+They produce `inbound_intent` records scoped to
+`(publisher_id, publish_id, target_node_id)`.
 
 Reconcile flow:
 
 1. Queue intents with idempotency keys.
 2. Wake headless publisher compute on schedule (hourly default).
-3. Apply intents into `candidate` state.
+3. Apply intents into publisher-owned `candidate` state.
 4. Run bounded validation policy.
 5. Auto-promote or request publisher approval based on policy.
 6. Notify publisher and emit audit trail.
 
-### 7) Adaptive Compute Tiers
+### 7) Compute Allocation Policy
 
-Baseline scheduler tiers:
+Baseline runtime shape:
 
-1. `lite`: research/writing/API/tool orchestration.
-2. `standard`: normal edit + script execution.
-3. `heavy`: build/test/browser automation.
+1. Authoring state is long-lived but can park cold aggressively.
+2. Publish/reconcile work runs on leased workers from the shared pool.
+3. Worker selection uses ADR-0014 machine classes and queue policy.
 
 Policy:
 
 1. Start minimal.
-2. Escalate on workload signals.
-3. Demote after completion/idle timeout.
+2. Escalate to larger machine classes only on workload signals.
+3. Return workers to the pool after completion/idle timeout.
 4. Park cold state aggressively.
 
 ### 8) QA Strategy (80/20)
@@ -150,13 +168,13 @@ For publishable changes:
 1. Fast preview path (`candidate` visible quickly).
 2. Verified path (bounded smoke checks + optional browser tests).
 3. Manual approval happy path by publisher.
-4. Guaranteed revert path via pointer rollback.
+4. Guaranteed revert path via ref rollback.
 
 ## Minimal API Surface (80/20)
 
-Publisher and artifact:
+Publisher and publish revision:
 
-1. `POST /v1/publishes` (create publish artifact from source revision)
+1. `POST /v1/publishes` (create publish projection from source subgraph/revision)
 2. `POST /v1/publishes/{id}/promote` (candidate -> stable)
 3. `POST /v1/publishes/{id}/rollback` (stable -> previous)
 4. `POST /v1/publishes/{id}/fork` (fork published state to private RW)
@@ -170,7 +188,7 @@ Reader prompt writeback:
 Serving:
 
 1. `GET /p/{publish_id}` (read-only runtime route)
-2. `GET /p/{publish_id}/status` (stable/candidate/version metadata)
+2. `GET /p/{publish_id}/status` (stable/candidate/ref metadata)
 
 ## Control-Plane Rails
 
@@ -190,15 +208,16 @@ Serving:
 ## Validation Targets (Initial)
 
 1. Warm new-user publish workspace available in seconds.
-2. Candidate preview latency under one minute for lite/standard edits.
+2. Candidate preview latency under one minute for small edits on default
+   machine classes.
 3. Reconcile loop drains queued intents within one hourly cycle under normal load.
-4. Rollback to prior stable pointer is immediate and user-visible.
+4. Rollback to prior stable ref is immediate and user-visible.
 
 ## Risks
 
 1. Intent queue abuse or spam without quota and moderation rails.
 2. Reconcile conflicts for high-churn collaborative writes.
-3. Over-escalation to heavy tier can erase expected cost gains.
+3. Over-allocation to larger machine classes can erase expected cost gains.
 4. Weak audit coverage can hide policy violations.
 
 ## Consequences
@@ -206,8 +225,8 @@ Serving:
 ### Positive
 
 1. Better cost shape by default-minimal compute.
-2. Better reader concurrency via immutable publish artifacts.
-3. Better reliability through pointer-based promotion and rollback.
+2. Better reader concurrency via immutable published revisions/projections.
+3. Better reliability through ref-based promotion and rollback.
 
 ### Tradeoffs
 

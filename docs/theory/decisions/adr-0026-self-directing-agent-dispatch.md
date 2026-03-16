@@ -20,6 +20,14 @@ Well-structured docs are a self-executing program.
 
 ## What Changed
 
+2026-03-15:
+
+- Added `docs/theory/guides/adr-0026-implementation.md` to ground this ADR in
+  the live Rust conductor path and current `cagent` work graph.
+- Clarified that the first machine-readable work index should be the existing
+  docs frontmatter plus `cagent` graph, not a net-new temporal graph before the
+  worker loop exists.
+
 Previous thinking assumed dispatch needed structured task descriptions:
 objectives, scope, ADR references. This is still prompting with extra steps.
 
@@ -28,8 +36,9 @@ state, the delta is the work. No prompt anywhere in the loop.
 
 ## What To Do Next
 
-1. Validate the temporal graph schema (ADR-0019) as the machine-readable doc
-   index.
+1. Validate the current docs frontmatter + `cagent` work graph as the first
+   machine-readable doc index. Add a richer temporal graph only after the
+   worker loop needs it.
 2. Build the dependency graph walker that identifies unblocked work.
 3. Prototype a single-worker dispatch loop: boot worker VM, worker reads docs,
    worker does one task, worker updates docs.

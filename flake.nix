@@ -13,9 +13,13 @@
       url = "github:yusefmosiah/microvm.nix/main";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    cagent-src = {
+      url = "github:yusefmosiah/cagent";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, crane, rust-overlay, microvm, ... }:
+  outputs = { self, nixpkgs, flake-utils, crane, rust-overlay, microvm, cagent-src, ... }:
     let
       # Packages are x86_64-linux only (deployment target)
       system = "x86_64-linux";
@@ -143,6 +147,7 @@ EOF
               guestProfile
               ;
             sandboxPackage = self.packages.${system}.sandbox;
+            cagentPackage = self.packages.${system}.cagent;
           };
           modules = [
             microvm.nixosModules.microvm
@@ -350,6 +355,15 @@ EOF
             export PATH="${runtimePath}:$PATH"
             ${scriptBody}
           '';
+        };
+
+        cagent = pkgs.buildGoModule {
+          pname = "cagent";
+          version = "0.1.0";
+          src = cagent-src;
+          vendorHash = "sha256-Okp/YvYTjla1EexXiwYtJP8B5N1myprjg9Sw5rrY9PQ=";
+          subPackages = [ "cmd/cagent" ];
+          meta.description = "Local work-control plane for governed agent work";
         };
       };
 
