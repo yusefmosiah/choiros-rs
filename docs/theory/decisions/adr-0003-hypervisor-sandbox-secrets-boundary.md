@@ -9,27 +9,29 @@ Owner: ChoirOS runtime and deployment
 
 ## Implementation Verification
 
-**Last Verified**: 2026-02-28
-**Verification Status**: ⚠️ PARTIALLY IMPLEMENTED
+**Last Verified**: 2026-03-16
+**Verification Status**: ⚠️ PARTIALLY IMPLEMENTED WITH ACTIVE BOUNDARY GAPS
 
 ### Verified Components (Platform Secrets)
 - ✅ Provider Gateway in hypervisor (`hypervisor/src/provider_gateway.rs`)
-- ✅ Platform secrets isolated in hypervisor config (never passed to sandboxes)
-- ✅ Keyless sandbox policy enforced (`FORBIDDEN_PROVIDER_KEY_ENVS`)
+- ✅ Provider/search API keys remain hypervisor-side in managed runtime mode
+- ✅ Keyless sandbox policy blocks provider/search key envs in managed sandboxes
 - ✅ Sandbox auto-detects managed mode, skips `.env` loading
-- ✅ LLM calls route through provider gateway with token auth
+- ✅ Managed model/search calls route through provider gateway with token auth
 
-### Implementation Gaps (User Secrets)
+### Implementation Gaps (Current)
 - ❌ No `user_secrets` table in database
 - ❌ No `/me/secrets` API endpoints
 - ❌ No user-level secret broker for GitHub tokens, personal API keys
-- ❌ Researcher search providers (Tavily, Brave, Exa) read keys directly from env
+- ❌ Shared provider-gateway auth token is still injected into managed runtimes
+- ❌ OVH host wiring still mixes `LoadCredential` with `EnvironmentFile` compatibility
+- ❌ Standalone/dev mode still supports direct search-provider env keys outside managed mode
 
 ### To Complete
-1. Add `user_secrets` table and `/me/secrets` API
-2. Implement secret broker for user-level secrets
-3. Route researcher search providers through gateway
-4. Add audit logging for secret access
+1. Remove guest-visible provider-gateway token delivery from env/kernel cmdline paths
+2. Eliminate remaining `EnvironmentFile` compatibility wiring for control-plane secrets
+3. Add `user_secrets` table and `/me/secrets` API
+4. Implement secret broker for user-level secrets with audit metadata only
 
 ## Narrative Summary (1-minute read)
 
@@ -49,10 +51,10 @@ preserving a clean upgrade path to stronger isolation later.
 
 ## What To Do Next
 
-1. Implement local Podman smoke path with hypervisor as container launcher.
-2. Add minimal hypervisor user-secret storage and policy check path.
-3. Add audit metadata for secret access (without recording values).
-4. Keep UI optional for now; API-first is sufficient for MVP.
+1. Remove guest-visible provider-gateway token delivery from the OVH runtime path.
+2. Add minimal hypervisor user-secret storage and policy-checked broker APIs.
+3. Add audit metadata for secret access without recording secret values.
+4. Keep direct provider env reads limited to local/dev paths until the broker exists.
 
 ## Context
 
@@ -66,8 +68,11 @@ isolation later.
 ### Boundary
 
 1. Hypervisor is the only platform-secret authority.
-2. Sandboxes do not receive platform secrets through env, files, APIs, logs, or events.
-3. Sandboxes may request user-level secrets only through hypervisor broker endpoints.
+2. Target boundary: sandboxes do not receive platform secrets through env, files, APIs,
+   logs, or events.
+3. Current exception: the shared provider-gateway auth token is still injected into managed
+   runtimes and must be removed to satisfy this ADR fully.
+4. Sandboxes may request user-level secrets only through hypervisor broker endpoints.
 
 ### Secret classes
 
@@ -85,6 +90,8 @@ isolation later.
 2. Hypervisor policy maps capability -> allowed secret(s) for authenticated user.
 3. Hypervisor returns only the value needed for the task/session.
 4. Secret values are never written to EventStore payloads or logs.
+5. Managed runtime search/model routes already require gateway routing; direct env-key reads
+   remain a standalone/dev-mode fallback only.
 
 ## MVP Requirements
 

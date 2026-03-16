@@ -39,7 +39,7 @@ decoupling for publishing (ADR-0011, P3).
   `docs/theory/guides/adr-0023-implementation.md`
 - **[P1]** Implementing ADR-0025: Go Admin Dashboard — Guide (Active) | Requires: [ADR-0025]  
   `docs/theory/guides/adr-0025-implementation.md`
-- **[P1]** Rolling Deploys: Staging → E2E → Promote — Guide (Active)  
+- **[P1]** Rolling Deploys: Staging -> E2E -> Promote — Guide (Active) | Requires: [ADR-0016]  
   `docs/theory/guides/rolling-deploys.md`
 - **[P1]** Writer Bugs — Note (Active)  
   `docs/theory/notes/2026-03-11-writer-bugs.md`
@@ -131,7 +131,7 @@ decoupling for publishing (ADR-0011, P3).
   `docs/practice/decisions/adr-0008-ovh-selfhosted-secrets-architecture.md`
 - ADR-0012: OVH US-East Bootstrap Secrets and Two-Node Compute Lifecycle — Decision (Accepted)  
   `docs/practice/decisions/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
-- ADR-0015: Documentation Kanban Architecture — Decision (Draft)  
+- ADR-0015: Documentation Kanban Architecture — Decision (Accepted)  
   `docs/practice/decisions/adr-0015-docs-kanban-architecture.md`
 - ChoirOS Actor Network Orientation — Guide (Accepted)  
   `docs/practice/guides/actor-network-orientation.md`
@@ -250,6 +250,7 @@ ADR-0024 → Implementing ADR-0024: Hypervisor Go Rewrite
 ADR-0025 → Implementing ADR-0025: Go Admin Dashboard
 ADR-0026 → Implementing ADR-0026: Self-Directing Agent Dispatch
 ADR-0028, ADR-0003, ADR-0022 → Implementing ADR-0028: Multi-Provider LLM Scaling
+ADR-0016 → Rolling Deploys: Staging -> E2E -> Promote
 ADR-0021, ADR-0022 → Agent Architecture Session Notes
 ADR-0016, ADR-0023, ADR-0024 → CI Boundaries and the Bootstrap Thesis
 ADR-0014 → Deferred Machine Class Items

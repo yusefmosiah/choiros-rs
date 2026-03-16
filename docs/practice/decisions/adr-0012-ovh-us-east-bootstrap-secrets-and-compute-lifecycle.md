@@ -11,21 +11,22 @@ Extends: ADR-0008, ADR-0010, ADR-0011
 
 ChoirOS now has two OVH US-East `SYS-1` servers and needs an exact bootstrap operating model.
 
-This ADR locks that model:
+This ADR locks the target OVH operating model and records the current partial implementation:
 
-1. Secrets source of truth is OVH Secret Manager (KV2/REST), with OVH KMS for cryptographic
-   key operations.
-2. OVH API auth is service-account OAuth2 first; new work does not use legacy app-key signing.
-3. Host nodes keep only minimal bootstrap credentials and materialize runtime secret files under
-   `/run/choiros/credentials/platform/*`.
-4. Hypervisor/provider gateway consume secrets via `systemd` `LoadCredential` +
-   `$CREDENTIALS_DIRECTORY`, not `EnvironmentFile`.
+1. Target secret source of truth is OVH Secret Manager (KV2/REST), with OVH KMS for
+   cryptographic key operations; current host wiring still materializes from local
+   `/opt/choiros/secrets/platform/*` files.
+2. Target OVH API auth is service-account OAuth2 first; current helper tooling still uses legacy
+   app-key signing from `.env`.
+3. Host nodes materialize runtime secret files under `/run/choiros/credentials/platform/*`.
+4. Hypervisor/provider gateway use `systemd` `LoadCredential` as the primary path, but OVH host
+   wiring still carries an `EnvironmentFile` compatibility path.
 5. Compute lifecycle is split into:
    1. OVH host lifecycle (power/reboot/install/task/vRack) via OVH API.
    2. Choir session lifecycle (`create/start/stop/snapshot/restore/delete/get/list`) via the
       control-plane API from ADR-0010.
 6. Bootstrap topology is two nodes in US-East-VIN with low-complexity failover and explicit
-   progression from current `ensure|stop` behavior to full snapshot lifecycle.
+   progression from today's partial lifecycle surface to the full ADR-0010 session contract.
 
 ## What Changed
 
@@ -35,6 +36,22 @@ This ADR locks that model:
    operations.
 4. Added realistic capacity envelope for the exact purchased `SYS-1` profile.
 5. Defined concrete implementation gates to move from current code to target lifecycle surface.
+
+## Implementation Reality (2026-03-16)
+
+Current repo state is partially through this bootstrap plan:
+
+1. Two OVH node configs and cloud-hypervisor boot/restore wiring exist in `nix/hosts/ovh-node*.nix`.
+2. Host secrets are still copied from `/opt/choiros/secrets/platform/*` into
+   `/run/choiros/credentials/platform/*`; Secret Manager + KMS remain the target, not the live
+   source of truth.
+3. OVH helper tooling still uses `OVH_APPLICATION_KEY` / `OVH_APPLICATION_SECRET` /
+   `OVH_CONSUMER_KEY` from `.env`.
+4. Public sandbox lifecycle is no longer just `ensure|stop`: `start`, `stop`, `hibernate`, and
+   `list` exist, while `create/delete/explicit restore/get` are still missing from the full
+   ADR-0010 surface.
+5. The shared provider-gateway token is still relayed into guests, so the secrets boundary is not
+   yet fully hardened.
 
 ## What To Do Next
 
@@ -57,31 +74,35 @@ This ADR locks that model:
 
 ### Current Code Reality
 
-1. Hypervisor runtime lifecycle is currently `ensure|stop` (vfkit control path), not full
-   snapshot lifecycle:
+1. Public hypervisor runtime lifecycle is currently partial, not the full ADR-0010 surface:
+   `start`, `stop`, `hibernate`, and `list` exist; `create/delete/explicit restore/get` do not.
    - `hypervisor/src/bin/vfkit-runtime-ctl.rs`
    - `hypervisor/src/sandbox/mod.rs`
 2. `LoadCredential` wiring exists for provider/search keys:
    - `nix/modules/choiros-platform-secrets.nix`
 3. Provider gateway already supports reading secrets from `$CREDENTIALS_DIRECTORY`:
    - `hypervisor/src/provider_gateway.rs`
-4. Cloud-hypervisor backend target for OVH is documented but not implemented yet in runtime code.
+4. OVH host config already contains `cloud-hypervisor@` boot/restore wiring, but the broader
+   control-plane lifecycle contract is still incomplete.
 
 ## Decision
 
 ### 1) OVH API Version + Auth Policy
 
-1. Use OVH API `v2` by default for new integration work.
-2. Use `v1` endpoints when the required operation is not available in `v2`.
-3. Use service-account OAuth2 for API access in automation and control-plane services.
-4. Legacy API key/secret/consumer-key signing remains compatibility-only, not the default path.
+1. Existing repo automation still includes a legacy helper that uses application key / secret /
+   consumer key signing (`scripts/ops/ovh-api.py`).
+2. New OVH integration work should target service-account OAuth2 when OVH US support and policy
+   shape are validated.
+3. Use OVH API `v2` by default for new integration work and fall back to `v1` only when the
+   required operation is unavailable in `v2`.
+4. Do not expand the legacy app-key path beyond the compatibility tooling that already exists.
 
 ### 2) Secret System of Record
 
 Use:
 
-1. OVH Secret Manager for provider/runtime secret values.
-2. OVH KMS for cryptographic keys and signing/encryption operations.
+1. OVH Secret Manager for provider/runtime secret values (target steady state).
+2. OVH KMS for cryptographic keys and signing/encryption operations (target steady state).
 
 Do not use:
 
@@ -93,12 +114,21 @@ Do not use:
 
 #### 3.1 Bootstrap identity on each host
 
-Each host keeps a root-only bootstrap credential file (`0600`) for OVH service-account OAuth2
-exchange. This is the only long-lived host-resident bootstrap credential.
+Each host currently keeps root-only bootstrap material under `/opt/choiros/secrets/` and treats
+that as the live source of truth. When the OVH service-account path is validated, replace manual
+host seeding with a scoped bootstrap identity and sync process.
 
 #### 3.2 Runtime secret materialization
 
-Each host runs a `choiros-secrets-sync` unit (timer + one-shot):
+Current model: each host runs `choiros-secrets-materialize` at boot:
+
+1. Copy platform credential files from `/opt/choiros/secrets/platform` to
+   `/run/choiros/credentials/platform`.
+2. Copy sandbox credential files from `/opt/choiros/secrets/sandbox` to
+   `/run/choiros/credentials/sandbox`.
+3. Enforce ownership and mode on the materialized files.
+
+Target replacement: each host runs a `choiros-secrets-sync` unit (timer + one-shot):
 
 1. Exchange service-account credential for short-lived access token.
 2. Read required secrets from Secret Manager APIs.
@@ -109,7 +139,8 @@ Each host runs a `choiros-secrets-sync` unit (timer + one-shot):
 #### 3.3 Service consumption
 
 `systemd` units load secrets with `LoadCredential=` and services read from
-`$CREDENTIALS_DIRECTORY`. Values are never logged or passed into sandbox env.
+`$CREDENTIALS_DIRECTORY`. Current OVH wiring still carries an `EnvironmentFile`
+compatibility path for hypervisor boot; values should not remain there long term.
 
 ### 4) Platform Secret Inventory (Bootstrap)
 
@@ -122,8 +153,8 @@ Required platform secrets:
 5. `tavily_api_key`
 6. `brave_api_key`
 7. `exa_api_key`
-8. `provider_gateway_token` (shared runtime-to-gateway token; currently env-backed and must be
-   moved to credential file path)
+8. `provider_gateway_token` (shared runtime-to-gateway token; currently still relayed into the
+   guest runtime and must be replaced with short-lived runtime auth)
 
 Optional:
 
@@ -183,8 +214,9 @@ This remains backend-agnostic (`vfkit` locally, `cloud-hypervisor` target on OVH
 
 #### Phase 0 (now)
 
-1. `ensure|stop` only (implemented).
-2. Role/branch runtime tracking exists but no snapshot semantics.
+1. `start/stop/hibernate/list` are implemented; create/delete/explicit restore/get remain absent.
+2. Role/branch runtime tracking and snapshot-backed hibernation exist, but the broader control
+   API surface is still incomplete.
 
 #### Phase 1
 

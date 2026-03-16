@@ -2,7 +2,7 @@
 
 Date: 2026-03-06
 Kind: Decision
-Status: Draft
+Status: Accepted
 Priority: 5
 Requires: []
 Authors: wiz + Claude
@@ -13,14 +13,15 @@ ChoirOS documentation has a canonicality problem: stable architecture, proposed 
 operational state, and historical artifacts all live in the same flat directories. It's
 unclear which doc is the truth, which is aspirational, and which is stale.
 
-The fix is a two-column kanban: `active/` (pending) and `canon/` (done). The directory
-tells you the lifecycle stage. Documents flow from active to canon when promoted. Two
-auxiliary directories — `state/` for time-bound execution artifacts and `archive/` for
-history — sit off the main board.
+The fix is a two-column kanban implemented as `theory/` and `practice/`. The directory
+tells you whether a document is still being worked out or is current/in use. Documents
+flow from theory to practice when promoted. Two auxiliary directories — `state/` for
+time-bound execution artifacts and `archive/` for history — sit off the main board.
 
-Five document types (Decision, Guide, Report, Snapshot, Note) are distinguished by
-frontmatter metadata, not directory path. The directory answers one question only:
-"has this been promoted yet?"
+A small set of core document types (Decision, Guide, Report, Snapshot, Note) is
+distinguished by frontmatter metadata, not directory path. Specialized `Kind:` values
+still exist in practice when useful. The directory answers one question only:
+"is this still theory, or is it current practice?"
 
 ## What Changed
 
@@ -33,12 +34,12 @@ frontmatter metadata, not directory path. The directory answers one question onl
 
 ### The Problem
 
-`docs/architecture/` contains 38 files mixing accepted decisions, draft proposals,
-execution plans, status docs, and implementation guides. A reader cannot tell from
-the path whether a document describes what IS or what SHOULD BE.
+The old `docs/architecture/` tree mixed accepted decisions, draft proposals,
+execution plans, status docs, and implementation guides. A reader could not tell from
+the path whether a document described what IS or what SHOULD BE.
 
-The NARRATIVE_INDEX partially solves navigation but not canonicality — it lists docs
-in reading order but doesn't distinguish their lifecycle stage.
+The old `NARRATIVE_INDEX` partially solved navigation but not canonicality — it listed
+docs in reading order but didn't distinguish their lifecycle stage.
 
 ### Previous Attempt
 
@@ -49,8 +50,10 @@ as overengineered — the categories overlap and don't encode the lifecycle.
 ### The Insight
 
 Documentation is a kanban board. The only transition that matters is promotion:
-`active/` → `canon/`. A Decision gets accepted. A Guide's feature gets built.
-The directory change IS the event.
+`theory/` → `practice/`. Earlier notes described this as `active/` → `canon/`,
+but the repo operationalized the same idea as `theory/` and `practice`. A
+Decision gets accepted. A Guide's feature gets built. The directory change IS
+the event.
 
 This mirrors the change lifecycle in ADR-0013: code flows through propose → test →
 promote. Docs flow through theory → practice. Same pipeline, same primitives.
@@ -75,9 +78,10 @@ docs/
   archive/              # history (off-board)
 ```
 
-### Document Types
+### Core Document Types
 
-Encoded in frontmatter `Kind:` field, not in directory path.
+Encoded in frontmatter `Kind:` field, not in directory path. These are the common
+shapes the system optimizes for, not an exhaustive closed enum for every active doc.
 
 | Type | Purpose | Update frequency | Typical lifespan |
 |------|---------|-----------------|-----------------|
@@ -89,7 +93,7 @@ Encoded in frontmatter `Kind:` field, not in directory path.
 
 ### Frontmatter Contract
 
-Every doc gets minimal frontmatter:
+Docs in `theory/`, `practice/`, and `state/` get minimal frontmatter:
 
 ```yaml
 # Title
@@ -102,7 +106,7 @@ Requires: []
 
 The directory tells you lifecycle stage. Frontmatter tells you everything else.
 Content is the substance. This separation keeps the filesystem clean and the
-operational state rich.
+operational state rich. `archive/` may retain older metadata conventions.
 
 Resist adding directories for operational states. If you want `blocked/` or
 `in-review/`, encode it as a frontmatter field, not a folder. The filesystem
@@ -123,7 +127,7 @@ is the attention surface, not the state machine.
 
 - **Auto-generated** by `scripts/generate-atlas.sh` from doc frontmatter
 - **Committed** in git (always readable without running tools)
-- **Refreshed** on every commit via pre-commit hook (`.githooks/pre-commit`)
+- **Refreshed** by pre-commit when doc/tooling inputs change (`.githooks/pre-commit`)
 - **Manually runnable** via `just atlas`
 
 The atlas contains everything an agent (or human) needs to proceed:
@@ -144,7 +148,7 @@ The atlas does NOT include `archive/` — that's off-board by design.
 - `docs/handoffs/` → `state/snapshots/`
 - `docs/reports/` → `state/reports/`
 - `docs/design/` → `theory/notes/`
-- NARRATIVE_INDEX → `docs/ATLAS.md` (auto-generated)
+- NARRATIVE_INDEX → `docs/ATLAS.md` (implemented; old references are historical cleanup)
 
 ## Consequences
 
@@ -158,17 +162,18 @@ The atlas does NOT include `archive/` — that's off-board by design.
 ### Negative
 - Migration effort for existing ~75 active docs
 - Git history for moved files requires `git log --follow`
-- NARRATIVE_INDEX needs reworking or replacement
+- Historical references to `NARRATIVE_INDEX` still need cleanup
 
 ### Risks
 - Over-filing: spending time on where to put things instead of writing
 - Mitigation: when in doubt, put it in `theory/notes/`. Sort later.
 
-## Verification
+## Verification (2026-03-16)
 
-- [x] All accepted/in-progress ADRs live in `practice/decisions/`
-- [x] All draft/proposed ADRs live in `theory/decisions/`
-- [x] All operational guides live in `practice/guides/`
-- [x] Frontmatter on every doc includes Kind and Status
-- [x] ATLAS.md auto-generated, replaces NARRATIVE_INDEX
-- [x] Pre-commit hook regenerates atlas on doc changes
+- [x] Live docs layout uses `docs/theory/`, `docs/practice/`, `docs/state/`, and `docs/archive/`
+- [x] `docs/ATLAS.md` is auto-generated by `scripts/generate-atlas.sh`
+- [x] The pre-commit hook regenerates `docs/ATLAS.md` and checks doc-work alignment
+- [x] Operational guides live in `docs/practice/guides/`
+- [ ] All accepted/in-progress ADRs live in `practice/decisions/` (`ADR-0014` and `ADR-0020` are still in `docs/theory/decisions/`)
+- [x] Draft/proposed ADRs currently live in `docs/theory/decisions/`
+- [ ] Frontmatter on every doc includes Kind and Status (`docs/ATLAS.md` and many archived docs still do not)

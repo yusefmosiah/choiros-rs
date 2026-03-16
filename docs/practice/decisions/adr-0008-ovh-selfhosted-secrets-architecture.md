@@ -21,6 +21,19 @@ The runtime plane (per-user VM + per-branch containers) is keyless. It can reque
 not secret values. Provider access and user-secret resolution happen in control-plane services
 (provider gateway + secrets broker).
 
+## Implementation Reality (2026-03-16)
+
+Current repo state is only a partial match for this target policy:
+
+1. Managed sandboxes already block direct provider/search key envs and require gateway routing.
+2. OVH hosts still materialize credentials from persistent host files under
+   `/opt/choiros/secrets/platform/*`, not from a runtime-fetched secret backend.
+3. OVH hypervisor wiring still mixes `LoadCredential` with an `EnvironmentFile` compatibility
+   path.
+4. The shared provider-gateway token is still relayed into managed runtimes through VM state,
+   kernel cmdline, and guest env reconstruction.
+5. User-secret broker storage and APIs remain unimplemented.
+
 ## What Changed
 
 1. Replaced the "committed encrypted secrets" deployment pattern with "runtime-fetched secrets".
@@ -31,19 +44,25 @@ not secret values. Provider access and user-secret resolution happen in control-
 ## What To Do Next
 
 1. Implement `secrets-broker` in hypervisor/control plane.
-2. Remove sandbox direct-env fallbacks for search providers.
-3. Replace hypervisor `EnvironmentFile` secret loading with `LoadCredential` +
-   `$CREDENTIALS_DIRECTORY` reads.
-4. Remove committed secrets files and archive old runbook.
+2. Replace persistent `/opt/choiros/secrets/platform/*` host materialization with a
+   runtime-fetched secret backend.
+3. Remove hypervisor `EnvironmentFile` compatibility loading and keep secrets on the
+   `LoadCredential` + `$CREDENTIALS_DIRECTORY` path only.
+4. Replace guest-visible provider-gateway token relay with short-lived runtime credentials.
 5. Add integration tests that prove keyless sandbox and scoped broker/gateway behavior.
 
 ## Context
 
-Current repo state has three contradictions with target policy:
+Current repo state has four contradictions with target policy:
 
-1. Encrypted secrets are committed in git under `infra/secrets/`.
-2. Hypervisor reads platform secrets from env injection (`EnvironmentFile` pattern).
-3. Sandbox still has direct provider key fallback paths for search providers if gateway config is missing.
+1. OVH hosts still materialize platform credentials from persistent files under
+   `/opt/choiros/secrets/platform/*`.
+2. OVH host config still maintains `/run/choiros/credentials/sandbox` even though managed
+   runtimes should be keyless.
+3. Hypervisor still carries an `EnvironmentFile` compatibility path alongside
+   `LoadCredential`.
+4. Managed sandboxes are keyless for provider/search keys, but the shared provider-gateway
+   token is still passed into the guest runtime.
 
 This violates the intended 3-tier boundary where the control plane owns secret authority and
 runtime plane is untrusted/keyless compute.
@@ -107,9 +126,12 @@ Use NixOS for service topology and hardening, not for storing secret values.
 
 ### Forbidden pattern
 
-1. `Environment=`/`EnvironmentFile=` for secret values.
+1. `Environment=`/`EnvironmentFile=` as the long-term production secret path.
 2. Committed encrypted secrets as production source of truth.
 3. Passing provider keys into runtime containers.
+
+Current OVH wiring still contains an `EnvironmentFile` compatibility path for hypervisor boot;
+that is implementation debt, not the desired steady state.
 
 ### Example unit wiring pattern (shape)
 
@@ -162,24 +184,28 @@ Storage behavior:
 ## Concrete Gaps to Close in Current Code
 
 1. Add `user_secrets` schema and APIs (currently absent).
-2. Remove direct search-provider env fallback in sandbox managed mode.
-3. Expand keyless sandbox forbidden env list to include search provider key envs.
-4. Stop loading hypervisor provider keys from `EnvironmentFile`; switch to `LoadCredential`.
-5. Ensure vfkit guest/container startup propagates only non-secret routing metadata.
+2. Remove the OVH sandbox credential materialization path and `/run/choiros/credentials/sandbox`.
+3. Replace guest-visible provider-gateway token delivery with short-lived runtime auth.
+4. Stop loading hypervisor provider keys from `EnvironmentFile`; keep the OVH path on
+   `LoadCredential` only.
+5. Replace persistent host secret materialization with runtime-fetched secrets.
+6. Ensure managed runtimes propagate only non-secret routing metadata.
 
 ## Migration Plan
 
 ### Phase A: Boundary Enforcement
 
-1. Enforce sandbox keyless mode for all provider key env names.
-2. Make gateway mandatory for managed mode researcher/model routes.
-3. Add failing integration tests for secret presence in sandbox env.
+1. Keep sandbox keyless mode enforced for provider/search key env names.
+2. Keep gateway mandatory for managed mode researcher/model routes.
+3. Remove the remaining guest-visible provider-gateway token relay.
+4. Add failing integration tests for secret presence in sandbox env/cmdline.
 
 ### Phase B: Control-Plane Secret Delivery
 
 1. Introduce self-hosted secret-store and agent on control-plane hosts.
-2. Migrate hypervisor/provider-gateway key reads to credential files.
-3. Remove production dependency on repo `infra/secrets/*`.
+2. Replace `/opt/choiros/secrets/platform/*` materialization with runtime-fetched secrets.
+3. Migrate hypervisor/provider-gateway key reads fully onto credential files.
+4. Remove the OVH `EnvironmentFile` compatibility path.
 
 ### Phase C: User Secret Broker
 

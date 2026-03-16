@@ -47,15 +47,33 @@ prevent ad hoc orchestration growth.
 
 ## What To Do Next
 
-1. Harden the Writer contract around versions, marginalia, artifacts, run
-   status, and commit authority.
-2. Define the typed request envelope for app-agent to worker and app-agent to
+1. Remove the current worker-ingress contract leak: workers should send
+   proposals/signals/results, not "diff intent," and Writer should not auto-accept
+   worker diffs into canon.
+2. Decouple run status from section-state and version-creation side effects.
+3. Define the typed request envelope for app-agent to worker and app-agent to
    app-agent calls.
-3. Keep Terminal and Researcher as worker primitives while Writer proves the app
+4. Keep Terminal and Researcher as worker primitives while Writer proves the app
    agent model.
-4. Treat Browser as the most likely next app agent after Writer.
-5. Defer simple display apps such as image, audio, and video viewers unless
+5. Treat Browser as the most likely next app agent after Writer.
+6. Defer simple display apps such as image, audio, and video viewers unless
    they need their own orchestration authority.
+
+## Implementation Reality (2026-03-16)
+
+The architecture in this ADR is directionally right, but the live Writer runtime still has
+three important contract gaps:
+
+1. Trace already normalizes `writer.actor.user_prompt_orchestration.*` into run events, so
+   reprompt visibility is no longer the main observability blocker.
+2. Writer still tells delegated workers to return "diff intent only," and worker ingress still
+   defaults to auto-accepting worker diffs rather than treating workers as proposal/signal
+   producers.
+3. Writer run status is still coupled to section-state transitions, and version creation still
+   supersedes pending overlays on the parent version.
+
+This means the highest-value implementation work is Writer ingress and lifecycle hardening, with
+additional trace richness as a follow-on rather than the first blocker.
 
 ## Context
 
@@ -386,7 +404,7 @@ That is enough to justify the category without deciding its full shape today.
 
 ### Phase 1: Finish Writer as the reference app agent
 
-- harden the Writer contract,
+- harden the Writer contract, especially worker ingress,
 - separate canon, marginalia, artifacts, and proposals,
 - fix version and run-state invariants,
 - keep `.writer_revisions` as migration-only compatibility state until removed.
@@ -409,6 +427,11 @@ That is enough to justify the category without deciding its full shape today.
 
 - prefer Browser as the next app-agent spike,
 - only then expand to Tracing or other domain-specific orchestration surfaces.
+
+### Observability follow-on
+
+- keep the existing Trace reprompt event coverage,
+- add richer message-edge tracing only after the Writer/worker contract is stabilized.
 
 ## Writer External API (Codesign Constraint)
 
@@ -453,6 +476,11 @@ diff payload. The fix is making the write path physically impossible for
 workers. Workers can send signals. Only Writer (and the user) can write to the
 document. If the API does not enforce this at the type level, it will be
 violated.
+
+The current runtime has not completed this hard cut yet: delegated worker paths
+still carry diff-oriented instructions and worker ingress still defaults to
+auto-accepting worker diffs. This ADR describes the intended contract, not the
+fully landed implementation.
 
 ### One API for all consumers
 
