@@ -241,14 +241,16 @@ BASHRC
   networking.firewall.allowedTCPPorts = [ sandboxPort ];
 
   environment.systemPackages = with pkgs;
-    # Minimal profile: just enough to run the sandbox service
-    (if guestProfile == "minimal" then [
-      coreutils
-      curl
-      procps
-      htop
-      btop
-    ]
+    # Minimal profile: sandbox service + cagent for work graph
+    (if guestProfile == "minimal" then
+      [
+        coreutils
+        curl
+        procps
+        htop
+        btop
+        git
+      ] ++ (if cagentPackage != null then [ cagentPackage ] else [])
     # Worker profile: full dev toolchain for build/test/E2E workflows
     else if guestProfile == "worker" then [
       # Core utilities
