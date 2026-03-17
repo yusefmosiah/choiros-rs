@@ -800,6 +800,8 @@ fn scenarios() -> Vec<Scenario> {
 // ─── Main eval ───────────────────────────────────────────────────────────────
 
 #[tokio::test]
+#[ignore] // Live LLM benchmark — 36 API calls, costs real money. Run explicitly:
+          // cargo test -p sandbox --test dag_eval -- --ignored --nocapture
 async fn dag_runtime_eval() {
     let _ = dotenvy::dotenv();
     ensure_tls_cert_env();
