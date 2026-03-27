@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate docs/ATLAS.md from frontmatter across practice/, theory/, state/
+# Generate docs/ATLAS.md from frontmatter across all docs/*.md
 # Run: ./scripts/generate-atlas.sh
 # Also runs as pre-commit hook to keep atlas fresh.
 
@@ -42,12 +42,10 @@ scan_dir() {
     DOC_PRIORITIES[$idx]="$priority"
     DOC_REQUIRES[$idx]="$requires"
     idx=$((idx + 1))
-  done < <(find "$dir" -name '*.md' -print0 | sort -z)
+  done < <(find "$dir" -maxdepth 1 -name '*.md' -print0 | sort -z)
 }
 
-scan_dir "$DOCS_DIR/practice"
-scan_dir "$DOCS_DIR/theory"
-scan_dir "$DOCS_DIR/state"
+scan_dir "$DOCS_DIR"
 
 # --- Helper: emit sorted section ---
 emit_section() {
@@ -126,9 +124,29 @@ decoupling for publishing (ADR-0011, P3).
 
 HEADER
 
-emit_section "theory/" "Theory (What We're Thinking)" "true" "true"
-emit_section "practice/" "Practice (What Exists)" "false" "false"
-emit_section "state/" "State (Snapshots & Reports)" "false" "false"
+emit_section "adr-0*" "ADRs — Theory (What We're Thinking)" "true" "true"
+emit_section "adr-0[01]*" "ADRs — Practice (What Exists)" "false" "false"
+emit_section "note-*" "Notes" "false" "false"
+emit_section "state-*" "State (Snapshots & Reports)" "false" "false"
+emit_section "guide-*" "Guides" "false" "false"
+
+# --- Catch-all for anything not matched above ---
+printf "<details>\n<summary><h2>%s</h2></summary>\n\n" "Other Docs"
+has_other=false
+for i in $(seq 0 $((idx - 1))); do
+  case "${DOC_PATHS[$i]}" in
+    adr-0*|note-*|state-*|guide-*|ATLAS.md) ;;
+    *)
+      has_other=true
+      printf -- "- %s — %s (%s)  \n  \`docs/%s\`\n" \
+        "${DOC_TITLES[$i]}" "${DOC_KINDS[$i]:-?}" "${DOC_STATUSES[$i]:-?}" "${DOC_PATHS[$i]}"
+      ;;
+  esac
+done
+$has_other || echo "_Empty._"
+echo ""
+echo "</details>"
+echo ""
 
 # --- Dependency Graph ---
 echo "## Dependency Graph"
@@ -148,16 +166,8 @@ echo '```'
 echo ""
 
 # --- Stats ---
-practice_count=0; theory_count=0; state_count=0
-for i in $(seq 0 $((idx - 1))); do
-  case "${DOC_PATHS[$i]}" in
-    practice/*) practice_count=$((practice_count + 1)) ;;
-    theory/*) theory_count=$((theory_count + 1)) ;;
-    state/*) state_count=$((state_count + 1)) ;;
-  esac
-done
-printf "*Generated %s — %d practice, %d theory, %d state docs.*\n" \
-  "$(date +%Y-%m-%d)" "$practice_count" "$theory_count" "$state_count"
+doc_count=$idx
+printf "*Generated %s — %d docs scanned.*\n" "$(date +%Y-%m-%d)" "$doc_count"
 
 } > "$ATLAS"
 

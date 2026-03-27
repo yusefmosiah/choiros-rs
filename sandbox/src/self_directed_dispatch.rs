@@ -267,9 +267,7 @@ mod tests {
             Some(26)
         );
         assert_eq!(
-            extract_numeric_identifier_from_text(
-                "docs/theory/decisions/adr-0024-hypervisor-go-rewrite.md"
-            ),
+            extract_numeric_identifier_from_text("docs/adr-0024-hypervisor-go-rewrite.md"),
             Some(24)
         );
         assert_eq!(
@@ -284,13 +282,13 @@ mod tests {
             work_item(
                 "work_b",
                 "ADR-0024: ChoirOS Go Rewrite",
-                "docs/theory/decisions/adr-0024-hypervisor-go-rewrite.md",
+                "docs/adr-0024-hypervisor-go-rewrite.md",
                 2,
             ),
             work_item(
                 "work_a",
                 "ADR-0020: Security Hardening",
-                "docs/theory/decisions/adr-0020-security-hardening.md",
+                "docs/adr-0020-security-hardening.md",
                 1,
             ),
         ];
@@ -306,19 +304,19 @@ mod tests {
             work_item(
                 "work_b",
                 "ADR-0024: ChoirOS Go Rewrite",
-                "docs/theory/decisions/adr-0024-hypervisor-go-rewrite.md",
+                "docs/adr-0024-hypervisor-go-rewrite.md",
                 2,
             ),
             work_item(
                 "work_c",
                 "ADR-0014: Per-User VM Lifecycle",
-                "docs/theory/decisions/adr-0014-per-user-storage-and-desktop-sync.md",
+                "docs/adr-0014-per-user-storage-and-desktop-sync.md",
                 2,
             ),
             work_item(
                 "work_a",
                 "ADR-0026: Self-Directing Agent Dispatch",
-                "docs/theory/decisions/adr-0026-self-directing-agent-dispatch.md",
+                "docs/adr-0026-self-directing-agent-dispatch.md",
                 2,
             ),
         ];
@@ -341,7 +339,7 @@ mod tests {
             work_item(
                 "work_adr",
                 "ADR-0020: Security Hardening",
-                "docs/theory/decisions/adr-0020-security-hardening.md: A security architecture review",
+                "docs/adr-0020-security-hardening.md: A security architecture review",
                 1,
             ),
         ];

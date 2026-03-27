@@ -43,12 +43,12 @@ Hypervisor (control plane)
 
 ## Documentation
 
-Docs use a theory/practice/state/archive taxonomy (ADR-0015):
+Docs live flat in `docs/` with prefix conventions:
 
-- [`docs/ATLAS.md`](docs/ATLAS.md) — auto-generated index (pre-commit hook)
-- `docs/theory/` — proposed ADRs, design notes, research
-- `docs/practice/` — accepted ADRs, implementation guides, runbooks
-- `docs/state/` — test reports, snapshots, audits
+- [`docs/ATLAS.md`](docs/ATLAS.md) — auto-generated index
+- `docs/adr-*.md` — architecture decision records
+- `docs/note-*.md` — design notes, research
+- `docs/state-*.md` — test reports, snapshots, audits
 - `docs/archive/` — historical, superseded
 
 ## Work Management
@@ -64,15 +64,15 @@ See `CLAUDE.md` for agent instructions.
 
 | ADR | Status | Topic |
 |-----|--------|-------|
-| [0001](docs/practice/decisions/adr-0001-eventstore-eventbus-reconciliation.md) | Deployed | EventStore/EventBus |
-| [0007](docs/practice/decisions/adr-0007-3-tier-control-runtime-client-architecture.md) | Deployed | 3-Tier Architecture |
-| [0014](docs/theory/decisions/adr-0014-per-user-storage-and-desktop-sync.md) | Phases 1-8 | Per-User VMs |
-| [0016](docs/practice/decisions/adr-0016-nixos-declarative-deployment.md) | Deployed | NixOS Deployment |
-| [0018](docs/practice/decisions/adr-0018-drop-virtiofs-adaptive-capacity.md) | Deployed | KSM + Virtiofs removal |
-| [0020](docs/theory/decisions/adr-0020-security-hardening.md) | Phase 0-1 | Security Hardening |
-| [0021](docs/theory/decisions/adr-0021-writer-app-agent-and-collaborative-living-documents.md) | Draft | Writer/Living Docs |
-| [0024](docs/theory/decisions/adr-0024-hypervisor-go-rewrite.md) | Proposed | Go Rewrite |
-| [0029](docs/theory/decisions/adr-0029-cagent-vsock-work-broker.md) | Proposed | vsock Work Broker |
+| [0001](docs/adr-0001-eventstore-eventbus-reconciliation.md) | Deployed | EventStore/EventBus |
+| [0007](docs/adr-0007-3-tier-control-runtime-client-architecture.md) | Deployed | 3-Tier Architecture |
+| [0014](docs/adr-0014-per-user-storage-and-desktop-sync.md) | Phases 1-8 | Per-User VMs |
+| [0016](docs/adr-0016-nixos-declarative-deployment.md) | Deployed | NixOS Deployment |
+| [0018](docs/adr-0018-drop-virtiofs-adaptive-capacity.md) | Deployed | KSM + Virtiofs removal |
+| [0020](docs/adr-0020-security-hardening.md) | Phase 0-1 | Security Hardening |
+| [0021](docs/adr-0021-writer-app-agent-and-collaborative-living-documents.md) | Draft | Writer/Living Docs |
+| [0024](docs/adr-0024-hypervisor-go-rewrite.md) | Proposed | Go Rewrite |
+| [0029](docs/adr-0029-cagent-vsock-work-broker.md) | Proposed | vsock Work Broker |
 
 ## Deploy
 

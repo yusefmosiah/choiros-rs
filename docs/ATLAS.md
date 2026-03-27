@@ -25,144 +25,190 @@ fleet-ctl for change promotion (ADR-0013, P3), state/compute
 decoupling for publishing (ADR-0011, P3).
 
 <details open>
-<summary><h2>Theory (What We're Thinking)</h2></summary>
+<summary><h2>ADRs — Theory (What We're Thinking)</h2></summary>
 
-- **[P1]** ADR-0020: Security Hardening — Multi-Tenant Isolation — Decision (Accepted) | Requires: [ADR-0014, ADR-0018]  
-  `docs/theory/decisions/adr-0020-security-hardening.md`
-- **[P1]** ADR-0023: microvm.nix Store Disk Transport Selection (`blk` vs `pmem`) — Decision (Proposed) | Requires: [ADR-0018, ADR-0020]  
-  `docs/theory/decisions/adr-0023-microvm-store-disk-transport-selection.md`
-- **[P1]** ADR-0025: Go Admin Dashboard — Decision (Proposed) | Requires: [ADR-0024]  
-  `docs/theory/decisions/adr-0025-go-admin-dashboard.md`
+- **[P1]** ADR-0018: Drop Virtiofs, Enable KSM, Adaptive VM Capacity Management — Decision (Accepted (Phases 1-6 deployed), Phase 7 planned) | Requires: [ADR-0014, ADR-0016]  
+  `docs/adr-0018-drop-virtiofs-adaptive-capacity.md`
+- **[P1]** Implementing ADR-0018: Drop Virtiofs, Adaptive Capacity — Guide (Active) | Requires: [ADR-0018]  
+  `docs/adr-0018-implementation.md`
 - **[P1]** Implementing ADR-0020: Security Hardening — Guide (Active) | Requires: [ADR-0020]  
-  `docs/theory/guides/adr-0020-implementation.md`
+  `docs/adr-0020-implementation.md`
+- **[P1]** ADR-0020: Security Hardening — Multi-Tenant Isolation — Decision (Accepted) | Requires: [ADR-0014, ADR-0018]  
+  `docs/adr-0020-security-hardening.md`
+- **[P1]** ADR-0022: Hypervisor Concurrency and Dynamic Capacity — Decision (Accepted) | Requires: [ADR-0014, ADR-0018]  
+  `docs/adr-0022-hypervisor-concurrency-and-capacity.md`
+- **[P1]** Implementing ADR-0022: Hypervisor Concurrency and Dynamic Capacity — Guide (Active) | Requires: [ADR-0022]  
+  `docs/adr-0022-implementation.md`
 - **[P1]** Implementing ADR-0023: microvm.nix Store Disk Transport Selection — Guide (Active) | Requires: [ADR-0023]  
-  `docs/theory/guides/adr-0023-implementation.md`
+  `docs/adr-0023-implementation.md`
+- **[P1]** ADR-0023: microvm.nix Store Disk Transport Selection (`blk` vs `pmem`) — Decision (Proposed) | Requires: [ADR-0018, ADR-0020]  
+  `docs/adr-0023-microvm-store-disk-transport-selection.md`
+- **[P1]** ADR-0025: Go Admin Dashboard — Decision (Proposed) | Requires: [ADR-0024]  
+  `docs/adr-0025-go-admin-dashboard.md`
 - **[P1]** Implementing ADR-0025: Go Admin Dashboard — Guide (Active) | Requires: [ADR-0025]  
-  `docs/theory/guides/adr-0025-implementation.md`
-- **[P1]** Rolling Deploys: Staging -> E2E -> Promote — Guide (Active) | Requires: [ADR-0016]  
-  `docs/theory/guides/rolling-deploys.md`
-- **[P1]** Writer Bugs — Note (Active)  
-  `docs/theory/notes/2026-03-11-writer-bugs.md`
-- **[P2]** ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync — Decision (Accepted) | Requires: [ADR-0007, ADR-0012]  
-  `docs/theory/decisions/adr-0014-per-user-storage-and-desktop-sync.md`
-- **[P2]** ADR-0021: Writer App Agent and Collaborative Living Documents — Decision (Draft) | Requires: [ADR-0001, ADR-0007]  
-  `docs/theory/decisions/adr-0021-writer-app-agent-and-collaborative-living-documents.md`
-- **[P2]** ADR-0024: ChoirOS Go Rewrite — Hypervisor Decomposition and Sandbox Migration — Decision (Proposed) | Requires: [ADR-0007, ADR-0014, ADR-0021]  
-  `docs/theory/decisions/adr-0024-hypervisor-go-rewrite.md`
-- **[P2]** ADR-0026: Self-Directing Agent Dispatch — Decision (Proposed) | Requires: [ADR-0021, ADR-0024]  
-  `docs/theory/decisions/adr-0026-self-directing-agent-dispatch.md`
-- **[P2]** ADR-0028: Multi-Provider LLM Scaling — Decision (Draft) | Requires: [ADR-0003, ADR-0022]  
-  `docs/theory/decisions/adr-0028-multi-provider-scaling.md`
-- **[P2]** adr-0029-cagent-vsock-work-broker — Architecture decision (Proposed) | Requires: [adr-0007, adr-0014, adr-0020, adr-0026]  
-  `docs/theory/decisions/adr-0029-cagent-vsock-work-broker.md`
+  `docs/adr-0025-implementation.md`
+- **[P2]** ADR-0007: 3-Tier Control/Runtime/Client Architecture — Decision (Accepted)  
+  `docs/adr-0007-3-tier-control-runtime-client-architecture.md`
 - **[P2]** Implementing ADR-0014: Per-User VM Lifecycle and Storage — Guide (Active) | Requires: [ADR-0014]  
-  `docs/theory/guides/adr-0014-implementation.md`
+  `docs/adr-0014-implementation.md`
+- **[P2]** ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync — Decision (Accepted) | Requires: [ADR-0007, ADR-0012]  
+  `docs/adr-0014-per-user-storage-and-desktop-sync.md`
+- **[P2]** ADR-0017: systemd-Native VM Lifecycle Management — Decision (Accepted) | Requires: [ADR-0014, ADR-0016]  
+  `docs/adr-0017-systemd-native-vm-lifecycle.md`
+- **[P2]** ADR-0021: Writer App Agent and Collaborative Living Documents — Decision (Draft) | Requires: [ADR-0001, ADR-0007]  
+  `docs/adr-0021-writer-app-agent-and-collaborative-living-documents.md`
+- **[P2]** ADR-0024: ChoirOS Go Rewrite — Hypervisor Decomposition and Sandbox Migration — Decision (Proposed) | Requires: [ADR-0007, ADR-0014, ADR-0021]  
+  `docs/adr-0024-hypervisor-go-rewrite.md`
 - **[P2]** Implementing ADR-0024: Hypervisor Go Rewrite — Guide (Active) | Requires: [ADR-0024]  
-  `docs/theory/guides/adr-0024-implementation.md`
+  `docs/adr-0024-implementation.md`
 - **[P2]** Implementing ADR-0026: Self-Directing Agent Dispatch — Guide (Active) | Requires: [ADR-0026]  
-  `docs/theory/guides/adr-0026-implementation.md`
+  `docs/adr-0026-implementation.md`
+- **[P2]** ADR-0026: Self-Directing Agent Dispatch — Decision (Proposed) | Requires: [ADR-0021, ADR-0024]  
+  `docs/adr-0026-self-directing-agent-dispatch.md`
 - **[P2]** Implementing ADR-0028: Multi-Provider LLM Scaling — Guide (Active) | Requires: [ADR-0028, ADR-0003, ADR-0022]  
-  `docs/theory/guides/adr-0028-implementation.md`
-- **[P2]** CI Boundaries and the Bootstrap Thesis — Note (Draft) | Requires: [ADR-0016, ADR-0023, ADR-0024]  
-  `docs/theory/notes/2026-03-11-ci-boundaries-and-bootstrap-thesis.md`
-- **[P2]** Deferred Machine Class Items — Note (Active) | Requires: [ADR-0014]  
-  `docs/theory/notes/2026-03-11-deferred-machine-class-items.md`
+  `docs/adr-0028-implementation.md`
+- **[P2]** ADR-0028: Multi-Provider LLM Scaling — Decision (Draft) | Requires: [ADR-0003, ADR-0022]  
+  `docs/adr-0028-multi-provider-scaling.md`
+- **[P2]** adr-0029-cagent-vsock-work-broker — Architecture decision (Proposed) | Requires: [adr-0007, adr-0014, adr-0020, adr-0026]  
+  `docs/adr-0029-cagent-vsock-work-broker.md`
 - **[P3]** ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes) — Decision (Proposed) | Requires: [ADR-0014, ADR-0027]  
-  `docs/theory/decisions/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
+  `docs/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
 - **[P3]** ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion — Decision (Draft)  
-  `docs/theory/decisions/adr-0013-fleet-ctl-change-lifecycle-and-promotion.md`
+  `docs/adr-0013-fleet-ctl-change-lifecycle-and-promotion.md`
+- **[P3]** Implementing ADR-0016: NixOS Declarative Deployment — Guide (Accepted) | Requires: [ADR-0016]  
+  `docs/adr-0016-implementation.md`
+- **[P3]** ADR-0016: NixOS Declarative Deployment — Decision (Accepted) | Requires: [ADR-0002, ADR-0014]  
+  `docs/adr-0016-nixos-declarative-deployment.md`
 - **[P3]** ADR-0027: Publishing and Global Knowledge Base — Decision (Draft) | Requires: [ADR-0011, ADR-0019, ADR-0026]  
-  `docs/theory/decisions/adr-0027-publishing-and-global-knowledge-base.md`
-- **[P3]** cagent Spec And Implementation Guide — Spec + implementation handoff (Active)  
-  `docs/theory/guides/cagent-spec-and-implementation-guide.md`
-- **[P3]** Snapshot Portability Across VM Sizings — Research Note (Active) | Requires: [ADR-0014, ADR-0018]  
-  `docs/theory/notes/2026-03-11-snapshot-portability-research.md`
-- **[P3]** Inbox — Note (Active)  
-  `docs/theory/notes/inbox.md`
-- **[P3]** Per-User VMs as the Deployment Unit — Note (Draft) | Requires: [ADR-0014, ADR-0016]  
-  `docs/theory/notes/per-user-vms-as-deployment-unit.md`
+  `docs/adr-0027-publishing-and-global-knowledge-base.md`
 - **[P4]** ADR-0003: Hypervisor-Sandbox Secrets Boundary — Decision (Draft) | Requires: [ADR-0008, ADR-0014]  
-  `docs/theory/decisions/adr-0003-hypervisor-sandbox-secrets-boundary.md`
+  `docs/adr-0003-hypervisor-sandbox-secrets-boundary.md`
 - **[P4]** ADR-0004: Hypervisor-Sandbox UI Runtime Boundary — Decision (Proposed) | Requires: [ADR-0007]  
-  `docs/theory/decisions/adr-0004-hypervisor-sandbox-ui-runtime-boundary.md`
-- **[P4]** ADR-0019: Per-User Memory Curation and Retrieval — Decision (Draft) | Requires: [ADR-0001]  
-  `docs/theory/decisions/adr-0019-per-user-memory-curation-and-retrieval.md`
+  `docs/adr-0004-hypervisor-sandbox-ui-runtime-boundary.md`
 - **[P4]** Implementing ADR-0019: Per-User Memory Curation and Retrieval — Guide (Active) | Requires: [ADR-0019]  
-  `docs/theory/guides/adr-0019-implementation.md`
-- **[P4]** Agent Architecture Session Notes — Note (Active) | Requires: [ADR-0021, ADR-0022]  
-  `docs/theory/notes/2026-03-11-agent-architecture-session-notes.md`
+  `docs/adr-0019-implementation.md`
+- **[P4]** ADR-0019: Per-User Memory Curation and Retrieval — Decision (Draft) | Requires: [ADR-0001]  
+  `docs/adr-0019-per-user-memory-curation-and-retrieval.md`
+- **[P5]** ADR-0001: EventStore/EventBus Reconciliation — Decision (Accepted)  
+  `docs/adr-0001-eventstore-eventbus-reconciliation.md`
 - **[P5]** ADR-0002: Rust + Nix Build and Cache Strategy — Decision (Draft)  
-  `docs/theory/decisions/adr-0002-rust-nix-build-and-cache-strategy.md`
+  `docs/adr-0002-rust-nix-build-and-cache-strategy.md`
+- **[P5]** ADR-0008: OVH Self-Hosted Secrets Architecture (No Repo Secrets, No Sandbox Secrets) — Decision (Accepted)  
+  `docs/adr-0008-ovh-selfhosted-secrets-architecture.md`
 - **[P5]** ADR-0009: Terminal Renderer Strategy (xterm.js vs Ghostty/libghostty) — Decision (Proposed)  
-  `docs/theory/decisions/adr-0009-terminal-renderer-strategy-xterm-vs-libghostty.md`
-- **[P5]** KSM (Kernel Same-page Merging) Research for MicroVM Workloads — Research Note (Complete)  
-  `docs/theory/notes/2026-03-11-ksm-research.md`
-- **[P5]** nix-bench — ? (?)  
-  `docs/theory/notes/nix-bench.md`
-- **[P5]** The Virtio Ecosystem: From Hardware Emulation to MicroVM Density — ? (?)  
-  `docs/theory/virtio-ecosystem.md`
+  `docs/adr-0009-terminal-renderer-strategy-xterm-vs-libghostty.md`
+- **[P5]** ADR-0012: OVH US-East Bootstrap Secrets and Two-Node Compute Lifecycle — Decision (Accepted)  
+  `docs/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
+- **[P5]** ADR-0015: Documentation Kanban Architecture — Decision (Accepted)  
+  `docs/adr-0015-docs-kanban-architecture.md`
+- **[P5]** ADR-0017 Implementation Guide: systemd-Native VM Lifecycle — ? (?)  
+  `docs/adr-0017-implementation.md`
 
 </details>
 
 <details>
-<summary><h2>Practice (What Exists)</h2></summary>
+<summary><h2>ADRs — Practice (What Exists)</h2></summary>
 
 - ADR-0018: Drop Virtiofs, Enable KSM, Adaptive VM Capacity Management — Decision (Accepted (Phases 1-6 deployed), Phase 7 planned) | Requires: [ADR-0014, ADR-0016]  
-  `docs/practice/decisions/adr-0018-drop-virtiofs-adaptive-capacity.md`
-- ADR-0022: Hypervisor Concurrency and Dynamic Capacity — Decision (Accepted) | Requires: [ADR-0014, ADR-0018]  
-  `docs/practice/decisions/adr-0022-hypervisor-concurrency-and-capacity.md`
+  `docs/adr-0018-drop-virtiofs-adaptive-capacity.md`
 - Implementing ADR-0018: Drop Virtiofs, Adaptive Capacity — Guide (Active) | Requires: [ADR-0018]  
-  `docs/practice/guides/adr-0018-implementation.md`
+  `docs/adr-0018-implementation.md`
+- Implementing ADR-0020: Security Hardening — Guide (Active) | Requires: [ADR-0020]  
+  `docs/adr-0020-implementation.md`
+- ADR-0020: Security Hardening — Multi-Tenant Isolation — Decision (Accepted) | Requires: [ADR-0014, ADR-0018]  
+  `docs/adr-0020-security-hardening.md`
+- ADR-0022: Hypervisor Concurrency and Dynamic Capacity — Decision (Accepted) | Requires: [ADR-0014, ADR-0018]  
+  `docs/adr-0022-hypervisor-concurrency-and-capacity.md`
 - Implementing ADR-0022: Hypervisor Concurrency and Dynamic Capacity — Guide (Active) | Requires: [ADR-0022]  
-  `docs/practice/guides/adr-0022-implementation.md`
+  `docs/adr-0022-implementation.md`
+- Implementing ADR-0023: microvm.nix Store Disk Transport Selection — Guide (Active) | Requires: [ADR-0023]  
+  `docs/adr-0023-implementation.md`
+- ADR-0023: microvm.nix Store Disk Transport Selection (`blk` vs `pmem`) — Decision (Proposed) | Requires: [ADR-0018, ADR-0020]  
+  `docs/adr-0023-microvm-store-disk-transport-selection.md`
+- ADR-0025: Go Admin Dashboard — Decision (Proposed) | Requires: [ADR-0024]  
+  `docs/adr-0025-go-admin-dashboard.md`
+- Implementing ADR-0025: Go Admin Dashboard — Guide (Active) | Requires: [ADR-0025]  
+  `docs/adr-0025-implementation.md`
 - ADR-0007: 3-Tier Control/Runtime/Client Architecture — Decision (Accepted)  
-  `docs/practice/decisions/adr-0007-3-tier-control-runtime-client-architecture.md`
+  `docs/adr-0007-3-tier-control-runtime-client-architecture.md`
+- Implementing ADR-0014: Per-User VM Lifecycle and Storage — Guide (Active) | Requires: [ADR-0014]  
+  `docs/adr-0014-implementation.md`
+- ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync — Decision (Accepted) | Requires: [ADR-0007, ADR-0012]  
+  `docs/adr-0014-per-user-storage-and-desktop-sync.md`
 - ADR-0017: systemd-Native VM Lifecycle Management — Decision (Accepted) | Requires: [ADR-0014, ADR-0016]  
-  `docs/practice/decisions/adr-0017-systemd-native-vm-lifecycle.md`
-- ADR-0016: NixOS Declarative Deployment — Decision (Accepted) | Requires: [ADR-0002, ADR-0014]  
-  `docs/practice/decisions/adr-0016-nixos-declarative-deployment.md`
+  `docs/adr-0017-systemd-native-vm-lifecycle.md`
+- ADR-0021: Writer App Agent and Collaborative Living Documents — Decision (Draft) | Requires: [ADR-0001, ADR-0007]  
+  `docs/adr-0021-writer-app-agent-and-collaborative-living-documents.md`
+- ADR-0024: ChoirOS Go Rewrite — Hypervisor Decomposition and Sandbox Migration — Decision (Proposed) | Requires: [ADR-0007, ADR-0014, ADR-0021]  
+  `docs/adr-0024-hypervisor-go-rewrite.md`
+- Implementing ADR-0024: Hypervisor Go Rewrite — Guide (Active) | Requires: [ADR-0024]  
+  `docs/adr-0024-implementation.md`
+- Implementing ADR-0026: Self-Directing Agent Dispatch — Guide (Active) | Requires: [ADR-0026]  
+  `docs/adr-0026-implementation.md`
+- ADR-0026: Self-Directing Agent Dispatch — Decision (Proposed) | Requires: [ADR-0021, ADR-0024]  
+  `docs/adr-0026-self-directing-agent-dispatch.md`
+- Implementing ADR-0028: Multi-Provider LLM Scaling — Guide (Active) | Requires: [ADR-0028, ADR-0003, ADR-0022]  
+  `docs/adr-0028-implementation.md`
+- ADR-0028: Multi-Provider LLM Scaling — Decision (Draft) | Requires: [ADR-0003, ADR-0022]  
+  `docs/adr-0028-multi-provider-scaling.md`
+- adr-0029-cagent-vsock-work-broker — Architecture decision (Proposed) | Requires: [adr-0007, adr-0014, adr-0020, adr-0026]  
+  `docs/adr-0029-cagent-vsock-work-broker.md`
+- ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes) — Decision (Proposed) | Requires: [ADR-0014, ADR-0027]  
+  `docs/adr-0011-bootstrap-into-publishing-state-compute-decoupling.md`
+- ADR-0013: Fleet-Ctl, Change Lifecycle, and User-to-Global Promotion — Decision (Draft)  
+  `docs/adr-0013-fleet-ctl-change-lifecycle-and-promotion.md`
 - Implementing ADR-0016: NixOS Declarative Deployment — Guide (Accepted) | Requires: [ADR-0016]  
-  `docs/practice/guides/adr-0016-implementation.md`
-- Docs System Philosophy and Practice — Guide (Active) | Requires: [ADR-0015]  
-  `docs/practice/guides/docs-system-philosophy-and-practice.md`
+  `docs/adr-0016-implementation.md`
+- ADR-0016: NixOS Declarative Deployment — Decision (Accepted) | Requires: [ADR-0002, ADR-0014]  
+  `docs/adr-0016-nixos-declarative-deployment.md`
+- ADR-0027: Publishing and Global Knowledge Base — Decision (Draft) | Requires: [ADR-0011, ADR-0019, ADR-0026]  
+  `docs/adr-0027-publishing-and-global-knowledge-base.md`
+- ADR-0003: Hypervisor-Sandbox Secrets Boundary — Decision (Draft) | Requires: [ADR-0008, ADR-0014]  
+  `docs/adr-0003-hypervisor-sandbox-secrets-boundary.md`
+- ADR-0004: Hypervisor-Sandbox UI Runtime Boundary — Decision (Proposed) | Requires: [ADR-0007]  
+  `docs/adr-0004-hypervisor-sandbox-ui-runtime-boundary.md`
+- Implementing ADR-0019: Per-User Memory Curation and Retrieval — Guide (Active) | Requires: [ADR-0019]  
+  `docs/adr-0019-implementation.md`
+- ADR-0019: Per-User Memory Curation and Retrieval — Decision (Draft) | Requires: [ADR-0001]  
+  `docs/adr-0019-per-user-memory-curation-and-retrieval.md`
 - ADR-0001: EventStore/EventBus Reconciliation — Decision (Accepted)  
-  `docs/practice/decisions/adr-0001-eventstore-eventbus-reconciliation.md`
+  `docs/adr-0001-eventstore-eventbus-reconciliation.md`
+- ADR-0002: Rust + Nix Build and Cache Strategy — Decision (Draft)  
+  `docs/adr-0002-rust-nix-build-and-cache-strategy.md`
 - ADR-0008: OVH Self-Hosted Secrets Architecture (No Repo Secrets, No Sandbox Secrets) — Decision (Accepted)  
-  `docs/practice/decisions/adr-0008-ovh-selfhosted-secrets-architecture.md`
+  `docs/adr-0008-ovh-selfhosted-secrets-architecture.md`
+- ADR-0009: Terminal Renderer Strategy (xterm.js vs Ghostty/libghostty) — Decision (Proposed)  
+  `docs/adr-0009-terminal-renderer-strategy-xterm-vs-libghostty.md`
 - ADR-0012: OVH US-East Bootstrap Secrets and Two-Node Compute Lifecycle — Decision (Accepted)  
-  `docs/practice/decisions/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
+  `docs/adr-0012-ovh-us-east-bootstrap-secrets-and-compute-lifecycle.md`
 - ADR-0015: Documentation Kanban Architecture — Decision (Accepted)  
-  `docs/practice/decisions/adr-0015-docs-kanban-architecture.md`
-- ChoirOS Actor Network Orientation — Guide (Accepted)  
-  `docs/practice/guides/actor-network-orientation.md`
+  `docs/adr-0015-docs-kanban-architecture.md`
 - ADR-0017 Implementation Guide: systemd-Native VM Lifecycle — ? (?)  
-  `docs/practice/guides/adr-0017-implementation.md`
-- Backend-Authoritative UI State Pattern — Note (Active)  
-  `docs/practice/guides/backend-authoritative-ui-state-pattern.md`
-- Files App API Contract — Guide (Accepted)  
-  `docs/practice/guides/files-api-contract.md`
-- Local Provider Matrix Validation — Guide (Accepted)  
-  `docs/practice/guides/local-provider-matrix-validation.md`
-- Local NixOS + VFKit Miniguide (Manual Run) — Guide (Accepted)  
-  `docs/practice/guides/local-vfkit-nixos-miniguide.md`
-- ChoirOS Model-Provider Agnostic LLM Harness Runbook — Guide (Accepted)  
-  `docs/practice/guides/model-provider-agnostic-runbook.md`
-- Nix Setup Runbook — Guide (Accepted)  
-  `docs/practice/guides/nix-setup.md`
-- OVH Config and Deployment Entrypoint (Comprehensive) — Guide (Accepted)  
-  `docs/practice/guides/ovh-config-and-deployment-entrypoint.md`
-- Platform Secrets (ADR-0008 Control-Plane Model) — Guide (Accepted)  
-  `docs/practice/guides/platform-secrets-sops-nix.md`
-- Ractor Supervision Best Practices for ChoirOS — Guide (Accepted)  
-  `docs/practice/guides/ractor-supervision-best-practices.md`
-- Researcher Search Dual-Interface Runbook — Note (Active)  
-  `docs/practice/guides/researcher-search-dual-interface-runbook.md`
-- Simplified Agent Harness — Guide (Accepted)  
-  `docs/practice/guides/simplified-agent-harness.md`
-- VFKit Local Proof Runbook (Mac) — Guide (Accepted)  
-  `docs/practice/guides/vfkit-local-proof.md`
-- Writer Contract and Implementation Guide — Guide (Active) | Requires: [ADR-0001]  
-  `docs/practice/guides/writer-api-contract.md`
+  `docs/adr-0017-implementation.md`
+
+</details>
+
+<details>
+<summary><h2>Notes</h2></summary>
+
+- Writer Bugs — Note (Active)  
+  `docs/note-2026-03-11-writer-bugs.md`
+- CI Boundaries and the Bootstrap Thesis — Note (Draft) | Requires: [ADR-0016, ADR-0023, ADR-0024]  
+  `docs/note-2026-03-11-ci-boundaries-and-bootstrap-thesis.md`
+- Deferred Machine Class Items — Note (Active) | Requires: [ADR-0014]  
+  `docs/note-2026-03-11-deferred-machine-class-items.md`
+- Snapshot Portability Across VM Sizings — Research Note (Active) | Requires: [ADR-0014, ADR-0018]  
+  `docs/note-2026-03-11-snapshot-portability-research.md`
+- Inbox — Note (Active)  
+  `docs/note-inbox.md`
+- Per-User VMs as the Deployment Unit — Note (Draft) | Requires: [ADR-0014, ADR-0016]  
+  `docs/note-per-user-vms-as-deployment-unit.md`
+- Agent Architecture Session Notes — Note (Active) | Requires: [ADR-0021, ADR-0022]  
+  `docs/note-2026-03-11-agent-architecture-session-notes.md`
+- KSM (Kernel Same-page Merging) Research for MicroVM Workloads — Research Note (Complete)  
+  `docs/note-2026-03-11-ksm-research.md`
+- nix-bench — ? (?)  
+  `docs/note-nix-bench.md`
 
 </details>
 
@@ -170,93 +216,142 @@ decoupling for publishing (ADR-0011, P3).
 <summary><h2>State (Snapshots & Reports)</h2></summary>
 
 - Secrets Architecture Audit & Scaling Plan — Report (Active) | Requires: [adr-0008, adr-0020, adr-0003]  
-  `docs/state/reports/2026-03-12-secrets-architecture-audit.md`
+  `docs/state-report-2026-03-12-secrets-architecture-audit.md`
 - Heterogeneous Workload Stress Test — Report (Active)  
-  `docs/state/reports/2026-03-11-heterogeneous-workload-stress.md`
+  `docs/state-report-2026-03-11-heterogeneous-workload-stress.md`
 - Node B E2E Test Report — 2026-03-08 — ? (?)  
-  `docs/state/2026-03-08-node-b-e2e-report.md`
+  `docs/state-2026-03-08-node-b-e2e-report.md`
 - Provider Matrix Report (2026-02-26-022407) — Report (Active)  
-  `docs/state/reports/2026-02-26-022407-provider-matrix-kimi.md`
+  `docs/state-report-2026-02-26-022407-provider-matrix-kimi.md`
 - Provider Matrix Report (2026-02-26-022532) — Report (Active)  
-  `docs/state/reports/2026-02-26-022532-provider-matrix-all-models.md`
+  `docs/state-report-2026-02-26-022532-provider-matrix-all-models.md`
 - Local Cutover Step 1 Report — Report (Active)  
-  `docs/state/reports/2026-02-26-local-cutover-step1.md`
+  `docs/state-report-2026-02-26-local-cutover-step1.md`
 - Heterogeneous Per-User VM Load Test Report — ? (?)  
-  `docs/state/reports/2026-03-09-heterogeneous-load-test.md`
+  `docs/state-report-2026-03-09-heterogeneous-load-test.md`
 - Per-User VM Load Test Report — ? (?)  
-  `docs/state/reports/2026-03-09-per-user-vm-load-test.md`
+  `docs/state-report-2026-03-09-per-user-vm-load-test.md`
 - ADR-0018 Load Test Report — 2026-03-10 — ? (?)  
-  `docs/state/reports/2026-03-10-adr-0018-load-test.md`
+  `docs/state-report-2026-03-10-adr-0018-load-test.md`
 - ADR-0022 Concurrency Stress Test Report — 2026-03-11 — ? (?)  
-  `docs/state/reports/2026-03-11-adr-0022-concurrency-stress-test.md`
+  `docs/state-report-2026-03-11-adr-0022-concurrency-stress-test.md`
 - Capacity Stress Test Report — ? (?)  
-  `docs/state/reports/2026-03-11-capacity-stress-test.md`
+  `docs/state-report-2026-03-11-capacity-stress-test.md`
 - Load Test Report: DAX vs No-DAX virtio-pmem — ? (?)  
-  `docs/state/reports/2026-03-11-dax-vs-nodax-load-test.md`
+  `docs/state-report-2026-03-11-dax-vs-nodax-load-test.md`
 - Machine Class Stress Test Comparison (ADR-0014 Phase 6) — ? (?)  
-  `docs/state/reports/2026-03-11-machine-class-stress-comparison.md`
-- 2026-03-15-cagent-docs-landscape-audit — Architecture audit (Complete)  
-  `docs/state/reports/2026-03-15-cagent-docs-landscape-audit.md`
+  `docs/state-report-2026-03-11-machine-class-stress-comparison.md`
+- state-report-2026-03-15-cagent-docs-landscape-audit — Architecture audit (Complete)  
+  `docs/state-report-2026-03-15-cagent-docs-landscape-audit.md`
 - ChoirOS Logging Security & Compliance Report — Report (Active)  
-  `docs/state/reports/choiros-logging-security-report.md`
+  `docs/state-report-choiros-logging-security-report.md`
 - Conductor E2E Test Intelligence Report — Report (Active)  
-  `docs/state/reports/conductor-intelligence-2026-02-10.md`
+  `docs/state-report-conductor-intelligence-2026-02-10.md`
 - Go Refactor Feasibility Study — Report (Active)  
-  `docs/state/reports/go-refactor-feasibility-2026-03-09.md`
+  `docs/state-report-go-refactor-feasibility-2026-03-09.md`
 - Local NixOS Builder VM Setup Handoff - 2026-02-28 — Snapshot (Active)  
-  `docs/state/snapshots/2026-02-28-local-nixos-builder-vm-setup.md`
+  `docs/state-snapshot-2026-02-28-local-nixos-builder-vm-setup.md`
 - Handoff: OVH Bootstrap and Local Startup Documentation Status — Snapshot (Active)  
-  `docs/state/snapshots/2026-03-04-231800-ovh-bootstrap-current-status.md`
+  `docs/state-snapshot-2026-03-04-231800-ovh-bootstrap-current-status.md`
 - Checkpoint: Writer, Tracing, and Bootstrap Readiness — Snapshot (Active)  
-  `docs/state/snapshots/2026-03-06-writer-tracing-bootstrap-checkpoint.md`
+  `docs/state-snapshot-2026-03-06-writer-tracing-bootstrap-checkpoint.md`
 - VM Lifecycle Testing & Fixes — Node B — ? (?)  
-  `docs/state/snapshots/2026-03-08-vm-lifecycle-testing-and-fixes.md`
+  `docs/state-snapshot-2026-03-08-vm-lifecycle-testing-and-fixes.md`
 - Memory Architecture Exploration — Snapshot (Active)  
-  `docs/state/snapshots/2026-03-09-memory-architecture-exploration.md`
+  `docs/state-snapshot-2026-03-09-memory-architecture-exploration.md`
+
+</details>
+
+<details>
+<summary><h2>Guides</h2></summary>
+
+_Empty._
+
+</details>
+
+<details>
+<summary><h2>Other Docs</h2></summary>
+
+- ChoirOS Actor Network Orientation — Guide (Accepted)  
+  `docs/actor-network-orientation.md`
+- Backend-Authoritative UI State Pattern — Note (Active)  
+  `docs/backend-authoritative-ui-state-pattern.md`
+- cagent Spec And Implementation Guide — Spec + implementation handoff (Active)  
+  `docs/cagent-spec-and-implementation-guide.md`
+- Docs System Philosophy and Practice — Guide (Active)  
+  `docs/docs-system-philosophy-and-practice.md`
+- Files App API Contract — Guide (Accepted)  
+  `docs/files-api-contract.md`
+- Local Provider Matrix Validation — Guide (Accepted)  
+  `docs/local-provider-matrix-validation.md`
+- Local NixOS + VFKit Miniguide (Manual Run) — Guide (Accepted)  
+  `docs/local-vfkit-nixos-miniguide.md`
+- ChoirOS Model-Provider Agnostic LLM Harness Runbook — Guide (Accepted)  
+  `docs/model-provider-agnostic-runbook.md`
+- Nix Setup Runbook — Guide (Accepted)  
+  `docs/nix-setup.md`
+- OVH Config and Deployment Entrypoint (Comprehensive) — Guide (Accepted)  
+  `docs/ovh-config-and-deployment-entrypoint.md`
+- Platform Secrets (ADR-0008 Control-Plane Model) — Guide (Accepted)  
+  `docs/platform-secrets-sops-nix.md`
+- Ractor Supervision Best Practices for ChoirOS — Guide (Accepted)  
+  `docs/ractor-supervision-best-practices.md`
+- Researcher Search Dual-Interface Runbook — Note (Active)  
+  `docs/researcher-search-dual-interface-runbook.md`
+- Rolling Deploys: Staging -> E2E -> Promote — Guide (Active)  
+  `docs/rolling-deploys.md`
+- Simplified Agent Harness — Guide (Accepted)  
+  `docs/simplified-agent-harness.md`
+- VFKit Local Proof Runbook (Mac) — Guide (Accepted)  
+  `docs/vfkit-local-proof.md`
+- The Virtio Ecosystem: From Hardware Emulation to MicroVM Density — ? (?)  
+  `docs/virtio-ecosystem.md`
+- Writer Contract and Implementation Guide — Guide (Active)  
+  `docs/writer-api-contract.md`
 
 </details>
 
 ## Dependency Graph
 
 ```
-ADR-0002, ADR-0014 → ADR-0016: NixOS Declarative Deployment
-ADR-0014, ADR-0016 → ADR-0017: systemd-Native VM Lifecycle Management
-ADR-0014, ADR-0016 → ADR-0018: Drop Virtiofs, Enable KSM, Adaptive VM Capacity Management
-ADR-0014, ADR-0018 → ADR-0022: Hypervisor Concurrency and Dynamic Capacity
-ADR-0016 → Implementing ADR-0016: NixOS Declarative Deployment
-ADR-0018 → Implementing ADR-0018: Drop Virtiofs, Adaptive Capacity
-ADR-0022 → Implementing ADR-0022: Hypervisor Concurrency and Dynamic Capacity
-ADR-0015 → Docs System Philosophy and Practice
-ADR-0001 → Writer Contract and Implementation Guide
 ADR-0008, ADR-0014 → ADR-0003: Hypervisor-Sandbox Secrets Boundary
 ADR-0007 → ADR-0004: Hypervisor-Sandbox UI Runtime Boundary
 ADR-0014, ADR-0027 → ADR-0011: Bootstrap Into Publishing (State/Compute Decoupling + Runtime Modes)
+ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
 ADR-0007, ADR-0012 → ADR-0014: Per-User VM Lifecycle, Storage, and Desktop Sync
+ADR-0016 → Implementing ADR-0016: NixOS Declarative Deployment
+ADR-0002, ADR-0014 → ADR-0016: NixOS Declarative Deployment
+ADR-0014, ADR-0016 → ADR-0017: systemd-Native VM Lifecycle Management
+ADR-0014, ADR-0016 → ADR-0018: Drop Virtiofs, Enable KSM, Adaptive VM Capacity Management
+ADR-0018 → Implementing ADR-0018: Drop Virtiofs, Adaptive Capacity
+ADR-0019 → Implementing ADR-0019: Per-User Memory Curation and Retrieval
 ADR-0001 → ADR-0019: Per-User Memory Curation and Retrieval
+ADR-0020 → Implementing ADR-0020: Security Hardening
 ADR-0014, ADR-0018 → ADR-0020: Security Hardening — Multi-Tenant Isolation
 ADR-0001, ADR-0007 → ADR-0021: Writer App Agent and Collaborative Living Documents
+ADR-0014, ADR-0018 → ADR-0022: Hypervisor Concurrency and Dynamic Capacity
+ADR-0022 → Implementing ADR-0022: Hypervisor Concurrency and Dynamic Capacity
+ADR-0023 → Implementing ADR-0023: microvm.nix Store Disk Transport Selection
 ADR-0018, ADR-0020 → ADR-0023: microvm.nix Store Disk Transport Selection (`blk` vs `pmem`)
 ADR-0007, ADR-0014, ADR-0021 → ADR-0024: ChoirOS Go Rewrite — Hypervisor Decomposition and Sandbox Migration
-ADR-0024 → ADR-0025: Go Admin Dashboard
-ADR-0021, ADR-0024 → ADR-0026: Self-Directing Agent Dispatch
-ADR-0011, ADR-0019, ADR-0026 → ADR-0027: Publishing and Global Knowledge Base
-ADR-0003, ADR-0022 → ADR-0028: Multi-Provider LLM Scaling
-adr-0007, adr-0014, adr-0020, adr-0026 → adr-0029-cagent-vsock-work-broker
-ADR-0014 → Implementing ADR-0014: Per-User VM Lifecycle and Storage
-ADR-0019 → Implementing ADR-0019: Per-User Memory Curation and Retrieval
-ADR-0020 → Implementing ADR-0020: Security Hardening
-ADR-0023 → Implementing ADR-0023: microvm.nix Store Disk Transport Selection
 ADR-0024 → Implementing ADR-0024: Hypervisor Go Rewrite
+ADR-0024 → ADR-0025: Go Admin Dashboard
 ADR-0025 → Implementing ADR-0025: Go Admin Dashboard
 ADR-0026 → Implementing ADR-0026: Self-Directing Agent Dispatch
+ADR-0021, ADR-0024 → ADR-0026: Self-Directing Agent Dispatch
+ADR-0011, ADR-0019, ADR-0026 → ADR-0027: Publishing and Global Knowledge Base
 ADR-0028, ADR-0003, ADR-0022 → Implementing ADR-0028: Multi-Provider LLM Scaling
-ADR-0016 → Rolling Deploys: Staging -> E2E -> Promote
+ADR-0003, ADR-0022 → ADR-0028: Multi-Provider LLM Scaling
+adr-0007, adr-0014, adr-0020, adr-0026 → adr-0029-cagent-vsock-work-broker
+ADR-0015 → Docs System Philosophy and Practice
 ADR-0021, ADR-0022 → Agent Architecture Session Notes
 ADR-0016, ADR-0023, ADR-0024 → CI Boundaries and the Bootstrap Thesis
 ADR-0014 → Deferred Machine Class Items
 ADR-0014, ADR-0018 → Snapshot Portability Across VM Sizings
 ADR-0014, ADR-0016 → Per-User VMs as the Deployment Unit
+ADR-0016 → Rolling Deploys: Staging -> E2E -> Promote
 adr-0008, adr-0020, adr-0003 → Secrets Architecture Audit & Scaling Plan
+ADR-0001 → Writer Contract and Implementation Guide
 ```
 
-*Generated 2026-03-16 — 28 practice, 37 theory, 22 state docs.*
+*Generated 2026-03-27 — 88 docs scanned.*
