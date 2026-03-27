@@ -1,0 +1,15 @@
+commands:
+  install: cargo fetch --locked
+  build: cargo build --workspace --locked
+  check: cargo check --workspace --locked
+  test: cargo test --workspace
+  lint: cargo clippy --workspace -- -D warnings
+  fmt: cargo fmt --check
+  nix_check: nix flake check --no-build --no-write-lock-file
+  atlas: ./scripts/generate-atlas.sh
+  bootstrap_dry_run: cargo run -p sandbox --bin repo_worker_bootstrap -- --repo /Users/wiz/choiros-rs --dry-run
+
+services: {}
+# This mission is a repo-local rename/cutover.
+# No long-running services are required.
+# Run heavy validators sequentially on this machine.

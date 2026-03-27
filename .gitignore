@@ -91,7 +91,6 @@ sandbox/agent_harness/tool_outputs/
 .continue/
 .crush/
 .cursor/
-.factory/
 .gemini/
 .goose/
 .iflow/
