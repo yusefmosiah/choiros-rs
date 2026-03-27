@@ -23,8 +23,8 @@
 //! require LLM calls and run unconditionally.
 //!
 //! Run:
-//!   cargo test -p sandbox --test actorharness_live_test -- --nocapture
-//!   CHOIROS_LIVE_TESTS=1 cargo test -p sandbox --test actorharness_live_test -- --nocapture
+//!   cargo test -p sandbox --test harness_live_test -- --nocapture
+//!   CHOIROS_LIVE_TESTS=1 cargo test -p sandbox --test harness_live_test -- --ignored --nocapture
 
 use ractor::Actor;
 use uuid::Uuid;
@@ -398,10 +398,11 @@ async fn test_duplicate_corr_id_spawn_does_not_panic() {
 ///
 /// Requires a real LLM. Set `CHOIROS_LIVE_TESTS=1` to run.
 #[tokio::test]
+#[ignore = "live harness round-trip; run explicitly with --ignored after setting CHOIROS_LIVE_TESTS=1"]
 async fn test_full_subharness_round_trip_via_alm_port() {
     if std::env::var("CHOIROS_LIVE_TESTS").is_err() {
         println!("  [SKIP] CHOIROS_LIVE_TESTS not set — skipping full round-trip test");
-        println!("         Set CHOIROS_LIVE_TESTS=1 and provide API credentials to run.");
+        println!("         Set CHOIROS_LIVE_TESTS=1 and re-run with --ignored after providing API credentials.");
         return;
     }
 
