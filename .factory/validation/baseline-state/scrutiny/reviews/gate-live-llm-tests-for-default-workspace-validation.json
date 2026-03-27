@@ -1,0 +1,40 @@
+{
+  "featureId": "gate-live-llm-tests-for-default-workspace-validation",
+  "reviewedAt": "2026-03-27T13:30:00.000Z",
+  "commitId": "cd9dc18e6b67ab3cd9e691d35bd2d948633f01ed",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The implementation adds a regression test that validates live/costly eval tests remain opt-in via #[ignore] attributes. The contract test covers 7 test files with 22 individual live test functions across alm_eval, model_provider, dag, harness, run_lifecycle, and e2e_conductor suites. All verification steps passed: cargo test --workspace runs successfully without making real model calls, and the targeted test suites are confirmed to be ignored by default. The code is clean, well-structured, and achieves the feature goal of preventing regressions that would re-enable expensive live tests in default workspace validation.",
+    "issues": [
+      {
+        "file": "sandbox/tests/live_eval_opt_in_contract_test.rs",
+        "line": 12,
+        "severity": "non_blocking",
+        "description": "The assert_ignored function assumes all test functions use 'async fn' syntax. This works for all current live tests but isn't future-proof if a synchronous test with #[ignore] is added. Consider using a more flexible pattern match or documenting this assumption."
+      },
+      {
+        "file": "sandbox/tests/live_eval_opt_in_contract_test.rs",
+        "line": 18,
+        "severity": "non_blocking",
+        "description": "Magic number 8 for line lookback (take(8)) could be more explicit. Consider extracting to a named constant like ATTRIBUTE_LOOKBACK_LINES with a comment explaining the reasoning."
+      },
+      {
+        "file": "sandbox/tests/live_eval_opt_in_contract_test.rs",
+        "line": 31,
+        "severity": "non_blocking",
+        "description": "The assert_suite_documents_opt_in function uses a simple contains() check for '--ignored' which could theoretically match false positives (e.g., in comments, string literals unrelated to test execution). For a regression test this is acceptable, but a more precise check for doc comments or file-level documentation would be more robust."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "Feature references skillName 'rename-worker' but /Users/wiz/.factory/skills/rename-worker/SKILL.md does not exist. The .factory/skills directory only contains symlinks to 'agent-browser' and 'find-skills'. Despite this, the handoff reports followedProcedure: true with no deviations, which cannot be verified without the skill file.",
+      "evidence": "features.json shows \"skillName\": \"rename-worker\". ls -la /Users/wiz/.factory/skills shows only agent-browser and find-skills symlinks. Handoff shows skillFeedback.followedProcedure: true, but no rename-worker skill exists to compare against."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS - Feature successfully completed. The worker added a comprehensive regression test (sandbox/tests/live_eval_opt_in_contract_test.rs) that validates 22 live test functions across 7 test files remain #[ignore]-gated for offline-safe default workspace validation. All verification steps passed: cargo test --workspace succeeds without making real model calls, all targeted test suites are confirmed ignored by default, and the contract test itself runs as part of workspace validation to prevent future regressions. Code quality is high with only minor non-blocking improvements suggested. One shared state observation: the referenced rename-worker skill file doesn't exist, though this didn't block successful completion."
+}

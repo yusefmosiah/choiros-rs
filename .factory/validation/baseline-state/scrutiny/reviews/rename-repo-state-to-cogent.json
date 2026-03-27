@@ -1,0 +1,21 @@
+{
+  "featureId": "rename-repo-state-to-cogent",
+  "reviewedAt": "2026-03-27T09:32:00.000Z",
+  "commitId": "8ef4f7f",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The implementation correctly performs the hard cutover from `.cagent/` to `.cogent/` state root. All required elements are present: tracked artifacts preserved, database files renamed, supervisor.json removed, and ignore rules updated. The commit is clean, focused, and includes comprehensive verification. All required validators passed (fmt, check, test, clippy, nix flake check).",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "Worker had to revert an unintended change to `dioxus-desktop/src/types/generated.ts` that was caused by running tests. This was already documented in AGENTS.md as a known pre-existing issue, and the worker handled it correctly by reverting the file.",
+      "evidence": "Transcript shows: `git checkout -- \"dioxus-desktop/src/types/generated.ts\"`. AGENTS.md documents: 'cargo test --workspace may rewrite dioxus-desktop/src/types/generated.ts even when there is no intended semantic change. Restore the file if unchanged and continue.'"
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "✅ PASS — The repo-local state cutover from `.cagent/` to `.cogent/` was implemented correctly and completely. The worker:\n\n1. **State cutover**: Used `git mv` to rename the tracked artifact path from `.cagent/artifacts/` to `.cogent/artifacts/`, preserving the single tracked artifact file (adr-0019-implementation.md).\n\n2. **Database rename**: The databases were renamed to `cogent.db` (30.8MB, tracked) and `cogent-private.db` (16KB, gitignored). The public DB is now tracked via explicit `!.cogent/cogent.db` unignore rule.\n\n3. **Cleanup**: Removed `supervisor.json` instead of renaming it, as specified.\n\n4. **Ignore rules**: Updated `.gitignore` to cover `.cogent/` runtime churn (raw/, jobs/, transfers/, debriefs/, and DB sidecars) while keeping the public DB and artifacts visible.\n\n5. **Verification**: All 5 required verification steps passed, plus comprehensive validators (cargo fmt, check, test, clippy, nix flake check all green).\n\n6. **Scope discipline**: The worker stayed focused on state-root cutover only, correctly handled the known dioxus-desktop generated.ts side effect, and did not broaden into runtime code changes or docs updates.\n\nThe implementation fully satisfies the feature requirements with no blocking or non-blocking issues. The commit message follows repo style and the handoff documentation is thorough. No shared-state gaps were discovered beyond what was already documented in AGENTS.md."
+}

@@ -1,0 +1,15 @@
+{
+  "featureId": "fix-writer-overlay-api-test-baseline",
+  "reviewedAt": "2026-03-27T13:25:00.000Z",
+  "commitId": "80ddc7f55d09db3c0f04a7a69dce371885247029",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix properly addresses the test failure by replacing non-deterministic prompt-based overlay creation with direct WriterMsg::ApplyText calls. The test now creates a real proposal overlay deterministically, waits for it to appear via the API, and then verifies dismiss behavior. The implementation is clean, well-scoped, and includes helpful test utilities. All verification steps passed successfully.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Feature passes review. The commit stabilizes `test_overlay_dismiss_marks_overlay_rejected` by replacing timing-dependent prompt orchestration with direct writer actor calls to create a deterministic test fixture. The test now: (1) creates an ensured run and base version, (2) uses WriterMsg::ApplyText with proposal:true to generate a real overlay, (3) waits for overlay_id to appear via the API with a polling helper, (4) dismisses the overlay, and (5) verifies it no longer appears in pending overlays. Helper functions `version_response` and `wait_for_overlay_id` improve test maintainability. All validators passed: scoped test, full workspace suite, typecheck, lint, format check. Working tree remained clean. No blocking issues, no shared state gaps identified."
+}
