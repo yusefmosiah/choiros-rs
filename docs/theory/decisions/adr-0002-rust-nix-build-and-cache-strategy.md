@@ -20,12 +20,13 @@ Owner: ChoirOS runtime and deployment
 - ✅ Multi-platform support (aarch64-darwin, aarch64-linux, x86_64-linux)
 
 ### Implementation Gaps
-- ❌ No cache substituters configured in `nixConfig` (local builds miss cache)
+- ✅ `nixConfig.extra-substituters` configured in root `flake.nix` for FlakeHub Cache
+- ✅ OVH nodes declare `cache.nixos.org` + `cache.flakehub.com` as substituters with trusted keys
 - ❌ Root `flake.nix` doesn't use crane (AWS standup focus, not builds)
 - ❌ CI still uses `cargo test` instead of `nix develop` based tests
 
 ### To Complete
-1. Add `nixConfig.extra-substituters` and `extra-trusted-public-keys` to component flakes
+1. ~~Add `nixConfig.extra-substituters` and `extra-trusted-public-keys` to component flakes~~ Done
 2. Document root vs component flake separation of concerns
 3. Consider unifying workspace build under single flake
 

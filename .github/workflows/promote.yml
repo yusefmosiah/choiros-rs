@@ -25,7 +25,10 @@ jobs:
             git pull --ff-only origin main
 
             echo "==> Pre-building NixOS closure (catches OOM before switch)"
-            nix build .#nixosConfigurations.choiros-a.config.system.build.toplevel --print-build-logs 2>&1
+            nix build .#nixosConfigurations.choiros-a.config.system.build.toplevel \
+              --print-build-logs \
+              --option narinfo-cache-negative-ttl 0 \
+              2>&1
 
             echo "==> Activating NixOS config"
             nixos-rebuild switch --flake .#choiros-a --print-build-logs 2>&1
