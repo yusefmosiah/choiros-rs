@@ -35,6 +35,7 @@ None.
    - Rust-only feature: targeted tests, then `cargo check --workspace --locked`
    - Nix feature: relevant `nix eval` / `nix build`, then `nix flake check --no-build --no-write-lock-file`
    - Docs/script feature: targeted grep or script help checks, plus any required regeneration step
+   - Do not run expensive live-model tests unless the feature explicitly requires them; this mission disables those by default
 8. Before finishing, run every verification step listed on the feature. If a validator is already red because of unrelated pre-existing work, call it out explicitly in the handoff.
 9. Commit only the feature’s implementation changes. Do not push.
 

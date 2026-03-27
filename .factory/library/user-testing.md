@@ -12,6 +12,8 @@ Primary validation surfaces:
 - hooks and retained scripts
 - root/operator docs
 
+Live/costly model-eval tests are not part of this mission's acceptance execution. They must be disabled by default so workspace testing is offline-safe; live verification is deferred until a later post-deploy/push workflow.
+
 ### Automated Validation
 
 - `cargo check --workspace --locked`
