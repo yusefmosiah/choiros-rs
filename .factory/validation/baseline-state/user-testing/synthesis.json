@@ -1,0 +1,51 @@
+{
+  "milestone": "baseline-state",
+  "round": 1,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 5,
+    "passed": 5,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-STATE-002",
+    "VAL-STATE-003",
+    "VAL-STATE-004",
+    "VAL-STATE-005",
+    "VAL-STATE-006"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "flowReports": [
+    {
+      "groupId": "state-files",
+      "assertions": ["VAL-STATE-002", "VAL-STATE-003", "VAL-STATE-006"],
+      "allPassed": true,
+      "reportPath": ".factory/validation/baseline-state/user-testing/flows/state-files.json"
+    },
+    {
+      "groupId": "git-integration",
+      "assertions": ["VAL-STATE-004", "VAL-STATE-005"],
+      "allPassed": true,
+      "reportPath": ".factory/validation/baseline-state/user-testing/flows/git-integration.json"
+    }
+  ],
+  "testingStrategy": {
+    "surface": "CLI",
+    "tool": "shell",
+    "concurrency": 2,
+    "maxConcurrency": 5,
+    "parallelizationRationale": "All assertions are read-only shell commands with no shared state modification. Grouped into 2 logical sets for efficient parallel execution."
+  },
+  "environment": {
+    "servicesStarted": [],
+    "servicesNeeded": "none",
+    "seedData": "none required",
+    "setupIssues": []
+  },
+  "evidenceDirectory": "/Users/wiz/.factory/missions/a61db9bf-5a3d-4916-8c3f-6b1c137aa282/evidence/baseline-state",
+  "testedAt": "2026-03-27T09:48:00Z",
+  "previousRound": null
+}

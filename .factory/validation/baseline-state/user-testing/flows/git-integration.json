@@ -1,0 +1,105 @@
+{
+  "groupId": "git-integration",
+  "testedAt": "2026-03-27T00:00:00Z",
+  "isolation": {
+    "repositoryRoot": "/Users/wiz/choiros-rs",
+    "testingTool": "shell",
+    "workingDirectory": "/Users/wiz/choiros-rs",
+    "accessMode": "read-only verification"
+  },
+  "toolsUsed": ["shell", "git"],
+  "assertions": [
+    {
+      "id": "VAL-STATE-004",
+      "title": "Runtime churn stays git-ignored under `.cogent`",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run git check-ignore -v on .cogent/raw",
+          "expected": "Path is ignored by .gitignore",
+          "observed": "Path is ignored by .gitignore:132:.cogent/raw/"
+        },
+        {
+          "action": "Run git check-ignore -v on .cogent/jobs",
+          "expected": "Path is ignored by .gitignore",
+          "observed": "Path is ignored by .gitignore:133:.cogent/jobs/"
+        },
+        {
+          "action": "Run git check-ignore -v on .cogent/transfers",
+          "expected": "Path is ignored by .gitignore",
+          "observed": "Path is ignored by .gitignore:134:.cogent/transfers/"
+        },
+        {
+          "action": "Run git check-ignore -v on .cogent/debriefs",
+          "expected": "Path is ignored by .gitignore",
+          "observed": "Path is ignored by .gitignore:135:.cogent/debriefs/"
+        },
+        {
+          "action": "Run git check-ignore -v on .cogent/cogent-private.db",
+          "expected": "Path is ignored by .gitignore",
+          "observed": "Path is ignored by .gitignore:138:.cogent/cogent-private.db"
+        },
+        {
+          "action": "Run git check-ignore -v on .cogent/cogent-private.db-wal",
+          "expected": "Path is ignored by .gitignore",
+          "observed": "Path is ignored by .gitignore:140:.cogent/cogent-private.db-wal"
+        },
+        {
+          "action": "Run git check-ignore -v on .cogent/cogent-private.db-shm",
+          "expected": "Path is ignored by .gitignore",
+          "observed": "Path is ignored by .gitignore:139:.cogent/cogent-private.db-shm"
+        },
+        {
+          "action": "Run git check-ignore -v on .cogent/cogent.db-wal",
+          "expected": "Path is ignored by .gitignore",
+          "observed": "Path is ignored by .gitignore:137:.cogent/cogent.db-wal"
+        },
+        {
+          "action": "Run git check-ignore -v on .cogent/cogent.db-shm",
+          "expected": "Path is ignored by .gitignore",
+          "observed": "Path is ignored by .gitignore:136:.cogent/cogent.db-shm"
+        }
+      ],
+      "evidence": {
+        "terminalOutput": "baseline-state/git-integration/VAL-STATE-004-git-check-ignore.txt",
+        "gitIgnoreLines": "Lines 132-140 in .gitignore cover all runtime churn paths",
+        "allPathsIgnored": true
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-STATE-005",
+      "title": "Tracked attached artifacts survive the directory rename",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run git ls-files .cogent/artifacts/**",
+          "expected": "At least one tracked artifact file under .cogent/artifacts/",
+          "observed": "Found .cogent/artifacts/attached/art_01KKT6VR8R75DXHSDMZQ9BEEN7/adr-0019-implementation.md"
+        },
+        {
+          "action": "Verify tracked artifact exists in filesystem",
+          "expected": "File exists and is readable",
+          "observed": "File exists: -rw-r--r--@ 1 wiz staff 13358 Mar 15 22:16"
+        },
+        {
+          "action": "Verify old .cagent/artifacts path does not exist",
+          "expected": "Path should not exist after cutover",
+          "observed": "Old .cagent/artifacts path does not exist (correct)"
+        }
+      ],
+      "evidence": {
+        "terminalOutput": "baseline-state/git-integration/VAL-STATE-005-tracked-artifacts.txt",
+        "trackedArtifacts": [
+          ".cogent/artifacts/attached/art_01KKT6VR8R75DXHSDMZQ9BEEN7/adr-0019-implementation.md"
+        ],
+        "spotCheckPassed": true,
+        "legacyPathAbsent": true
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 2 assertions: both passed. VAL-STATE-004 confirmed all runtime churn paths are properly git-ignored. VAL-STATE-005 confirmed tracked artifacts successfully migrated from .cagent/artifacts/ to .cogent/artifacts/."
+}
