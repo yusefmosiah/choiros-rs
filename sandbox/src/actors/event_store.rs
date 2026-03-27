@@ -407,6 +407,7 @@ impl EventStoreActor {
             .and_then(|v| v.as_str())
             .map(ToString::to_string);
 
+        let mut tx = state.pool.begin().await?;
         let row = sqlx::query_as!(
             EventRow,
             r#"
@@ -429,8 +430,9 @@ impl EventStoreActor {
             scope_session_id,
             scope_thread_id,
         )
-        .fetch_one(&state.pool)
+        .fetch_one(&mut *tx)
         .await?;
+        tx.commit().await?;
 
         parse_event_row(row)
     }
