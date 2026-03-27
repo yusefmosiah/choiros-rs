@@ -8,7 +8,8 @@ use http_body_util::BodyExt;
 use ractor::Actor;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::ops::Deref;
+use std::sync::{Arc, OnceLock};
 use tower::ServiceExt;
 
 use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};
@@ -20,18 +21,36 @@ fn test_desktop_id() -> String {
     format!("test-desktop-{}", uuid::Uuid::new_v4())
 }
 
-async fn setup_test_app() -> (axum::Router, tempfile::TempDir) {
-    let temp_dir = tempfile::tempdir().expect("Failed to create temp directory");
-    let db_path = temp_dir.path().join("test_events.db");
-    let db_path_str = db_path.to_str().expect("Invalid database path");
+fn test_user_id() -> String {
+    format!("test-user-{}", uuid::Uuid::new_v4())
+}
 
-    let (event_store, _handle) = Actor::spawn(
-        None,
-        EventStoreActor,
-        EventStoreArguments::File(db_path_str.to_string()),
-    )
-    .await
-    .expect("Failed to create event store");
+static DESKTOP_API_TEST_LOCK: OnceLock<Arc<tokio::sync::Mutex<()>>> = OnceLock::new();
+
+fn desktop_api_test_lock() -> Arc<tokio::sync::Mutex<()>> {
+    DESKTOP_API_TEST_LOCK
+        .get_or_init(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
+}
+
+struct TestApp {
+    router: axum::Router,
+    _guard: tokio::sync::OwnedMutexGuard<()>,
+}
+
+impl Deref for TestApp {
+    type Target = axum::Router;
+
+    fn deref(&self) -> &Self::Target {
+        &self.router
+    }
+}
+
+async fn setup_test_app() -> TestApp {
+    let guard = desktop_api_test_lock().lock_owned().await;
+    let (event_store, _handle) = Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+        .await
+        .expect("Failed to create event store");
 
     let app_state = Arc::new(AppState::new(event_store));
     let ws_sessions: sandbox::api::websocket::WsSessions =
@@ -42,7 +61,10 @@ async fn setup_test_app() -> (axum::Router, tempfile::TempDir) {
     };
 
     let app = api::router().with_state(api_state);
-    (app, temp_dir)
+    TestApp {
+        router: app,
+        _guard: guard,
+    }
 }
 
 async fn json_response(app: &axum::Router, req: Request<Body>) -> (StatusCode, Value) {
@@ -60,7 +82,7 @@ async fn json_response(app: &axum::Router, req: Request<Body>) -> (StatusCode, V
 
 #[tokio::test]
 async fn test_health_check() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
 
     let req = Request::builder()
         .method("GET")
@@ -78,7 +100,7 @@ async fn test_health_check() {
 
 #[tokio::test]
 async fn test_get_desktop_state_empty() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let req = Request::builder()
@@ -97,7 +119,7 @@ async fn test_get_desktop_state_empty() {
 
 #[tokio::test]
 async fn test_register_app() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
@@ -123,7 +145,7 @@ async fn test_register_app() {
 
 #[tokio::test]
 async fn test_open_window_success() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
@@ -167,7 +189,7 @@ async fn test_open_window_success() {
 
 #[tokio::test]
 async fn test_open_window_preserves_viewer_props() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
@@ -223,7 +245,7 @@ async fn test_open_window_preserves_viewer_props() {
 
 #[tokio::test]
 async fn test_open_window_unknown_app_fails() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let open_req = json!({
@@ -247,7 +269,7 @@ async fn test_open_window_unknown_app_fails() {
 
 #[tokio::test]
 async fn test_get_windows_empty() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let req = Request::builder()
@@ -265,7 +287,7 @@ async fn test_get_windows_empty() {
 
 #[tokio::test]
 async fn test_get_windows_after_open() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
@@ -315,7 +337,7 @@ async fn test_get_windows_after_open() {
 
 #[tokio::test]
 async fn test_close_window() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
@@ -372,7 +394,7 @@ async fn test_close_window() {
 
 #[tokio::test]
 async fn test_move_window() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
@@ -428,7 +450,7 @@ async fn test_move_window() {
 
 #[tokio::test]
 async fn test_resize_window() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
@@ -482,7 +504,7 @@ async fn test_resize_window() {
 
 #[tokio::test]
 async fn test_resize_window_invalid_bounds_rejected() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
@@ -536,7 +558,7 @@ async fn test_resize_window_invalid_bounds_rejected() {
 
 #[tokio::test]
 async fn test_focus_window() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
@@ -598,7 +620,7 @@ async fn test_focus_window() {
 
 #[tokio::test]
 async fn test_minimize_maximize_restore_endpoints() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
@@ -689,7 +711,7 @@ async fn test_minimize_maximize_restore_endpoints() {
 
 #[tokio::test]
 async fn test_maximize_endpoint_uses_work_area_bounds() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
@@ -752,7 +774,7 @@ async fn test_maximize_endpoint_uses_work_area_bounds() {
 
 #[tokio::test]
 async fn test_restore_after_minimize_from_maximized_preserves_maximized_state() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
@@ -834,7 +856,7 @@ async fn test_restore_after_minimize_from_maximized_preserves_maximized_state() 
 
 #[tokio::test]
 async fn test_new_window_endpoints_reject_unknown_window() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
     let bad_id = "nope";
 
@@ -853,7 +875,7 @@ async fn test_new_window_endpoints_reject_unknown_window() {
 
 #[tokio::test]
 async fn test_get_apps_empty() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let req = Request::builder()
@@ -871,7 +893,7 @@ async fn test_get_apps_empty() {
 
 #[tokio::test]
 async fn test_get_apps_after_register() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
@@ -910,7 +932,7 @@ async fn test_get_apps_after_register() {
 
 #[tokio::test]
 async fn test_desktop_state_persists_events() {
-    let (app, _temp_dir) = setup_test_app().await;
+    let app = setup_test_app().await;
     let desktop_id = test_desktop_id();
 
     let app_def = json!({
@@ -967,8 +989,8 @@ async fn test_desktop_state_persists_events() {
 
 #[tokio::test]
 async fn test_get_user_preferences_default_theme() {
-    let (app, _temp_dir) = setup_test_app().await;
-    let user_id = "test-user";
+    let app = setup_test_app().await;
+    let user_id = test_user_id();
 
     let req = Request::builder()
         .method("GET")
@@ -984,8 +1006,8 @@ async fn test_get_user_preferences_default_theme() {
 
 #[tokio::test]
 async fn test_update_and_get_user_preferences_theme() {
-    let (app, _temp_dir) = setup_test_app().await;
-    let user_id = "test-user";
+    let app = setup_test_app().await;
+    let user_id = test_user_id();
 
     let update_req = json!({
         "theme": "light"
@@ -1017,8 +1039,8 @@ async fn test_update_and_get_user_preferences_theme() {
 
 #[tokio::test]
 async fn test_update_user_preferences_rejects_invalid_theme() {
-    let (app, _temp_dir) = setup_test_app().await;
-    let user_id = "test-user";
+    let app = setup_test_app().await;
+    let user_id = test_user_id();
 
     let update_req = json!({
         "theme": "solarized"

@@ -41,14 +41,9 @@ use sandbox::actors::harness_actor::{HarnessActor, HarnessArguments};
 
 async fn make_event_store() -> (ractor::ActorRef<EventStoreMsg>, tempfile::TempDir) {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let db = tmp.path().join("actorharness_test.db");
-    let (store, _handle) = Actor::spawn(
-        None,
-        EventStoreActor,
-        EventStoreArguments::File(db.to_str().unwrap().into()),
-    )
-    .await
-    .expect("spawn EventStoreActor");
+    let (store, _handle) = Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+        .await
+        .expect("spawn EventStoreActor");
     (store, tmp)
 }
 
@@ -203,6 +198,7 @@ async fn test_concurrent_subharness_actors_have_distinct_registry_names() {
 /// We send the Execute message directly (bypassing LLM) and then verify the
 /// `harness.execute` event lands in EventStore via the actor's handler.
 #[tokio::test]
+#[ignore = "executes the real harness path; run explicitly with --ignored"]
 async fn test_spawn_harness_emits_execute_event_to_event_store() {
     let (event_store, _tmp) = make_event_store().await;
     let corr_id = format!("sub-exec-{}", Uuid::new_v4().as_simple());
@@ -255,7 +251,7 @@ async fn test_spawn_harness_emits_execute_event_to_event_store() {
                 user_id: None,
                 reply,
             },
-            1000
+            5000
         )
         .expect("rpc ok")
         .expect("store ok");

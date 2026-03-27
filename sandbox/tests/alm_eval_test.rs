@@ -8,8 +8,8 @@
 //! Use `CHOIR_LIVE_MODEL_IDS` to control which models are tested.
 //!
 //! Run:
-//!   cargo test -p sandbox --test alm_eval_test -- --nocapture
-//!   CHOIR_LIVE_MODEL_IDS=KimiK25,ClaudeBedrockSonnet46 cargo test -p sandbox --test alm_eval_test -- --nocapture
+//!   cargo test -p sandbox --test alm_eval_test -- --ignored --nocapture
+//!   CHOIR_LIVE_MODEL_IDS=KimiK25,ClaudeBedrockSonnet46 cargo test -p sandbox --test alm_eval_test -- --ignored --nocapture
 
 use ractor::Actor;
 use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};
@@ -151,6 +151,26 @@ fn sampled_eval_models(eligible: &[String]) -> Vec<String> {
         .collect()
 }
 
+fn skip_live_eval_if_unavailable(sampled: &[String], skipped: &[String]) -> bool {
+    if !sampled.is_empty() {
+        return false;
+    }
+
+    println!("  [SKIP] No eligible live models are configured for alm_eval_test.");
+    println!("         This suite is ignored by default.");
+    println!(
+        "         Run `cargo test -p sandbox --test alm_eval_test -- --ignored --nocapture` after exporting provider credentials."
+    );
+    println!(
+        "requested models: {}",
+        requested_eval_model_targets().join(", ")
+    );
+    if !skipped.is_empty() {
+        println!("unavailable models: {}", skipped.join(", "));
+    }
+    true
+}
+
 // ─── Grading ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -254,6 +274,7 @@ fn grade_bootstrap(
 }
 
 #[tokio::test]
+#[ignore = "live LLM eval; run explicitly with --ignored after exporting provider credentials"]
 async fn tier1_conductor_bootstrap_eval() {
     let _ = dotenvy::dotenv();
     ensure_tls_cert_env();
@@ -266,7 +287,9 @@ async fn tier1_conductor_bootstrap_eval() {
     if !skipped.is_empty() {
         println!("skipped: {}", skipped.join(", "));
     }
-    assert!(!sampled.is_empty(), "No models available for eval");
+    if skip_live_eval_if_unavailable(&sampled, &skipped) {
+        return;
+    }
 
     // scenarios: (name, objective, capabilities, expected_any, forbidden, expect_block)
     let scenarios: Vec<(&str, &str, Vec<String>, Vec<String>, Vec<String>, bool)> = vec![
@@ -438,6 +461,7 @@ fn grade_decide(
 }
 
 #[tokio::test]
+#[ignore = "live LLM eval; run explicitly with --ignored after exporting provider credentials"]
 async fn tier1_decide_eval() {
     let _ = dotenvy::dotenv();
     ensure_tls_cert_env();
@@ -450,7 +474,9 @@ async fn tier1_decide_eval() {
     if !skipped.is_empty() {
         println!("skipped: {}", skipped.join(", "));
     }
-    assert!(!sampled.is_empty(), "No models available for eval");
+    if skip_live_eval_if_unavailable(&sampled, &skipped) {
+        return;
+    }
 
     // (name, messages, system_context, tools_json, expect_tool_calls, acceptable_tools)
     let scenarios: Vec<(
@@ -622,6 +648,7 @@ fn grade_changeset(
 }
 
 #[tokio::test]
+#[ignore = "live LLM eval; run explicitly with --ignored after exporting provider credentials"]
 async fn tier1_summarize_changeset_eval() {
     let _ = dotenvy::dotenv();
     ensure_tls_cert_env();
@@ -634,7 +661,9 @@ async fn tier1_summarize_changeset_eval() {
     if !skipped.is_empty() {
         println!("skipped: {}", skipped.join(", "));
     }
-    assert!(!sampled.is_empty(), "No models available for eval");
+    if skip_live_eval_if_unavailable(&sampled, &skipped) {
+        return;
+    }
 
     // (name, before, after, ops_json, source, acceptable_impacts, expected_keywords)
     let scenarios: Vec<(
@@ -923,6 +952,7 @@ impl WorkerPort for MinimalEvalAdapter {
 }
 
 #[tokio::test]
+#[ignore = "live LLM eval; run explicitly with --ignored after exporting provider credentials"]
 async fn tier2_harness_loop_eval() {
     let _ = dotenvy::dotenv();
     ensure_tls_cert_env();
@@ -935,7 +965,9 @@ async fn tier2_harness_loop_eval() {
     if !skipped.is_empty() {
         println!("skipped: {}", skipped.join(", "));
     }
-    assert!(!sampled.is_empty(), "No models available for eval");
+    if skip_live_eval_if_unavailable(&sampled, &skipped) {
+        return;
+    }
 
     let objectives: Vec<(&str, &str)> = vec![
         ("bash_echo", "Use bash to run `echo HARNESS_OK` and report the output."),
@@ -1035,6 +1067,7 @@ async fn tier2_harness_loop_eval() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[tokio::test]
+#[ignore = "live end-to-end eval; run explicitly with --ignored after starting the sandbox and exporting provider credentials"]
 async fn tier3_conductor_e2e_eval() {
     let _ = dotenvy::dotenv();
     ensure_tls_cert_env();

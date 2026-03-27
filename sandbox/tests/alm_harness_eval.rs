@@ -4,8 +4,8 @@
 //! linear AgentHarness on identical tasks.
 //!
 //! Run:
-//!   cargo test -p sandbox --test alm_harness_eval -- --nocapture
-//!   CHOIR_LIVE_MODEL_IDS=KimiK25 cargo test -p sandbox --test alm_harness_eval -- --nocapture
+//!   cargo test -p sandbox --test alm_harness_eval -- --ignored --nocapture
+//!   CHOIR_LIVE_MODEL_IDS=KimiK25 cargo test -p sandbox --test alm_harness_eval -- --ignored --nocapture
 
 use sandbox::actors::agent_harness::alm::{
     AlmConfig, AlmHarness, AlmPort, AlmRunResult, AlmToolExecution, LlmCallResult,
@@ -306,6 +306,20 @@ fn eval_models() -> Vec<String> {
     defaults.iter().map(|s| s.to_string()).collect()
 }
 
+fn skip_live_eval_if_unavailable(available: &[String]) -> bool {
+    if !available.is_empty() {
+        return false;
+    }
+
+    println!("  [SKIP] No eligible live models are configured for alm_harness_eval.");
+    println!("         This suite is ignored by default.");
+    println!(
+        "         Run `cargo test -p sandbox --test alm_harness_eval -- --ignored --nocapture` after exporting provider credentials."
+    );
+    println!("requested models: {}", eval_models().join(", "));
+    true
+}
+
 fn print_alm_result(model_id: &str, scenario: &str, result: &AlmRunResult, elapsed_ms: u64) {
     println!(
         "\n  --- {model_id} / {scenario} ({elapsed_ms}ms, {} turns) ---",
@@ -348,6 +362,7 @@ fn truncate(s: &str, max: usize) -> String {
 // ─── Eval scenarios ──────────────────────────────────────────────────────────
 
 #[tokio::test]
+#[ignore = "live ALM harness eval; run explicitly with --ignored after exporting provider credentials"]
 async fn alm_harness_basic_scenarios() {
     let _ = dotenvy::dotenv();
     ensure_tls_cert_env();
@@ -360,7 +375,9 @@ async fn alm_harness_basic_scenarios() {
 
     println!("\n=== RLM Harness Eval ===");
     println!("models: {}", available.join(", "));
-    assert!(!available.is_empty(), "No models available");
+    if skip_live_eval_if_unavailable(&available) {
+        return;
+    }
 
     let scenarios: Vec<(&str, &str)> = vec![
         (
