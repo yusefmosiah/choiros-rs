@@ -1,13 +1,18 @@
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
 pub const DEFAULT_READY_LIMIT: usize = 50;
 pub const SELECTION_RULE: &str =
     "smallest ready priority, then smallest ADR/work identifier, then title, then work_id";
+const COGENT_COMMAND: &str = "cogent";
+const COGENT_STATE_DIR_ENV: &str = "COGENT_STATE_DIR";
+const REPO_COGENT_STATE_DIR_NAME: &str = ".cogent";
+const READY_WORK_COMMAND_NAME: &str = "cogent work ready";
+const CLAIM_WORK_COMMAND_NAME: &str = "cogent work claim";
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ReadyWorkItem {
@@ -95,9 +100,7 @@ pub fn claim_next_ready_work(
     for candidate in candidates {
         match claim_work(repo, &candidate.work_id, claimant, lease) {
             Ok(claimed) => return Ok(claimed),
-            Err(DispatchError::CommandFailed { command, message })
-                if command == "cagent work claim" && claim_conflicted(&message) =>
-            {
+            Err(err) if is_claim_conflict(&err) => {
                 saw_conflict = true;
             }
             Err(err) => return Err(err),
@@ -117,12 +120,18 @@ pub fn sorted_ready_work(mut items: Vec<ReadyWorkItem>) -> Vec<ReadyWorkItem> {
 }
 
 fn load_ready_work(repo: &Path, limit: usize) -> Result<Vec<ReadyWorkItem>, DispatchError> {
-    let limit_arg = limit.max(1).to_string();
-    run_cagent_json(
-        repo,
-        "cagent work ready",
-        &["work", "ready", "--json", "--limit", &limit_arg],
-    )
+    let args = load_ready_work_args(limit);
+    run_cogent_json(repo, READY_WORK_COMMAND_NAME, &args)
+}
+
+fn load_ready_work_args(limit: usize) -> Vec<String> {
+    vec![
+        "work".to_string(),
+        "ready".to_string(),
+        "--json".to_string(),
+        "--limit".to_string(),
+        limit.max(1).to_string(),
+    ]
 }
 
 fn claim_work(
@@ -131,28 +140,30 @@ fn claim_work(
     claimant: &str,
     lease: &str,
 ) -> Result<ReadyWorkItem, DispatchError> {
-    run_cagent_json(
-        repo,
-        "cagent work claim",
-        &[
-            "work",
-            "claim",
-            work_id,
-            "--json",
-            "--claimant",
-            claimant,
-            "--lease",
-            lease,
-        ],
-    )
+    let args = claim_work_args(work_id, claimant, lease);
+    run_cogent_json(repo, CLAIM_WORK_COMMAND_NAME, &args)
 }
 
-fn run_cagent_json<T: DeserializeOwned>(
+fn claim_work_args(work_id: &str, claimant: &str, lease: &str) -> Vec<String> {
+    vec![
+        "work".to_string(),
+        "claim".to_string(),
+        work_id.to_string(),
+        "--json".to_string(),
+        "--claimant".to_string(),
+        claimant.to_string(),
+        "--lease".to_string(),
+        lease.to_string(),
+    ]
+}
+
+fn run_cogent_json<T: DeserializeOwned>(
     repo: &Path,
     command_name: &'static str,
-    args: &[&str],
+    args: &[String],
 ) -> Result<T, DispatchError> {
-    let output = Command::new("cagent")
+    let output = Command::new(COGENT_COMMAND)
+        .env(COGENT_STATE_DIR_ENV, repo_cogent_state_dir(repo))
         .args(args)
         .current_dir(repo)
         .output()?;
@@ -178,6 +189,19 @@ fn combined_output(stdout: &[u8], stderr: &[u8]) -> String {
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
         .join(" | ")
+}
+
+fn repo_cogent_state_dir(repo: &Path) -> PathBuf {
+    repo.join(REPO_COGENT_STATE_DIR_NAME)
+}
+
+fn is_claim_conflict(error: &DispatchError) -> bool {
+    match error {
+        DispatchError::CommandFailed { command, message } => {
+            *command == CLAIM_WORK_COMMAND_NAME && claim_conflicted(message)
+        }
+        _ => false,
+    }
 }
 
 fn claim_conflicted(message: &str) -> bool {
@@ -241,7 +265,12 @@ fn extract_numeric_identifier_from_text(text: &str) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_numeric_identifier_from_text, sorted_ready_work, ReadyWorkItem};
+    use super::{
+        claim_work_args, extract_numeric_identifier_from_text, is_claim_conflict,
+        load_ready_work_args, repo_cogent_state_dir, sorted_ready_work, DispatchError,
+        ReadyWorkItem, CLAIM_WORK_COMMAND_NAME, COGENT_STATE_DIR_ENV, READY_WORK_COMMAND_NAME,
+    };
+    use std::path::Path;
 
     fn work_item(work_id: &str, title: &str, objective: &str, priority: u32) -> ReadyWorkItem {
         ReadyWorkItem {
@@ -274,6 +303,55 @@ mod tests {
             extract_numeric_identifier_from_text("Declarative worker VM setup"),
             None
         );
+    }
+
+    #[test]
+    fn uses_cogent_command_surfaces_for_ready_and_claim() {
+        assert_eq!(READY_WORK_COMMAND_NAME, "cogent work ready");
+        assert_eq!(CLAIM_WORK_COMMAND_NAME, "cogent work claim");
+        assert_eq!(
+            load_ready_work_args(0),
+            vec!["work", "ready", "--json", "--limit", "1"]
+        );
+        assert_eq!(
+            claim_work_args("work_01", "repo-worker-bootstrap", "15m"),
+            vec![
+                "work",
+                "claim",
+                "work_01",
+                "--json",
+                "--claimant",
+                "repo-worker-bootstrap",
+                "--lease",
+                "15m",
+            ]
+        );
+    }
+
+    #[test]
+    fn pins_cogent_commands_to_repo_local_state_dir() {
+        let repo = Path::new("/tmp/choiros-rs");
+
+        assert_eq!(COGENT_STATE_DIR_ENV, "COGENT_STATE_DIR");
+        assert_eq!(
+            repo_cogent_state_dir(repo),
+            Path::new("/tmp/choiros-rs/.cogent")
+        );
+    }
+
+    #[test]
+    fn recognizes_cogent_claim_conflicts() {
+        let conflict = DispatchError::CommandFailed {
+            command: CLAIM_WORK_COMMAND_NAME,
+            message: "already claimed by another worker".to_string(),
+        };
+        let ready_error = DispatchError::CommandFailed {
+            command: READY_WORK_COMMAND_NAME,
+            message: "already claimed by another worker".to_string(),
+        };
+
+        assert!(is_claim_conflict(&conflict));
+        assert!(!is_claim_conflict(&ready_error));
     }
 
     #[test]
@@ -354,13 +432,13 @@ mod tests {
         let items = vec![
             work_item(
                 "work_02",
-                "Terminal UX: root user, wrong cwd, no prompt, cagent not installed",
+                "Terminal UX: root user, wrong cwd, no prompt, cogent not installed",
                 "Fix terminal UX drift",
                 2,
             ),
             work_item(
                 "work_01",
-                "Declarative worker VM setup: cagent + adapters via NixOS",
+                "Declarative worker VM setup: cogent via NixOS",
                 "Set up worker VMs",
                 2,
             ),
@@ -369,11 +447,11 @@ mod tests {
         let sorted = sorted_ready_work(items);
         assert_eq!(
             sorted[0].title,
-            "Declarative worker VM setup: cagent + adapters via NixOS"
+            "Declarative worker VM setup: cogent via NixOS"
         );
         assert_eq!(
             sorted[1].title,
-            "Terminal UX: root user, wrong cwd, no prompt, cagent not installed"
+            "Terminal UX: root user, wrong cwd, no prompt, cogent not installed"
         );
     }
 }
