@@ -9,7 +9,14 @@ commands:
   atlas: ./scripts/generate-atlas.sh
   bootstrap_dry_run: cargo run -p sandbox --bin repo_worker_bootstrap -- --repo /Users/wiz/choiros-rs --dry-run
 
-services: {}
 # This mission is a repo-local rename/cutover.
-# No long-running services are required.
+# Runtime validation for repo-local `cogent work *` surfaces requires a
+# repo-local `cogent serve` instance pointed at `/Users/wiz/choiros-rs/.cogent`.
 # Run heavy validators sequentially on this machine.
+services:
+  cogent_repo_serve:
+    start: COGENT_STATE_DIR=/Users/wiz/choiros-rs/.cogent cogent serve --no-ui --host 127.0.0.1 --port 4242
+    stop: lsof -ti :4242 | xargs kill
+    healthcheck: COGENT_STATE_DIR=/Users/wiz/choiros-rs/.cogent cogent work list --json >/dev/null 2>&1
+    port: 4242
+    depends_on: []

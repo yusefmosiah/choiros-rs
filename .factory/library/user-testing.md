@@ -12,6 +12,8 @@ Primary validation surfaces:
 - hooks and retained scripts
 - root/operator docs
 
+The installed `cogent` CLI currently routes `work list/ready` through `cogent serve`, so runtime validation must start the `cogent_repo_serve` service from `.factory/services.yaml` before repo-root `cogent work *` checks or `repo_worker_bootstrap --dry-run`.
+
 Live/costly model-eval tests are not part of this mission's acceptance execution. They must be disabled by default so workspace testing is offline-safe; live verification is deferred until a later post-deploy/push workflow.
 
 ### Automated Validation
@@ -25,6 +27,7 @@ Live/costly model-eval tests are not part of this mission's acceptance execution
 
 ### Manual Validation
 
+- Start the `cogent_repo_serve` service from `.factory/services.yaml` before runtime command checks
 - Verify `.cogent/` exists and `.cagent/` does not
 - Verify `cogent.db` / `cogent-private.db` exist under `.cogent/`
 - Verify `supervisor.json` is absent

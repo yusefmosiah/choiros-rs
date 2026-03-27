@@ -26,6 +26,7 @@
 
 - Safe Nix validation uses `--no-write-lock-file` when the goal is read-only checking
 - Final package/vendor-hash refresh must use an actual `nix build`
+- Repo-root `cogent work list/ready` validation currently requires a repo-local `cogent serve` instance on `127.0.0.1:4242` with `COGENT_STATE_DIR=/Users/wiz/choiros-rs/.cogent`
 - Pre-existing workspace clippy failure in `hypervisor/src/jobs.rs` is in scope for this mission and must be fixed
 - Expensive live-model tests are explicitly disabled by default for this mission; post-deploy/push verification is the later place to run them
 

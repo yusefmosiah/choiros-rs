@@ -25,7 +25,7 @@ Primary integration points:
 - `.githooks/pre-commit` — doc/work alignment automation
 - `flake.nix` + `nix/ch/sandbox-vm.nix` — package/build/install surfaces for the work-graph CLI
 
-The work-graph CLI is a subprocess dependency. The runtime and operator docs must agree on the same command vocabulary.
+The work-graph CLI is a subprocess dependency. In the current local `cogent` runtime, repo-root `cogent work *` commands are served through repo-local `cogent serve`, so runtime validation must start that service against `/Users/wiz/choiros-rs/.cogent` instead of relying on home/global state. The runtime and operator docs must agree on the same command vocabulary.
 
 ## Current-to-Target Cutover
 
@@ -93,4 +93,4 @@ The mission will validate these surfaces:
 
 Exact validator commands live in `.factory/services.yaml`; workers should use those commands rather than inventing alternatives.
 
-No web UI or long-running services are required for this mission.
+No web UI is required for this mission. Runtime validation does require a temporary repo-local `cogent serve` instance on `127.0.0.1:4242`, and it must stay pinned to the repo `.cogent/` state.
