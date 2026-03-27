@@ -32,6 +32,7 @@ None.
    - keep ATLAS removal out of scope
 6. For docs features, only update active/current docs described by the feature. Preserve the recently committed flattened docs layout.
 7. Run the smallest useful validation first, then broaden to the feature’s required checks:
+   - Baseline-unblock features are special: if the feature description explicitly says it is clippy-only, test-only, or otherwise scoped to one validator, treat unrelated pending baseline failures as tracked elsewhere and do not let them block completing the assigned feature
    - Rust-only feature: targeted tests, then `cargo check --workspace --locked`
    - Nix feature: relevant `nix eval` / `nix build`, then `nix flake check --no-build --no-write-lock-file`
    - Docs/script feature: targeted grep or script help checks, plus any required regeneration step
