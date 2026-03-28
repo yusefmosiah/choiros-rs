@@ -1,0 +1,15 @@
+{
+  "featureId": "rename-nix-package-and-vm-surfaces",
+  "reviewedAt": "2026-03-27T22:40:00.000Z",
+  "commitId": "81eb368dc060c8254cc15706f4b3ffca77822cd1",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Implementation is complete, correct, and comprehensively verified. All Nix package and VM surfaces successfully renamed from cagent to cogent. The flake input, package definition, VM special args, and package references are all properly updated. The vendorHash was refreshed through real Nix builds. Deprecated codex package appropriately removed from worker VM. The x86_64-linux builder limitation was handled correctly per the documented fallback procedure. No bugs, edge cases, or missing requirements identified.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "PASS - The feature fully implements the Nix package and VM surface rename from cagent to cogent. The implementation covers all three affected files (flake.lock, flake.nix, nix/ch/sandbox-vm.nix) with proper renaming of inputs (cagent-src → cogent-src), package definitions (buildGoModule pname, src, subPackages), special args (cagentPackage → cogentPackage), and VM package references. The vendorHash was correctly refreshed to sha256-QFnJQWx8+M9JSEJLaV1WydXneqx3lveZ6JO9RqUCerM= via real Nix builds. Deprecated codex package was appropriately removed from worker VM packages as part of cleaning up stripped adapter-era surfaces. Verification was thorough including cargo validators, nix flake show, nix flake check, VM package evaluations, and temporary cross-compiled build to verify bin/cogent exists. The exact attrpath build was deferred to post-push validation per documented procedure due to missing x86_64-linux builder, which is acceptable per feature description and library documentation. Grep verification confirms no stale cagent-src, cmd/cagent, or cagentPackage references remain in .nix files. All feature expectedBehavior items are satisfied and all fulfills assertions (VAL-RUNTIME-003, VAL-RUNTIME-004, VAL-RUNTIME-005, VAL-CROSS-002) are met."
+}

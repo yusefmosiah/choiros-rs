@@ -1,0 +1,15 @@
+{
+  "featureId": "remove-deprecated-adapter-surfaces",
+  "reviewedAt": "2026-03-28T03:37:00.000Z",
+  "commitId": "bbf9a0a60238198c4c816af0bde38761cb5269df",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Clean, focused implementation that fully satisfies all feature requirements. Updated .githooks/pre-commit from cagent to cogent, removed --codex-openai-bridge flag and related logic from scripts/ops/validate-local-provider-matrix.sh, cleaned .gitignore of deprecated adapter homes (.codex/, .opencode/, .gemini/, .pi/), and removed both opencode.json files from the repository surface. All verification steps passed including workspace tests, clippy, nix flake check, and feature-specific grep/shell assertions.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Feature 'remove-deprecated-adapter-surfaces' successfully completed. The worker correctly identified and committed the in-scope changes that were already staged in the worktree (per orchestrator note), executed comprehensive validation including all required verification steps, and properly stashed the unrelated pre-existing dioxus-desktop/src/types/generated.ts diff to leave a clean worktree. The implementation is precise, scoped correctly per mission boundaries (active hooks/scripts/config/root files only, not archive docs), and all validators passed. No issues found."
+}

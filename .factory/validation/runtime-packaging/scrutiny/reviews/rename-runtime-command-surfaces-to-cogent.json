@@ -1,0 +1,15 @@
+{
+  "featureId": "rename-runtime-command-surfaces-to-cogent",
+  "reviewedAt": "2026-03-27T23:30:00.000Z",
+  "commitId": "2ff42a0c7e211c9ed9695b55ce79adb975a6816d",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The implementation successfully locks down the repo_worker_bootstrap CLI contract with comprehensive unit tests after the cogent rename. The code is well-structured with clear separation of concerns through helper functions (parse_args_from, mode_for_config, error_exit_code) that improve testability. All six unit tests provide thorough coverage of the bootstrap entrypoint's behavior: argument parsing with defaults and overrides, error handling for invalid inputs, usage text generation, and exit code contract for retryable dispatch errors. The runtime verification demonstrated end-to-end functionality with the repo-local cogent service against .cogent/ state.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Feature PASSED. The worker delivered a focused, test-driven implementation that locks down the repo_worker_bootstrap CLI contract after the cogent rename. The commit added six comprehensive unit tests covering dry-run/claim mode parsing, override handling, input validation, usage text, and retryable exit codes. Code changes introduced reusable helper functions (parse_args_from, mode_for_config, error_exit_code) and named constants (DEFAULT_CLAIMANT, DEFAULT_LEASE) that improve both testability and maintainability. All verification steps passed: workspace tests (including the new bootstrap tests and existing self_directed_dispatch tests), cargo validators (check/clippy/fmt), and live runtime validation with the repo-local cogent serve instance confirmed repo-root cogent work commands operate correctly against .cogent/ without recreating .cagent/. The worker followed the skill procedure precisely, staying scoped to the bootstrap contract without broadening to unrelated surfaces. No code issues, gaps in shared state, or missing functionality detected."
+}
