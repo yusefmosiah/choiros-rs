@@ -18,12 +18,11 @@ Options:
   --gateway-token <token>   Provider gateway token (default: CHOIR_PROVIDER_GATEWAY_TOKEN)
   --skip-model-tests        Skip model live matrix tests
   --skip-gateway-search     Skip gateway search smoke tests
-  --codex-openai-bridge     If OPENAI_API_KEY is missing, load it from ${CODEX_HOME:-$HOME/.codex}/auth.json
   -h, --help                Show this help
 
 Examples:
   ./scripts/ops/validate-local-provider-matrix.sh
-  ./scripts/ops/validate-local-provider-matrix.sh --models "OpenAIGPT5CodexDev,KimiK25" --codex-openai-bridge
+  ./scripts/ops/validate-local-provider-matrix.sh --models "ZaiGLM47Flash,KimiK25" --skip-gateway-search
   ./scripts/ops/validate-local-provider-matrix.sh --skip-model-tests --gateway-token "$CHOIR_PROVIDER_GATEWAY_TOKEN"
 EOF
 }
@@ -41,7 +40,6 @@ GATEWAY_BASE="${CHOIR_PROVIDER_GATEWAY_BASE_URL:-http://127.0.0.1:9090}"
 GATEWAY_TOKEN="${CHOIR_PROVIDER_GATEWAY_TOKEN:-}"
 SKIP_MODEL_TESTS="false"
 SKIP_GATEWAY_SEARCH="false"
-CODEX_OPENAI_BRIDGE="false"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -65,10 +63,6 @@ while [ "$#" -gt 0 ]; do
       SKIP_GATEWAY_SEARCH="true"
       shift
       ;;
-    --codex-openai-bridge)
-      CODEX_OPENAI_BRIDGE="true"
-      shift
-      ;;
     -h|--help)
       usage
       exit 0
@@ -84,21 +78,6 @@ done
 need_cmd cargo
 need_cmd curl
 need_cmd jq
-
-if [ "$CODEX_OPENAI_BRIDGE" = "true" ] && [ -z "${OPENAI_API_KEY:-}" ]; then
-  AUTH_PATH="${CODEX_HOME:-$HOME/.codex}/auth.json"
-  if [ ! -f "$AUTH_PATH" ]; then
-    echo "Codex auth file not found: $AUTH_PATH" >&2
-    exit 1
-  fi
-  OPENAI_API_KEY="$(jq -r '.OPENAI_API_KEY // empty' "$AUTH_PATH")"
-  export OPENAI_API_KEY
-  if [ -z "$OPENAI_API_KEY" ]; then
-    echo "OPENAI_API_KEY missing in $AUTH_PATH" >&2
-    exit 1
-  fi
-  echo "Loaded OPENAI_API_KEY from Codex auth bridge."
-fi
 
 PASS_COUNT=0
 FAIL_COUNT=0

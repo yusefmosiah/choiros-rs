@@ -86,12 +86,10 @@ sandbox/agent_harness/tool_outputs/
 .claude-flow/
 .cline/
 .codebuddy/
-.codex/
 .commandcode/
 .continue/
 .crush/
 .cursor/
-.gemini/
 .goose/
 .iflow/
 .junie/
@@ -102,9 +100,7 @@ sandbox/agent_harness/tool_outputs/
 .mux/
 .neovate/
 .openclaude/
-.opencode/
 .openhands/
-.pi/
 .pochi/
 .qoder/
 .qwen/
