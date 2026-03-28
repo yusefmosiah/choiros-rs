@@ -21,7 +21,7 @@ What does exist already is the beginning of the docs-as-program loop:
 1. `docs/ATLAS.md` is the human entrypoint.
 2. doc frontmatter encodes `Priority:` and `Requires:`.
 3. `scripts/generate-atlas.sh` rebuilds the index from those docs.
-4. `cagent work ready` already computes unblocked work from the repo's doc
+4. `cogent work ready` already computes unblocked work from the repo's doc
    graph.
 
 This guide turns ADR-0026 into a sequence that matches reality. Do not start by
@@ -33,13 +33,13 @@ surface. Only after that should the external dispatch contract collapse to
 ## What Changed
 
 - 2026-03-16: Added `sandbox/src/bin/repo_worker_bootstrap.rs`, an isolated
-  repo-only bootstrap that reads `cagent work ready --json`, applies the
+  repo-only bootstrap that reads `cogent work ready --json`, applies the
   documented selection rule explicitly, and can preview or claim one ready
   work item without going through the prompt-driven Conductor API.
 - 2026-03-15: Initial implementation guide grounded in the live Rust conductor,
-  `docs/ATLAS.md`, and `cagent` work graph.
+  `docs/ATLAS.md`, and `cogent` work graph.
 - 2026-03-15: Clarified that the first machine-readable graph is the current
-  docs frontmatter plus `cagent`, not a new temporal graph schema up front.
+  docs frontmatter plus `cogent`, not a new temporal graph schema up front.
 - 2026-03-15: Separated the future self-directing worker loop from the current
   human-facing conductor prompt flow.
 
@@ -48,7 +48,7 @@ surface. Only after that should the external dispatch contract collapse to
 1. Keep the current objective-driven conductor stable as the human interaction
    surface.
 2. Define one deterministic "pick next work" contract against the existing
-   docs frontmatter and `cagent` ready graph.
+   docs frontmatter and `cogent` ready graph.
 3. Prototype a repo-only worker entrypoint that accepts only a repo path,
    claims one ready item, does it, updates docs, and exits.
 4. Move concurrency and machine-class selection on top of that worker loop
@@ -66,8 +66,8 @@ pieces for ADR-0026:
 | `docs/ATLAS.md` | Human entrypoint and generated view of current doc priority/dependency state |
 | `scripts/generate-atlas.sh` | The actual parser for doc frontmatter today (`Priority`, `Requires`, title, status) |
 | `docs/docs-system-philosophy-and-practice.md` | Current docs lifecycle rules and the "ATLAS is a view, not the source of truth" invariant |
-| `docs/state-report-2026-03-15-cagent-docs-landscape-audit.md` | Confirms that theory ADRs map to ready plan work and reports map to attestations |
-| `AGENTS.md` | Declares the `cagent` work surfaces agents are expected to use in this repo |
+| 2026-03-15 docs landscape audit state report | Confirms that theory ADRs map to ready plan work and reports map to attestations |
+| `AGENTS.md` | Declares the `cogent` work surfaces agents are expected to use in this repo |
 | `shared-types/src/lib.rs` | Current `ConductorExecuteRequest` contract still requires `objective` |
 | `dioxus-desktop/src/api.rs` | Desktop submit path still sends objective-driven conductor requests |
 | `sandbox/src/api/conductor.rs` | HTTP handler rejects empty objectives and records prompt-driven input |
@@ -76,14 +76,14 @@ pieces for ADR-0026:
 ## Current State
 
 1. The live dispatch contract is still prompt-first.
-2. The live work graph already exists in docs plus `cagent`; the runtime just
+2. The live work graph already exists in docs plus `cogent`; the runtime just
    does not consume it yet.
 3. `docs/ATLAS.md` is generated from frontmatter and should stay a view, not
    become the write authority.
 4. The current Rust conductor is a human-facing orchestration surface, not the
    first target for repo-only self-directing dispatch.
 5. Claiming, updates, notes, and attestations already have a repo-local system
-   boundary in `cagent`.
+   boundary in `cogent`.
 
 ## Phase Status
 
@@ -101,7 +101,7 @@ work from the repo without receiving an objective string.
 
 ### Scope
 
-- Use current doc frontmatter and `cagent` graph state as the first authority.
+- Use current doc frontmatter and `cogent` graph state as the first authority.
 - Keep `docs/ATLAS.md` as the generated human view.
 - Keep prompt-driven conductor APIs unchanged in this phase.
 - Define deterministic worker selection order.
@@ -111,7 +111,7 @@ work from the repo without receiving an objective string.
 1. Do not parse freeform prose from ADR bodies to discover readiness.
    The authoritative signals already exist:
    - doc frontmatter (`Priority`, `Requires`, `Status`)
-   - `cagent` execution and dependency state
+   - `cogent` execution and dependency state
 2. Do not make `ATLAS.md` the source of truth.
    It is a generated index and should remain derivable from docs.
 3. Use the repo's explicit priority model first.
@@ -121,14 +121,14 @@ work from the repo without receiving an objective string.
    - then smallest numeric ADR/work identifier as the tie-breaker
 4. The worker needs both layers:
    - docs for desired state and implementation guidance
-   - `cagent` for ready/claimed/blocked execution state
-5. Do not treat `cagent work claim-next` as the contract yet.
+   - `cogent` for ready/claimed/blocked execution state
+5. Do not treat `cogent work claim-next` as the contract yet.
    The worker bootstrap should sort the ready set itself until the shared CLI
    behavior is proven to match the ADR-0026 ordering rule.
 
 ### Exit Criteria
 
-- A worker can compute the same ready set as `cagent work ready`.
+- A worker can compute the same ready set as `cogent work ready`.
 - The ordering rule is deterministic and documented.
 - No prompt text is required to identify the next work item.
 
@@ -160,7 +160,7 @@ Goal: introduce a worker entrypoint whose only semantic input is the repo path.
    do not force the current Rust conductor to become both products at once.
 4. `sandbox/src/bin/repo_worker_bootstrap.rs` is the first isolated prototype.
    Today it proves the repo-only input shape and deterministic ready-item
-   selection against `cagent`; it does not replace the prompt-driven Conductor
+   selection against `cogent`; it does not replace the prompt-driven Conductor
    or execute the work item yet.
 
 ### Exit Criteria
@@ -179,15 +179,15 @@ the repo truth surfaces atomically.
 - Read the selected ADR/guide/state evidence from the repo.
 - Perform one bounded task.
 - Update docs, code, and tests together.
-- Publish structured `cagent` updates, notes, and attestations as evidence.
+- Publish structured `cogent` updates, notes, and attestations as evidence.
 
 ### Implementation Notes
 
 1. The worker loop should externalize progress through the existing work
    surfaces, not an ad hoc transcript:
-   - `cagent work update`
-   - `cagent work note-add`
-   - `cagent work attest`
+   - `cogent work update`
+   - `cogent work note-add`
+   - `cogent work attest`
 2. The atomic invariant from ADR-0026 is the real correctness rule:
    code, docs, and tests move together or the work queue lies.
 3. A worker that finds no delta should shut down cleanly.
@@ -223,7 +223,7 @@ items.
    - which ready item it actually claims
    - whether the work needs escalation to a larger machine class
    - whether the work is blocked or complete
-3. Reuse the claim/update semantics already visible in `cagent` state instead
+3. Reuse the claim/update semantics already visible in `cogent` state instead
    of inventing a second locking system in parallel.
 
 ### Exit Criteria
@@ -237,7 +237,7 @@ items.
 - Do not delete the prompt-driven conductor before the repo-only path exists.
 - Do not make `ATLAS.md` the mutable graph authority.
 - Do not start by building a new temporal graph store if the existing docs plus
-  `cagent` graph can already drive work selection.
+  `cogent` graph can already drive work selection.
 - Do not smuggle task objectives back into the system through `hints`,
   environment variables, or hidden bootstrap prompts.
 

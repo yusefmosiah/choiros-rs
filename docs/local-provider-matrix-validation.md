@@ -20,7 +20,7 @@ Use this as a release gate for local dev and upcoming OVH bring-up.
 
 1. Added `scripts/ops/validate-local-provider-matrix.sh`.
 2. Standardized pass/fail checks for model + gateway search paths.
-3. Added optional Codex -> `OPENAI_API_KEY` local bridge flag for dev-only ChatGPT testing.
+3. Locked the runbook to the retained script surface so the documented flags match `scripts/ops/validate-local-provider-matrix.sh`.
 
 ## What To Do Next
 
@@ -57,14 +57,6 @@ Run with explicit model targets:
   --models "ZaiGLM47Flash,KimiK25,InceptionMercury2"
 ```
 
-Run with dev ChatGPT auth bridge (local-only):
-
-```bash
-./scripts/ops/validate-local-provider-matrix.sh \
-  --models "OpenAIGPT5CodexDev,KimiK25" \
-  --codex-openai-bridge
-```
-
 Gateway-only smoke:
 
 ```bash
@@ -92,5 +84,5 @@ Gateway-only smoke:
   - Verify `CHOIR_PROVIDER_GATEWAY_TOKEN`.
 - `status=403` for gateway search
   - Ensure upstream is in `CHOIR_PROVIDER_GATEWAY_ALLOWED_UPSTREAMS`.
-- `OPENAI_API_KEY missing in .../.codex/auth.json`
-  - Run `codex login`, then rerun with `--codex-openai-bridge`.
+- `missing API key environment variable: OPENAI_API_KEY`
+  - Export `OPENAI_API_KEY` in the shell (or load it through your env file) before rerunning the selected OpenAI-backed model lane.

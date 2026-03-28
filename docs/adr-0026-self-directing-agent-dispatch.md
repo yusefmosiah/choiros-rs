@@ -23,9 +23,9 @@ Well-structured docs are a self-executing program.
 2026-03-15:
 
 - Added `docs/adr-0026-implementation.md` to ground this ADR in
-  the live Rust conductor path and current `cagent` work graph.
+  the live Rust conductor path and current `cogent` work graph.
 - Clarified that the first machine-readable work index should be the existing
-  docs frontmatter plus `cagent` graph, not a net-new temporal graph before the
+  docs frontmatter plus `cogent` graph, not a net-new temporal graph before the
   worker loop exists.
 
 Previous thinking assumed dispatch needed structured task descriptions:
@@ -36,7 +36,7 @@ state, the delta is the work. No prompt anywhere in the loop.
 
 ## What To Do Next
 
-1. Validate the current docs frontmatter + `cagent` work graph as the first
+1. Validate the current docs frontmatter + `cogent` work graph as the first
    machine-readable doc index. Add a richer temporal graph only after the
    worker loop needs it.
 2. Build the dependency graph walker that identifies unblocked work.
@@ -103,11 +103,11 @@ The dispatcher's non-decisions:
 - How the worker executes the task.
 - What "done" looks like for any given task.
 
-## Relationship to cagent
+## Relationship to cogent
 
-cagent is a proof-of-concept for Go agentic coding, not the foundation for
+cogent is a proof-of-concept for Go agentic coding, not the foundation for
 this system. The dispatch primitive described here is a choir.go capability.
-cagent validated that Go is the right language; choir.go implements the right
+cogent validated that Go is the right language; choir.go implements the right
 architecture.
 
 ## Relationship to ADR-0021 (Writer)

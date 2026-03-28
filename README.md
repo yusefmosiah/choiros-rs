@@ -12,11 +12,12 @@ solutions through collective intelligence.
 # Documentation
 cat docs/ATLAS.md                    # auto-generated doc index
 
-# Work graph (via cagent)
-cagent work list                     # see all work items
-cagent dashboard                     # live supervisor + work status
-cagent work ready                    # what's actionable
-cagent supervisor                    # start autonomous dispatch
+# Work graph (via cogent)
+cogent work list                     # see all work items
+cogent work ready                    # what's actionable
+cogent work show <work-id>           # inspect one work item
+cogent dashboard                     # live supervisor + work status
+cogent serve --auto                  # start UI/API + autonomous dispatch
 
 # Development
 just dev                             # start local dev (hypervisor + sandbox)
@@ -32,12 +33,12 @@ Hypervisor (control plane)
 ├── Admin API (token auth, ADR-0020)
 │
 ├── User VMs (per-user sandboxes, ADR-0014)
-│   ├── Conductor → Writer → Terminal → cagent
+│   ├── Conductor → Writer → Terminal → cogent
 │   ├── EventStore + EventBus (observability)
 │   └── Dioxus desktop (WebView)
 │
 └── Worker VMs (shared pool)
-    ├── cagent supervisor + codex/claude adapters
+    ├── cogent serve --auto + supported adapters
     └── Claims work, executes, attests, reports back
 ```
 
@@ -53,10 +54,10 @@ Docs live flat in `docs/` with prefix conventions:
 
 ## Work Management
 
-This repo uses [cagent](https://github.com/yusefmosiah/cagent) for work
+This repo uses [cogent](https://github.com/yusefmosiah/cogent) for work
 tracking, attestation, and autonomous agent dispatch. The work graph lives
-in `.cagent/cagent.db` (tracked in git). Operational secrets are in
-`.cagent/cagent-private.db` (gitignored).
+in `.cogent/cogent.db` (tracked in git). Operational secrets are in
+`.cogent/cogent-private.db` (gitignored).
 
 See `CLAUDE.md` for agent instructions.
 
@@ -72,7 +73,7 @@ See `CLAUDE.md` for agent instructions.
 | [0020](docs/adr-0020-security-hardening.md) | Phase 0-1 | Security Hardening |
 | [0021](docs/adr-0021-writer-app-agent-and-collaborative-living-documents.md) | Draft | Writer/Living Docs |
 | [0024](docs/adr-0024-hypervisor-go-rewrite.md) | Proposed | Go Rewrite |
-| [0029](docs/adr-0029-cagent-vsock-work-broker.md) | Proposed | vsock Work Broker |
+| 0029 | Proposed | vsock Work Broker |
 
 ## Deploy
 

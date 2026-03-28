@@ -1,13 +1,17 @@
 # ChoirOS
 
-This repo uses **cagent** for work management, knowledge, and orchestration.
+This repo uses **cogent** for work management, knowledge, and orchestration.
 
 ```bash
-cagent work list                    # see all work items (ADRs, features, tasks)
-cagent work show <work-id>          # details, notes, attestations
-cagent work ready                   # what's actionable now
-cagent supervisor --default-adapter codex  # autonomous dispatch
-cagent inbox "idea"                 # quick capture
+cogent work list                                       # see all work items (ADRs, features, tasks)
+cogent work show <work-id>                             # canonical review bundle for one work item
+cogent work ready                                      # what's actionable now
+cogent work claim <work-id>                            # lease one ready item explicitly
+cogent work doc-set --file docs/adr-XXXX.md --path docs/adr-XXXX.md
+cogent work note-add <work-id> --text "operator note"
+cogent work attest <work-id> --method test --result passed --summary "verification summary"
+cogent serve --auto                                    # start UI/API plus autonomous dispatch
+cogent inbox "idea"                                    # quick capture
 ```
 
 The work graph was bootstrapped from 280+ docs in `docs/`. Each ADR is a work item.
@@ -15,4 +19,4 @@ Theory ADRs are `ready` (planned). Practice ADRs are `done` (implemented).
 Test reports are attestation records. Guides are notes on their ADR.
 
 Private operational details (SSH, credentials, deploy) are in
-`cagent work private-note` — stored in `.cagent/cagent-private.db` (gitignored).
+`cogent work private-note` — stored in `.cogent/cogent-private.db` (gitignored).
