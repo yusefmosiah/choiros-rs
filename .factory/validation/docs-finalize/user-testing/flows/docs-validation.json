@@ -1,0 +1,139 @@
+{
+  "groupId": "docs-validation",
+  "testedAt": "2026-03-28T00:29:00Z",
+  "isolation": {
+    "repositoryRoot": "/Users/wiz/choiros-rs",
+    "stateDirectory": "/Users/wiz/choiros-rs/.cogent",
+    "cogentService": "127.0.0.1:4242"
+  },
+  "toolsUsed": ["rg", "grep", "shell"],
+  "assertions": [
+    {
+      "id": "VAL-DOCS-001",
+      "title": "Root operator entrypoints advertise cogent only",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Search for cagent/cagent references in README.md, CLAUDE.md, AGENTS.md",
+          "expected": "No matches for cagent or .cagent",
+          "observed": "Exit code 1 (no matches) - confirmed no legacy references"
+        },
+        {
+          "action": "Search for cogent references in README.md, CLAUDE.md, AGENTS.md",
+          "expected": "Multiple matches showing cogent commands and .cogent paths",
+          "observed": "Exit code 0 with 29 matches across all three files showing cogent work commands, cogent serve, .cogent paths"
+        }
+      ],
+      "evidence": {
+        "grepOutputs": [
+          "docs-finalize/docs-validation/VAL-DOCS-001-cagent-refs.txt (empty - no matches)",
+          "docs-finalize/docs-validation/VAL-DOCS-001-cogent-refs.txt (29 cogent references found)"
+        ],
+        "summary": "Root docs exclusively reference cogent for work management, no cagent references remain"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-DOCS-002",
+      "title": "Active dispatch docs describe the cogent work-graph contract",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Read ADR-0026 (self-directing agent dispatch)",
+          "expected": "Document describes cogent work graph and commands",
+          "observed": "ADR-0026 explicitly mentions 'current cogent work graph', 'cogent work list/ready', and describes cogent as work management system"
+        },
+        {
+          "action": "Search for cagent references in dispatch docs",
+          "expected": "No cagent references",
+          "observed": "Exit code 1 - no cagent references found in ADR-0026 or local-provider-matrix-validation.md"
+        },
+        {
+          "action": "Verify work-graph command terminology",
+          "expected": "Uses cogent terminology for ready-work, claim, update, note, attestation",
+          "observed": "ADR-0026 uses cogent work graph terminology consistently, mentions dependency graph walker and work items"
+        }
+      ],
+      "evidence": {
+        "grepOutputs": [
+          "docs-finalize/docs-validation/VAL-DOCS-002-dispatch-docs-cagent.txt (empty - no matches)",
+          "docs-finalize/docs-validation/VAL-DOCS-002-dispatch-docs-cogent.txt"
+        ],
+        "documentsReviewed": [
+          "docs/adr-0026-self-directing-agent-dispatch.md",
+          "docs/local-provider-matrix-validation.md"
+        ],
+        "summary": "Active dispatch documentation uses cogent work-graph terminology exclusively"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-DOCS-004",
+      "title": "Root and operator runbooks stop advertising removed adapters",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Search for deprecated adapter references (codex, opencode, --codex-openai-bridge) in root docs",
+          "expected": "No matches for codex, opencode, or --codex-openai-bridge",
+          "observed": "Exit code 1 (no matches) in README.md, CLAUDE.md, AGENTS.md"
+        },
+        {
+          "action": "Search for deprecated adapter references in operator runbooks",
+          "expected": "No matches in local-provider-matrix-validation.md and ADR-0026",
+          "observed": "Exit code 1 (no matches) - no deprecated adapter references found"
+        }
+      ],
+      "evidence": {
+        "grepOutputs": [
+          "docs-finalize/docs-validation/VAL-DOCS-004-adapter-refs.txt (empty - no matches in root docs)",
+          "docs-finalize/docs-validation/VAL-DOCS-004-operator-adapter-refs.txt (empty - no matches in operator docs)"
+        ],
+        "summary": "Root entrypoints and operator runbooks are free of deprecated adapter references"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-DOCS-005",
+      "title": "Live docs and live scripts agree on supported command flags",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Extract documented flags from local-provider-matrix-validation.md",
+          "expected": "Flags: --models, --skip-model-tests, --gateway-base, --gateway-token",
+          "observed": "Documentation shows all expected flags with usage examples"
+        },
+        {
+          "action": "Check validate-local-provider-matrix.sh --help output",
+          "expected": "Script supports the same flags documented",
+          "observed": "Script help shows: --models, --skip-model-tests, --gateway-base, --gateway-token, plus --skip-gateway-search and --help (additional but non-conflicting)"
+        },
+        {
+          "action": "Verify pre-commit hook uses cogent commands as documented",
+          "expected": "Hook uses cogent work commands matching root doc examples",
+          "observed": "Hook uses 'cogent work list --json', 'cogent work doc-set' matching CLAUDE.md/AGENTS.md examples"
+        },
+        {
+          "action": "Check for githooks documentation in root docs",
+          "expected": "No explicit githooks documentation or it matches hook behavior",
+          "observed": "Exit code 1 - no explicit githooks documentation in root docs, avoiding mismatch risk"
+        }
+      ],
+      "evidence": {
+        "scriptOutputs": [
+          "docs-finalize/docs-validation/VAL-DOCS-005-script-help.txt (full help text)",
+          "docs-finalize/docs-validation/VAL-DOCS-005-script-flags.txt (flag definitions from source)",
+          "docs-finalize/docs-validation/VAL-DOCS-005-pre-commit-hook.txt (full hook source)"
+        ],
+        "grepOutputs": [
+          "docs-finalize/docs-validation/VAL-DOCS-005-githooks-refs-in-docs.txt (empty - no explicit hook docs)"
+        ],
+        "comparison": "Documented flags in local-provider-matrix-validation.md match script --help output. Pre-commit hook cogent commands match root doc examples.",
+        "summary": "Live docs and scripts are consistent - no flag mismatches or deprecated command references"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 4 assertions: all 4 passed. Root operator docs exclusively reference cogent with no legacy cagent/adapter references. Active dispatch docs describe the cogent work-graph contract. Operator scripts and docs agree on supported command flags. The docs-finalize cutover is complete and consistent across all documentation surfaces."
+}

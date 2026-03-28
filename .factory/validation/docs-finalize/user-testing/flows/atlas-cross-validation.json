@@ -1,0 +1,156 @@
+{
+  "groupId": "atlas-cross-validation",
+  "testedAt": "2026-03-28T00:27:45Z",
+  "isolation": {
+    "repositoryRoot": "/Users/wiz/choiros-rs",
+    "stateDirectory": "/Users/wiz/choiros-rs/.cogent",
+    "cogentRepoServeUrl": "127.0.0.1:4242",
+    "evidenceDirectory": "/Users/wiz/.factory/missions/a61db9bf-5a3d-4916-8c3f-6b1c137aa282/evidence/docs-finalize/atlas-cross-validation/"
+  },
+  "toolsUsed": ["shell", "rg", "git", "test"],
+  "assertions": [
+    {
+      "id": "VAL-DOCS-003",
+      "title": "ATLAS stays generation-compatible with the renamed active docs",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Backup original ATLAS.md",
+          "expected": "Backup created successfully",
+          "observed": "Created docs/ATLAS.md.backup"
+        },
+        {
+          "action": "Run ./scripts/generate-atlas.sh",
+          "expected": "Generation succeeds without errors",
+          "observed": "atlas: wrote /Users/wiz/choiros-rs/docs/ATLAS.md (88 docs scanned)"
+        },
+        {
+          "action": "Check for broken references in ATLAS",
+          "expected": "All referenced files exist, no broken links",
+          "observed": "Found references to historical docs with 'cagent' in filenames (adr-0029-cagent-vsock-work-broker.md, state-report-2026-03-15-cagent-docs-landscape-audit.md, cagent-spec-and-implementation-guide.md) - all files verified to exist"
+        },
+        {
+          "action": "Restore original ATLAS.md",
+          "expected": "Original file restored",
+          "observed": "Restored docs/ATLAS.md from backup"
+        }
+      ],
+      "evidence": {
+        "commandOutput": "docs-finalize/atlas-cross-validation/VAL-DOCS-003-atlas-generation.log",
+        "staleReferences": "docs-finalize/atlas-cross-validation/VAL-DOCS-003-atlas-stale-refs.log",
+        "allLinks": "docs-finalize/atlas-cross-validation/VAL-DOCS-003-atlas-all-links.log"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "title": "State paths, ignore rules, and root docs agree on the hard cutover",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Verify .cogent/ directory exists",
+          "expected": "Directory exists with correct structure",
+          "observed": "Found .cogent/ with cogent.db, cogent-private.db, artifacts/, raw/, jobs/, transfers/, debriefs/, serve.json"
+        },
+        {
+          "action": "Verify .cagent/ does not exist",
+          "expected": ".cagent directory absent",
+          "observed": ".cagent does not exist"
+        },
+        {
+          "action": "Verify database files renamed",
+          "expected": "cogent.db and cogent-private.db exist, old names absent",
+          "observed": "Database files exist with new names; cagent.db and cagent-private.db do not exist"
+        },
+        {
+          "action": "Check git ignore rules for runtime churn",
+          "expected": "Private DB sidecars and runtime directories ignored",
+          "observed": "All required paths ignored: cogent-private.db*, cogent.db-wal, cogent.db-shm, raw/, jobs/, transfers/, debriefs/"
+        },
+        {
+          "action": "Verify cogent.db is tracked",
+          "expected": "Public database is not ignored and is tracked",
+          "observed": "cogent.db is not ignored and is tracked in git"
+        },
+        {
+          "action": "Check root docs for cogent references",
+          "expected": "README.md, CLAUDE.md, AGENTS.md reference .cogent paths",
+          "observed": "All root docs reference .cogent/cogent.db and .cogent/cogent-private.db correctly"
+        },
+        {
+          "action": "Check root docs for cagent references",
+          "expected": "No .cagent references in root docs",
+          "observed": "No .cagent, cagent.db, or cagent-private.db references found"
+        },
+        {
+          "action": "Check .gitignore for cogent patterns",
+          "expected": ".gitignore contains cogent-specific ignore rules",
+          "observed": "Found !.cogent/cogent.db and ignore rules for runtime files"
+        }
+      ],
+      "evidence": {
+        "cogentListing": "docs-finalize/atlas-cross-validation/VAL-CROSS-001-cogent-listing.log",
+        "ignoreRules": "docs-finalize/atlas-cross-validation/VAL-CROSS-001-ignore-rules.log",
+        "rootDocsCogent": "docs-finalize/atlas-cross-validation/VAL-CROSS-001-root-docs-cogent.log",
+        "rootDocsCagentCheck": "docs-finalize/atlas-cross-validation/VAL-CROSS-001-root-docs-cagent-check.log",
+        "gitignoreCogent": "docs-finalize/atlas-cross-validation/VAL-CROSS-001-gitignore-cogent.log"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "title": "Deprecated adapter purge is consistent across surfaces",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Verify supervisor.json is absent",
+          "expected": "supervisor.json does not exist and is not tracked",
+          "observed": "supervisor.json does not exist under .cogent/ and is not tracked in git"
+        },
+        {
+          "action": "Check for deprecated adapter directories",
+          "expected": "No .codex/, .opencode/, .gemini/, .pi/ directories",
+          "observed": "No deprecated adapter directories exist"
+        },
+        {
+          "action": "Check for opencode config files",
+          "expected": "No opencode.json or opencode.json.backup",
+          "observed": "opencode.json and opencode.json.backup do not exist"
+        },
+        {
+          "action": "Search for deprecated adapter references in active surfaces",
+          "expected": "No functional references to codex, opencode, --codex-openai-bridge",
+          "observed": "Found only documentation comments in sandbox/src/actors/terminal.rs describing historical opencode integration - no functional code references"
+        },
+        {
+          "action": "Check .gitignore for deprecated patterns",
+          "expected": "No .codex/, .opencode/, .gemini/, .pi/ in .gitignore",
+          "observed": "No deprecated adapter directory patterns found in .gitignore"
+        },
+        {
+          "action": "Check scripts and hooks for --codex-openai-bridge",
+          "expected": "No usage of deprecated adapter flags",
+          "observed": "No --codex-openai-bridge flag usage found"
+        }
+      ],
+      "evidence": {
+        "deprecatedAdapterRefs": "docs-finalize/atlas-cross-validation/VAL-CROSS-003-deprecated-adapter-refs.log",
+        "gitignoreDeprecatedDirs": "docs-finalize/atlas-cross-validation/VAL-CROSS-003-gitignore-deprecated-dirs.log",
+        "codexBridgeFlag": "docs-finalize/atlas-cross-validation/VAL-CROSS-003-codex-bridge-flag.log",
+        "gitignoreCodexLiteral": "docs-finalize/atlas-cross-validation/VAL-CROSS-003-gitignore-codex-literal.log",
+        "gitignoreOpencodeLiteral": "docs-finalize/atlas-cross-validation/VAL-CROSS-003-gitignore-opencode-literal.log"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "ATLAS references to historical documents contain 'cagent' in filenames, which initially appeared as stale references but are actually legitimate references to intentionally preserved historical docs",
+      "resolved": true,
+      "resolution": "Verified all referenced files exist - these are historical/archive documents that haven't been renamed per mission guidance",
+      "affectedAssertions": ["VAL-DOCS-003"]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 3 assertions: all passed. ATLAS regenerates successfully without broken references. State paths, ignore rules, and root docs are fully aligned on .cogent/ and cogent.db naming. Deprecated adapters (codex, opencode, supervisor.json) are completely purged from active surfaces. Only documentation comments remain describing historical integration purposes."
+}
