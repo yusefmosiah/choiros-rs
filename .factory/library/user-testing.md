@@ -60,3 +60,29 @@ Do not use archive-wide grep as a hard gate for this mission.
 - `nix flake check --no-build` can consume roughly 3.4 GiB RSS on this machine
 - Run top-level validators sequentially
 - Max concurrent validators: `1`
+
+## Flow Validator Guidance: Command-Line/Shell
+
+**Isolation Context:**
+- All assertions share the same repo root: `/Users/wiz/choiros-rs`
+- All assertions use the same `cogent_repo_serve` service on `127.0.0.1:4242`
+- State directory: `/Users/wiz/choiros-rs/.cogent`
+- Evidence directory: `/Users/wiz/.factory/missions/a61db9bf-5a3d-4916-8c3f-6b1c137aa282/evidence/runtime-packaging/<group-id>/`
+
+**Shared Resources:**
+- The `cogent_repo_serve` service is already running (DO NOT restart)
+- Use `COGENT_STATE_DIR=/Users/wiz/choiros-rs/.cogent` for all cogent commands
+- Repository state is read-only for validation (DO NOT modify tracked files)
+
+**Testing Tools:**
+- Shell commands: `test`, `ls`, `git`, `rg`, etc.
+- Cargo: `cargo test`, `cargo run`, `cargo check`, etc.
+- Nix: `nix flake show`, `nix build`, `nix eval`, etc.
+- SQLite: `sqlite3` for database inspection
+
+**Constraints:**
+- DO NOT modify repository files
+- DO NOT restart the cogent_repo_serve service
+- DO NOT create `.cagent/` or modify home/global cogent state
+- Save all evidence files to your assigned evidence directory
+- For Nix builds that produce `result` symlinks, capture evidence before cleanup

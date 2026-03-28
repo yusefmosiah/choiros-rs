@@ -1,0 +1,51 @@
+{
+  "milestone": "runtime-packaging",
+  "round": 1,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 12,
+    "passed": 12,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-STATE-001",
+    "VAL-STATE-007",
+    "VAL-STATE-008",
+    "VAL-RUNTIME-001",
+    "VAL-RUNTIME-002",
+    "VAL-RUNTIME-003",
+    "VAL-RUNTIME-004",
+    "VAL-RUNTIME-005",
+    "VAL-RUNTIME-006",
+    "VAL-RUNTIME-007",
+    "VAL-RUNTIME-008",
+    "VAL-CROSS-002"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Added 'Flow Validator Guidance: Command-Line/Shell' section with isolation context, shared resources, testing tools, and constraints for command-line/shell validators",
+      "source": "setup"
+    }
+  ],
+  "frictions": [
+    {
+      "description": "sandbox/src/actors/terminal.rs contains stale documentation comments (lines 1, 4, 17) mentioning 'opencode integration'. These are not functional code references but outdated historical context in an active code file's documentation.",
+      "severity": "minor",
+      "affectedAssertions": ["VAL-RUNTIME-007"],
+      "resolved": false
+    }
+  ],
+  "notes": [
+    "All 12 assertions for runtime-packaging milestone passed successfully",
+    "Validation performed through command-line/shell testing with no browser or TUI surface",
+    "Used cogent_repo_serve service on 127.0.0.1:4242 for runtime command validation",
+    "Nix packaging validation used derivation proof due to unavailable x86_64-linux builder on aarch64-darwin system",
+    "Exact x86_64-linux attrpath build deferred to post-push/GitHub verification per validation contract guidance",
+    "One minor friction identified: stale doc comments in terminal.rs (non-blocking)"
+  ],
+  "previousRound": null
+}
