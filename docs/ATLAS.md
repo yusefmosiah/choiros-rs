@@ -354,4 +354,4 @@ adr-0008, adr-0020, adr-0003 → Secrets Architecture Audit & Scaling Plan
 ADR-0001 → Writer Contract and Implementation Guide
 ```
 
-*Generated 2026-03-27 — 88 docs scanned.*
+*Generated 2026-03-28 — 88 docs scanned.*
