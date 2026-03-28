@@ -26,6 +26,7 @@
 
 - Safe Nix validation uses `--no-write-lock-file` when the goal is read-only checking
 - Final package/vendor-hash refresh must use an actual `nix build`
+- If the local machine lacks a reachable `x86_64-linux` builder, local mission validation may use an equivalent temporary `x86_64-linux` Nix build proof for `cogent`; the exact `nix build .#packages.x86_64-linux.cogent` attrpath is deferred to post-push/GitHub verification by explicit user instruction
 - Repo-root `cogent work list/ready` validation currently requires a repo-local `cogent serve` instance on `127.0.0.1:4242` with `COGENT_STATE_DIR=/Users/wiz/choiros-rs/.cogent`
 - The tracked repo-local `cogent.db` may require a compatibility schema migration for the currently installed `cogent serve` runtime; preserve queue contents and backfill any added ordering columns rather than reinitializing the graph
 - Pre-existing workspace clippy failure in `hypervisor/src/jobs.rs` is in scope for this mission and must be fixed

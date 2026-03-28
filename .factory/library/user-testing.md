@@ -22,7 +22,7 @@ Live/costly model-eval tests are not part of this mission's acceptance execution
 - `cargo test --workspace`
 - `cargo clippy --workspace -- -D warnings`
 - `nix flake check --no-build --no-write-lock-file`
-- `nix build .#packages.x86_64-linux.cogent`
+- `nix build .#packages.x86_64-linux.cogent` when a reachable `x86_64-linux` builder exists; otherwise use an equivalent temporary `x86_64-linux` Nix build proof locally and defer the exact attrpath build to post-push/GitHub verification
 - scoped `rg` sweeps for stale active-surface references
 
 ### Manual Validation
@@ -32,7 +32,7 @@ Live/costly model-eval tests are not part of this mission's acceptance execution
 - Verify `cogent.db` / `cogent-private.db` exist under `.cogent/`
 - Verify `supervisor.json` is absent
 - Verify `repo_worker_bootstrap --repo <repo> --dry-run` returns JSON on the renamed surface
-- Verify the built package exposes `result/bin/cogent`
+- Verify the built package exposes `result/bin/cogent` via the exact attrpath build when possible, or via an equivalent temporary `x86_64-linux` Nix build proof when local builder capacity is unavailable
 - Verify active-surface stale-reference checks are clean
 
 ## Active-Surface Grep Scope
