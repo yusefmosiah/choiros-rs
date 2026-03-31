@@ -1759,8 +1759,7 @@ impl WriterActor {
                     .and_then(|doc| doc.head_version().ok())
                     .map(|v| v.version_id)
                     .unwrap_or(0);
-                let rewrite_call_id =
-                    format!("writer-compose-direct:{}", ulid::Ulid::new());
+                let rewrite_call_id = format!("writer-compose-direct:{}", ulid::Ulid::new());
 
                 Self::emit_event(
                     state,
