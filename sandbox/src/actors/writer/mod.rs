@@ -1748,11 +1748,16 @@ impl WriterActor {
             }),
         );
 
-        // If no workers were dispatched, trigger OrchestrateUserPrompt immediately
-        // so the Writer LLM composes the document content via write_revision.
+        // If no workers were dispatched AND write_revision was not called directly,
+        // trigger OrchestrateUserPrompt so the Writer LLM composes content.
         // When workers are dispatched, handle_delegation_worker_completed triggers
         // OrchestrateUserPrompt after each worker completes — same mechanism.
-        if delegated_capabilities.is_empty() {
+        let write_revision_used = result.tool_executions.iter().any(|e| {
+            e.tool_name == "message_writer"
+                && e.success
+                && e.output.contains("\"mode\":\"write_revision\"")
+        });
+        if delegated_capabilities.is_empty() && !write_revision_used {
             if let Some(rid) = run_id.as_ref() {
                 let parent_version_id = Self::resolve_run_document(state, rid)
                     .ok()
