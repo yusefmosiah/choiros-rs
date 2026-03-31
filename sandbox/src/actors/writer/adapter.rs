@@ -140,43 +140,41 @@ impl WriterDelegationAdapter {
                 }),
             );
 
-            let result: Result<_, ractor::RactorErr<WriterMsg>> =
-                ractor::call!(self.writer_actor, |reply| {
-                    WriterMsg::CreateWriterDocumentVersion {
+            // Fire-and-forget: the WriterActor is blocked awaiting this harness, so
+            // ractor::call! would deadlock. Queue the message and return success now;
+            // the actor processes CreateWriterDocumentVersion after the harness finishes.
+            let (tx, rx) = tokio::sync::oneshot::channel::<
+                Result<crate::actors::writer::DocumentVersion, crate::actors::writer::WriterError>,
+            >();
+            let send_result =
+                self.writer_actor
+                    .send_message(WriterMsg::CreateWriterDocumentVersion {
                         run_id: run_id.clone(),
                         parent_version_id: Some(parent_version_id),
                         content,
                         source: VersionSource::Writer,
-                        reply,
-                    }
-                });
+                        reply: ractor::RpcReplyPort::from(tx),
+                    });
+            drop(rx); // we don't await the reply
 
-            return match result {
-                Ok(Ok(version)) => Ok(ToolExecution {
+            return match send_result {
+                Ok(()) => Ok(ToolExecution {
                     tool_name: "message_writer".to_string(),
                     success: true,
                     output: serde_json::json!({
                         "mode": "write_revision",
-                        "version_id": version.version_id,
-                        "status": "revision_applied",
-                        "next_step": "If this revision satisfies the objective and you have no pending delegations, call finished now.",
+                        "status": "revision_queued",
+                        "next_step": "Revision queued. Call finished now.",
                     })
                     .to_string(),
                     error: None,
-                    execution_time_ms: start.elapsed().as_millis() as u64,
-                }),
-                Ok(Err(e)) => Ok(ToolExecution {
-                    tool_name: "message_writer".to_string(),
-                    success: false,
-                    output: String::new(),
-                    error: Some(format!("Failed to create revision: {e}")),
                     execution_time_ms: start.elapsed().as_millis() as u64,
                 }),
                 Err(e) => Ok(ToolExecution {
                     tool_name: "message_writer".to_string(),
                     success: false,
                     output: String::new(),
-                    error: Some(format!("Writer actor call failed: {e}")),
+                    error: Some(format!("Writer actor send failed: {e}")),
                     execution_time_ms: start.elapsed().as_millis() as u64,
                 }),
             };
