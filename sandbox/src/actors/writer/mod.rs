@@ -1748,6 +1748,40 @@ impl WriterActor {
             }),
         );
 
+        // If no workers were dispatched, trigger OrchestrateUserPrompt immediately
+        // so the Writer LLM composes the document content via write_revision.
+        // When workers are dispatched, handle_delegation_worker_completed triggers
+        // OrchestrateUserPrompt after each worker completes — same mechanism.
+        if delegated_capabilities.is_empty() {
+            if let Some(rid) = run_id.as_ref() {
+                let parent_version_id = Self::resolve_run_document(state, rid)
+                    .ok()
+                    .and_then(|doc| doc.head_version().ok())
+                    .map(|v| v.version_id)
+                    .unwrap_or(0);
+                let rewrite_call_id =
+                    format!("writer-compose-direct:{}", ulid::Ulid::new());
+
+                Self::emit_event(
+                    state,
+                    "writer.actor.objective_orchestration.compose_triggered",
+                    serde_json::json!({
+                        "run_id": rid,
+                        "call_id": &rewrite_call_id,
+                        "parent_version_id": parent_version_id,
+                        "reason": "no_delegation",
+                    }),
+                );
+
+                let _ = myself.send_message(WriterMsg::OrchestrateUserPrompt {
+                    run_id: rid.clone(),
+                    call_id: rewrite_call_id,
+                    objective: objective_text.to_string(),
+                    parent_version_id,
+                });
+            }
+        }
+
         Ok(WriterOrchestrationResult {
             success: result.success,
             summary,
