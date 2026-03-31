@@ -1008,54 +1008,59 @@ async fn test_recovery_after_crash() {
 
 #[tokio::test]
 async fn test_recovery_partial_write() {
-    let temp_dir = tempfile::tempdir().expect("Failed to create temp directory");
-    let db_path = temp_dir.path().join("test_events.db");
-    let db_path_str = db_path.to_str().expect("Invalid database path");
-    let actor_id = test_actor_id();
-    let user_id = test_user_id();
+    for attempt in 0..20 {
+        let temp_dir = tempfile::tempdir().expect("Failed to create temp directory");
+        let db_path = temp_dir.path().join("test_events.db");
+        let db_path_str = db_path.to_str().expect("Invalid database path");
+        let actor_id = test_actor_id();
+        let user_id = test_user_id();
 
-    // SQLite transactions are atomic, so partial writes shouldn't occur
-    // But we test the robustness of the system
+        let (store_ref, _store_handle) = Actor::spawn(
+            None,
+            EventStoreActor,
+            EventStoreArguments::File(db_path_str.to_string()),
+        )
+        .await
+        .unwrap();
 
-    let (store_ref, _store_handle) = Actor::spawn(
-        None,
-        EventStoreActor,
-        EventStoreArguments::File(db_path_str.to_string()),
-    )
-    .await
-    .unwrap();
+        // Appends must be fully visible to subsequent reads once the append RPC returns.
+        for i in 0..5 {
+            ractor::call!(store_ref, |reply| EventStoreMsg::Append {
+                event: AppendEvent {
+                    event_type: "interaction.user_msg".to_string(),
+                    payload: serde_json::json!(format!("Message {}", i)),
+                    actor_id: actor_id.clone(),
+                    user_id: user_id.clone(),
+                },
+                reply,
+            })
+            .unwrap()
+            .unwrap();
+        }
 
-    // Add events
-    for i in 0..5 {
-        ractor::call!(store_ref, |reply| EventStoreMsg::Append {
-            event: AppendEvent {
-                event_type: "interaction.user_msg".to_string(),
-                payload: serde_json::json!(format!("Message {}", i)),
-                actor_id: actor_id.clone(),
-                user_id: user_id.clone(),
-            },
+        let latest_seq = ractor::call!(store_ref, |reply| EventStoreMsg::GetLatestSeq { reply })
+            .unwrap()
+            .unwrap();
+        let events = ractor::call!(store_ref, |reply| EventStoreMsg::GetEventsForActor {
+            actor_id: actor_id.clone(),
+            since_seq: 0,
             reply,
         })
         .unwrap()
         .unwrap();
-    }
 
-    // Verify all or nothing
-    let events = ractor::call!(store_ref, |reply| EventStoreMsg::GetEventsForActor {
-        actor_id: actor_id.clone(),
-        since_seq: 0,
-        reply,
-    })
-    .unwrap()
-    .unwrap();
+        assert_eq!(
+            latest_seq,
+            Some(5),
+            "attempt {attempt} lost the latest sequence"
+        );
+        assert_eq!(events.len(), 5, "attempt {attempt} lost an appended event");
 
-    assert_eq!(events.len(), 5);
-
-    // All events should be valid
-    for event in &events {
-        assert!(event.seq > 0);
-        assert!(!event.event_id.is_empty());
-        assert!(!event.event_type.is_empty());
+        for event in &events {
+            assert!(event.seq > 0);
+            assert!(!event.event_id.is_empty());
+            assert!(!event.event_type.is_empty());
+        }
     }
 }
 

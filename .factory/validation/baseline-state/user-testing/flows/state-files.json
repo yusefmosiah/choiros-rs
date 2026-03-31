@@ -1,0 +1,109 @@
+{
+  "groupId": "state-files",
+  "testedAt": "2026-03-27T09:48:34Z",
+  "isolation": {
+    "repositoryRoot": "/Users/wiz/choiros-rs",
+    "testingTool": "shell",
+    "workingDirectory": "/Users/wiz/choiros-rs",
+    "servicesNeeded": "none (read-only verification)"
+  },
+  "toolsUsed": ["shell", "git"],
+  "assertions": [
+    {
+      "id": "VAL-STATE-002",
+      "title": "Database filenames cut over cleanly",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Test for presence of .cogent/cogent.db",
+          "expected": "File exists",
+          "observed": "PASS: cogent.db exists"
+        },
+        {
+          "action": "Test for presence of .cogent/cogent-private.db",
+          "expected": "File exists",
+          "observed": "PASS: cogent-private.db exists"
+        },
+        {
+          "action": "Test for absence of .cogent/cagent.db",
+          "expected": "File does not exist",
+          "observed": "PASS: cagent.db absent"
+        },
+        {
+          "action": "Test for absence of .cogent/cagent-private.db",
+          "expected": "File does not exist",
+          "observed": "PASS: cagent-private.db absent"
+        }
+      ],
+      "evidence": {
+        "terminalOutput": ["baseline-state/state-files/VAL-STATE-002-cogent-dir-listing.txt"],
+        "testCommands": [
+          "test -f .cogent/cogent.db",
+          "test -f .cogent/cogent-private.db",
+          "test ! -e .cogent/cagent.db",
+          "test ! -e .cogent/cagent-private.db"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-STATE-003",
+      "title": "Supervisor state file is removed",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Test for absence of .cogent/supervisor.json",
+          "expected": "File does not exist",
+          "observed": "PASS: supervisor.json absent from .cogent/"
+        },
+        {
+          "action": "Verify .cogent/supervisor.json is not tracked",
+          "expected": "git ls-files returns error (not tracked)",
+          "observed": "PASS: supervisor.json not tracked in .cogent/"
+        },
+        {
+          "action": "Verify .cagent/supervisor.json is not tracked",
+          "expected": "git ls-files returns error (not tracked)",
+          "observed": "PASS: supervisor.json not tracked in .cagent/"
+        }
+      ],
+      "evidence": {
+        "terminalOutput": ["baseline-state/state-files/VAL-STATE-003-supervisor-checks.txt"],
+        "testCommands": [
+          "test ! -e .cogent/supervisor.json",
+          "git ls-files --error-unmatch .cogent/supervisor.json (expected failure)",
+          "git ls-files --error-unmatch .cagent/supervisor.json (expected failure)"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-STATE-006",
+      "title": "Public work-graph database remains repo-visible",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Verify .cogent/cogent.db is not ignored by git",
+          "expected": "git check-ignore returns non-zero (not ignored)",
+          "observed": "PASS: cogent.db is not ignored"
+        },
+        {
+          "action": "Verify .cogent/cogent.db is tracked by git",
+          "expected": "git ls-files returns the file path",
+          "observed": "PASS: cogent.db is tracked (.cogent/cogent.db)"
+        }
+      ],
+      "evidence": {
+        "terminalOutput": ["baseline-state/state-files/VAL-STATE-006-cogent-db-visibility.txt"],
+        "testCommands": [
+          "git check-ignore .cogent/cogent.db (expected failure)",
+          "git ls-files --error-unmatch .cogent/cogent.db"
+        ]
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 3 assertions: all 3 passed. State files are correctly renamed from cagent to cogent naming, supervisor.json is removed, and cogent.db remains repo-visible and tracked."
+}

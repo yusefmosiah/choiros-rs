@@ -716,7 +716,13 @@ pub async fn write_file(
         match fs::OpenOptions::new().append(true).open(&file_path).await {
             Ok(mut file) => {
                 use tokio::io::AsyncWriteExt;
-                file.write_all(req.content.as_bytes()).await
+                let write_result = file.write_all(req.content.as_bytes()).await;
+                // Explicitly flush and sync before dropping the file handle
+                if write_result.is_ok() {
+                    let _ = file.flush().await;
+                    let _ = file.sync_all().await;
+                }
+                write_result
             }
             Err(e) => Err(e),
         }

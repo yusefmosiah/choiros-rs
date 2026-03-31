@@ -168,13 +168,42 @@ fn sampled_live_models(eligible: &[String]) -> Vec<String> {
     selected
 }
 
+fn skip_live_matrix_if_unavailable(
+    sampled: &[String],
+    skipped: &[String],
+    test_name: &str,
+) -> bool {
+    if !sampled.is_empty() {
+        return false;
+    }
+
+    println!("  [SKIP] No eligible live models are configured for {test_name}.");
+    println!("         This suite is ignored by default.");
+    println!(
+        "         Run `cargo test -p sandbox --test model_provider_live_test -- --ignored --nocapture` after exporting provider credentials."
+    );
+    println!(
+        "requested_models={}",
+        requested_live_model_targets().join(",")
+    );
+    if !skipped.is_empty() {
+        println!("skipped:\n{}", skipped.join("\n"));
+    }
+    true
+}
+
 #[tokio::test]
+#[ignore = "live provider matrix; run explicitly with --ignored after exporting provider credentials"]
 async fn live_provider_smoke_matrix() {
     let _ = dotenvy::dotenv();
     ensure_tls_cert_env();
     let registry = ModelRegistry::new();
     let (eligible, skipped) = available_live_models(&registry);
     let sampled = sampled_live_models(&eligible);
+
+    if skip_live_matrix_if_unavailable(&sampled, &skipped, "live_provider_smoke_matrix") {
+        return;
+    }
 
     let concurrency = live_test_concurrency(2);
     let semaphore = Arc::new(Semaphore::new(concurrency));
@@ -254,12 +283,17 @@ async fn live_provider_smoke_matrix() {
 }
 
 #[tokio::test]
+#[ignore = "live provider matrix; run explicitly with --ignored after exporting provider credentials"]
 async fn live_decide_matrix() {
     let _ = dotenvy::dotenv();
     ensure_tls_cert_env();
     let registry = ModelRegistry::new();
     let (eligible, skipped) = available_live_models(&registry);
     let sampled = sampled_live_models(&eligible);
+
+    if skip_live_matrix_if_unavailable(&sampled, &skipped, "live_decide_matrix") {
+        return;
+    }
 
     let messages = vec![BamlMessage {
         role: "user".to_string(),

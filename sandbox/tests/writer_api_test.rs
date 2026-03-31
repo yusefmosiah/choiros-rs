@@ -14,7 +14,9 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tower::ServiceExt;
 
+use sandbox::actors::conductor::registry::lookup_writer_actor_for_run;
 use sandbox::actors::event_store::{EventStoreActor, EventStoreArguments};
+use sandbox::actors::writer::{WriterMsg, WriterSource};
 use sandbox::api;
 use sandbox::app_state::AppState;
 
@@ -54,6 +56,37 @@ async fn json_response(app: &axum::Router, req: Request<Body>) -> (StatusCode, V
         .to_bytes();
     let value: Value = serde_json::from_slice(&body).expect("Invalid JSON response");
     (status, value)
+}
+
+async fn version_response(app: &axum::Router, path: &str, version_id: u64) -> (StatusCode, Value) {
+    let req = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/writer/version?path={}&version_id={version_id}",
+            path.replace('/', "%2F")
+        ))
+        .body(Body::empty())
+        .unwrap();
+    json_response(app, req).await
+}
+
+async fn wait_for_overlay_id(app: &axum::Router, path: &str, version_id: u64) -> String {
+    let mut last_body = Value::Null;
+    for _ in 0..20 {
+        let (status, body) = version_response(app, path, version_id).await;
+        assert_eq!(status, StatusCode::OK);
+        if let Some(overlay_id) = body["overlays"]
+            .as_array()
+            .and_then(|overlays| overlays.first())
+            .and_then(|overlay| overlay["overlay_id"].as_str())
+        {
+            return overlay_id.to_string();
+        }
+        last_body = body;
+        tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+    }
+
+    panic!("overlay_id missing from writer/version response: {last_body}");
 }
 
 static TEST_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -773,35 +806,21 @@ async fn test_overlay_dismiss_marks_overlay_rejected() {
         .as_u64()
         .expect("version_id missing from save-version response");
 
-    let prompt_req = json!({
-        "path": &doc_path,
-        "base_version_id": base_version_id,
-        "prompt_diff": [{ "op": "insert", "pos": 0, "text": "Suggest a concise intro.\\n" }]
-    });
-    let req = Request::builder()
-        .method("POST")
-        .uri("/writer/prompt")
-        .header("content-type", "application/json")
-        .body(Body::from(prompt_req.to_string()))
-        .unwrap();
-    let (status, _body) = json_response(&app, req).await;
-    assert_eq!(status, StatusCode::OK);
+    let writer_actor =
+        lookup_writer_actor_for_run(&run_id).expect("writer actor should exist for ensured run");
+    let revision = ractor::call!(writer_actor, |reply| WriterMsg::ApplyText {
+        run_id: run_id.clone(),
+        section_id: "conductor".to_string(),
+        source: WriterSource::Researcher,
+        content: "Suggest a concise intro.\n".to_string(),
+        proposal: true,
+        reply,
+    })
+    .expect("writer apply-text rpc should succeed")
+    .expect("writer should create proposal overlay");
+    assert!(revision > 0);
 
-    let req = Request::builder()
-        .method("GET")
-        .uri(format!(
-            "/writer/version?path={}&version_id={}",
-            doc_path.replace('/', "%2F"),
-            base_version_id
-        ))
-        .body(Body::empty())
-        .unwrap();
-    let (status, body) = json_response(&app, req).await;
-    assert_eq!(status, StatusCode::OK);
-    let overlay_id = body["overlays"][0]["overlay_id"]
-        .as_str()
-        .expect("overlay_id missing")
-        .to_string();
+    let overlay_id = wait_for_overlay_id(&app, &doc_path, base_version_id).await;
 
     let dismiss_req = json!({
         "path": &doc_path,
@@ -817,16 +836,7 @@ async fn test_overlay_dismiss_marks_overlay_rejected() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["dismissed"], true);
 
-    let req = Request::builder()
-        .method("GET")
-        .uri(format!(
-            "/writer/version?path={}&version_id={}",
-            doc_path.replace('/', "%2F"),
-            base_version_id
-        ))
-        .body(Body::empty())
-        .unwrap();
-    let (status, body) = json_response(&app, req).await;
+    let (status, body) = version_response(&app, &doc_path, base_version_id).await;
     assert_eq!(status, StatusCode::OK);
     let overlays = body["overlays"]
         .as_array()

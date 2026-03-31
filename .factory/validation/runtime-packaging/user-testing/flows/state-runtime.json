@@ -1,0 +1,277 @@
+{
+  "groupId": "state-runtime",
+  "testedAt": "2026-03-27T23:30:00Z",
+  "isolation": {
+    "repoRoot": "/Users/wiz/choiros-rs",
+    "stateDirectory": "/Users/wiz/choiros-rs/.cogent",
+    "service": "cogent_repo_serve on 127.0.0.1:4242 (not restarted)",
+    "environment": "COGENT_STATE_DIR=/Users/wiz/choiros-rs/.cogent"
+  },
+  "toolsUsed": ["bash", "test", "ls", "git", "rg", "cargo"],
+  "assertions": [
+    {
+      "id": "VAL-STATE-001",
+      "title": "Repo state root hard-cutover",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Check .cogent directory exists",
+          "expected": "Directory present",
+          "observed": ".cogent exists"
+        },
+        {
+          "action": "Check .cagent directory absent",
+          "expected": "Directory not present",
+          "observed": ".cagent absent"
+        },
+        {
+          "action": "List .cogent contents",
+          "expected": "Contains cogent.db, artifacts, etc.",
+          "observed": "Directory contains cogent.db, cogent-private.db, artifacts/, raw/, jobs/, transfers/, debriefs/, serve.json"
+        },
+        {
+          "action": "Run cogent work list --json",
+          "expected": "Command succeeds",
+          "observed": "Command succeeded, returned work items"
+        }
+      ],
+      "evidence": {
+        "shellOutput": ["runtime-packaging/state-runtime/VAL-STATE-001-cogent-listing.txt", "runtime-packaging/state-runtime/VAL-STATE-001-work-list.json"],
+        "consoleErrors": "none",
+        "network": null
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-STATE-007",
+      "title": "Repo-root commands do not fall back to home/global cogent state",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Check for ~/cogent, ~/.cogent before command",
+          "expected": "Directories may pre-exist but should not be modified",
+          "observed": "~/cogent exists (separate repo), ~/.cogent absent"
+        },
+        {
+          "action": "Run cogent work ready --json with COGENT_STATE_DIR",
+          "expected": "Command succeeds using repo-local state",
+          "observed": "Command succeeded"
+        },
+        {
+          "action": "Check ~/cogent modification time",
+          "expected": "Not modified by repo-root command",
+          "observed": "~/cogent last modified Mar 27 17:26, test ran after 23:22 - no modification"
+        },
+        {
+          "action": "Verify .cogent/cogent.db exists",
+          "expected": "Commands operated against repo-local state",
+          "observed": ".cogent/cogent.db exists"
+        }
+      ],
+      "evidence": {
+        "shellOutput": ["runtime-packaging/state-runtime/VAL-STATE-007-work-ready.json", "runtime-packaging/state-runtime/VAL-STATE-007-home-cogent-listing.txt", "runtime-packaging/state-runtime/VAL-STATE-007-cogent-version.txt", "runtime-packaging/state-runtime/VAL-STATE-007-summary.txt"],
+        "consoleErrors": "none",
+        "network": null
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-STATE-008",
+      "title": "Existing work graph content survives the cutover",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run cogent work list --json",
+          "expected": "Returns known stable work items including ADRs",
+          "observed": "652 lines of output with multiple work items"
+        },
+        {
+          "action": "Grep for ADR entries",
+          "expected": "ADR work items present",
+          "observed": "Found multiple ADR entries: ADR-0022, ADR-0018, ADR-0014, ADR-0029, ADR-0028, etc."
+        },
+        {
+          "action": "Sample work item structure",
+          "expected": "Work items have work_id, title, objective, kind, execution_state, etc.",
+          "observed": "All expected fields present in work items"
+        }
+      ],
+      "evidence": {
+        "shellOutput": ["runtime-packaging/state-runtime/VAL-STATE-008-work-list-sample.json", "runtime-packaging/state-runtime/VAL-STATE-008-adr-entries.txt", "runtime-packaging/state-runtime/VAL-STATE-008-total-lines.txt"],
+        "consoleErrors": "none",
+        "network": null
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-RUNTIME-001",
+      "title": "Repo-root cogent commands resolve against renamed state",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run cogent work list --json from repo root",
+          "expected": "Command succeeds without extra path flags",
+          "observed": "Command succeeded (exit code 0)"
+        },
+        {
+          "action": "Run cogent work ready --json from repo root",
+          "expected": "Command succeeds without extra path flags",
+          "observed": "Command succeeded (exit code 0)"
+        },
+        {
+          "action": "Verify .cogent/cogent.db exists",
+          "expected": "Database file present",
+          "observed": ".cogent/cogent.db exists"
+        }
+      ],
+      "evidence": {
+        "shellOutput": ["runtime-packaging/state-runtime/VAL-RUNTIME-001-summary.txt"],
+        "consoleErrors": "none",
+        "network": null
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-RUNTIME-002",
+      "title": "Self-directed dispatch shells out to cogent",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Grep sandbox dispatch code for command names",
+          "expected": "Uses 'cogent work ready' and 'cogent work claim'",
+          "observed": "Found READY_WORK_COMMAND_NAME='cogent work ready', CLAIM_WORK_COMMAND_NAME='cogent work claim'"
+        },
+        {
+          "action": "Run cargo test uses_cogent_command_surfaces_for_ready_and_claim",
+          "expected": "Test passes",
+          "observed": "Test passed"
+        },
+        {
+          "action": "Run cargo test recognizes_cogent_claim_conflicts",
+          "expected": "Test passes, verifies claim conflict handling",
+          "observed": "Test passed"
+        }
+      ],
+      "evidence": {
+        "shellOutput": ["runtime-packaging/state-runtime/VAL-RUNTIME-002-dispatch-test-1.txt", "runtime-packaging/state-runtime/VAL-RUNTIME-002-dispatch-test-2.txt", "runtime-packaging/state-runtime/VAL-RUNTIME-002-summary.txt"],
+        "consoleErrors": "none",
+        "network": null
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-RUNTIME-006",
+      "title": "Hooks and active scripts expose only supported post-cutover surfaces",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Search .githooks/ for deprecated adapter references",
+          "expected": "No cagent, codex, opencode, or --codex-openai-bridge references",
+          "observed": "No deprecated references found"
+        },
+        {
+          "action": "Search scripts/ for deprecated adapter references",
+          "expected": "No deprecated references",
+          "observed": "No deprecated references found"
+        },
+        {
+          "action": "Verify .githooks/pre-commit uses cogent",
+          "expected": "Uses cogent commands",
+          "observed": "Uses 'cogent work list --json' and 'cogent work doc-set'"
+        },
+        {
+          "action": "Check for cogent references in hooks",
+          "expected": "Hooks invoke cogent where appropriate",
+          "observed": "Pre-commit hook checks for cogent and uses it for doc-work alignment"
+        }
+      ],
+      "evidence": {
+        "shellOutput": ["runtime-packaging/state-runtime/VAL-RUNTIME-006-summary.txt", "runtime-packaging/state-runtime/VAL-RUNTIME-006-pre-commit-hook.txt"],
+        "consoleErrors": "none",
+        "network": null
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-RUNTIME-007",
+      "title": "Deprecated adapter files and active references are removed",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Check opencode.json absent",
+          "expected": "File does not exist",
+          "observed": "opencode.json absent"
+        },
+        {
+          "action": "Check opencode.json.backup absent",
+          "expected": "File does not exist",
+          "observed": "opencode.json.backup absent"
+        },
+        {
+          "action": "Verify neither file is tracked in git",
+          "expected": "git ls-files fails for both",
+          "observed": "Both files not tracked"
+        },
+        {
+          "action": "Search .gitignore for deprecated adapter patterns",
+          "expected": "No deprecated adapter references",
+          "observed": "No deprecated references found"
+        },
+        {
+          "action": "Search Nix files for deprecated adapter patterns",
+          "expected": "No deprecated references",
+          "observed": "No deprecated references found"
+        },
+        {
+          "action": "Search Rust files for deprecated adapter patterns",
+          "expected": "No functional code references",
+          "observed": "Found only doc comments in terminal.rs (lines 1, 4, 17) describing historical opencode integration. No functional code references."
+        }
+      ],
+      "evidence": {
+        "shellOutput": ["runtime-packaging/state-runtime/VAL-RUNTIME-007-summary.txt", "runtime-packaging/state-runtime/VAL-RUNTIME-007-terminal-rs-header.txt"],
+        "consoleErrors": "none",
+        "network": null
+      },
+      "issues": "Minor: sandbox/src/actors/terminal.rs contains stale documentation comments mentioning 'opencode integration' (lines 1, 4, 17). These are not functional code references but could be updated for clarity."
+    },
+    {
+      "id": "VAL-RUNTIME-008",
+      "title": "Repo worker bootstrap remains executable on the renamed surface",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run cargo run --bin repo_worker_bootstrap -- --repo /Users/wiz/choiros-rs --dry-run",
+          "expected": "Command succeeds with JSON output including 'mode: dry_run'",
+          "observed": "Command succeeded, output includes '\"mode\": \"dry_run\"'"
+        },
+        {
+          "action": "Verify work item returned",
+          "expected": "JSON includes work item with work_id, title, objective, etc.",
+          "observed": "Returned work item work_01KKWM5MPMHXY7MMGJPEQQCWF9 with all expected fields"
+        },
+        {
+          "action": "Confirm bootstrap operates against renamed state",
+          "expected": "Uses .cogent/ state directory",
+          "observed": "Successfully queried renamed work graph state"
+        }
+      ],
+      "evidence": {
+        "shellOutput": ["runtime-packaging/state-runtime/VAL-RUNTIME-008-bootstrap-output.txt", "runtime-packaging/state-runtime/VAL-RUNTIME-008-summary.txt"],
+        "consoleErrors": "none",
+        "network": null
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "sandbox/src/actors/terminal.rs contains stale documentation comments (lines 1, 4, 17) mentioning 'opencode integration' and 'opencode CLI'. These are not functional references but outdated historical context in an active code file's documentation.",
+      "resolved": false,
+      "resolution": null,
+      "affectedAssertions": ["VAL-RUNTIME-007"]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 8 assertions: all 8 passed. All state cutover and runtime validation assertions confirmed working. Minor friction: terminal.rs contains stale doc comments mentioning opencode (not functional code). No blockers encountered."
+}

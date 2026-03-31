@@ -1,5 +1,21 @@
 {
   "nodes": {
+    "cogent-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1774586493,
+        "narHash": "sha256-XV0q47kYApWp96Z2DYTwaNhvDCjfH9irhYR85Oyi0c4=",
+        "owner": "yusefmosiah",
+        "repo": "cogent",
+        "rev": "cf66a533d32dbba34052eb84b8e5ce0aa4912f6f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "yusefmosiah",
+        "repo": "cogent",
+        "type": "github"
+      }
+    },
     "crane": {
       "locked": {
         "lastModified": 1772560058,
@@ -73,6 +89,7 @@
     },
     "root": {
       "inputs": {
+        "cogent-src": "cogent-src",
         "crane": "crane",
         "flake-utils": "flake-utils",
         "microvm": "microvm",

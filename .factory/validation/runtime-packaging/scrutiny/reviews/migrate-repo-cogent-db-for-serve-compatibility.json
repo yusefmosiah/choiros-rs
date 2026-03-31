@@ -1,0 +1,21 @@
+{
+  "featureId": "migrate-repo-cogent-db-for-serve-compatibility",
+  "reviewedAt": "2026-03-27T23:28:00.000Z",
+  "commitId": "62fa8bc99ef8826391bb9148b095c5836d1a4dbd",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The feature successfully upgraded the tracked `.cogent/cogent.db` schema to add four missing runtime-compatibility columns (work_items.position, work_items.attestation_frozen_at, attestation_records.signer_pubkey, attestation_records.signature) and backfilled position values for all 164 existing work items. The implementation preserved all existing work items and attestation records, verified that cogent serve can now start successfully against the repo-local state, and confirmed that cogent work list/ready commands operate correctly. The approach was conservative and correct: in-place SQLite migration using ALTER TABLE statements, careful position backfilling using the runtime's queue-ordering logic (priority desc, position asc, updated_at desc), and comprehensive verification including full workspace validators. All expected behaviors were met and all verification steps passed.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "The worker spent considerable effort reverse-engineering the required database schema by exploring the cogent runtime source code at /Users/wiz/cogent/internal/store/store.go. The worker needed to identify which columns were missing, understand the migration logic, and determine the position backfill algorithm. While the mission's AGENTS.md mentions preserving the tracked work queue and allowing schema migrations, it doesn't provide guidance on determining the target schema or where to find schema requirements.",
+      "evidence": "Transcript skeleton shows multiple Grep calls searching for 'position', 'attestation_records', 'attestation_frozen_at', and 'signer_pubkey' patterns in /Users/wiz/cogent, plus Read operations on store.go at various offsets to understand the schema and migration approach. The worker executed: Grep for 'ALTER TABLE.*position|position INTEGER', Grep for 'attestation_records|work_items' in **/*.{go,sql}, and Read operations on store.go lines 3988-4158, 2768-2808, 2740-2800, 2800-2850, and 3860-3900 to understand ignorableSQLiteMigrationErr logic."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS - Feature fully implemented and verified. The database schema migration successfully added the four required compatibility columns, backfilled queue positions for all work items, preserved all existing work graph data, and enabled the cogent serve runtime to operate against the repo-local .cogent state. All verification steps passed including workspace validators. One knowledge gap observed: schema target determination required extensive source code exploration of the cogent runtime, which is not documented in mission materials."
+}

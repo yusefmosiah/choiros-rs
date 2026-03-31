@@ -2,7 +2,7 @@
 # Pre-commit hook for ChoirOS.
 # Checks:
 #   1. cargo fmt (fast, always)
-#   2. doc-work alignment via cagent (auto-creates work items for new docs)
+#   2. doc-work alignment via cogent (auto-creates work items for new docs)
 #   3. atlas regeneration (human-readable index for GitHub)
 set -euo pipefail
 
@@ -17,7 +17,7 @@ fi
 
 # --- Doc-Work Alignment ---
 if git diff --cached --name-only | grep -qE '^docs/.*\.md$'; then
-  if command -v cagent &>/dev/null; then
+  if command -v cogent &>/dev/null; then
     echo "pre-commit: checking doc-work alignment..."
     while IFS= read -r docpath; do
       # Skip auto-generated and archived docs
@@ -25,7 +25,7 @@ if git diff --cached --name-only | grep -qE '^docs/.*\.md$'; then
       [[ "$docpath" == docs/archive/* ]] && continue
 
       # Check if this doc path is already linked to a work item
-      has_work=$(cagent work list --json 2>/dev/null | python3 -c "
+      has_work=$(cogent work list --json 2>/dev/null | python3 -c "
 import json, sys
 try:
     items = json.load(sys.stdin)
@@ -37,12 +37,12 @@ except: pass
 
       if [ -z "$has_work" ]; then
         echo "  → auto-creating work item for $docpath"
-        cagent work doc-set --file "$docpath" --path "$docpath" 2>/dev/null && \
+        cogent work doc-set --file "$docpath" --path "$docpath" 2>/dev/null && \
           echo "  ✓ created" || echo "  ✗ failed (non-blocking)"
       fi
     done < <(git diff --cached --name-only | grep -E '^docs/.*\.md$')
   else
-    echo "pre-commit: cagent not found, skipping doc-work alignment"
+    echo "pre-commit: cogent not found, skipping doc-work alignment"
   fi
 fi
 

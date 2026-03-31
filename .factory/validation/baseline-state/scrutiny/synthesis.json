@@ -1,0 +1,64 @@
+{
+  "milestone": "baseline-state",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "cargo test --workspace",
+      "exitCode": 0,
+      "note": "All workspace tests pass. One pre-existing test (test_write_file_append) was failing due to missing flush/sync in file append operation - fixed during validation with commit 5e08dea."
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "cargo check --workspace --locked",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "cargo clippy --workspace -- -D warnings",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 5,
+    "passed": 5,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "skills/rename-worker",
+      "suggestion": "Add procedure guidance for baseline-unblock features: clarify that narrowly-scoped baseline features may have different verification requirements than regular implementation features. Specifically, when a feature description explicitly scopes validation (e.g., 'clippy-only feature' or 'this test-only feature'), workers should follow the feature's explicit guidance rather than defaulting to full workspace validation. Update steps 1.3 and 3.1 to distinguish between regular features and baseline-unblock features.",
+      "evidence": "Feature clear-hypervisor-clippy-baseline explicitly stated 'the separate failing workspace test ... should not block this clippy-only feature from being completed and committed.' The worker correctly followed this guidance but had to document it as a deviation because the skill doesn't have exception language for baseline features. Worker suggested: 'For narrowly scoped baseline-unblock features like this one, clarify that known unrelated pending baseline failures and pre-existing dirty state owned by other features do not require worker handoff failure.'",
+      "isSystemic": true
+    },
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Add explicit policy for working tree cleanliness on narrowly-scoped baseline features: When working on baseline-unblock features that are explicitly scoped to a subset of validation (e.g., 'clippy-only' or 'this specific test only'), workers may leave unrelated pre-existing dirty files in the working tree if those files are owned by other pending baseline features. The policy should clarify that this is acceptable and does not require broadening the feature scope or failing the handoff.",
+      "evidence": "Feature clear-hypervisor-clippy-baseline left .cagent/supervisor.json modified in the working tree after committing only hypervisor/src/jobs.rs. This was defensible given AGENTS.md guidance 'Do not broaden the work into archive/history cleanup unless a live cutover surface is blocked' and the skill's 'Commit only the feature's implementation changes.' However, the worker noted this as a deviation from step 3.2 (Environment Cleanup) because the policy isn't explicit enough.",
+      "isSystemic": false
+    },
+    {
+      "target": "skills/rename-worker",
+      "suggestion": "Create the missing rename-worker skill file or update features.json to reference the correct skill. Multiple features in this milestone reference 'rename-worker' as their skillName, but /Users/wiz/.factory/skills/rename-worker/SKILL.md does not exist. Workers are claiming 'followedProcedure: true' but there's no skill file to verify against.",
+      "evidence": "Feature gate-live-llm-tests-for-default-workspace-validation shows skillName 'rename-worker' in features.json. Review found 'ls -la /Users/wiz/.factory/skills shows only agent-browser and find-skills symlinks. Handoff shows skillFeedback.followedProcedure: true, but no rename-worker skill exists to compare against.'",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Worker had to revert an unintended change to dioxus-desktop/src/types/generated.ts that was caused by running tests.",
+      "reason": "already-documented - This is explicitly documented in AGENTS.md: 'cargo test --workspace may rewrite dioxus-desktop/src/types/generated.ts even when there is no intended semantic change. Restore the file if unchanged and continue.' The worker handled it correctly per existing guidance."
+    }
+  ],
+  "previousRound": null,
+  "scrutinyValidatorFix": {
+    "description": "During validation, discovered test_write_file_append was failing due to missing flush/sync in the file append endpoint. Fixed by adding explicit flush() and sync_all() calls to sandbox/src/api/files.rs before reading file metadata.",
+    "commitId": "5e08dea",
+    "file": "sandbox/src/api/files.rs",
+    "verification": "All 43 files_api_test tests now pass including test_write_file_append. Full workspace test suite passes."
+  }
+}

@@ -128,6 +128,9 @@ pub async fn get_job(pool: &SqlitePool, job_id: &str) -> Result<Option<Job>> {
     }))
 }
 
+// Worker-side queue helpers are staged for the ADR-0014 build-pool flow but
+// are not yet wired into the current hypervisor API surface.
+#[allow(dead_code)]
 pub async fn list_jobs_for_user(pool: &SqlitePool, user_id: &str) -> Result<Vec<Job>> {
     let rows = sqlx::query(
         r#"
@@ -206,6 +209,7 @@ pub async fn update_job_status(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn assign_job_to_worker(
     pool: &SqlitePool,
     job_id: &str,
@@ -229,6 +233,7 @@ pub async fn assign_job_to_worker(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn next_queued_job(pool: &SqlitePool) -> Result<Option<Job>> {
     let row = sqlx::query(
         r#"

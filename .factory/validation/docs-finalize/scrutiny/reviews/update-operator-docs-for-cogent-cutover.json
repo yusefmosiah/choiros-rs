@@ -1,0 +1,22 @@
+{
+  "featureId": "update-operator-docs-for-cogent-cutover",
+  "reviewedAt": "2026-03-28T04:27:15Z",
+  "commitId": "80d77d2e8e23e39363e86cef8615b0ba86c6ed67",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The implementation comprehensively updates all active operator-facing documentation to reflect the cogent cutover. All root entrypoints (README.md, CLAUDE.md, AGENTS.md) now advertise cogent commands and .cogent paths. Active ADR implementation guides use cogent terminology throughout. The local-provider-matrix-validation runbook correctly removes deprecated --codex-openai-bridge examples and aligns with the actual script surface. All verification steps passed, including stale-reference greps and full workspace validation.",
+    "issues": [
+      {
+        "file": "docs/adr-0026-implementation.md",
+        "line": 69,
+        "severity": "non_blocking",
+        "description": "Changed a specific file reference from `docs/state-report-2026-03-15-cagent-docs-landscape-audit.md` to the more generic `2026-03-15 docs landscape audit state report`. While the file still exists and the reference is understandable, the less specific reference could make it slightly harder to locate the exact file. This is a minor stylistic choice and does not affect functionality."
+      }
+    ]
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Feature PASSED. The worker successfully updated all active operator-facing documentation to use cogent terminology, removed all stale cagent/adapter-era references from the scoped files, and verified that live docs and scripts agree on the supported command surface. All expected behaviors were achieved:\n\n✅ Root docs (README.md, CLAUDE.md, AGENTS.md) advertise cogent and .cogent exclusively\n✅ Active ADR-0026 dispatch/implementation docs use cogent work-graph vocabulary\n✅ local-provider-matrix-validation.md no longer advertises removed adapters or deprecated flags\n✅ All verification steps passed (stale-reference greps, workspace cargo/nix validation)\n✅ Live docs now match the retained script/command surfaces\n\nThe implementation is complete, correct, and thoroughly verified. One non-blocking stylistic observation was noted regarding a file reference change. The worker followed the rename-worker skill procedure correctly with no deviations."
+}

@@ -2,7 +2,7 @@
 # Used on OVH bare metal hosts. Per-instance values (role, port, IP, MAC)
 # and transport choices are passed via specialArgs from flake.nix.
 { config, lib, pkgs, sandboxRole, sandboxPort, vmIp, vmMac, vmTap,
-  sandboxPackage, cagentPackage ? null, sandboxHypervisor ? "cloud-hypervisor",
+  sandboxPackage, cogentPackage ? null, sandboxHypervisor ? "cloud-hypervisor",
   sandboxStoreDiskInterface ? "blk", guestProfile ? "minimal", ... }:
 {
   networking.hostName = "sandbox-${sandboxRole}";
@@ -165,7 +165,7 @@
         # Create workspace dir
         mkdir -p /opt/choiros/data/sandbox/workspace
         chown choiros:choiros /opt/choiros/data/sandbox/workspace
-        # Create bashrc with cagent-friendly prompt
+        # Create bashrc with cogent-friendly prompt
         cat > /var/lib/choiros/.bashrc << 'BASHRC'
 export PS1='\[\033[0;32m\]\u@\h\[\033[0m\]:\[\033[0;34m\]\w\[\033[0m\]\$ '
 export CHOIR_SANDBOX_ROOT=/opt/choiros/data/sandbox
@@ -241,7 +241,7 @@ BASHRC
   networking.firewall.allowedTCPPorts = [ sandboxPort ];
 
   environment.systemPackages = with pkgs;
-    # Minimal profile: sandbox service + cagent for work graph
+    # Minimal profile: sandbox service + cogent for work graph
     (if guestProfile == "minimal" then
       [
         coreutils
@@ -250,7 +250,7 @@ BASHRC
         htop
         btop
         git
-      ] ++ (if cagentPackage != null then [ cagentPackage ] else [])
+      ] ++ (if cogentPackage != null then [ cogentPackage ] else [])
     # Worker profile: full dev toolchain for build/test/E2E workflows
     else if guestProfile == "worker" then [
       # Core utilities
@@ -310,14 +310,10 @@ BASHRC
 
       # Go toolchain (ADR-0024: hypervisor rewrite, general dev)
       go
-
-      # Coding agent adapters (worker VMs only)
-      codex  # OpenAI Codex CLI — auth via `codex login --device-auth`
-
       # Useful for debugging
       strace
       gdb
-    ] ++ (if cagentPackage != null then [ cagentPackage ] else [])
+    ] ++ (if cogentPackage != null then [ cogentPackage ] else [])
     else throw "Unknown guestProfile: ${guestProfile}");
 
   system.stateVersion = "25.11";

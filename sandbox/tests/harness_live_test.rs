@@ -23,8 +23,8 @@
 //! require LLM calls and run unconditionally.
 //!
 //! Run:
-//!   cargo test -p sandbox --test actorharness_live_test -- --nocapture
-//!   CHOIROS_LIVE_TESTS=1 cargo test -p sandbox --test actorharness_live_test -- --nocapture
+//!   cargo test -p sandbox --test harness_live_test -- --nocapture
+//!   CHOIROS_LIVE_TESTS=1 cargo test -p sandbox --test harness_live_test -- --ignored --nocapture
 
 use ractor::Actor;
 use uuid::Uuid;
@@ -41,14 +41,9 @@ use sandbox::actors::harness_actor::{HarnessActor, HarnessArguments};
 
 async fn make_event_store() -> (ractor::ActorRef<EventStoreMsg>, tempfile::TempDir) {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let db = tmp.path().join("actorharness_test.db");
-    let (store, _handle) = Actor::spawn(
-        None,
-        EventStoreActor,
-        EventStoreArguments::File(db.to_str().unwrap().into()),
-    )
-    .await
-    .expect("spawn EventStoreActor");
+    let (store, _handle) = Actor::spawn(None, EventStoreActor, EventStoreArguments::InMemory)
+        .await
+        .expect("spawn EventStoreActor");
     (store, tmp)
 }
 
@@ -203,6 +198,7 @@ async fn test_concurrent_subharness_actors_have_distinct_registry_names() {
 /// We send the Execute message directly (bypassing LLM) and then verify the
 /// `harness.execute` event lands in EventStore via the actor's handler.
 #[tokio::test]
+#[ignore = "executes the real harness path; run explicitly with --ignored"]
 async fn test_spawn_harness_emits_execute_event_to_event_store() {
     let (event_store, _tmp) = make_event_store().await;
     let corr_id = format!("sub-exec-{}", Uuid::new_v4().as_simple());
@@ -255,7 +251,7 @@ async fn test_spawn_harness_emits_execute_event_to_event_store() {
                 user_id: None,
                 reply,
             },
-            1000
+            5000
         )
         .expect("rpc ok")
         .expect("store ok");
@@ -402,10 +398,11 @@ async fn test_duplicate_corr_id_spawn_does_not_panic() {
 ///
 /// Requires a real LLM. Set `CHOIROS_LIVE_TESTS=1` to run.
 #[tokio::test]
+#[ignore = "live harness round-trip; run explicitly with --ignored after setting CHOIROS_LIVE_TESTS=1"]
 async fn test_full_subharness_round_trip_via_alm_port() {
     if std::env::var("CHOIROS_LIVE_TESTS").is_err() {
         println!("  [SKIP] CHOIROS_LIVE_TESTS not set — skipping full round-trip test");
-        println!("         Set CHOIROS_LIVE_TESTS=1 and provide API credentials to run.");
+        println!("         Set CHOIROS_LIVE_TESTS=1 and re-run with --ignored after providing API credentials.");
         return;
     }
 

@@ -15,7 +15,7 @@
 //! in conductor routing, event emission, or run lifecycle will cause a test failure.
 //!
 //! Run:
-//!   cargo test -p sandbox --test e2e_conductor_scenarios -- --nocapture
+//!   cargo test -p sandbox --test e2e_conductor_scenarios -- --ignored --nocapture
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -178,6 +178,7 @@ fn event_types(events: &[Value]) -> Vec<String> {
 /// Asserts: run accepted, run.started emitted, terminal state reached, at least one
 /// worker call was made.
 #[tokio::test]
+#[ignore = "live end-to-end conductor scenarios; run explicitly with --ignored"]
 async fn test_conductor_to_terminal_delegation() {
     let _guard = live_e2e_guard().await;
     let (app, _tmp) = setup_test_app().await;
@@ -232,6 +233,7 @@ async fn test_conductor_to_terminal_delegation() {
 /// Asserts: 202 + run_id, terminal state reached, at least one worker call,
 /// the researcher capability is used at least once.
 #[tokio::test]
+#[ignore = "live end-to-end conductor scenarios; run explicitly with --ignored"]
 async fn test_conductor_to_researcher_delegation() {
     let _guard = live_e2e_guard().await;
     let (app, _tmp) = setup_test_app().await;
@@ -286,6 +288,7 @@ async fn test_conductor_to_researcher_delegation() {
 /// The objective is designed to require at minimum one research step
 /// and one write/file step, forcing multi-agent dispatch.
 #[tokio::test]
+#[ignore = "live end-to-end conductor scenarios; run explicitly with --ignored"]
 async fn test_conductor_multi_agent_dispatch() {
     let _guard = live_e2e_guard().await;
     let (app, _tmp) = setup_test_app().await;
@@ -331,6 +334,7 @@ async fn test_conductor_multi_agent_dispatch() {
 ///
 /// This is the critical scope-isolation regression test called out in AGENTS.md.
 #[tokio::test]
+#[ignore = "live end-to-end conductor scenarios; run explicitly with --ignored"]
 async fn test_concurrent_run_isolation() {
     let _guard = live_e2e_guard().await;
     let (app, _tmp) = setup_test_app().await;
@@ -397,6 +401,7 @@ async fn test_concurrent_run_isolation() {
 /// This is the observability contract. If these events stop being emitted,
 /// the streaming/websocket UI goes dark and users see no progress.
 #[tokio::test]
+#[ignore = "live end-to-end conductor scenarios; run explicitly with --ignored"]
 async fn test_conductor_emits_lifecycle_events() {
     let _guard = live_e2e_guard().await;
     let (app, _tmp) = setup_test_app().await;

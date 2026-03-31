@@ -12,8 +12,8 @@
 //! Full output is written to `tests/artifacts/dag_eval_report.txt`.
 //!
 //! Run:
-//!   cargo test -p sandbox --test dag_eval -- --nocapture
-//!   CHOIR_LIVE_MODEL_IDS=KimiK25,ZaiGLM47 cargo test -p sandbox --test dag_eval -- --nocapture
+//!   cargo test -p sandbox --test dag_eval -- --ignored --nocapture
+//!   CHOIR_LIVE_MODEL_IDS=KimiK25,ZaiGLM47 cargo test -p sandbox --test dag_eval -- --ignored --nocapture
 
 use sandbox::actors::agent_harness::alm::{
     AlmConfig, AlmHarness, AlmPort, AlmRunResult, AlmToolExecution, LlmCallResult,
@@ -542,6 +542,20 @@ fn eval_models() -> Vec<String> {
     defaults.iter().map(|s| s.to_string()).collect()
 }
 
+fn skip_live_eval_if_unavailable(requested: &[String], available: &[String]) -> bool {
+    if !available.is_empty() {
+        return false;
+    }
+
+    println!("  [SKIP] No eligible live models are configured for dag_eval.");
+    println!("         This suite is ignored by default.");
+    println!(
+        "         Run `cargo test -p sandbox --test dag_eval -- --ignored --nocapture` after exporting provider credentials."
+    );
+    println!("requested models: {}", requested.join(", "));
+    true
+}
+
 /// Write the full report for a single scenario run
 fn report_scenario(
     report: &mut Report,
@@ -800,16 +814,16 @@ fn scenarios() -> Vec<Scenario> {
 // ─── Main eval ───────────────────────────────────────────────────────────────
 
 #[tokio::test]
-#[ignore] // Live LLM benchmark — 36 API calls, costs real money. Run explicitly:
-          // cargo test -p sandbox --test dag_eval -- --ignored --nocapture
+#[ignore = "live LLM benchmark; run explicitly with --ignored after exporting provider credentials"]
 async fn dag_runtime_eval() {
     let _ = dotenvy::dotenv();
     ensure_tls_cert_env();
     let registry = ModelRegistry::new();
     let requested = eval_models();
     let available: Vec<String> = requested
-        .into_iter()
+        .iter()
         .filter(|m| model_available(&registry, m))
+        .cloned()
         .collect();
 
     let mut report = Report::new();
@@ -821,17 +835,19 @@ async fn dag_runtime_eval() {
     report.line(&format!("Models available: {}", available.join(", ")));
     report.line(&format!(
         "Models requested but unavailable: {}",
-        eval_models()
-            .into_iter()
+        requested
+            .iter()
             .filter(|m| !available.contains(m))
+            .cloned()
             .collect::<Vec<_>>()
             .join(", ")
     ));
 
-    if available.is_empty() {
-        report.line("\nERROR: No models available. Set API keys and retry.");
+    if skip_live_eval_if_unavailable(&requested, &available) {
+        report.line("\nSKIP: No eligible live models are configured.");
+        report.line("This suite is ignored by default and only runs on explicit opt-in.");
         report.finish();
-        panic!("No models available");
+        return;
     }
 
     let all_scenarios = scenarios();

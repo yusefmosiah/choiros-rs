@@ -13,13 +13,13 @@
       url = "github:yusefmosiah/microvm.nix/main";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    cagent-src = {
-      url = "github:yusefmosiah/cagent";
+    cogent-src = {
+      url = "github:yusefmosiah/cogent";
       flake = false;
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, crane, rust-overlay, microvm, cagent-src, ... }:
+  outputs = { self, nixpkgs, flake-utils, crane, rust-overlay, microvm, cogent-src, ... }:
     let
       # Packages are x86_64-linux only (deployment target)
       system = "x86_64-linux";
@@ -147,7 +147,7 @@ EOF
               guestProfile
               ;
             sandboxPackage = self.packages.${system}.sandbox;
-            cagentPackage = self.packages.${system}.cagent;
+            cogentPackage = self.packages.${system}.cogent;
           };
           modules = [
             microvm.nixosModules.microvm
@@ -357,12 +357,12 @@ EOF
           '';
         };
 
-        cagent = pkgs.buildGoModule {
-          pname = "cagent";
+        cogent = pkgs.buildGoModule {
+          pname = "cogent";
           version = "0.1.0";
-          src = cagent-src;
-          vendorHash = "sha256-Okp/YvYTjla1EexXiwYtJP8B5N1myprjg9Sw5rrY9PQ=";
-          subPackages = [ "cmd/cagent" ];
+          src = cogent-src;
+          vendorHash = "sha256-QFnJQWx8+M9JSEJLaV1WydXneqx3lveZ6JO9RqUCerM=";
+          subPackages = [ "cmd/cogent" ];
           doCheck = false; # e2e tests need running adapters
           meta.description = "Local work-control plane for governed agent work";
         };

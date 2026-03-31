@@ -2,6 +2,9 @@
 //!
 //! These tests intentionally exercise the real conductor policy + worker loop
 //! with external model providers.
+//!
+//! Run:
+//!   cargo test -p sandbox --test run_lifecycle_e2e_test -- --ignored --nocapture
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -174,6 +177,7 @@ async fn wait_for_event_type(app: &axum::Router, run_id: &str, needle: &str) -> 
 }
 
 #[tokio::test]
+#[ignore = "live conductor lifecycle e2e; run explicitly with --ignored"]
 async fn test_live_basic_run_flow_emits_required_milestones() {
     let _guard = live_e2e_guard().await;
     let (app, _temp_dir) = setup_test_app().await;
@@ -223,6 +227,7 @@ async fn test_live_basic_run_flow_emits_required_milestones() {
 }
 
 #[tokio::test]
+#[ignore = "live conductor lifecycle e2e; run explicitly with --ignored"]
 async fn test_live_run_id_is_stable_across_events() {
     let _guard = live_e2e_guard().await;
     let (app, _temp_dir) = setup_test_app().await;
@@ -261,6 +266,7 @@ async fn test_live_run_id_is_stable_across_events() {
 }
 
 #[tokio::test]
+#[ignore = "live conductor lifecycle e2e; run explicitly with --ignored"]
 async fn test_live_stream_produces_events_before_terminal_state() {
     let _guard = live_e2e_guard().await;
     let (app, _temp_dir) = setup_test_app().await;
@@ -302,6 +308,7 @@ async fn test_live_stream_produces_events_before_terminal_state() {
 }
 
 #[tokio::test]
+#[ignore = "live conductor lifecycle e2e; run explicitly with --ignored"]
 async fn test_live_concurrent_runs_have_isolated_run_ids() {
     let _guard = live_e2e_guard().await;
     let (app, _temp_dir) = setup_test_app().await;
