@@ -177,8 +177,8 @@ BASHRC
   };
 
   # ADR-0014 Phase 6.5: Seed sandbox binary from nix store to data.img on
-  # first boot. This lets the build pool promote new binaries without a nix
-  # rebuild — users own their binary on data.img, nix store is the fallback.
+  # boot. Always updates to the current Nix store binary so new deploys
+  # take effect on the next VM restart.
   systemd.services.choir-seed-sandbox = {
     description = "Seed sandbox binary to data.img";
     wantedBy = [ "choir-sandbox.service" ];
@@ -189,11 +189,13 @@ BASHRC
       RemainAfterExit = true;
       ExecStart = pkgs.writeShellScript "seed-sandbox" ''
         mkdir -p /opt/choiros/data/sandbox/bin
-        if [ ! -x /opt/choiros/data/sandbox/bin/sandbox ]; then
-          cp ${sandboxPackage}/bin/sandbox /opt/choiros/data/sandbox/bin/sandbox
-          chmod 755 /opt/choiros/data/sandbox/bin/sandbox
-          chown choiros:choiros /opt/choiros/data/sandbox/bin/sandbox
-          echo "Seeded sandbox binary from nix store to data.img"
+        NIX_BIN=${sandboxPackage}/bin/sandbox
+        DATA_BIN=/opt/choiros/data/sandbox/bin/sandbox
+        if [ ! -x "$DATA_BIN" ] || ! cmp -s "$NIX_BIN" "$DATA_BIN"; then
+          cp "$NIX_BIN" "$DATA_BIN"
+          chmod 755 "$DATA_BIN"
+          chown choiros:choiros "$DATA_BIN"
+          echo "Updated sandbox binary from nix store to data.img"
         fi
       '';
     };
