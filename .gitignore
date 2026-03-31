@@ -136,3 +136,4 @@ skills/actorcode/package-lock.json
 .cogent/cogent-private.db-wal
 e2e_test_output.log
 sandbox/tests/artifacts/
+.gstack/
