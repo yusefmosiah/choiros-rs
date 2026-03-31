@@ -41,9 +41,12 @@ pub(crate) struct WriterDelegationAdapter {
     writer_actor: ActorRef<WriterMsg>,
     researcher_supervisor: Option<ActorRef<ResearcherSupervisorMsg>>,
     terminal_supervisor: Option<ActorRef<TerminalSupervisorMsg>>,
+    run_id: Option<String>,
+    parent_version_id: Option<u64>,
 }
 
 impl WriterDelegationAdapter {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         writer_id: String,
         user_id: String,
@@ -51,6 +54,8 @@ impl WriterDelegationAdapter {
         writer_actor: ActorRef<WriterMsg>,
         researcher_supervisor: Option<ActorRef<ResearcherSupervisorMsg>>,
         terminal_supervisor: Option<ActorRef<TerminalSupervisorMsg>>,
+        run_id: Option<String>,
+        parent_version_id: Option<u64>,
     ) -> Self {
         Self {
             writer_id,
@@ -59,6 +64,8 @@ impl WriterDelegationAdapter {
             writer_actor,
             researcher_supervisor,
             terminal_supervisor,
+            run_id,
+            parent_version_id,
         }
     }
 
@@ -91,6 +98,89 @@ impl WriterDelegationAdapter {
         let mode = call.tool_args.mode.trim().to_ascii_lowercase();
         let objective = call.tool_args.content.trim().to_string();
         let requested_steps = Self::parse_max_steps(call.tool_args.mode_arg.as_deref());
+
+        // Handle write_revision mode — compose document content directly.
+        if mode == "write_revision" || mode == "revision" {
+            let content = objective; // reuse the parsed content field
+            if content.is_empty() {
+                return Ok(ToolExecution {
+                    tool_name: "message_writer".to_string(),
+                    success: false,
+                    output: String::new(),
+                    error: Some(
+                        "write_revision requires non-empty content (the revised document)"
+                            .to_string(),
+                    ),
+                    execution_time_ms: start.elapsed().as_millis() as u64,
+                });
+            }
+
+            let (Some(run_id), Some(parent_version_id)) =
+                (self.run_id.as_ref(), self.parent_version_id)
+            else {
+                return Ok(ToolExecution {
+                    tool_name: "message_writer".to_string(),
+                    success: false,
+                    output: String::new(),
+                    error: Some(
+                        "write_revision unavailable: no run context (run_id/parent_version_id)"
+                            .to_string(),
+                    ),
+                    execution_time_ms: start.elapsed().as_millis() as u64,
+                });
+            };
+
+            self.emit_event(
+                "writer.delegation.write_revision",
+                serde_json::json!({
+                    "run_id": run_id,
+                    "call_id": ctx.call_id,
+                    "parent_version_id": parent_version_id,
+                    "content_len": content.len(),
+                }),
+            );
+
+            let result: Result<_, ractor::RactorErr<WriterMsg>> =
+                ractor::call!(self.writer_actor, |reply| {
+                    WriterMsg::CreateWriterDocumentVersion {
+                        run_id: run_id.clone(),
+                        parent_version_id: Some(parent_version_id),
+                        content,
+                        source: VersionSource::Writer,
+                        reply,
+                    }
+                });
+
+            return match result {
+                Ok(Ok(version)) => Ok(ToolExecution {
+                    tool_name: "message_writer".to_string(),
+                    success: true,
+                    output: serde_json::json!({
+                        "mode": "write_revision",
+                        "version_id": version.version_id,
+                        "status": "revision_applied",
+                        "next_step": "If this revision satisfies the objective and you have no pending delegations, call finished now.",
+                    })
+                    .to_string(),
+                    error: None,
+                    execution_time_ms: start.elapsed().as_millis() as u64,
+                }),
+                Ok(Err(e)) => Ok(ToolExecution {
+                    tool_name: "message_writer".to_string(),
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Failed to create revision: {e}")),
+                    execution_time_ms: start.elapsed().as_millis() as u64,
+                }),
+                Err(e) => Ok(ToolExecution {
+                    tool_name: "message_writer".to_string(),
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Writer actor call failed: {e}")),
+                    execution_time_ms: start.elapsed().as_millis() as u64,
+                }),
+            };
+        }
 
         let capability = match mode.as_str() {
             "delegate_researcher" | "researcher" => WriterDelegateCapability::Researcher,
@@ -210,16 +300,16 @@ impl WorkerPort for WriterDelegationAdapter {
 
     fn get_tool_description(&self) -> String {
         r#"Tool: message_writer
-Description: Dispatch a delegated worker task through WriterActor.
+Description: Dispatch a delegated worker task or write document content through WriterActor.
 Required args:
-- mode: "delegate_researcher" | "delegate_terminal"
-- content: delegated objective
+- mode: "write_revision" | "delegate_researcher" | "delegate_terminal"
+- content: revised document (for write_revision) or delegated objective (for delegation)
 Optional args:
 - mode_arg: max steps for delegated worker (1-100)
 Important:
-- Use one or multiple delegation calls when useful.
-- Combine delegate_terminal + delegate_researcher when the objective needs both local codebase evidence and external/web evidence.
-- If delegation is unnecessary, call `finished` and complete in message."#
+- For editorial tasks, compose the content using write_revision, then call finished.
+- Use delegation calls when the objective needs external research or local execution.
+- Combine delegate_terminal + delegate_researcher when both local and external evidence are needed."#
             .to_string()
     }
 
@@ -229,14 +319,13 @@ Important:
 
     fn get_system_context(&self, ctx: &ExecutionContext) -> String {
         format!(
-             "You are WriterActor delegation planner/executor.\n\
-             Decide whether this user prompt needs worker delegation before writer revision.\n\
+             "You are WriterActor — the single authority over document content.\n\
+             Decide whether this user prompt needs worker delegation or direct writing.\n\
              - Use delegate_researcher for fact-finding, links, verification, or web research.\n\
              - Use delegate_terminal for repository inspection, architecture analysis, docs/codebase research, shell commands, or local execution.\n\
              - When objective spans both local codebase understanding and external evidence, call both delegate_terminal and delegate_researcher.\n\
-             - If the prompt is editorial only, call `finished` with no delegation tool calls.\n\
+             - If the prompt is editorial only (no research or execution needed), compose the content using write_revision with mode=\"write_revision\", then call finished.\n\
              - Keep delegated objectives concise and actionable.\n\
-             - Do not rewrite the document here; only decide delegation.\n\
              \n\
              Run ID: {:?}\n\
              Delegation Call ID: {:?}\n\

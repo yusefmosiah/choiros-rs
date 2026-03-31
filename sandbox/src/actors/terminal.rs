@@ -310,100 +310,15 @@ impl TerminalAdapter {
                     Err(error) => Err(error),
                 }
             }
-            "canon_append" => {
-                if content.trim().is_empty() {
-                    Err("message_writer canon_append mode requires content".to_string())
-                } else {
-                    match Self::extract_message_metadata(mode_arg.as_deref()) {
-                        Ok((source_refs, sources, citations)) => {
-                            let message_id =
-                                format!("{run_id}:terminal:tool:canon:{}", ulid::Ulid::new());
-                            let envelope = WriterInboundEnvelope {
-                                message_id,
-                                correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
-                                kind: "terminal_tool_canon_append".to_string(),
-                                run_id: run_id.clone(),
-                                section_id: section_id.clone(),
-                                source: WriterSource::Terminal,
-                                content: content.clone(),
-                                source_refs,
-                                sources,
-                                citations,
-                                base_version_id: None,
-                                prompt_diff: None,
-                                overlay_id: None,
-                                session_id: None,
-                                thread_id: None,
-                                call_id: None,
-                                origin_actor: Some(self.terminal_id.clone()),
-                            };
-                            ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
-                                envelope,
-                                reply,
-                            })
-                            .map_err(|e| format!("WriterActor call failed: {e}"))
-                            .and_then(|inner| inner.map_err(|e| e.to_string()))
-                            .map(|ack| {
-                                serde_json::json!({
-                                    "mode": "canon_append",
-                                    "section_id": section_id,
-                                    "message_id": ack.message_id,
-                                    "revision": ack.revision,
-                                    "queue_len": ack.queue_len,
-                                    "duplicate": ack.duplicate,
-                                })
-                            })
-                        }
-                        Err(error) => Err(error),
-                    }
-                }
-            }
-            "proposal_append" => {
-                if content.trim().is_empty() {
-                    Err("message_writer proposal_append mode requires content".to_string())
-                } else {
-                    match Self::extract_message_metadata(mode_arg.as_deref()) {
-                        Ok((source_refs, sources, citations)) => {
-                            let message_id = format!("{run_id}:terminal:tool:{}", ulid::Ulid::new());
-                            let envelope = WriterInboundEnvelope {
-                                message_id,
-                                correlation_id: format!("{run_id}:{}", ulid::Ulid::new()),
-                                kind: "terminal_tool_update".to_string(),
-                                run_id: run_id.clone(),
-                                section_id: section_id.clone(),
-                                source: WriterSource::Terminal,
-                                content: content.clone(),
-                                source_refs,
-                                sources,
-                                citations,
-                                base_version_id: None,
-                                prompt_diff: None,
-                                overlay_id: None,
-                                session_id: None,
-                                thread_id: None,
-                                call_id: None,
-                                origin_actor: Some(self.terminal_id.clone()),
-                            };
-                            ractor::call!(writer_actor, |reply| WriterMsg::EnqueueInbound {
-                                envelope,
-                                reply,
-                            })
-                            .map_err(|e| format!("WriterActor call failed: {e}"))
-                            .and_then(|inner| inner.map_err(|e| e.to_string()))
-                            .map(|ack| {
-                                serde_json::json!({
-                                    "mode": "proposal_append",
-                                    "section_id": section_id,
-                                    "message_id": ack.message_id,
-                                    "revision": ack.revision,
-                                    "queue_len": ack.queue_len,
-                                    "duplicate": ack.duplicate,
-                                })
-                            })
-                        }
-                        Err(error) => Err(error),
-                    }
-                }
+            // canon_append and proposal_append removed — workers communicate
+            // via completion summaries, Writer is the sole document authority.
+            "canon_append" | "proposal_append" => {
+                Err(format!(
+                    "message_writer mode '{}' has been removed. \
+                     Workers should communicate findings via completion summaries, \
+                     not direct document writes.",
+                    mode
+                ))
             }
             "completion" => {
                 if content.trim().is_empty() {

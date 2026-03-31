@@ -351,7 +351,7 @@ pub(crate) fn dispatch_delegate_capability(
         .map(ToString::to_string)
         .unwrap_or_else(|| ulid::Ulid::new().to_string());
     let objective = format!(
-        "{objective}\n\nWriter output contract:\n- Return concise diff intent only.\n- Prefer short additions/removals.\n- If broad changes are needed, return rewrite instructions for Writer (not a full rewritten draft)."
+        "{objective}\n\nWriter output contract:\n- Return findings summary only.\n- Writer will incorporate your findings into the document.\n- Do not propose document mutations or full rewrites."
     );
 
     let worker_call_id = Some(match call_id.clone() {
@@ -720,7 +720,7 @@ impl Actor for WriterActor {
 
 impl WriterActor {
     const MAX_SEEN_IDS: usize = 4096;
-    const AUTO_ACCEPT_WORKER_DIFFS: bool = true;
+    const AUTO_ACCEPT_WORKER_DIFFS: bool = false;
     const RUN_DOCUMENTS_ROOT: &'static str = "conductor/runs";
     const RUN_DOCUMENT_FILE: &'static str = "draft.md";
     const RUN_DOCUMENT_STATE_FILE: &'static str = "draft.writer-state.json";
@@ -1658,13 +1658,13 @@ impl WriterActor {
             .map(ToString::to_string)
             .unwrap_or_else(|| format!("writer-orchestrate:{}", ulid::Ulid::new()));
         let delegation_objective = format!(
-            "Determine whether Writer should delegate workers before emitting document diffs.\n\
-             Delegate only when the objective needs external verification or local execution.\n\
+            "Determine whether Writer should delegate workers or write directly.\n\
              Use message_writer with:\n\
              - mode \"delegate_researcher\" for external research, verification, or citations\n\
              - mode \"delegate_terminal\" for local execution or repository/system inspection\n\
-             If both are needed, call both in the same run.\n\
-             If no delegation is needed, call `finished` and explain why.\n\
+             - mode \"write_revision\" to compose document content directly (for editorial tasks)\n\
+             If both delegation types are needed, call both in the same run.\n\
+             If no delegation is needed, compose the content using write_revision, then call finished.\n\
              \n\
              Objective:\n{objective_text}"
         );
@@ -1679,6 +1679,13 @@ impl WriterActor {
             }),
         );
 
+        // Resolve head version so the delegation adapter can write revisions.
+        let parent_version_id = run_id
+            .as_ref()
+            .and_then(|rid| Self::resolve_run_document(state, rid).ok())
+            .and_then(|doc| doc.head_version().ok())
+            .map(|v| v.version_id);
+
         let adapter = WriterDelegationAdapter::new(
             state.writer_id.clone(),
             state.user_id.clone(),
@@ -1686,6 +1693,8 @@ impl WriterActor {
             myself.clone(),
             state.researcher_supervisor.clone(),
             state.terminal_supervisor.clone(),
+            run_id.clone(),
+            parent_version_id,
         );
         let harness = AgentHarness::with_config(
             adapter,
