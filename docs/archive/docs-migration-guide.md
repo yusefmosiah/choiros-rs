@@ -75,7 +75,6 @@ To `active/notes/` (explorations, not yet decisions):
 - [ ] `architecture/mind-map-ui-research.md`
 - [ ] `architecture/roadmap-critical-analysis.md`
 - [ ] `architecture/roadmap-dependency-tree.md`
-- [ ] `architecture/pi_agent_rust_integration_analysis.md`
 
 To `canon/guides/` (reference for existing systems):
 - [ ] `architecture/actor-network-orientation.md`

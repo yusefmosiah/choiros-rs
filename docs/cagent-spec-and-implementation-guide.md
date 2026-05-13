@@ -53,7 +53,6 @@ The implementation language should be Go.
 5. Implement fake adapter fixtures and golden event translation tests.
 6. Implement Tier 2 adapters:
    - Gemini CLI
-   - pi_agent_rust
 7. Implement the OpenCode adapter as experimental.
 8. Publish a stable `--json` contract before adding daemon/server mode or
    any higher-level orchestration features.
@@ -697,7 +696,6 @@ Implement first:
 
 Implement after Tier 1:
 - Gemini CLI
-- pi_agent_rust
 
 ### Tier 3
 
@@ -857,36 +855,6 @@ Notes:
   native session metadata
 - do not flatten Pi branch semantics into fake linear resume
 
-### pi_agent_rust Adapter
-
-Status:
-- Tier 2
-
-Docs:
-- https://github.com/Dicklesworthstone/pi_agent_rust
-
-Observed surfaces from current README:
-- interactive mode
-- `--continue`
-- `-p`
-- session-oriented CLI flow
-
-Spec rule:
-- implement this as a separate adapter from Pi, even if session concepts are
-  similar
-
-Rationale:
-- flags, output behavior, session storage, and transport may diverge
-
-v0 implementation choice:
-- use `-p` for one-shot runs
-- use `--continue` only after session discovery behavior is verified in tests
-
-Important note:
-- the current README clearly advertises session continuation but does not, by
-  itself, define a full stable machine-facing protocol
-- mark unsupported capabilities conservatively until fixtures confirm them
-
 ### Gemini CLI Adapter
 
 Status:
@@ -950,8 +918,7 @@ Rationale:
 3. Factory Droid
 4. Pi
 5. Gemini CLI
-6. pi_agent_rust
-7. OpenCode
+6. OpenCode
 
 ## Runtime Behavior
 
@@ -1148,7 +1115,6 @@ Each adapter must ship with:
 - handoff export
 - handoff run
 - Gemini adapter
-- pi_agent_rust adapter
 
 ### Milestone 5
 
@@ -1197,10 +1163,6 @@ Mitigation:
 
 - https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent
 - https://shittycodingagent.ai
-
-### pi_agent_rust
-
-- https://github.com/Dicklesworthstone/pi_agent_rust
 
 ### Gemini CLI
 

@@ -63,7 +63,6 @@ docs/
     model-provider-agnostic-runbook.md
     NARRATIVE_INDEX.md
     pdf-app-implementation-guide.md
-    pi_agent_rust_integration_analysis.md
     ractor-supervision-best-practices.md
     researcher-search-dual-interface-runbook.md
     roadmap-critical-analysis.md
@@ -158,7 +157,6 @@ docs/
       roadmap-critical-analysis.md                           # analysis/thinking
       roadmap-dependency-tree.md                             # dependency thinking
       mind-map-ui-research.md                                # UI research
-      pi_agent_rust_integration_analysis.md                  # integration analysis
       backend-authoritative-ui-state-pattern.md              # pattern exploration
   state/
     snapshots/

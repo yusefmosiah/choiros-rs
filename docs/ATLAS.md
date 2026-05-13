@@ -306,14 +306,8 @@ _Empty._
   `docs/vfkit-local-proof.md`
 - The Virtio Ecosystem: From Hardware Emulation to MicroVM Density — ? (?)  
   `docs/virtio-ecosystem.md`
-- ChoirOS Architecture — Comprehensive Analysis — ? (?)  
-  `docs/work-choiros-architecture.md`
-- Cogent Architecture — Comprehensive Analysis — ? (?)  
-  `docs/work-cogent-architecture.md`
 - Dolt Integration Research for E-Text Versioned Storage — ? (?)  
   `docs/work-dolt-integration-research.md`
-- Go Agent Runtime Research Report — ? (?)  
-  `docs/work-go-runtime-research.md`
 - Unified Multiagent System — Spec Sketch — ? (?)  
   `docs/work-unified-system-spec.md`
 - Writer UX — Ship Path — ? (?)  
@@ -366,4 +360,4 @@ adr-0008, adr-0020, adr-0003 → Secrets Architecture Audit & Scaling Plan
 ADR-0001 → Writer Contract and Implementation Guide
 ```
 
-*Generated 2026-04-08 — 94 docs scanned.*
+*Generated 2026-05-13 — 91 docs scanned.*
